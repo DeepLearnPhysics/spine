@@ -20,7 +20,7 @@ class ParticleImageStage(ChainStage):
     constructors are independent of task implementation.
     """
 
-    requires = frozenset({"data", "particle_clusts"})
+    requires = frozenset({"point_data", "particle_clusts"})
 
     def __init__(
         self,
@@ -60,7 +60,7 @@ class ParticleImageStage(ChainStage):
         StageResult
             Canonical particle predictions and GrapPA-compatible outputs.
         """
-        data: TensorBatch = state.require("data", self.name)
+        data: TensorBatch = state.require("point_data", self.name).data
         particles: IndexBatch = state.require("particle_clusts", self.name)
         native = self.model(data, objects=particles)
 

@@ -16,17 +16,18 @@ from ..state import ChainState, StageResult
 
 
 class CalibrationStage(ChainStage):
-    """Replace raw voxel charge with calibrated or truth energy values.
+    """Attach calibrated or truth energy beside the input-charge tensor.
 
-    Calibration copies the canonical tensor before changing values or
-    coordinates, then explicitly replaces the ``data`` product. This prevents
-    an optional calibration stage from mutating driver-owned input in place.
+    Calibration copies the charge representation before changing values or
+    coordinates, then makes the calibrated representation active without
+    discarding charge. This prevents an optional calibration stage from
+    mutating driver-owned input in place.
     """
 
-    requires = frozenset({"data"})
-    optional = frozenset({"sources", "energy_label", "meta", "run_info"})
-    provides = frozenset({"data"})
-    replaces = frozenset({"data"})
+    requires = frozenset({"point_data"})
+    optional = frozenset({"energy_label", "meta", "run_info"})
+    provides = frozenset({"point_data"})
+    replaces = frozenset({"point_data"})
 
     def __init__(
         self,
@@ -85,9 +86,10 @@ class CalibrationStage(ChainStage):
         Returns
         -------
         StageResult
-            Replacement ``data`` product and public ``data_adapt`` alias.
+            Replacement aligned voxel bundle containing calibrated data.
         """
-        data: TensorBatch = self._copy(state.require("data", self.name))
+        point_data = state.require("point_data", self.name)
+        data: TensorBatch = self._copy(point_data.data_q)
         value_column = int(data.feature_columns()[0])
 
         # Truth mode performs a direct row-aligned feature replacement.
@@ -95,6 +97,7 @@ class CalibrationStage(ChainStage):
             energy_label: TensorBatch | None = state.get("energy_label")
             if energy_label is None:
                 raise ValueError("Label calibration requires `energy_label`.")
+            energy_label = point_data.align(energy_label)
             data.torch_tensor()[:, value_column] = energy_label.values.torch_tensor()
         else:
             # Applied calibration requires event metadata and may additionally
@@ -104,7 +107,7 @@ class CalibrationStage(ChainStage):
             meta = state.get("meta")
             if meta is None or len(meta) == 0:
                 raise ValueError("Applied calibration requires `meta`.")
-            sources = state.get("sources")
+            sources = point_data.sources
             source_tensor = None if sources is None else sources.to_numpy().tensor
             run_info = state.get("run_info")
             repeat = data.batch_size // len(meta)
@@ -143,8 +146,7 @@ class CalibrationStage(ChainStage):
                     device=data.device,
                 )
 
-        result = {"data": data}
-        return StageResult(result, {"data_adapt": data})
+        return StageResult({"point_data": point_data.with_calibration(data)})
 
 
 def build_calibration_stage(

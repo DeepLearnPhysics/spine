@@ -411,6 +411,38 @@ def test_external_provider_can_supply_multiple_capabilities() -> None:
     assert set(result) == {"seg_pred", "fragment_clusts", "fragment_shapes"}
 
 
+def test_full_chain_publishes_final_data_adaptation_once() -> None:
+    """Deghosted charge and calibrated energy remain separate and aligned."""
+    chain = FullChain(
+        chain={
+            "stages": [
+                {
+                    "name": "deghost",
+                    "provider": "deghost",
+                    "mode": "label",
+                },
+                {
+                    "name": "calibration",
+                    "provider": "calibration",
+                    "mode": "label",
+                },
+            ]
+        }
+    )
+    seg_label = TensorBatch(torch.tensor([0, GHOST_SHP, 1, GHOST_SHP]), [4])
+    energy_label = TensorBatch(torch.tensor([10.0, 20.0, 30.0, 40.0]), [4])
+
+    result = chain(
+        data=make_data(),
+        seg_label=seg_label,
+        energy_label=energy_label,
+    )
+
+    assert result["data_adapt"].values.torch_tensor().tolist() == [1.0, 1.0]
+    assert result["data_calib"].values.torch_tensor().tolist() == [10.0, 30.0]
+    assert result["orig_index"].index.tolist() == [0, 2]
+
+
 def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
     """Internal sparse PPN products retain their independently pruned rows."""
 

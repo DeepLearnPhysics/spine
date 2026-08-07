@@ -2,6 +2,7 @@
 
 from .config import StageConfig, build_chain_plan
 from .model import MODEL_SPEC, FullChain, FullChainLoss, process_chain_config
+from .point import PointBatch
 from .registry import ProviderSpec, provider_spec, register_provider
 from .stage import ChainLossStage, ChainStage
 from .state import ChainState, StageResult
@@ -13,6 +14,7 @@ __all__ = [
     "ChainLossStage",
     "ChainState",
     "StageResult",
+    "PointBatch",
     "StageConfig",
     "ProviderSpec",
     "build_chain_plan",

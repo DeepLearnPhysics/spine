@@ -63,8 +63,50 @@ def test_build_sources_accepts_custom_source_names(points, depositions):
 
     np.testing.assert_array_equal(update["points"], points)
     np.testing.assert_array_equal(update["depositions"], depositions)
+    np.testing.assert_array_equal(update["depositions_q"], depositions)
     np.testing.assert_array_equal(update["points_label"], points)
     np.testing.assert_array_equal(update["depositions_label"], depositions)
+
+
+def test_build_sources_preserves_charge_beside_calibrated_values(points, depositions):
+    """Reco sources should prefer calibrated values and retain adapted charge."""
+    manager = BuildManager(False, False, False, mode="reco", units="px")
+    adapted = TensorData(
+        coords=points,
+        features=np.column_stack((depositions + 10, depositions + 100)),
+    )
+    calibrated = TensorData(
+        coords=points + 1,
+        features=np.column_stack((depositions + 20, depositions + 200)),
+    )
+
+    update = manager.build_sources(
+        {
+            "data": make_sparse_tensor(points, depositions),
+            "data_adapt": adapted,
+            "data_calib": calibrated,
+        }
+    )
+
+    np.testing.assert_array_equal(update["points"], points + 1)
+    np.testing.assert_array_equal(update["depositions"], depositions + 20)
+    np.testing.assert_array_equal(update["depositions_q"], depositions + 10)
+
+
+@pytest.mark.parametrize("adapted", [False, True])
+def test_build_sources_falls_back_without_calibration(points, depositions, adapted):
+    """Without calibration, preferred values and charge should be identical."""
+    manager = BuildManager(False, False, False, mode="reco", units="px")
+    data = {"data": make_sparse_tensor(points, depositions)}
+    expected = depositions
+    if adapted:
+        expected = depositions + 10
+        data["data_adapt"] = make_sparse_tensor(points, expected)
+
+    update = manager.build_sources(data)
+
+    np.testing.assert_array_equal(update["depositions"], expected)
+    np.testing.assert_array_equal(update["depositions_q"], expected)
 
 
 def test_manager_source_overrides_do_not_mutate_defaults(points, depositions):

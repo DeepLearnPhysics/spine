@@ -19,9 +19,25 @@ def test_build_reco_interactions_from_particles():
     builder = InteractionBuilder(mode="reco", units="px")
     frag = RecoFragment(id=0)
     particles = [
-        RecoParticle(id=0, interaction_id=5, index=np.array([0]), fragments=[frag]),
-        RecoParticle(id=1, interaction_id=5, index=np.array([1])),
-        RecoParticle(id=2, interaction_id=7, index=np.array([2])),
+        RecoParticle(
+            id=0,
+            interaction_id=5,
+            index=np.array([0]),
+            depositions_q=np.array([10.0]),
+            fragments=[frag],
+        ),
+        RecoParticle(
+            id=1,
+            interaction_id=5,
+            index=np.array([1]),
+            depositions_q=np.array([20.0]),
+        ),
+        RecoParticle(
+            id=2,
+            interaction_id=7,
+            index=np.array([2]),
+            depositions_q=np.array([30.0]),
+        ),
     ]
 
     interactions = builder._build_reco(particles)
@@ -29,6 +45,7 @@ def test_build_reco_interactions_from_particles():
     assert len(interactions) == 2
     assert interactions[0].particle_ids.tolist() == [0, 1]
     assert interactions[1].particle_ids.tolist() == [2]
+    np.testing.assert_array_equal(interactions[0].depositions_q, [10.0, 20.0])
     assert particles[0].interaction_id == 0
     assert frag.interaction_id == 0
 

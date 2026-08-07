@@ -90,6 +90,7 @@ class ParticleBuilder(BuilderBase):
         particle_node_type_pred: np.ndarray,
         particle_node_primary_pred: np.ndarray,
         particle_node_orient_pred: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         orig_index: np.ndarray | None = None,
         reco_fragments: list[Any] | None = None,
@@ -118,6 +119,8 @@ class ParticleBuilder(BuilderBase):
             (P, 2) Particle primary classification logits
         particle_node_orient_pred : np.ndarray, optional
             (P, 2) Particle orientation classification logits
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         orig_index : np.ndarray, optional
@@ -157,6 +160,11 @@ class ParticleBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
+                depositions_q=(
+                    depositions[index]
+                    if depositions_q is None
+                    else depositions_q[index]
+                ),
                 pid=pid_pred[i],
                 primary_scores=primary_scores[i],
                 is_primary=bool(primary_pred[i]),
@@ -429,6 +437,7 @@ class ParticleBuilder(BuilderBase):
         reco_particles: list[RecoParticle],
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         reco_fragments: list[Any] | None = None,
     ) -> list[RecoParticle]:
@@ -442,6 +451,8 @@ class ParticleBuilder(BuilderBase):
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         reco_fragments : List[RecoFragment], optional
@@ -467,6 +478,8 @@ class ParticleBuilder(BuilderBase):
                     )
                 particle.points = points[particle.index]
                 particle.depositions = depositions[particle.index]
+                charge = depositions if depositions_q is None else depositions_q
+                particle.depositions_q = charge[particle.index]
                 if sources is not None:
                     particle.sources = sources[particle.index]
 

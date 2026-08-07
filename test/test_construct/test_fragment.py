@@ -26,6 +26,7 @@ def test_build_reco_fragments_with_optional_predictions(points, depositions):
         fragment_end_points=np.array([[1, 0, 0], [3, 0, 0]], dtype=np.float32),
         fragment_group_pred=np.array([10, 11], dtype=np.int32),
         fragment_node_pred=np.array([[3.0, 0.0], [0.0, 3.0]], dtype=np.float32),
+        depositions_q=depositions + 10,
         sources=np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int32),
         orig_index=np.array([10, 11, 12, 13], dtype=np.int32),
     )
@@ -37,6 +38,7 @@ def test_build_reco_fragments_with_optional_predictions(points, depositions):
     assert fragments[1].is_primary is True
     np.testing.assert_array_equal(fragments[0].sources, [[0, 0], [0, 1]])
     np.testing.assert_array_equal(fragments[1].orig_index, [12, 13])
+    np.testing.assert_array_equal(fragments[0].depositions_q, [11, 12])
     assert np.isnan(fragments[0].end_point).all()
     np.testing.assert_array_equal(fragments[1].end_point, [3, 0, 0])
 
@@ -170,12 +172,14 @@ def test_load_reco_fragment_restores_long_form_arrays(points, depositions):
             "reco_fragments": [fragment],
             "points": points,
             "depositions": depositions,
+            "depositions_q": depositions + 10,
             "sources": sources,
         }
     )
 
     np.testing.assert_array_equal(result[0].points, points[[1, 3]])
     np.testing.assert_array_equal(result[0].depositions, depositions[[1, 3]])
+    np.testing.assert_array_equal(result[0].depositions_q, depositions[[1, 3]] + 10)
     np.testing.assert_array_equal(result[0].sources, sources[[1, 3]])
 
 

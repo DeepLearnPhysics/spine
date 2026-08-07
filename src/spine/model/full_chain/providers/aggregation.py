@@ -26,7 +26,7 @@ class ParticleAggregationStage(ChainStage):
     produces the same canonical particle, shape, and primary products.
     """
 
-    requires = frozenset({"data", "fragment_clusts", "fragment_shapes"})
+    requires = frozenset({"point_data", "fragment_clusts", "fragment_shapes"})
     optional = frozenset({"clust_label", "coord_label"})
     provides = frozenset({"particle_clusts", "particle_shapes", "particle_primaries"})
 
@@ -123,7 +123,7 @@ class ParticleAggregationStage(ChainStage):
             return self.operations.run_grappa(
                 model,
                 state.outputs,
-                state.require("data", self.name),
+                state.require("point_data", self.name).data,
                 fragments,
                 fragment_shapes,
                 accepted_shapes,
@@ -175,7 +175,7 @@ class ParticleAggregationStage(ChainStage):
             Particle clusters, shapes, primaries, and namespaced native model
             diagnostics.
         """
-        data: TensorBatch = state.require("data", self.name)
+        data: TensorBatch = state.require("point_data", self.name).data
         fragments: IndexBatch = state.require("fragment_clusts", self.name)
         particles, particle_shapes, particle_primaries = self._empty(fragments)
         outputs: dict[str, Any] = {}
@@ -272,7 +272,7 @@ class InteractionAggregationStage(ChainStage):
     """
 
     requires = frozenset(
-        {"data", "particle_clusts", "particle_shapes", "particle_primaries"}
+        {"point_data", "particle_clusts", "particle_shapes", "particle_primaries"}
     )
     optional = frozenset({"clust_label", "coord_label"})
     provides = frozenset({"interaction_clusts"})
@@ -335,7 +335,7 @@ class InteractionAggregationStage(ChainStage):
             interactions, _, _, _, native = self.operations.run_grappa(
                 self.model,
                 state.outputs,
-                state.require("data", self.name),
+                state.require("point_data", self.name).data,
                 particles,
                 shapes,
                 self.model.node_type,

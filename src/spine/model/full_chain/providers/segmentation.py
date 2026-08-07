@@ -21,13 +21,13 @@ class SegmentationStage(ChainStage):
     """Produce canonical semantic and optional point predictions.
 
     The stage supports learned UResNet inference and truth-defined semantic
-    labels. A combined UResNet-PPN model may additionally replace the current
-    voxel set through its ghost prediction and publish point diagnostics.
+    labels. A combined UResNet-PPN model may additionally select the aligned
+    voxel bundle through its ghost prediction and publish point diagnostics.
     """
 
-    requires = frozenset({"data"})
-    provides = frozenset({"seg_pred"})
-    replaces = frozenset({"data", "clust_label", "orig_index"})
+    requires = frozenset({"point_data"})
+    provides = frozenset({"point_data", "seg_pred"})
+    replaces = frozenset({"point_data", "clust_label"})
 
     def __init__(
         self,
@@ -70,7 +70,8 @@ class SegmentationStage(ChainStage):
             Semantic predictions, native model outputs, and any adapted data
             or cluster-label products.
         """
-        data: TensorBatch = state.require("data", self.name)
+        point_data = state.require("point_data", self.name)
+        data: TensorBatch = point_data.data
         seg_label: TensorBatch | None = state.get("seg_label")
         clust_label: ClusterLabelBatch | None = state.get("clust_label")
         outputs: dict[str, Any] = {}
@@ -94,18 +95,12 @@ class SegmentationStage(ChainStage):
                 ghost_prediction = torch.argmax(ghost_scores.torch_tensor(), dim=1)
                 keep = ghost_prediction == 0
                 selected = torch.nonzero(keep, as_tuple=False).flatten()
-                adapted_data = data.select(keep)
-                orig_index = IndexBatch(
-                    selected,
-                    spans=data.counts,
-                    counts=adapted_data.counts,
-                )
-                products.update({"data": adapted_data, "orig_index": orig_index})
+                adapted = point_data.select(keep)
+                adapted_data = adapted.data
+                products["point_data"] = adapted
                 outputs.update(
                     {
                         "ghost_pred": TensorBatch(ghost_prediction, data.counts),
-                        "data_adapt": adapted_data,
-                        "orig_index": orig_index,
                     }
                 )
                 for key in ("ppn_points", "ppn_classify_endpoints"):
@@ -129,7 +124,8 @@ class SegmentationStage(ChainStage):
         # Adapt truth clusters exactly once after the effective voxel set and
         # semantic predictions are known.
         if seg_label is not None and clust_label is not None and self.mode == "uresnet":
-            orig_index = products.get("orig_index", state.get("orig_index"))
+            adapted = products.get("point_data", point_data)
+            orig_index = adapted.orig_index
             adapted_label = self.label_adapter(
                 clust_label,
                 seg_label,

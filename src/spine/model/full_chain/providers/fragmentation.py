@@ -24,7 +24,7 @@ class FragmentationStage(ChainStage):
     Native Graph-SPICE diagnostics remain namespaced public outputs.
     """
 
-    requires = frozenset({"data", "seg_pred"})
+    requires = frozenset({"point_data", "seg_pred"})
     optional = frozenset({"clust_label", "coord_label"})
     provides = frozenset({"fragment_clusts", "fragment_shapes"})
 
@@ -126,7 +126,7 @@ class FragmentationStage(ChainStage):
         StageResult
             Canonical fragment clusters/shapes and native learned outputs.
         """
-        data: TensorBatch = state.require("data", self.name)
+        data: TensorBatch = state.require("point_data", self.name).data
         seg_pred: TensorBatch = state.require("seg_pred", self.name)
         clust_label: ClusterLabelBatch | None = state.get("clust_label")
         coord_label: TensorBatch | None = state.get("coord_label")

@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from spine.data import TensorBatch
+
+from .point import PointBatch
+
 __all__ = ["ChainState", "StageResult"]
 
 
@@ -45,6 +49,13 @@ class ChainState:
         self.products = {
             key: value for key, value in products.items() if value is not None
         }
+        data = self.products.get("data")
+        if "point_data" not in self.products and isinstance(data, TensorBatch):
+            self.products["point_data"] = PointBatch.from_input(
+                data,
+                self.products.get("sources"),
+                self.products.get("orig_index"),
+            )
         self.outputs: dict[str, Any] = {}
         self.producers = {key: "input" for key in self.products}
 
@@ -135,6 +146,22 @@ class ChainState:
                 )
             self.products[key] = value
             self.producers[key] = stage
+
+            # Keep the historical flat aliases synchronized for external
+            # providers while native stages exchange one aligned point bundle.
+            if key == "point_data":
+                if not isinstance(value, PointBatch):
+                    raise TypeError(
+                        "The canonical `point_data` product must be PointBatch."
+                    )
+                aliases = value.canonical_products()
+                for alias in ("data", "sources", "orig_index"):
+                    if alias in aliases:
+                        self.products[alias] = aliases[alias]
+                        self.producers[alias] = stage
+                    elif alias in self.products and alias != "data":
+                        del self.products[alias]
+                        self.producers.pop(alias, None)
 
         # Public outputs are append-only: losses and reconstruction consumers
         # must never depend on stage order to resolve duplicate names.

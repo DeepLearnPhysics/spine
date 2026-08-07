@@ -76,6 +76,7 @@ class FragmentBuilder(BuilderBase):
         fragment_end_points: np.ndarray | None = None,
         fragment_group_pred: np.ndarray | None = None,
         fragment_node_pred: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         orig_index: np.ndarray | None = None,
     ) -> list[RecoFragment]:
@@ -97,6 +98,8 @@ class FragmentBuilder(BuilderBase):
             (P, 3) List of fragment end point coordinates
         fragment_group_pred : np.ndarray, optional
             (P) Interaction group each fragment belongs to
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         orig_index : np.ndarray, optional
@@ -125,6 +128,11 @@ class FragmentBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
+                depositions_q=(
+                    depositions[index]
+                    if depositions_q is None
+                    else depositions_q[index]
+                ),
             )
 
             # Add optional arguments
@@ -341,6 +349,7 @@ class FragmentBuilder(BuilderBase):
         reco_fragments: list[RecoFragment],
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
     ) -> list[RecoFragment]:
         """Load :class:`RecoFragment` objects from their stored versions.
@@ -353,6 +362,8 @@ class FragmentBuilder(BuilderBase):
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
 
@@ -376,6 +387,8 @@ class FragmentBuilder(BuilderBase):
                     )
                 fragment.points = points[fragment.index]
                 fragment.depositions = depositions[fragment.index]
+                charge = depositions if depositions_q is None else depositions_q
+                fragment.depositions_q = charge[fragment.index]
                 if sources is not None:
                     fragment.sources = sources[fragment.index]
 

@@ -27,9 +27,13 @@ class OutBase(PosDataBase):
     points : np.ndarray
         (N, 3) Set of voxel coordinates that make up this object
     depositions : np.ndarray
-        (N) Array of charge deposition values for each voxel
+        (N) Array of preferred deposition values for each voxel
     depositions_sum : float
         Total amount of depositions
+    depositions_q : np.ndarray
+        (N) Array of input charge values for each voxel
+    depositions_q_sum : float
+        Total amount of input charge
     sources : np.ndarray
         (N, 2) Set of voxel sources as (Module ID, TPC ID) pairs
     module_ids : np.ndarray
@@ -99,6 +103,11 @@ class OutBase(PosDataBase):
         metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
     )
 
+    depositions_q: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float32),
+        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+    )
+
     sources: np.ndarray = field(
         default_factory=lambda: np.empty((0, 2), dtype=np.int32),
         metadata=FieldMetadata(dtype=np.int32, cat=True, skip=True),
@@ -148,6 +157,18 @@ class OutBase(PosDataBase):
             Sum of all depositions that make up the object
         """
         return np.sum(self.depositions).item()
+
+    @property
+    @stored_property
+    def depositions_q_sum(self) -> float:
+        """Total input charge for the entire object.
+
+        Returns
+        -------
+        float
+            Sum of all input charge values that make up the object
+        """
+        return np.sum(self.depositions_q).item()
 
     @property
     @stored_property
@@ -212,10 +233,6 @@ class TruthBase:
     ----------
     orig_id : int
         If matched to an MC truth instance, ID of the original instance
-    depositions_q : np.ndarray
-        (N) Array of values for each voxel in the same units as the input image
-    depositions_q_sum : float
-        Total amount of depositions in the same units as the input image
     index_adapt: np.ndarray
         (N') Voxel indexes corresponding to this object in the adapted cluster
         label tensor
@@ -284,10 +301,6 @@ class TruthBase:
         ),
     )
 
-    depositions_q: np.ndarray = field(
-        default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
-    )
     depositions_adapt: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
         metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
@@ -329,18 +342,6 @@ class TruthBase:
             Total number of voxels in the object
         """
         return len(self.index_g4)
-
-    @property
-    @stored_property
-    def depositions_q_sum(self) -> float:
-        """Total deposition value for the entire object in the original units.
-
-        Returns
-        -------
-        float
-            Sum of all depositions that make up the object
-        """
-        return np.sum(self.depositions_q).item()
 
     @property
     @stored_property

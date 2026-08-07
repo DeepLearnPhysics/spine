@@ -33,7 +33,8 @@ class BuildManager:
     # Name of input data products needed to build representations. These names
     # are not set in stone; they can be set in the configuration
     _default_sources: ClassVar[tuple[tuple[str, tuple[str, ...]], ...]] = (
-        ("data_tensor", ("data_adapt", "data")),
+        ("data_tensor", ("data_calib", "data_adapt", "data")),
+        ("data_q_tensor", ("data_adapt", "data")),
         ("label_tensor", ("clust_label",)),
         ("label_adapt_tensor", ("clust_label_adapt",)),
         ("label_g4_tensor", ("clust_label_g4",)),
@@ -211,8 +212,10 @@ class BuildManager:
         update = {}
         if self.mode != "truth" or "label_adapt_tensor" in sources:
             data_tensor: TensorData = sources["data_tensor"]
+            data_q_tensor: TensorData = sources.get("data_q_tensor", data_tensor)
             update["points"] = data_tensor.coordinates()
-            update["depositions"] = data_tensor.values
+            update["depositions"] = self._primary_feature(data_tensor)
+            update["depositions_q"] = self._primary_feature(data_q_tensor)
 
             if "sources" in sources:
                 source_tensor: TensorData = sources["sources"]
@@ -283,6 +286,12 @@ class BuildManager:
                             obj.to_cm(meta)
 
         return update
+
+    @staticmethod
+    def _primary_feature(tensor: TensorData) -> np.ndarray:
+        """Returns the first feature column of a sparse tensor."""
+        features = tensor.features
+        return features if features.ndim == 1 else features[:, 0]
 
     @staticmethod
     def load_match_pairs(

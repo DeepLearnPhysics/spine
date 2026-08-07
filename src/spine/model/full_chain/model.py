@@ -11,9 +11,10 @@ from spine.data import ClusterLabelBatch, IndexBatch, RunInfo, TensorBatch
 
 from ..registry import ModelSpec
 from .config import StageConfig, build_chain_plan
+from .point import PointBatch
 from .registry import provider_spec
 from .stage import ChainLossStage, ChainStage
-from .state import ChainState
+from .state import ChainState, StageResult
 
 __all__ = ["FullChain", "FullChainLoss", "process_chain_config", "MODEL_SPEC"]
 
@@ -41,6 +42,7 @@ class FullChain(torch.nn.Module):
         "energy_label",
         "meta",
         "run_info",
+        "point_data",
     }
 
     def __init__(self, chain: dict[str, Any], **modules: Any) -> None:
@@ -109,6 +111,7 @@ class FullChain(torch.nn.Module):
         dict
             Public native diagnostics and canonical reconstruction products.
         """
+        point_data = PointBatch.from_input(data, sources, orig_index)
         state = ChainState(
             data=data,
             sources=sources,
@@ -119,6 +122,7 @@ class FullChain(torch.nn.Module):
             energy_label=energy_label,
             meta=meta,
             run_info=run_info,
+            point_data=point_data,
             **products,
         )
 
@@ -126,6 +130,16 @@ class FullChain(torch.nn.Module):
         for stage in self.stages:
             result = stage(state)
             state.publish(stage.name, result, stage.replaces)
+
+        # Export each aligned representation once after every row-changing
+        # stage has had a chance to apply its selection to the full bundle.
+        point_outputs = state.require("point_data").public_outputs()
+        if point_outputs:
+            state.publish(
+                "full_chain",
+                StageResult(outputs=point_outputs),
+            )
+
         return state.outputs
 
 

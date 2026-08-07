@@ -39,11 +39,14 @@ def test_label_calibration_replaces_values_without_mutating_input() -> None:
         ChainState(data=data, energy_label=energy)
     )
 
-    adapted = result.products["data"]
+    point_data = result.products["point_data"]
+    adapted = point_data.data_calib
     assert adapted is not data
+    assert point_data.data is adapted
+    assert point_data.data_q is data
     assert data.values.torch_tensor().tolist() == [1.0, 2.0]
     assert adapted.values.torch_tensor().tolist() == [10.0, 20.0]
-    assert result.outputs == {"data_adapt": adapted}
+    assert result.outputs == {}
 
 
 def test_label_calibration_requires_energy_truth() -> None:
@@ -80,7 +83,7 @@ def test_applied_calibration_routes_event_context_and_updates_points() -> None:
         )
     )
 
-    adapted = result.products["data"]
+    adapted = result.products["point_data"].data_calib
     assert adapted.values.torch_tensor().tolist() == [2.0, 4.0]
     assert adapted.coords.torch_tensor()[:, 0].tolist() == [10.0, 11.0]
     assert [call[2] for call in calibrator.calls] == [17, 17]
@@ -115,7 +118,7 @@ def test_applied_calibration_selects_value_from_multiple_features() -> None:
         ChainState(data=data, meta=[object()])
     )
 
-    adapted = result.products["data"]
+    adapted = result.products["point_data"].data_calib
     assert calibrator.values[0].tolist() == [1.0, 2.0]
     assert adapted.feature(0).torch_tensor().tolist() == [2.0, 4.0]
     assert adapted.feature(1).torch_tensor().tolist() == [10.0, 20.0]

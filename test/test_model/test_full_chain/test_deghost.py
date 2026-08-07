@@ -77,10 +77,12 @@ def test_label_deghosting_aligns_truth_sources_and_charge() -> None:
         )
     )
 
-    assert result.products["data"].counts.tolist() == [2]
-    assert result.products["data"].values.torch_tensor().tolist() == [10.0, 30.0]
-    assert result.products["orig_index"].index.tolist() == [0, 2]
-    assert result.products["sources"].torch_tensor().tolist() == [[0, 1], [4, 5]]
+    adapted = result.products["point_data"]
+    assert adapted.data.counts.tolist() == [2]
+    assert adapted.data.values.torch_tensor().tolist() == [10.0, 30.0]
+    assert adapted.data_q is adapted.data
+    assert adapted.orig_index.index.tolist() == [0, 2]
+    assert adapted.sources.torch_tensor().tolist() == [[0, 1], [4, 5]]
     assert result.outputs["orig_index_label"].index.tolist() == [0, 2]
     assert result.outputs["sources_label"].torch_tensor().tolist() == [[0, 1], [4, 5]]
 
@@ -103,7 +105,9 @@ def test_learned_deghosting_publishes_scores_and_rescales_charge() -> None:
 
     assert result.outputs["ghost"] is not None
     assert result.outputs["ghost_pred"].torch_tensor().tolist() == [0, 1, 0, 1]
-    assert result.products["data"].values.torch_tensor().tolist() == [100.0, 200.0]
+    adapted = result.products["point_data"]
+    assert adapted.data.values.torch_tensor().tolist() == [100.0, 200.0]
+    assert adapted.data_q is adapted.data
 
 
 def test_deghost_stage_validates_modes_and_inputs() -> None:

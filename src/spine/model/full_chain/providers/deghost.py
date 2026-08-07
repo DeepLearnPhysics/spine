@@ -19,14 +19,13 @@ from ..state import ChainState, StageResult
 class DeghostStage(ChainStage):
     """Remove predicted or truth-labeled ghost voxels from canonical data.
 
-    The stage publishes the selected rows as the new canonical ``data`` and
-    records their positions in the original tensor through ``orig_index``.
-    Row-aligned source information is replaced in the same operation.
+    The stage selects the aligned voxel bundle once, applying the same mask to
+    active data, input charge, calibrated data, sources, and original indexes.
     """
 
-    requires = frozenset({"data"})
-    provides = frozenset({"data"})
-    replaces = frozenset({"data", "sources"})
+    requires = frozenset({"point_data"})
+    provides = frozenset({"point_data"})
+    replaces = frozenset({"point_data"})
 
     def __init__(
         self,
@@ -78,8 +77,9 @@ class DeghostStage(ChainStage):
             Adapted data, original-row indexes, ghost predictions, and any
             aligned source products.
         """
-        data: TensorBatch = state.require("data", self.name)
-        sources: TensorBatch | None = state.get("sources")
+        point_data = state.require("point_data", self.name)
+        data: TensorBatch = point_data.data
+        sources: TensorBatch | None = point_data.sources
         seg_label: TensorBatch | None = state.get("seg_label")
         clust_label: ClusterLabelBatch | None = state.get("clust_label")
 
@@ -100,33 +100,22 @@ class DeghostStage(ChainStage):
         # Apply one shared row selection and retain its mapping to original
         # input positions for downstream truth and loss alignment.
         keep = ghost_prediction == 0
-        adapted_data = data.select(keep)
-        selected = torch.nonzero(keep, as_tuple=False).flatten()
-        orig_index = IndexBatch(selected, spans=data.counts, counts=adapted_data.counts)
+        adapted = point_data.select(keep)
         ghost_pred = TensorBatch(ghost_prediction, data.counts)
 
         # Optionally replace charge with rescaled reconstruction or truth values.
         if self.charge_rescaler is not None:
-            values = self.charge_rescaler(adapted_data)
-            value_column = adapted_data.feature_columns()[0]
-            adapted_data.torch_tensor()[:, value_column] = values
+            values = self.charge_rescaler(adapted.data)
+            adapted = adapted.with_charge(values)
         elif self.charge_rescaling == "label":
             if clust_label is None:
                 raise ValueError("Label charge rescaling requires `clust_label`.")
-            value_column = adapted_data.feature_columns()[0]
-            adapted_data.torch_tensor()[
-                :, value_column
-            ] = clust_label.values.torch_tensor()[keep]
+            adapted = adapted.with_charge(clust_label.values.torch_tensor()[keep])
 
-        products: dict[str, Any] = {
-            "data": adapted_data,
-            "orig_index": orig_index,
-        }
+        products: dict[str, Any] = {"point_data": adapted}
         outputs.update(
             {
                 "ghost_pred": ghost_pred,
-                "data_adapt": adapted_data,
-                "orig_index": orig_index,
             }
         )
 
@@ -141,11 +130,6 @@ class DeghostStage(ChainStage):
                 counts=truth_counts,
             )
         if sources is not None:
-            adapted_sources = TensorBatch(
-                sources.torch_tensor()[keep], adapted_data.counts
-            )
-            products["sources"] = adapted_sources
-            outputs["sources_adapt"] = adapted_sources
             if seg_label is not None:
                 truth_keep = seg_label.values.torch_tensor() != GHOST_SHP
                 truth_counts = seg_label.select(truth_keep).counts

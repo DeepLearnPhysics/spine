@@ -30,6 +30,7 @@ def test_build_reco_particles_without_orientation_logits(points, depositions):
         particle_group_pred=np.array([20, 21], dtype=np.int32),
         particle_node_type_pred=np.eye(2, 6, dtype=np.float32),
         particle_node_primary_pred=np.array([[3.0, 0.0], [0.0, 3.0]], dtype=np.float32),
+        depositions_q=depositions + 10,
         reco_fragments=fragments,
         sources=np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int32),
         orig_index=np.array([10, 11, 12, 13], dtype=np.int32),
@@ -46,6 +47,7 @@ def test_build_reco_particles_without_orientation_logits(points, depositions):
     assert fragments[1].interaction_id == 21
     np.testing.assert_array_equal(particles[0].sources, [[0, 0], [0, 1]])
     np.testing.assert_array_equal(particles[1].orig_index, [12, 13])
+    np.testing.assert_array_equal(particles[0].depositions_q, [11, 12])
 
 
 def test_build_reco_track_orientation_can_flip_endpoints(points, depositions):
