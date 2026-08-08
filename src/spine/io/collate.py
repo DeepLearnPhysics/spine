@@ -170,11 +170,45 @@ class CollateAll:
         if any((entry.particles is not None) != has_particles for entry in entries):
             raise ValueError("Particle information must be consistent across a batch.")
 
-        # Build the compact batched voxel table.
-        counts = np.asarray([len(entry.coords) for entry in entries], dtype=np.int64)
-        coords = np.concatenate([entry.coords for entry in entries], axis=0)
-        features = np.concatenate([entry.features for entry in entries], axis=0)
-        batch_ids = np.repeat(np.arange(len(entries), dtype=coords.dtype), counts)
+        # Build the compact batched voxel table. Structured labels follow the
+        # same event-volume ordering as ordinary coordinate tensors so every
+        # model input shares one batch domain.
+        if not self.split:
+            counts = np.asarray(
+                [len(entry.coords) for entry in entries], dtype=np.int64
+            )
+            coords = np.concatenate([entry.coords for entry in entries], axis=0)
+            features = np.concatenate([entry.features for entry in entries], axis=0)
+            batch_ids = np.repeat(np.arange(len(entries), dtype=coords.dtype), counts)
+            metadata = [entry.meta for entry in entries]
+
+        else:
+            coords_v, features_v, batch_ids_v = [], [], []
+            counts = np.empty(len(entries) * self.num_modules, dtype=np.int64)
+            for event_id, entry in enumerate(entries):
+                coords, module_indexes = self.geo.split(
+                    entry.coords, self.target_id, meta=entry.meta
+                )
+                for module_id, module_index in enumerate(module_indexes):
+                    batch_id = self.num_modules * event_id + module_id
+                    coords_v.append(coords[module_index])
+                    features_v.append(entry.features[module_index])
+                    batch_ids_v.append(
+                        np.full(
+                            len(module_index),
+                            batch_id,
+                            dtype=coords.dtype,
+                        )
+                    )
+                    counts[batch_id] = len(module_index)
+
+            coords = np.vstack(coords_v)
+            features = np.vstack(features_v)
+            batch_ids = np.concatenate(batch_ids_v)
+            metadata = [
+                entry.meta for entry in entries for _ in range(self.num_modules)
+            ]
+
         data = np.concatenate((batch_ids[:, None], coords, features), axis=1)
         tensor = TensorBatch(
             data,
@@ -182,7 +216,7 @@ class CollateAll:
             has_batch_col=True,
             coord_cols=np.arange(1, 4, dtype=np.int64),
             schema=ClusterLabelData.tensor_schema(has_particles),
-            meta=[entry.meta for entry in entries],
+            meta=metadata,
         )
 
         # Stack every named particle field with shared event counts.
@@ -193,21 +227,31 @@ class CollateAll:
                 raise ValueError(
                     "Particle-table fields must be consistent across a batch."
                 )
-            particle_counts = np.asarray(
+            event_particle_counts = np.asarray(
                 [len(next(iter(entry.particles.values()), ())) for entry in entries],
                 dtype=np.int64,
+            )
+            particle_counts = (
+                event_particle_counts
+                if not self.split
+                else np.repeat(event_particle_counts, self.num_modules)
             )
             particles = {}
             for name in reference_fields:
                 values = np.concatenate(
-                    [entry.particles[name] for entry in entries], axis=0
+                    [
+                        entry.particles[name]
+                        for entry in entries
+                        for _ in range(self.num_modules if self.split else 1)
+                    ],
+                    axis=0,
                 )
                 particles[name] = TensorBatch(values, particle_counts)
 
         return ClusterLabelBatch(
             tensor,
             particles,
-            meta=[entry.meta for entry in entries],
+            meta=metadata,
         )
 
     def stack_coord_tensors(self, batch: BatchType, key: str) -> TensorBatch:

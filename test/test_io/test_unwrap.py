@@ -10,6 +10,7 @@ from spine.data import (
     IndexBatch,
     IndexData,
     IndexListData,
+    Meta,
     TensorBatch,
     TensorData,
 )
@@ -153,6 +154,53 @@ def test_unwrap_cluster_label_batch_uses_event_contract():
     assert len(result) == 2
     assert all(isinstance(entry, ClusterLabelData) for entry in result)
     np.testing.assert_array_equal(result[1].coords, [[1, 1, 1]])
+
+
+def test_unwrap_cluster_label_batch_merges_volumes(monkeypatch):
+    """Split cluster labels recover logical rows and one particle table."""
+    from spine.io.collate import CollateAll
+
+    class MockTPC:
+        num_modules = 2
+
+    class MockGeo:
+        tpc = MockTPC()
+
+        def split(self, points, target_id, meta=None):
+            shifted = points.copy()
+            shifted[1, 0] -= 10
+            return shifted, [np.asarray([0]), np.asarray([1])]
+
+        def translate(self, points, source_id, target_id, factor=None):
+            return points + np.asarray([10, 0, 0])
+
+    geo = MockGeo()
+    monkeypatch.setattr("spine.io.collate.GeoManager.get_instance", lambda: geo)
+    monkeypatch.setattr(
+        "spine.io.unwrap.GeoManager.get_instance_if_initialized", lambda: geo
+    )
+    meta = Meta(
+        lower=np.zeros(3),
+        upper=np.full(3, 20.0),
+        size=np.ones(3),
+        count=np.full(3, 20),
+    )
+    label = ClusterLabelData(
+        coords=np.asarray([[1, 2, 3], [11, 5, 6]], dtype=np.float32),
+        features=np.asarray([[4.0, 7.0, 0.0], [5.0, 8.0, 1.0]], dtype=np.float32),
+        particles={
+            "particle": np.asarray([10, 20]),
+            "pid": np.asarray([2, 3]),
+        },
+        meta=meta,
+    )
+    batch = CollateAll(data_keys=("label",), split=True)([{"label": label}])["label"]
+
+    result = Unwrapper()({"index": [0], "meta": [meta], "label": batch})["label"]
+
+    assert len(result) == 1
+    np.testing.assert_array_equal(result[0].coords, label.coords)
+    np.testing.assert_array_equal(result[0].voxel_field("particle"), [10, 20])
 
 
 def test_unwrap_flat_index_batch_returns_index_data():

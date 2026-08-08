@@ -189,6 +189,38 @@ def test_collate_cluster_labels_preserves_event_local_particle_tables():
     np.testing.assert_array_equal(result[1].voxel_field("particle"), [20, 21])
 
 
+def test_collate_cluster_labels_splits_voxels_and_particle_tables(monkeypatch):
+    """Split labels should use the shared event-volume batch convention."""
+
+    class MockTPC:
+        num_modules = 2
+
+    class MockGeo:
+        tpc = MockTPC()
+
+        def split(self, points, target_id, meta=None):
+            shifted = points.copy()
+            shifted[1, 0] -= 10
+            return shifted, [np.asarray([0]), np.asarray([1])]
+
+    monkeypatch.setattr("spine.io.collate.GeoManager.get_instance", lambda: MockGeo())
+    label = ClusterLabelData(
+        coords=np.asarray([[1, 2, 3], [11, 5, 6]], dtype=np.float32),
+        features=np.asarray([[4.0, 7.0, 0.0], [5.0, 8.0, 1.0]], dtype=np.float32),
+        particles={
+            "particle": np.asarray([10, 20]),
+            "pid": np.asarray([2, 3]),
+        },
+    )
+
+    result = CollateAll(data_keys=("label",), split=True)([{"label": label}])["label"]
+
+    assert result.counts.tolist() == [1, 1]
+    assert result.particle_field("pid").counts.tolist() == [2, 2]
+    np.testing.assert_array_equal(result.coords.data[:, 0], [1, 1])
+    np.testing.assert_array_equal(result.voxel_field("particle").data, [10, 20])
+
+
 def test_collate_requires_data_keys():
     """Collation should reject an unspecified dataset product contract."""
     with pytest.raises(ValueError, match="data_keys"):

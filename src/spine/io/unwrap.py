@@ -6,6 +6,7 @@ import numpy as np
 
 from spine.data import (
     ClusterLabelBatch,
+    ClusterLabelData,
     EdgeIndexBatch,
     EdgeIndexData,
     IndexBatch,
@@ -105,9 +106,17 @@ class Unwrapper:
             If the input is empty, the batch size is unset, or the type is
             unsupported.
         """
-        # Structured products own their event extraction contract
+        # Reject invalid containers before adapting supported product types.
+        if isinstance(data, (list, tuple)) and len(data) == 0:
+            raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
+        if self.batch_size is None:
+            raise ValueError("Batch size should be set before unwrapping.")
+
+        # Structured labels share ordinary tensor geometry handling but retain
+        # their compact particle tables on the final event products.
         if isinstance(data, ClusterLabelBatch):
-            return [data[batch_id] for batch_id in range(data.batch_size)]
+            return self._unwrap_cluster_labels(data, meta)
+
         if isinstance(data, TensorBatchConvertible):
             data = data.to_tensor_batch()
         elif (
@@ -116,12 +125,6 @@ class Unwrapper:
             and isinstance(data[0], TensorBatchConvertible)
         ):
             data = [value.to_tensor_batch() for value in data]
-
-        # Reject invalid containers before consulting their apparent dimensions
-        if isinstance(data, (list, tuple)) and len(data) == 0:
-            raise ValueError(f"Batched data for {key} is an empty list, cannot unwrap.")
-        if self.batch_size is None:
-            raise ValueError("Batch size should be set before unwrapping.")
 
         # Scalars and ordinary event lists already use their final representation
         dim = len(getattr(data, "shape", (0,)))
@@ -148,6 +151,56 @@ class Unwrapper:
             return self._unwrap_index(data)
 
         raise ValueError(f"Type of {key} not unwrappable: {type(data)}")
+
+    def _unwrap_cluster_labels(
+        self,
+        data: ClusterLabelBatch,
+        meta: list[Meta] | None = None,
+    ) -> list[ClusterLabelData]:
+        """Unwrap compact cluster labels and their particle tables.
+
+        Multi-volume collation duplicates each event particle table for every
+        physical module while keeping voxel particle indexes event-local. The
+        voxel rows follow the ordinary tensor geometry path; one copy of the
+        identical particle table is then attached to each merged logical event.
+
+        Parameters
+        ----------
+        data : ClusterLabelBatch
+            Batched compact voxel labels and optional particle fields.
+        meta : list[Meta], optional
+            Metadata for each logical event.
+
+        Returns
+        -------
+        list[ClusterLabelData]
+            Structured labels on the logical event domain.
+        """
+        if self.num_volumes == 1 or data.batch_size == self.batch_size:
+            return [data[batch_id] for batch_id in range(data.batch_size)]
+
+        tensors = self._unwrap_tensor(data.data, meta)
+        labels = []
+        for batch_id, tensor in enumerate(tensors):
+            source_id = batch_id * self.num_volumes
+            particles = None
+            if data.particles is not None:
+                particles = {
+                    name: field[source_id] for name, field in data.particles.items()
+                }
+            event_meta = None if data.meta is None else data.meta[source_id]
+            if meta is not None:
+                event_meta = meta[batch_id]
+            labels.append(
+                ClusterLabelData(
+                    coords=tensor.coords,
+                    features=tensor.features,
+                    particles=particles,
+                    meta=event_meta,
+                )
+            )
+
+        return labels
 
     def _unwrap_tensor(
         self, data: TensorBatch, meta: list[Meta] | None = None
