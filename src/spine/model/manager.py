@@ -171,6 +171,7 @@ class ModelManager:
 
         # If requested, freeze some/all the model weights
         self.freeze_weights()
+        self._validate_trainable_parameters()
 
         # Parse the list of weight files to consider for loading
         self.weight_path = weight_path
@@ -417,6 +418,28 @@ class ModelManager:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
 
+    def _validate_trainable_parameters(self) -> None:
+        """Ensure training has at least one parameter eligible for updates.
+
+        Parameter ``requires_grad`` flags are authoritative here because this
+        check runs after every configured module has been frozen. Inspecting
+        the configuration or optimizer instead could include weights that were
+        subsequently frozen or miss parameters frozen directly by a model.
+
+        Raises
+        ------
+        ValueError
+            If training is enabled but every network parameter is frozen.
+        """
+        if self.train and not any(
+            param.requires_grad for param in self.net.parameters()
+        ):
+            raise ValueError(
+                "Training requires at least one model parameter with "
+                "`requires_grad=True`, but all model weights are frozen. "
+                "Use inference mode or unfreeze at least one model component."
+            )
+
     def load_weights(self, full_weight_path: str | None) -> None:
         """Load the weights of certain model components.
 
@@ -631,6 +654,14 @@ class ModelManager:
         loss : torch.tensor
             Scalar loss value to step the model weights
         """
+        # Fail with model-level context instead of PyTorch's opaque message
+        # when a configured objective is detached from the trainable graph.
+        if not isinstance(loss, torch.Tensor) or not loss.requires_grad:
+            raise RuntimeError(
+                "Cannot run backward because the loss does not require gradients. "
+                "Ensure it depends on at least one trainable model parameter."
+            )
+
         # Run the model backward
         loss.backward()
 

@@ -360,6 +360,53 @@ def test_backward_steps_optimizer_scheduler_and_model_buffers():
     assert net.buffer_updates == 1
 
 
+def test_training_rejects_fully_frozen_network():
+    """Training should fail before iteration when no parameter can be updated."""
+    manager = make_bare_manager(net=torch.nn.Linear(1, 1), train=True)
+    manager.net.requires_grad_(False)
+
+    with pytest.raises(ValueError, match="all model weights are frozen"):
+        manager._validate_trainable_parameters()
+
+    manager.train = False
+    manager._validate_trainable_parameters()
+
+
+def test_manager_rejects_fully_frozen_training_configuration(monkeypatch):
+    """Configured freezes should be validated during manager construction."""
+
+    class Network(torch.nn.Module):
+        def __init__(self, encoder):
+            super().__init__()
+            self.encoder = torch.nn.Linear(1, 1)
+
+    class Loss(torch.nn.Module):
+        def __init__(self, **_modules):
+            super().__init__()
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory",
+        lambda _name: (Network, Loss),
+    )
+
+    with pytest.raises(ValueError, match="all model weights are frozen"):
+        ModelManager(
+            name="test",
+            modules={"encoder": {"freeze_weights": True}},
+            network_input={"data": "data"},
+            loss_input={"target": "target"},
+            train={"optimizer": {"name": "Adam"}},
+        )
+
+
+def test_backward_rejects_detached_loss():
+    """A detached objective should produce a concise model-level diagnostic."""
+    manager = make_bare_manager()
+
+    with pytest.raises(RuntimeError, match="loss does not require gradients"):
+        manager.backward(torch.tensor(1.0))
+
+
 def test_call_validates_training_outputs_and_iteration():
     """Train calls require a loss and iteration before checkpoint scheduling."""
     manager = make_bare_manager(
