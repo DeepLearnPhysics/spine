@@ -83,6 +83,10 @@ class CalorimetricEnergyProcessor(PostBase):
 class CalibrationProcessor(PostBase):
     """Apply calibrations to the reconstructed objects."""
 
+    # Supported reconstructed deposition inputs. Calibration output always
+    # populates ``depositions`` regardless of which source is selected.
+    _depositions_sources = ("depositions_q", "depositions")
+
     # Name of the post-processor (as specified in the configuration)
     name = "calibration"
 
@@ -95,6 +99,7 @@ class CalibrationProcessor(PostBase):
     def __init__(
         self,
         do_tracking: bool = False,
+        depositions_source: str = "depositions_q",
         obj_type: str | Sequence[str] | None = ("particle", "interaction"),
         run_mode: str = "reco",
         truth_point_mode: str = "points",
@@ -106,9 +111,20 @@ class CalibrationProcessor(PostBase):
         ----------
         do_tracking : bool, default False
             Segment track to get a proper local dQ/dx estimate
+        depositions_source : str, default "depositions_q"
+            Reconstructed deposition attribute and tensor to calibrate. Use
+            ``depositions_q`` to calibrate from preserved input charge, or
+            ``depositions`` to continue from previously calibrated values.
+            Results are always written to ``depositions``.
         **cfg : dict
             Calibration manager configuration
         """
+        if depositions_source not in self._depositions_sources:
+            raise ValueError(
+                "`depositions_source` must be one of "
+                f"{self._depositions_sources}. Got `{depositions_source}`."
+            )
+
         # Figure out which truth deposition attribute to use
         truth_dep_mode = truth_point_mode.replace("points", "depositions") + "_q"
 
@@ -118,11 +134,19 @@ class CalibrationProcessor(PostBase):
         # Initialize the calibrator
         self.calibrator = CalibrationManager(**cfg)
         self.do_tracking = do_tracking
+        self.depositions_source = depositions_source
 
         # Add necessary keys
         keys = {}
         if run_mode != "truth":
-            keys.update({"points": True, "depositions": True, "sources": False})
+            keys.update(
+                {
+                    "points": True,
+                    "depositions": True,
+                    self.depositions_source: True,
+                    "sources": False,
+                }
+            )
 
         if run_mode != "reco":
             keys.update(
@@ -152,10 +176,12 @@ class CalibrationProcessor(PostBase):
         # Loop over particle objects
         for k in self.particle_keys:
             sources = None
-            points_key = "points" if not "truth" in k else self.truth_point_key
-            source_key = "sources" if not "truth" in k else self.truth_source_key
-            dep_key = "depositions" if not "truth" in k else self.truth_dep_key
-            unass_mask = np.ones(len(data[dep_key]), dtype=bool)
+            is_truth = "truth" in k
+            points_key = self.truth_point_key if is_truth else "points"
+            source_key = self.truth_source_key if is_truth else "sources"
+            input_dep_key = self.truth_dep_key if is_truth else self.depositions_source
+            output_dep_key = self.truth_dep_key if is_truth else "depositions"
+            unass_mask = np.ones(len(data[input_dep_key]), dtype=bool)
             for part in data[k]:
                 # Make sure the particle coordinates are expressed in cm
                 self.check_units(part)
@@ -165,7 +191,20 @@ class CalibrationProcessor(PostBase):
                 if len(points) == 0:
                     continue
 
-                deps = self.get_depositions(part)
+                if is_truth:
+                    deps = self.get_depositions(part)
+                else:
+                    if not hasattr(part, self.depositions_source):
+                        raise ValueError(
+                            "Reconstructed particle is missing requested deposition "
+                            f"source `{self.depositions_source}`."
+                        )
+                    deps = getattr(part, self.depositions_source)
+                    if len(deps) != len(points):
+                        raise ValueError(
+                            f"Requested deposition source `{self.depositions_source}` "
+                            f"has {len(deps)} values for {len(points)} points."
+                        )
                 if source_key in data:
                     sources = self.get_sources(part)
 
@@ -180,10 +219,10 @@ class CalibrationProcessor(PostBase):
                     )
 
                 # Update the particle *and* the reference tensor
-                if not part.is_truth:
-                    part.depositions = depositions
-                else:
+                if part.is_truth:
                     setattr(part, self.truth_dep_mode, depositions)
+                else:
+                    part.depositions = depositions
 
                 if self.calibrator.update_points:
                     if not part.is_truth:
@@ -192,13 +231,13 @@ class CalibrationProcessor(PostBase):
                     else:
                         setattr(part, self.truth_point_mode, cal_points)
                     data[points_key][part.index] = cal_points
-                data[dep_key][part.index] = depositions
+                data[output_dep_key][part.index] = depositions
                 unass_mask[part.index] = False
 
             # Apply calibration corrections to unassociated depositions
             unass_index = np.where(unass_mask)[0]
             points = data[points_key][unass_index]
-            depositions = data[dep_key][unass_index]
+            depositions = data[input_dep_key][unass_index]
             sources = None
             if source_key in data:
                 sources = data[source_key][unass_index]
@@ -208,19 +247,20 @@ class CalibrationProcessor(PostBase):
             )
             if self.calibrator.update_points:
                 data[points_key][unass_index] = cal_points
-            data[dep_key][unass_index] = depositions
+            data[output_dep_key][unass_index] = depositions
 
         # If requested, updated the depositions attribute of interactions
         for k in self.interaction_keys:
-            points_key = "points" if not "truth" in k else self.truth_point_key
-            dep_key = "depositions" if not "truth" in k else self.truth_dep_key
+            is_truth = "truth" in k
+            points_key = self.truth_point_key if is_truth else "points"
+            output_dep_key = self.truth_dep_key if is_truth else "depositions"
             for inter in data[k]:
                 # Update depositions for the interaction
-                depositions = data[dep_key][inter.index]
-                if not inter.is_truth:
-                    inter.depositions = depositions
-                else:
+                depositions = data[output_dep_key][inter.index]
+                if inter.is_truth:
                     setattr(inter, self.truth_dep_mode, depositions)
+                else:
+                    inter.depositions = depositions
 
                 if self.calibrator.update_points:
                     points = data[points_key][inter.index]

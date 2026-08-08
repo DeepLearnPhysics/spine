@@ -78,6 +78,7 @@ def test_calibration_processor_updates_particles_tensors_and_interactions(monkey
         index=np.array([0, 2], dtype=np.int64),
         points=np.array([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float32),
         depositions=np.array([1.0, 3.0], dtype=np.float32),
+        depositions_q=np.array([100.0, 300.0], dtype=np.float32),
         sources=np.array([[0, 0], [0, 0]], dtype=np.int64),
     )
     truth_particle = SimpleNamespace(
@@ -102,6 +103,7 @@ def test_calibration_processor_updates_particles_tensors_and_interactions(monkey
             dtype=np.float32,
         ),
         "depositions": np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        "depositions_q": np.array([100.0, 200.0, 300.0, 400.0], dtype=np.float32),
         "sources": np.array([[0, 0], [0, 0], [0, 0], [0, 0]], dtype=np.int64),
         "points_label": np.array(
             [[0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [2.0, 1.0, 0.0]],
@@ -119,9 +121,12 @@ def test_calibration_processor_updates_particles_tensors_and_interactions(monkey
     processor.process(data)
 
     calibrator = cast(FakeCalibrationManager, processor.calibrator)
-    np.testing.assert_allclose(reco_particle.depositions, [11.0, 13.0])
-    np.testing.assert_allclose(data["depositions"], [11.0, 3.0, 13.0, 5.0])
-    np.testing.assert_allclose(reco_interaction.depositions, [11.0, 3.0, 13.0, 5.0])
+    np.testing.assert_allclose(reco_particle.depositions, [110.0, 310.0])
+    np.testing.assert_allclose(data["depositions"], [110.0, 201.0, 310.0, 401.0])
+    np.testing.assert_allclose(data["depositions_q"], [100.0, 200.0, 300.0, 400.0])
+    np.testing.assert_allclose(
+        reco_interaction.depositions, [110.0, 201.0, 310.0, 401.0]
+    )
     np.testing.assert_allclose(truth_particle.depositions_q, [21.0])
     np.testing.assert_allclose(data["depositions_q_label"], [11.0, 21.0, 31.0])
     np.testing.assert_allclose(truth_interaction.depositions_q, [11.0, 21.0, 31.0])
@@ -171,11 +176,13 @@ def test_calibration_processor_skips_empty_particles(monkeypatch):
         index=np.empty(0, dtype=np.int64),
         points=np.empty((0, 3), dtype=np.float32),
         depositions=np.empty(0, dtype=np.float32),
+        depositions_q=np.empty(0, dtype=np.float32),
         sources=np.empty((0, 2), dtype=np.int64),
     )
     data = {
         "points": np.empty((0, 3), dtype=np.float32),
         "depositions": np.empty(0, dtype=np.float32),
+        "depositions_q": np.empty(0, dtype=np.float32),
         "sources": np.empty((0, 2), dtype=np.int64),
         "reco_particles": [particle],
         "reco_interactions": [],
@@ -185,6 +192,74 @@ def test_calibration_processor_skips_empty_particles(monkeypatch):
     processor.process(data)
 
     assert len(cast(FakeCalibrationManager, processor.calibrator).calls) == 1
+
+
+def test_calibration_processor_can_continue_from_depositions(monkeypatch):
+    """An explicit source should continue calibration from preferred values."""
+    monkeypatch.setattr(calo_mod, "CalibrationManager", FakeCalibrationManager)
+    particle = SimpleNamespace(
+        is_truth=False,
+        units="cm",
+        shape=0,
+        index=np.array([0], dtype=np.int64),
+        points=np.zeros((1, 3), dtype=np.float32),
+        depositions=np.array([10.0], dtype=np.float32),
+        depositions_q=np.array([100.0], dtype=np.float32),
+        sources=np.zeros((1, 2), dtype=np.int64),
+    )
+    data = {
+        "points": particle.points.copy(),
+        "depositions": particle.depositions.copy(),
+        "depositions_q": particle.depositions_q.copy(),
+        "sources": particle.sources.copy(),
+        "reco_particles": [particle],
+        "reco_interactions": [],
+    }
+    processor = CalibrationProcessor(run_mode="reco", depositions_source="depositions")
+
+    processor.process(data)
+
+    np.testing.assert_allclose(particle.depositions, [11.0])
+    np.testing.assert_allclose(data["depositions"], [11.0])
+    np.testing.assert_allclose(data["depositions_q"], [100.0])
+
+
+def test_calibration_processor_rejects_unknown_depositions_source(monkeypatch):
+    """Calibration should reject ambiguous deposition input names."""
+    monkeypatch.setattr(calo_mod, "CalibrationManager", FakeCalibrationManager)
+
+    with pytest.raises(ValueError, match="depositions_source"):
+        CalibrationProcessor(depositions_source="unknown")
+
+
+def test_calibration_processor_rejects_unavailable_depositions_source(monkeypatch):
+    """Old objects should select ``depositions`` explicitly for calibration."""
+    monkeypatch.setattr(calo_mod, "CalibrationManager", FakeCalibrationManager)
+    particle = SimpleNamespace(
+        is_truth=False,
+        units="cm",
+        shape=0,
+        index=np.array([0], dtype=np.int64),
+        points=np.zeros((1, 3), dtype=np.float32),
+        depositions=np.array([10.0], dtype=np.float32),
+        depositions_q=np.empty(0, dtype=np.float32),
+        sources=np.zeros((1, 2), dtype=np.int64),
+    )
+    data = {
+        "points": particle.points.copy(),
+        "depositions": particle.depositions.copy(),
+        "depositions_q": particle.depositions_q.copy(),
+        "sources": particle.sources.copy(),
+        "reco_particles": [particle],
+        "reco_interactions": [],
+    }
+
+    with pytest.raises(ValueError, match="has 0 values for 1 points"):
+        CalibrationProcessor(run_mode="reco").process(data)
+
+    del particle.depositions_q
+    with pytest.raises(ValueError, match="missing requested deposition source"):
+        CalibrationProcessor(run_mode="reco").process(data)
 
 
 def test_calibration_processor_skips_nonfinite_auxiliary_positions(monkeypatch):
@@ -283,6 +358,7 @@ def test_calibration_processor_updates_field_corrected_points(monkeypatch, fake_
         index=np.array([0], dtype=np.int32),
         points=points[[0]].copy(),
         depositions=depositions[[0]].copy(),
+        depositions_q=depositions[[0]].copy(),
         sources=sources[[0]].copy(),
         start_point=np.array([1.25, 0.0, 0.0]),
         end_point=np.array([4.25, 0.0, 0.0]),
@@ -298,6 +374,7 @@ def test_calibration_processor_updates_field_corrected_points(monkeypatch, fake_
     data = {
         "points": points.copy(),
         "depositions": depositions.copy(),
+        "depositions_q": depositions.copy(),
         "sources": sources,
         "reco_particles": [particle],
         "reco_interactions": [interaction],
