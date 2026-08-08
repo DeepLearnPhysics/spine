@@ -316,6 +316,7 @@ class Driver:
         rank: int | None = None,
         log_step: int = 1,
         distributed: bool = False,
+        ddp: bool | None = None,
         split_output: bool = False,
         train: dict[str, Any] | None = None,
         tensorboard: bool | Mapping[str, Any] | None = None,
@@ -356,6 +357,11 @@ class Driver:
         distributed : bool, default False
             If ``True``, mark this process as participating in distributed
             execution.
+        ddp : bool, optional
+            Whether to wrap the model in DistributedDataParallel. Defaults to
+            the distributed execution setting. Distributed training requires
+            this to be enabled; distributed inference may disable it while
+            retaining rank-based data sharding.
         split_output : bool, default False
             If ``True``, write one output file per input file.
         train : dict[str, Any] | None, optional
@@ -400,6 +406,11 @@ class Driver:
         self.distributed = distributed
         if not distributed and world_size > 1:
             self.distributed = True
+        self.ddp = self.distributed if ddp is None else ddp
+        if self.ddp and not self.distributed:
+            raise ValueError("`ddp` requires distributed execution.")
+        if train is not None and self.distributed and not self.ddp:
+            raise ValueError("Distributed training requires `ddp: true`.")
 
         # Store general parameters
         self.dtype = dtype
@@ -501,7 +512,7 @@ class Driver:
             train=dict(train) if train is not None else None,
             dtype=self.dtype,
             rank=self.rank,
-            distributed=self.distributed,
+            distributed=getattr(self, "ddp", getattr(self, "distributed", False)),
             iter_per_epoch=self.io.iter_per_epoch,
         )
 
@@ -636,7 +647,10 @@ class Driver:
             # (model only), follow a specific pattern of log names.
             start_iteration = self.model.start_iteration
             prefix = "train" if self.model.train else "inference"
-            suffix = "" if not self.model.distributed else f"_proc{self.rank}"
+            distributed = getattr(
+                self, "distributed", getattr(self.model, "distributed", False)
+            )
+            suffix = "" if not distributed else f"_proc{self.rank}"
             log_name = f"{prefix}{suffix}_log-{start_iteration:07d}.csv"
 
         # If requested, prefix the log name with the input file name

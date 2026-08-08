@@ -192,17 +192,13 @@ class TestMainEntryPoints:
     def test_main_functions_import(self):
         """Test all main functions can be imported."""
         from spine.main import (
-            inference_single,
             process_world,
             run,
             run_single,
-            train_single,
         )
 
         assert callable(run)
         assert callable(run_single)
-        assert callable(train_single)
-        assert callable(inference_single)
         assert callable(process_world)
 
     def test_model_less_inference_runs_once(self, monkeypatch):
@@ -214,7 +210,7 @@ class TestMainEntryPoints:
         class MockDriver:
             model = None
 
-            def __init__(self, cfg):
+            def __init__(self, cfg, rank=None):
                 self.cfg = cfg
 
             def run(self):
@@ -223,7 +219,7 @@ class TestMainEntryPoints:
         monkeypatch.setattr(main, "Driver", MockDriver)
 
         cfg = {"base": {}, "io": {"reader": {"name": "hdf5"}}}
-        main.inference_single(cfg)
+        main.run_single(None, cfg)
 
         assert calls == [cfg]
 
@@ -242,7 +238,7 @@ class TestMainEntryPoints:
         class MockDriver:
             model = MockModel()
 
-            def __init__(self, cfg):
+            def __init__(self, cfg, rank=None):
                 self.cfg = cfg
 
             def initialize_log(self):
@@ -253,7 +249,7 @@ class TestMainEntryPoints:
 
         monkeypatch.setattr(main, "Driver", MockDriver)
 
-        main.inference_single({"base": {}, "io": {"reader": {"name": "hdf5"}}})
+        main.run_single(None, {"base": {}, "io": {"reader": {"name": "hdf5"}}})
 
         assert calls == [
             ("load", "weights/a.ckpt"),

@@ -17,41 +17,43 @@ def test_run_requires_base_block():
 
 def test_run_dispatches_single_process(monkeypatch):
     """Non-distributed configs should dispatch through run_single."""
-    calls: list[dict[str, object]] = []
+    calls: list[tuple[int | None, dict[str, object]]] = []
 
     monkeypatch.setattr(main, "process_world", lambda base: (False, 1, None))
-    monkeypatch.setattr(main, "run_single", lambda cfg: calls.append(cfg))
+    monkeypatch.setattr(main, "run_single", lambda rank, cfg: calls.append((rank, cfg)))
 
     cfg = {"base": {}}
     main.run(cfg)
 
-    assert calls == [cfg]
+    assert calls == [(None, cfg)]
 
 
-def test_run_dispatches_external_rank_training(monkeypatch):
-    """Distributed runs with external rank should call train_single directly."""
-    calls: list[tuple[int | None, bool, int | None, str | None]] = []
+def test_run_dispatches_external_rank(monkeypatch):
+    """Externally ranked distributed runs should dispatch either mode directly."""
+    calls: list[tuple[int | None, bool, int | None, str | None, bool]] = []
 
     monkeypatch.setattr(main, "process_world", lambda base: (True, 4, "file_system"))
     monkeypatch.setattr(
         main,
-        "train_single",
+        "run_single",
         lambda rank, cfg, distributed, world_size, torch_sharing: calls.append(
-            (rank, distributed, world_size, torch_sharing)
+            (rank, distributed, world_size, torch_sharing, "train" in cfg["base"])
         ),
     )
     monkeypatch.setenv("RANK", "2")
 
     main.run({"base": {"train": {}}})
 
-    assert calls == [(2, True, 4, "file_system")]
+    main.run({"base": {}})
 
-    with pytest.raises(ValueError, match="supported for training"):
-        main.run({"base": {}})
+    assert calls == [
+        (2, True, 4, "file_system", True),
+        (2, True, 4, "file_system", False),
+    ]
 
 
-def test_run_distributed_spawn_and_validation(monkeypatch):
-    """Distributed runs should validate training mode and spawn when needed."""
+def test_run_distributed_spawn(monkeypatch):
+    """Distributed runs should spawn the worker for either execution mode."""
     spawn_calls: list[tuple[object, tuple[object, ...], int]] = []
     torch_runtime = SimpleNamespace(
         multiprocessing=SimpleNamespace(
@@ -64,43 +66,39 @@ def test_run_distributed_spawn_and_validation(monkeypatch):
     monkeypatch.setattr(main, "torch", torch_runtime)
     monkeypatch.delenv("RANK", raising=False)
 
-    with pytest.raises(ValueError, match="training"):
-        main.run({"base": {}})
-
     cfg = {"base": {"train": {}}}
     main.run(cfg)
-
-    assert spawn_calls == [(main.train_single, (cfg, True, 3, None), 3)]
-
-
-def test_run_single_dispatch(monkeypatch):
-    """run_single should split between train and inference modes."""
-    calls: list[tuple[str, dict[str, object]]] = []
-
-    monkeypatch.setattr(
-        main, "train_single", lambda **kwargs: calls.append(("train", kwargs["cfg"]))
-    )
-    monkeypatch.setattr(
-        main, "inference_single", lambda cfg: calls.append(("infer", cfg))
-    )
-
-    train_cfg = {"base": {"train": {}}}
     infer_cfg = {"base": {}}
-    main.run_single(train_cfg)
-    main.run_single(infer_cfg)
+    main.run(infer_cfg)
 
-    assert calls == [("train", train_cfg), ("infer", infer_cfg)]
+    assert spawn_calls == [
+        (main.run_single, (cfg, True, 3, None), 3),
+        (main.run_single, (infer_cfg, True, 3, None), 3),
+    ]
 
 
-def test_train_single_requires_torch(monkeypatch):
+def test_run_single_training_requires_torch(monkeypatch):
     """Training should fail fast when torch is unavailable."""
     monkeypatch.setattr(main, "TORCH_AVAILABLE", False)
 
     with pytest.raises(ImportError, match="PyTorch is required"):
-        main.train_single(rank=None, cfg={"base": {"train": {}}})
+        main.run_single(rank=None, cfg={"base": {"train": {}}})
 
 
-def test_train_single_distributed_flow(monkeypatch):
+def test_run_single_distributed_training_requires_ddp(monkeypatch):
+    """Distributed training should reject independent per-rank models."""
+    monkeypatch.setattr(main, "TORCH_AVAILABLE", True)
+
+    with pytest.raises(ValueError, match="Distributed training requires"):
+        main.run_single(
+            rank=0,
+            cfg={"base": {"train": {}, "ddp": False}},
+            distributed=True,
+            world_size=2,
+        )
+
+
+def test_run_single_distributed_training_flow(monkeypatch):
     """Distributed training should set sharing, setup DDP, run, and tear down."""
     calls: list[tuple[str, object]] = []
     torch_runtime = SimpleNamespace(
@@ -128,7 +126,7 @@ def test_train_single_distributed_flow(monkeypatch):
     )
     monkeypatch.setattr(main, "Driver", DummyDriver)
 
-    main.train_single(
+    main.run_single(
         rank=1,
         cfg={"base": {"train": {}}},
         distributed=True,
@@ -145,21 +143,21 @@ def test_train_single_distributed_flow(monkeypatch):
     ]
 
 
-def test_inference_single_weight_handling(monkeypatch):
+def test_run_single_inference_weight_handling(monkeypatch):
     """Inference should handle missing, scalar, and multiple weight paths."""
     calls: list[tuple[str, object]] = []
 
     class NoModelDriver:
         model = None
 
-        def __init__(self, cfg):
+        def __init__(self, cfg, rank=None):
             pass
 
         def run(self):
             calls.append(("run_none", None))
 
     monkeypatch.setattr(main, "Driver", NoModelDriver)
-    main.inference_single({"base": {}})
+    main.run_single(None, {"base": {}})
     assert calls == [("run_none", None)]
 
     class SingleModel:
@@ -168,7 +166,7 @@ def test_inference_single_weight_handling(monkeypatch):
     class SingleDriver:
         model = SingleModel()
 
-        def __init__(self, cfg):
+        def __init__(self, cfg, rank=None):
             pass
 
         def initialize_log(self):
@@ -178,7 +176,7 @@ def test_inference_single_weight_handling(monkeypatch):
             calls.append(("run_single", None))
 
     monkeypatch.setattr(main, "Driver", SingleDriver)
-    main.inference_single({"base": {}})
+    main.run_single(None, {"base": {}})
 
     class MultiModel:
         weight_path = ["weights/b.ckpt", "weights/a.ckpt"]
@@ -189,7 +187,7 @@ def test_inference_single_weight_handling(monkeypatch):
     class MultiDriver:
         model = MultiModel()
 
-        def __init__(self, cfg):
+        def __init__(self, cfg, rank=None):
             pass
 
         def initialize_log(self):
@@ -205,7 +203,7 @@ def test_inference_single_weight_handling(monkeypatch):
         "info",
         lambda message, count, weights: infos.append((message, count, weights)),
     )
-    main.inference_single({"base": {}})
+    main.run_single(None, {"base": {}})
 
     assert calls == [
         ("run_none", None),
@@ -218,6 +216,89 @@ def test_inference_single_weight_handling(monkeypatch):
         ("run_multi", None),
     ]
     assert infos and infos[0][1] == 2
+
+
+def test_run_single_distributed_ddp_inference_flow(monkeypatch):
+    """Distributed inference may reuse DDP setup and teardown."""
+    calls: list[tuple[str, object]] = []
+    torch_runtime = SimpleNamespace(
+        multiprocessing=SimpleNamespace(
+            set_sharing_strategy=lambda strategy: calls.append(("sharing", strategy))
+        ),
+        distributed=SimpleNamespace(
+            destroy_process_group=lambda: calls.append(("destroy", None))
+        ),
+    )
+
+    class DummyDriver:
+        model = None
+
+        def __init__(self, cfg, rank):
+            calls.append(("driver", rank))
+
+        def run(self):
+            calls.append(("run", None))
+
+    monkeypatch.setattr(main, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(main, "torch", torch_runtime)
+    monkeypatch.setattr(
+        main,
+        "setup_ddp",
+        lambda rank, world_size: calls.append(("setup", (rank, world_size))),
+    )
+    monkeypatch.setattr(main, "Driver", DummyDriver)
+
+    main.run_single(
+        rank=1,
+        cfg={"base": {}},
+        distributed=True,
+        world_size=4,
+        torch_sharing="file_system",
+    )
+
+    assert calls == [
+        ("sharing", "file_system"),
+        ("setup", (1, 4)),
+        ("driver", 1),
+        ("run", None),
+        ("destroy", None),
+    ]
+
+
+def test_run_single_distributed_inference_without_ddp(monkeypatch):
+    """Distributed inference may shard work without a DDP process group."""
+    calls: list[tuple[str, object]] = []
+    torch_runtime = SimpleNamespace(
+        multiprocessing=SimpleNamespace(set_sharing_strategy=lambda strategy: None),
+        distributed=SimpleNamespace(
+            destroy_process_group=lambda: calls.append(("destroy", None))
+        ),
+    )
+
+    class DummyDriver:
+        model = None
+
+        def __init__(self, cfg, rank):
+            calls.append(("driver", rank))
+
+        def run(self):
+            calls.append(("run", None))
+
+    monkeypatch.setattr(main, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(main, "torch", torch_runtime)
+    monkeypatch.setattr(
+        main, "set_process_device", lambda rank: calls.append(("device", rank))
+    )
+    monkeypatch.setattr(main, "Driver", DummyDriver)
+
+    main.run_single(
+        rank=3,
+        cfg={"base": {"ddp": False}},
+        distributed=True,
+        world_size=8,
+    )
+
+    assert calls == [("device", 3), ("driver", 3), ("run", None)]
 
 
 def test_process_world_and_setup_ddp(monkeypatch):
@@ -260,8 +341,8 @@ def test_process_world_and_setup_ddp(monkeypatch):
     main.setup_ddp(rank=2, world_size=8, backend="gloo")
 
     assert ddp_calls == [
-        ("init", {"backend": "gloo", "rank": 2, "world_size": 8}),
         ("device", 7),
+        ("init", {"backend": "gloo", "rank": 2, "world_size": 8}),
     ]
     assert main.os.environ["MASTER_ADDR"] == "localhost"
     assert main.os.environ["MASTER_PORT"] == "12355"

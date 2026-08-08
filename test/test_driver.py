@@ -266,6 +266,7 @@ def test_initialize_base_sets_runtime_state(monkeypatch):
     assert drv.rank == 1
     assert drv.main_process is False
     assert drv.distributed is True
+    assert drv.ddp is True
     assert drv.dtype == "float64"
     assert drv.iterations == 5
     assert drv.unwrap is True
@@ -293,6 +294,7 @@ def test_extract_driver_base_config_filters_runtime_keys():
         "torch_sharing_strategy": "file_system",
         "log_dir": "logs",
         "distributed": True,
+        "ddp": False,
         "tensorboard": True,
     }
 
@@ -304,8 +306,36 @@ def test_extract_driver_base_config_filters_runtime_keys():
         "world_size": 2,
         "log_dir": "logs",
         "distributed": True,
+        "ddp": False,
         "tensorboard": True,
     }
+
+
+def test_initialize_base_allows_non_ddp_distributed_inference_only():
+    """Independent distributed models are valid for inference, not training."""
+    drv = bare_driver()
+    drv.initialize_base(seed=1, world_size=2, rank=0, distributed=True, ddp=False)
+    assert drv.distributed is True
+    assert drv.ddp is False
+
+    with pytest.raises(ValueError, match="requires distributed execution"):
+        drv.initialize_base(
+            seed=1,
+            world_size=1,
+            rank=0,
+            distributed=False,
+            ddp=True,
+        )
+
+    with pytest.raises(ValueError, match="Distributed training requires"):
+        drv.initialize_base(
+            seed=1,
+            world_size=2,
+            rank=0,
+            distributed=True,
+            ddp=False,
+            train={"optimizer": {}},
+        )
 
 
 def test_extract_driver_base_config_rejects_unknown_keys():

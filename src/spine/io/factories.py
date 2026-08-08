@@ -159,6 +159,21 @@ def loader_factory(
         sampler = sampler_factory(
             sampler, torch_dataset, batch_size, distributed, world_size, rank
         )
+    elif distributed:
+        if rank is None:
+            raise ValueError(
+                "A distributed loader requires an explicit integer `rank`."
+            )
+
+        from torch.utils.data.distributed import DistributedSampler
+
+        sampler = DistributedSampler(
+            torch_dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=shuffle,
+        )
+        shuffle = False
 
     # Initialize the collate function
     if collate_fn is not None:

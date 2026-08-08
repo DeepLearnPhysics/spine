@@ -1,9 +1,9 @@
-"""Main functions that call the Driver class.
+"""Runtime orchestration for the central :class:`spine.driver.Driver`.
 
 This is the first module called when launching a binary script under the `bin`
-directory. It takes care of setting up the environment and the `Driver`
-object(s) used to execute/train ML models, post-processors, analysis
-scripts, writers and profilers.
+directory. It resolves the requested device world, launches one process per
+rank when needed, initializes optional DistributedDataParallel (DDP) state and
+runs the configured training, inference or analysis workflow.
 """
 
 import os
@@ -16,12 +16,23 @@ from .utils.torch.devices import set_visible_devices
 
 
 def run(cfg: dict) -> None:
-    """Execute a model in one or more processes.
+    """Launch a configured SPINE workflow in one or more processes.
+
+    Single-process workflows are executed directly. Distributed workflows
+    either use the rank supplied by an external launcher such as SLURM or
+    ``torchrun``, or spawn one local process per requested device.
 
     Parameters
     ----------
     cfg : dict
-        Full driver/trainer configuration
+        Complete SPINE driver configuration. It must contain a ``base`` block
+        describing the execution world.
+
+    Raises
+    ------
+    ValueError
+        If the configuration does not contain a ``base`` block or requests an
+        invalid execution world.
     """
     # Process the configuration to set up the driver world
     if "base" not in cfg:
@@ -34,105 +45,108 @@ def run(cfg: dict) -> None:
     # Launch the training/inference process
     if not distributed:
         # Run a single process on a single GPU (or CPU if no GPUs available)
-        run_single(cfg)
+        run_single(None, cfg)
 
     elif rank is not None:
         # Multi-node: rank provided externally by SLURM/torchrun, run directly
-        if "train" not in cfg["base"]:
-            raise ValueError("Distributed execution is only supported for training.")
-        train_single(rank, cfg, distributed, world_size, torch_sharing)
+        run_single(rank, cfg, distributed, world_size, torch_sharing)
 
     else:
         # Single-node multi-GPU: launch processes using multiprocessing.spawn
-        if "train" not in cfg["base"]:
-            raise ValueError("Distributed execution is only supported for training.")
         torch.multiprocessing.spawn(
-            train_single,
+            run_single,
             args=(cfg, distributed, world_size, torch_sharing),
             nprocs=world_size,
         )
 
 
-def run_single(cfg: dict) -> None:
-    """Execute a model on a single process.
-
-    Parameters
-    ----------
-    cfg : dict
-        Full driver/trainer configuration
-    """
-    # Dispatch
-    if "train" in cfg["base"]:
-        train_single(cfg=cfg, rank=None)
-    else:
-        inference_single(cfg)
-
-
-def train_single(
+def run_single(
     rank: Optional[int],
     cfg: dict,
     distributed: bool = False,
     world_size: Optional[int] = None,
     torch_sharing: Optional[str] = None,
 ) -> None:
-    """Train a model in a single process.
+    """Execute one training or inference worker process.
+
+    This function follows the rank-first calling convention required by
+    :func:`torch.multiprocessing.spawn`. It is also used directly for ordinary
+    single-process execution and for ranks created by external multi-node
+    launchers.
 
     Parameters
     ----------
     rank : int, optional
-        Process rank
+        Global process rank. ``None`` identifies a non-distributed process.
     cfg : dict
-        Full driver/trainer configuration
+        Complete SPINE driver configuration.
     distributed : bool, default False
-        If `True`, distribute the training process
+        If ``True``, this worker participates in distributed execution and its
+        loader is sharded by ``rank`` and ``world_size``.
     world_size : int, optional
-        Number of devices to use in the distributed training process
+        Total number of processes across all nodes. Required when
+        ``distributed`` is ``True``.
     torch_sharing : str or None, optional
-        File sharing strategy for torch distributed training
-    """
-    configure_rank_logging(rank)
+        PyTorch multiprocessing file-sharing strategy.
 
-    # Training always requires torch
-    if not TORCH_AVAILABLE:
+    Raises
+    ------
+    ImportError
+        If PyTorch is unavailable for training or distributed execution.
+    ValueError
+        If distributed training explicitly disables DDP.
+    """
+    # Determine the execution mode from the presence of a training block
+    train = "train" in cfg["base"]
+
+    # Validate requirements shared by training and distributed inference
+    if (train or distributed) and not TORCH_AVAILABLE:
         raise ImportError(
-            "PyTorch is required for training. "
+            "PyTorch is required for training or distributed execution. "
             "Install with: pip install spine[model]"
         )
 
-    # Set the torch sharing strategy, if needed
-    if distributed and torch_sharing is not None:
-        torch.multiprocessing.set_sharing_strategy(torch_sharing)
+    if train and distributed and not cfg["base"].get("ddp", True):
+        raise ValueError("Distributed training requires `base.ddp: true`.")
 
-    # If distributed, setup the process group
+    # Configure rank-aware logging before initializing worker-owned modules
+    configure_rank_logging(rank)
+
+    # Initialize the process-local device and optional DDP process group
     if distributed:
         assert rank is not None and world_size is not None
-        setup_ddp(rank, world_size)
+        if torch_sharing is not None:
+            torch.multiprocessing.set_sharing_strategy(torch_sharing)
 
-    # Prepare the trainer
-    driver = Driver(cfg, rank)
+        # Non-DDP inference still needs a rank-local device for independent
+        # model execution; data sharding is handled separately by the loader.
+        if cfg["base"].get("ddp", True):
+            setup_ddp(rank, world_size)
+        else:
+            set_process_device(rank)
 
-    # Run the training process
-    driver.run()
+    # Build and execute the driver, then release distributed resources
+    try:
+        driver = Driver(cfg, rank)
+        if train:
+            driver.run()
+        else:
+            run_inference(driver)
+    finally:
+        if distributed and cfg["base"].get("ddp", True):
+            torch.distributed.destroy_process_group()
 
-    # If distributed, destroy the process group
-    if distributed:
-        torch.distributed.destroy_process_group()
 
-
-def inference_single(cfg: dict) -> None:
-    """Execute a model in inference mode in a single process.
+def run_inference(driver: Driver) -> None:
+    """Run a prepared driver for each configured inference checkpoint.
 
     Parameters
     ----------
-    cfg : dict
-        Full driver configuration
+    driver : Driver
+        Initialized inference driver. Its model may provide one checkpoint, a
+        sorted collection of checkpoints or no pretrained weights.
     """
-    configure_rank_logging()
-
-    # Prepare the driver
-    driver = Driver(cfg)
-
-    # Find the set of weights to run the inference on
+    # Resolve the checkpoint sequence; scalar paths are loaded by the manager
     preloaded, weights = False, []
     if driver.model is not None:
         weights = driver.model.weight_path
@@ -148,7 +162,7 @@ def inference_single(cfg: dict) -> None:
     if not weights:
         weights = [None]
 
-    # Loop over the weights, run the inference loop
+    # Run once per checkpoint, reloading only collections handled at this level
     for weight in weights:
         if driver.model is not None and weight is not None and not preloaded:
             driver.model.load_weights(weight)
@@ -157,22 +171,41 @@ def inference_single(cfg: dict) -> None:
         driver.run()
 
 
+def set_process_device(rank: int) -> None:
+    """Assign a distributed worker to its node-local CUDA device.
+
+    Parameters
+    ----------
+    rank : int
+        Global process rank. It is used as the device index for local spawning
+        when an external launcher does not provide ``LOCAL_RANK``.
+    """
+    local_rank = int(os.environ.get("LOCAL_RANK", rank))
+    torch.cuda.set_device(local_rank)
+
+
 def process_world(base: dict) -> Tuple[bool, int, Optional[str]]:
-    """Check on the number of available GPUs and what has been requested.
+    """Resolve and validate the requested execution world.
 
     Parameters
     ----------
     base : dict
-        Base driver configuration dictionary
+        Base driver configuration dictionary.
 
     Returns
     -------
     distributed : bool
-        If `True`, distribute the training process
+        Whether execution should be distributed across ranks.
     world_size : int
-        Number of devices to use in the distributed training process
+        Number of requested execution processes.
     torch_sharing : str or None
-        File sharing strategy for torch distributed training
+        Validated PyTorch multiprocessing file-sharing strategy.
+
+    Raises
+    ------
+    ValueError
+        If multiple devices are requested with distribution disabled, or if
+        the requested file-sharing strategy is invalid.
     """
     # Set the verbosity of the logger
     verbosity = base.get("verbosity", "info")
@@ -206,25 +239,23 @@ def process_world(base: dict) -> Tuple[bool, int, Optional[str]]:
 
 
 def setup_ddp(rank: int, world_size: int, backend: str = "nccl") -> None:
-    """Sets up the DistributedDataParallel environment.
+    """Initialize the process group for a DDP worker.
 
     Parameters
     ----------
     rank : int
-        Global rank of this process (0 to world_size-1)
+        Global rank of this process, in ``[0, world_size)``.
     world_size : int
-        Total number of processes across all nodes
+        Total number of processes across all nodes.
     backend : str, default "nccl"
-        Distributed backend to use
+        PyTorch distributed backend.
 
     Notes
     -----
-    For multi-node training, set these environment variables:
-    - MASTER_ADDR: IP address of the master node
-    - MASTER_PORT: Free port on the master node
-    - RANK: Global rank (0 to world_size-1)
-    - WORLD_SIZE: Total number of processes
-    - LOCAL_RANK (optional): Local rank on this node
+    External multi-node launchers should provide ``MASTER_ADDR``,
+    ``MASTER_PORT``, ``RANK``, ``WORLD_SIZE`` and, when multiple devices are
+    available on each node, ``LOCAL_RANK``. Single-node spawning falls back to
+    a local rendezvous address and uses the global rank as the local rank.
     """
     # Set master address and port from environment, or use defaults for single-node
     if "MASTER_ADDR" not in os.environ:
@@ -232,13 +263,10 @@ def setup_ddp(rank: int, world_size: int, backend: str = "nccl") -> None:
     if "MASTER_PORT" not in os.environ:
         os.environ["MASTER_PORT"] = "12355"
 
-    # Get local rank for setting the correct GPU device
-    # In multi-node: LOCAL_RANK is the GPU index on this machine
-    # In single-node: rank is the GPU index
-    local_rank = int(os.environ.get("LOCAL_RANK", rank))
+    # Select the node-local device before initializing the NCCL process group.
+    set_process_device(rank)
 
     # Initialize the process group for this GPU
     torch.distributed.init_process_group(
         backend=backend, rank=rank, world_size=world_size
     )
-    torch.cuda.set_device(local_rank)

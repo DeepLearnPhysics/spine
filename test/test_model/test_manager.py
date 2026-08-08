@@ -726,6 +726,30 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
     assert manager.start_iteration == 7
 
 
+def test_load_weights_targets_unwrapped_ddp_network(tmp_path):
+    """DDP inference should reload bare checkpoint keys into the wrapped module."""
+    path = tmp_path / "ddp.ckpt"
+    source = torch.nn.Linear(1, 1)
+    torch.save(
+        {"state_dict": source.state_dict(), "global_step": 4},
+        path,
+    )
+    target = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=SimpleNamespace(module=target),
+        distributed=True,
+        train=False,
+    )
+
+    manager.load_weights(str(path))
+
+    assert torch.equal(target.weight, source.weight)
+    assert torch.equal(target.bias, source.bias)
+    assert manager.start_iteration == 5
+
+
 def test_load_weights_does_not_hide_unrelated_type_errors(monkeypatch, tmp_path):
     """The compatibility retry catches only unsupported `weights_only` APIs."""
     path = tmp_path / "bad-api.ckpt"

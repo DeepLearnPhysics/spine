@@ -363,6 +363,43 @@ def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):
             rank=None,
         )
 
+    with pytest.raises(ValueError, match="explicit integer `rank`"):
+        factories_module.loader_factory(
+            dataset={"name": "dummy"},
+            dtype="float32",
+            minibatch_size=2,
+            distributed=True,
+            world_size=2,
+            rank=None,
+        )
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for distributed loader factory tests.",
+)
+def test_loader_factory_shards_without_explicit_sampler(monkeypatch):
+    """Distributed inference should shard ordinary loaders automatically."""
+    from torch.utils.data.distributed import DistributedSampler
+
+    dataset = list(range(8))
+    monkeypatch.setattr(
+        factories_module, "dataset_factory", lambda *args, **kwargs: dataset
+    )
+
+    loader = factories_module.loader_factory(
+        dataset={"name": "dummy"},
+        dtype="float32",
+        minibatch_size=2,
+        shuffle=False,
+        distributed=True,
+        world_size=2,
+        rank=1,
+    )
+
+    assert isinstance(loader.sampler, DistributedSampler)
+    assert list(loader.sampler) == [1, 3, 5, 7]
+
 
 def test_dataset_factory_forwards_dtype(monkeypatch):
     """Dataset factory should forward shared dataset initialization settings."""

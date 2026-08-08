@@ -476,6 +476,14 @@ class ModelManager:
         if not weight_paths:
             return
 
+        # DDP checkpoints use the unwrapped network state. This also permits
+        # loading another checkpoint after an inference model has been wrapped.
+        net = (
+            getattr(self.net, "module", self.net)
+            if getattr(self, "distributed", False)
+            else self.net
+        )
+
         # Loop over provided model paths
         for module, weight_path, model_name in weight_paths:
             # Module-level weight paths must resolve to a single checkpoint.
@@ -504,14 +512,14 @@ class ModelManager:
                 # Check that all the needed weights are provided
                 missing_keys = []
                 if module == self.model_name:
-                    for name in self.net.state_dict():
+                    for name in net.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
 
                 else:
                     # Update the key names according to the name used to store
                     state_dict = {}
-                    for name in self.net.state_dict():
+                    for name in net.state_dict():
                         if f"{module}." in name:
                             suffix = "." if len(model_name) > 0 else ""
                             key = name.replace(f"{module}.", f"{model_name}{suffix}")
@@ -531,7 +539,7 @@ class ModelManager:
                     )
 
                 # Load checkpoint. Check that all weights are used
-                bad_keys = self.net.load_state_dict(state_dict, strict=False)
+                bad_keys = net.load_state_dict(state_dict, strict=False)
                 if len(bad_keys.unexpected_keys) > 0:
                     logger.warning(
                         "This weight file contains parameters that could "
