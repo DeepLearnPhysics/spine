@@ -15,7 +15,7 @@ try:
         MaskAugment,
         RotateAugment,
     )
-except ImportError as err:  # pragma: no cover - environment dependent
+except ImportError as err:
     pytest.skip(f"Torch augmentation stack unavailable: {err}", allow_module_level=True)
 
 

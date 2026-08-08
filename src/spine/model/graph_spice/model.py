@@ -558,8 +558,7 @@ class GraphSPICELoss(torch.nn.Module):
         # If requested, compute clustering metrics
         if self.evaluate_clustering_metrics:
             constructor = self.constructor
-            if constructor is None:  # pragma: no cover
-                raise RuntimeError("Clustering metrics require a graph constructor.")
+            assert constructor is not None
 
             # Assign cluster IDs to each of the input points, if not yet done
             if "node_pred" not in output:

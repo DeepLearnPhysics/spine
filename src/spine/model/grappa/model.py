@@ -1008,8 +1008,8 @@ class GrapPALoss(torch.nn.Module):
                     result[f"{prefix}_{k}"] = v
 
         # Append the total loss and total accuracy
-        if total_loss is None or num_losses == 0:  # pragma: no cover
-            raise RuntimeError("No GrapPA losses were evaluated.")
+        assert total_loss is not None
+        assert num_losses > 0
         result["loss"] = total_loss / num_losses
         result["accuracy"] = total_accuracy / num_losses
 

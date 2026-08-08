@@ -664,7 +664,7 @@ def _download_worker(url, cache_dir, worker_id, result_queue):
         with patch("spine.config.download.download_file", side_effect=fake_download):
             result = download_from_url(url, cache_dir=cache_dir)
             result_queue.put((worker_id, "success", result))
-    except Exception as exc:  # pragma: no cover - reported through the queue
+    except Exception as exc:
         result_queue.put((worker_id, "error", str(exc)))
 
 

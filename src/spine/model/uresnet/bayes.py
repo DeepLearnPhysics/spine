@@ -221,8 +221,8 @@ class BayesianUResNet(torch.nn.Module):
                         else probability_sum + probabilities
                     )
 
-            if logits_sum is None or probability_sum is None:  # pragma: no cover
-                raise RuntimeError("Monte Carlo inference produced no samples.")
+            assert logits_sum is not None
+            assert probability_sum is not None
             segmentation = logits_sum / self.num_samples
             softmax = probability_sum / self.num_samples
             return {

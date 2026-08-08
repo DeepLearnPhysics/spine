@@ -106,8 +106,7 @@ class TensorBatch(BatchBase):
             # Define the array functions depending on the input type
             if not has_batch_col:
                 raise ValueError("Cannot get the counts without a batch column.")
-            if batch_size is None:  # pragma: no cover
-                raise ValueError("Must provide `batch_size` to infer counts.")
+            assert batch_size is not None
             batch_size_value = batch_size
 
             ref = data

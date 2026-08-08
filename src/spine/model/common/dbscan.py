@@ -253,8 +253,7 @@ class DBSCAN(torch.nn.Module):
                 points = TensorBatch(points_tensor, 2 * coord_label.counts)
                 point_shapes = TensorBatch(point_shapes_tensor, 2 * coord_label.counts)
             else:
-                if self.ppn_predictor is None:  # pragma: no cover
-                    raise ValueError("PPN point breaking is not configured.")
+                assert self.ppn_predictor is not None
                 ppn_points = cast(TensorBatch, self.ppn_predictor(**ppn_result))
                 points = ppn_points.coords
                 point_shapes = ppn_points.feature("shape").values

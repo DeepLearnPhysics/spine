@@ -637,6 +637,8 @@ class ModelManager:
 
             # Compute the loss if one is specified, append results
             if self.loss_dict:
+                # Configured loss inputs guarantee construction of a loss module.
+                assert self.loss_fn is not None
                 if not self.time_dependent:
                     result.update(self.loss_fn(**loss_dict, **result))
                 else:

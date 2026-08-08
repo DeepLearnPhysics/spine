@@ -489,8 +489,7 @@ class ImageLoss(torch.nn.Module):
                 classification_accuracies.append(float(task_result["accuracy"]))
 
         # Combine task losses and classification-only summary metrics
-        if total_loss is None:  # pragma: no cover - constructor requires tasks
-            raise RuntimeError("Image loss contains no tasks.")
+        assert total_loss is not None
         result["loss"] = total_loss
         if classification_accuracies:
             result["accuracy"] = sum(classification_accuracies) / len(

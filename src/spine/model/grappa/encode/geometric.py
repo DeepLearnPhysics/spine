@@ -207,8 +207,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
         # Add the points
         if self.add_points:
             if points is None:
-                if coord_label is None:  # pragma: no cover - validated above
-                    raise RuntimeError("Point labels were validated but are missing.")
+                assert coord_label is not None
                 if not isinstance(data, ClusterLabelBatch):
                     raise TypeError(
                         "Deriving labeled cluster points requires structured "
@@ -222,8 +221,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Add the local directions
         if self.add_local_dirs:
-            if points is None:  # pragma: no cover - constructed above
-                raise RuntimeError("Local directions require endpoint data.")
+            assert points is not None
             point_tensor = points.torch_tensor()
             for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
                 starts = TensorBatch(point_tensor[:, cols], points.counts)
@@ -234,8 +232,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Add the local dE/dx information
         if self.add_local_dedxs:
-            if points is None:  # pragma: no cover - constructed above
-                raise RuntimeError("Local dE/dx requires endpoint data.")
+            assert points is not None
             point_tensor = points.torch_tensor()
             for cols in np.arange(point_tensor.shape[1]).reshape(-1, 3):
                 starts = TensorBatch(point_tensor[:, cols], points.counts)
@@ -248,8 +245,7 @@ class ClustGeoNodeEncoder(torch.nn.Module):
 
         # Return
         if self.add_points:
-            if points is None:  # pragma: no cover - constructed above
-                raise RuntimeError("Endpoint data was not constructed.")
+            assert points is not None
             return feats, points
 
         return feats

@@ -182,8 +182,7 @@ class MetaLayerGNN(torch.nn.Module):
         if self.mp_layers[0].node_model is not None and self.node_pred:
             result["node_features"] = TensorBatch(x, node_feats.counts)
         if self.mp_layers[0].edge_model is not None and self.edge_pred:
-            if edge_tensor is None:  # pragma: no cover - edge model returns a tensor
-                raise RuntimeError("Edge update did not produce edge features.")
+            assert edge_tensor is not None
             if edge_feats is None:
                 edge_batches = batch[edge_index[0]]
                 edge_counts = torch.bincount(
@@ -197,8 +196,7 @@ class MetaLayerGNN(torch.nn.Module):
                 edge_counts,
             )
         if self.mp_layers[0].global_model is not None and self.global_pred:
-            if u is None:  # pragma: no cover - global model returns a tensor
-                raise RuntimeError("Global update did not produce global features.")
+            assert u is not None
             global_counts = (
                 [1] * node_feats.batch_size if glob_feats is None else glob_feats.counts
             )

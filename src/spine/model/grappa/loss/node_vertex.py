@@ -190,12 +190,9 @@ class NodeVertexLoss(torch.nn.Module):
 
         # If requested, check that the vertexes are contained
         if self.only_contained:
-            if (  # pragma: no cover - constructor/entry validation narrows these
-                meta is None or self.geo is None or self.cont_def is None
-            ):
-                raise RuntimeError(
-                    "Containment checking requires geometry and metadata."
-                )
+            assert meta is not None
+            assert self.geo is not None
+            assert self.cont_def is not None
             contain_mask = np.empty(len(clusts.index_list), dtype=bool)
             for batch_id in range(vertex_labels.batch_size):
                 lower = vertex_labels.edges[batch_id]
@@ -210,8 +207,7 @@ class NodeVertexLoss(torch.nn.Module):
         # If requested, normalize the target positions to the detector size
         position_scales = None
         if self.normalize_positions:
-            if meta is None:  # pragma: no cover - validated on entry
-                raise RuntimeError("Position normalization requires metadata.")
+            assert meta is not None
             if len(meta) != vertex_labels.batch_size:
                 raise ValueError(
                     "Expected one metadata entry per batch entry, but received "
@@ -249,8 +245,7 @@ class NodeVertexLoss(torch.nn.Module):
                 )
             ).view(-1, 2, 3)
             if self.normalize_positions:
-                if position_scales is None:  # pragma: no cover - built above
-                    raise RuntimeError("Anchor normalization requires position scales.")
+                assert position_scales is not None
                 points = points / torch.as_tensor(
                     position_scales,
                     dtype=points.dtype,

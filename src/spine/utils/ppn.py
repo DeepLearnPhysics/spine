@@ -318,8 +318,7 @@ class PPNPredictor:
         # Get the PPN point predictions
         coords = ppn_coords + 0.5 + offsets
         if self.enforce_type:
-            if segmentation_values is None:  # pragma: no cover - guarded above
-                raise RuntimeError("Segmentation values were not initialized.")
+            assert segmentation_values is not None
             # Loop over the invidual classes
             seg_masks = []
             for c in self.classes:

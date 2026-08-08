@@ -396,8 +396,7 @@ class LArCVCluster3DParser(ParserBase):
         particle_table = None
         if self.include_particle_info:
             # Check that that particle objects are of the expected length
-            if particle_event is None:  # pragma: no cover - validated in __init__
-                raise RuntimeError("Particle input was not loaded.")
+            assert particle_event is not None
             num_particles = particle_event.size()
             if num_particles not in (num_clusters, num_clusters - 1):
                 raise ValueError(

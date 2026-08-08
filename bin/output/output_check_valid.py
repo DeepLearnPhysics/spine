@@ -26,7 +26,7 @@ from tqdm import tqdm
 try:
     from larcv import larcv  # pylint: disable=W0611
     from ROOT import TFile  # pylint: disable=E0611
-except ImportError:  # pragma: no cover - exercised in test_bin without ROOT/LArCV
+except ImportError:
     larcv = None
     TFile = None
 

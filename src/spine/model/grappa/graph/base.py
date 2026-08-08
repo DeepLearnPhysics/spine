@@ -161,8 +161,7 @@ class GraphBase:
 
         # Cut on the edge length, if specified
         if self.max_length is not None:
-            if dist_mat is None:  # pragma: no cover - computed above
-                raise ValueError("Must provide `dist_mat` to restrict edge length.")
+            assert dist_mat is not None
             edge_index, edge_counts = self.restrict(
                 edge_index, edge_counts, dist_mat, classes
             )

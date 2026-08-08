@@ -318,12 +318,8 @@ class PPN(sparse.Network):
         if self.ghost:
             ghost_mask_layer = self.ghost_mask
             masker = self.masker
-            if (  # pragma: no cover - both modules are constructed with ghost mode
-                ghost_mask_layer is None or masker is None
-            ):
-                raise RuntimeError(
-                    "Ghost-enabled PPN is missing its ghost-processing modules."
-                )
+            assert ghost_mask_layer is not None
+            assert masker is not None
 
             # If there are ghosts, must downsample the ghost label/prediction
             # and apply it to each decoder feature map
@@ -404,10 +400,8 @@ class PPN(sparse.Network):
             # Merge with the UesNet decoding features
             decoder_tensor = decoder_feature_maps[level]
             if self.ghost:
-                if (  # pragma: no cover - both modules are constructed with ghost mode
-                    self.merge_concat is None or self.masker is None
-                ):
-                    raise RuntimeError("Ghost-enabled PPN is missing its merge module.")
+                assert self.merge_concat is not None
+                assert self.masker is not None
                 x = self.masker(x, decoder_ghost_masks[level])
                 x = self.merge_concat(decoder_tensor, x)
             else:
@@ -467,20 +461,8 @@ class PPN(sparse.Network):
             x = x * expanded_scores.detach()
 
         # Output set of coordinates (should match the last decoder tensor)
-        if (  # pragma: no cover - decoder construction preserves its site count
-            x.coordinates.shape[0] != decoder_feature_maps[-1].shape[0]
-        ):
-            raise ValueError(
-                "The output of the last PPN layer should be consistent "
-                "with the length of the last UResNet decoder layer"
-            )
-        if not torch.equal(  # pragma: no cover - decoder maps share coordinates
-            x.coordinates, decoder_feature_maps[-1].coordinates
-        ):
-            raise ValueError(
-                "The final PPN coordinates must match the highest-resolution "
-                "decoder coordinates."
-            )
+        assert x.coordinates.shape[0] == decoder_feature_maps[-1].shape[0]
+        assert torch.equal(x.coordinates, decoder_feature_maps[-1].coordinates)
         final_counts = x.counts
         ppn_output_coords = TensorBatch(
             x.coordinates,
