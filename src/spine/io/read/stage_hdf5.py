@@ -16,6 +16,9 @@ from .hdf5 import HDF5Reader
 
 __all__ = ["StageHDF5Reader"]
 
+StageConfig = dict[str, object]
+StageConfigMap = dict[str, StageConfig | None]
+
 
 class StageHDF5Reader(HDF5Reader):
     """Read products stored under one or more stage groups in a cache file.
@@ -67,6 +70,7 @@ class StageHDF5Reader(HDF5Reader):
             discovery, entry selection, object reconstruction, file-handle
             lifetime, and incomplete-stage handling.
         """
+        # Store routing policy before inspecting the available stage schemas
         self.stage = stage
         self.stage_map = dict(stage_map or {})
         self.requested_keys = tuple(keys) if keys is not None else None
@@ -79,6 +83,7 @@ class StageHDF5Reader(HDF5Reader):
         self._resolved_products: dict[int, dict[str, str]] = {}
         self._source_info: dict[int, dict[str, object]] = {}
 
+        # Build the global event axis and resolve products independently per file
         file_index = []
         self.num_entries = 0
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
@@ -101,6 +106,7 @@ class StageHDF5Reader(HDF5Reader):
         self.run_info = None
         self.run_map = None
 
+        # Apply the standard reader entry projection to the merged event axis
         self.process_entry_list(
             n_entry,
             n_skip,
@@ -111,6 +117,7 @@ class StageHDF5Reader(HDF5Reader):
             allow_missing,
         )
 
+        # Finish the inherited object reconstruction and file metadata setup
         self.build_classes = build_classes
         self.skip_unknown_attrs = skip_unknown_attrs
         self.cfg = self.process_cfg()
@@ -126,6 +133,11 @@ class StageHDF5Reader(HDF5Reader):
             Open cache file handle.
         path : str
             File path used to build informative error messages.
+
+        Returns
+        -------
+        h5py.Group
+            Top-level group containing the staged-cache products.
         """
         assert "stages" in in_file, f"Stage-cache file '{path}' is missing 'stages'."
         stages = in_file["stages"]
@@ -146,6 +158,11 @@ class StageHDF5Reader(HDF5Reader):
             File path used to build informative error messages.
         stage : str
             Name of the stage group to load under ``/stages``.
+
+        Returns
+        -------
+        h5py.Group
+            Requested stage group.
         """
         stages = cls.get_stages_group(in_file, path)
         assert (
@@ -181,16 +198,71 @@ class StageHDF5Reader(HDF5Reader):
         file_name = source_group.attrs["file_name"]
         if isinstance(file_name, bytes):
             file_name = file_name.decode()
+        if not isinstance(file_name, str):
+            raise TypeError("Source attribute 'file_name' must be a string.")
+
+        # Provenance sizes are serialized as scalar integer attributes. Make
+        # that contract explicit before converting NumPy integer scalars.
+        file_size = StageHDF5Reader.read_integer_attribute(source_group, "file_size")
+        file_mtime_ns = StageHDF5Reader.read_integer_attribute(
+            source_group, "file_mtime_ns"
+        )
         return {
             "source_file_name": file_name,
-            "source_file_size": int(source_group.attrs["file_size"]),
-            "source_file_mtime_ns": int(source_group.attrs["file_mtime_ns"]),
+            "source_file_size": file_size,
+            "source_file_mtime_ns": file_mtime_ns,
         }
+
+    @staticmethod
+    def read_integer_attribute(group: h5py.Group, name: str) -> int:
+        """Return one required scalar integer group attribute.
+
+        Parameters
+        ----------
+        group : h5py.Group
+            Group containing the requested attribute.
+        name : str
+            Attribute name.
+
+        Returns
+        -------
+        int
+            Normalized Python integer value.
+
+        Raises
+        ------
+        TypeError
+            If the attribute is not a scalar integer.
+        """
+        value = np.asarray(group.attrs[name])
+        if value.ndim != 0 or not np.issubdtype(value.dtype, np.integer):
+            raise TypeError(f"Source attribute '{name}' must be a scalar integer.")
+        return int(value.item())
+
+    @staticmethod
+    def list_stage_names(stages: h5py.Group) -> tuple[str, ...]:
+        """Return validated stage names from the top-level stages group."""
+        names = []
+        for name in stages:
+            if not isinstance(name, str):
+                raise TypeError("HDF5 stage names must be strings.")
+            names.append(name)
+        return tuple(names)
 
     def list_stage_keys(self, stage_group: h5py.Group) -> tuple[str, ...]:
         """List product keys stored in one stage group.
 
         This excludes the administrative ``info`` and ``events`` members.
+
+        Parameters
+        ----------
+        stage_group : h5py.Group
+            Stage group whose logical product keys should be listed.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Stored logical product names.
         """
         return tuple(key for key in stage_group.keys() if key not in {"info", "events"})
 
@@ -205,6 +277,25 @@ class StageHDF5Reader(HDF5Reader):
 
         Automatic discovery requires a unique match. If the same product name
         appears in multiple stages, the caller must disambiguate it.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open staged-cache file.
+        path : str
+            File path used in diagnostics.
+
+        Returns
+        -------
+        dict[str, str]
+            Mapping from exposed product names to their owning stages.
+
+        Raises
+        ------
+        KeyError
+            If a requested product cannot be found in its configured stage.
+        ValueError
+            If automatic discovery finds a product in multiple stages.
         """
         if (
             self.stage is not None
@@ -215,19 +306,22 @@ class StageHDF5Reader(HDF5Reader):
             self.check_stage_complete(stage_group, path, self.stage)
             return {key: self.stage for key in self.list_stage_keys(stage_group)}
 
+        # Derive the complete logical key set when no projection was requested
         stages = self.get_stages_group(in_file, path)
+        stage_names = self.list_stage_names(stages)
         required_keys = (
             tuple(self.requested_keys)
             if self.requested_keys is not None
             else tuple(
                 key
-                for stage_name in stages
+                for stage_name in stage_names
                 for key in self.list_stage_keys(
                     self.get_stage_group(in_file, path, stage_name)
                 )
             )
         )
 
+        # Apply explicit mappings first, then the default or unique discovery
         resolved: dict[str, str] = {}
         for key in required_keys:
             if key in self.stage_map:
@@ -253,8 +347,9 @@ class StageHDF5Reader(HDF5Reader):
                 resolved[key] = self.stage
                 continue
 
+            # Without a configured stage, require exactly one owning stage
             candidates = []
-            for stage_name in stages:
+            for stage_name in stage_names:
                 stage_group = self.get_stage_group(in_file, path, stage_name)
                 if key in stage_group:
                     self.check_stage_complete(stage_group, path, stage_name)
@@ -312,6 +407,11 @@ class StageHDF5Reader(HDF5Reader):
             Cache file path.
         product_stage_map : mapping
             Mapping from requested raw product key to resolved stage name.
+
+        Returns
+        -------
+        dict[str, int]
+            Event count for every referenced stage.
         """
         stage_lengths: dict[str, int] = {}
         for stage_name in set(product_stage_map.values()):
@@ -327,10 +427,22 @@ class StageHDF5Reader(HDF5Reader):
     def validate_stage_lengths(path: str, stage_lengths: Mapping[str, int]) -> int:
         """Ensure all referenced stages in one file have the same length.
 
+        Parameters
+        ----------
+        path : str
+            Cache path used in mismatch diagnostics.
+        stage_lengths : mapping
+            Event counts keyed by stage name.
+
         Returns
         -------
         int
             Shared number of entries across all referenced stages.
+
+        Raises
+        ------
+        ValueError
+            If referenced stages expose different event counts.
         """
         lengths = list(stage_lengths.values())
         if not lengths:
@@ -342,7 +454,7 @@ class StageHDF5Reader(HDF5Reader):
             )
         return lengths[0]
 
-    def process_cfg(self) -> dict[str, object] | None:
+    def process_cfg(self) -> StageConfig | StageConfigMap | None:
         """Return the stored configuration for the referenced stage(s), if any.
 
         Returns
@@ -353,8 +465,9 @@ class StageHDF5Reader(HDF5Reader):
             mapping from stage name to parsed object.
         """
         with h5py.File(self.file_paths[0], "r") as in_file:
+            # Decode one configuration per stage referenced by the first file
             stage_names = sorted(set(self._resolved_products[0].values()))
-            cfg_map: dict[str, object | None] = {}
+            cfg_map: StageConfigMap = {}
             for stage_name in stage_names:
                 stage_group = self.get_stage_group(
                     in_file, self.file_paths[0], stage_name
@@ -364,8 +477,14 @@ class StageHDF5Reader(HDF5Reader):
                     continue
                 cfg_str = stage_group["info"].attrs["cfg"]
                 try:
-                    assert isinstance(cfg_str, str), "'cfg' attribute is not a string."
-                    cfg_map[stage_name] = yaml.safe_load(cfg_str)
+                    if not isinstance(cfg_str, str):
+                        raise TypeError("Stage 'cfg' attribute must be a string.")
+                    cfg = yaml.safe_load(cfg_str)
+                    if cfg is not None and not isinstance(cfg, dict):
+                        raise TypeError("Stage configuration must decode to a mapping.")
+                    if cfg is not None and not all(isinstance(key, str) for key in cfg):
+                        raise TypeError("Stage configuration keys must be strings.")
+                    cfg_map[stage_name] = cfg
                 except ParserError:
                     warn(
                         "Parsing stage configuration failed, returning None for "
@@ -373,6 +492,7 @@ class StageHDF5Reader(HDF5Reader):
                     )
                     cfg_map[stage_name] = None
 
+        # Preserve the simple flat-reader interface for single-stage caches
         if len(cfg_map) == 1:
             return next(iter(cfg_map.values()))
         return cfg_map
@@ -398,6 +518,7 @@ class StageHDF5Reader(HDF5Reader):
         file_idx = self.get_file_index(idx)
         entry_idx = self.get_file_entry_index(idx)
 
+        # Seed the result with global and source-local administrative metadata
         data: dict[str, object] = {
             "file_index": file_idx,
             "file_entry_index": entry_idx,
@@ -408,6 +529,7 @@ class StageHDF5Reader(HDF5Reader):
 
         in_file, should_close = self._open_file(file_idx)
         try:
+            # Read each physical stage once and select only its resolved products
             for stage_name in sorted(set(product_stage_map.values())):
                 stage_group = self.get_stage_group(
                     in_file, self.file_paths[file_idx], stage_name
@@ -425,10 +547,11 @@ class StageHDF5Reader(HDF5Reader):
                 for key in names:
                     if product_stage_map.get(key) != stage_name:
                         continue
-                    self.load_key(stage_group, event, data, key)
+                    self.load_region_product(stage_group, event, data, key)
         finally:
             if should_close:
                 in_file.close()
 
+        # Expose the user-facing global entry after all stage products are merged
         data["index"] = idx
         return data

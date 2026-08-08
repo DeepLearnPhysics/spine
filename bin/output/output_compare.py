@@ -45,6 +45,8 @@ class ComparisonResult:
         when a nonzero candidate value is compared with a zero reference.
     differences : list[str]
         First ``max_differences`` human-readable mismatch descriptions.
+    difference_counts : list[int]
+        Number of mismatches represented by each retained description.
     max_differences : int
         Maximum number of descriptions retained while counting all failures.
     """
@@ -56,14 +58,22 @@ class ComparisonResult:
     max_abs_diff: float = 0.0
     max_rel_diff: float = 0.0
     differences: list[str] = field(default_factory=list)
+    difference_counts: list[int] = field(default_factory=list)
     max_differences: int = 20
+    _difference_groups: dict[str, int] = field(default_factory=dict, repr=False)
 
     @property
     def agrees(self) -> bool:
         """Return whether no comparison failures were found."""
         return self.num_mismatches == 0
 
-    def add_difference(self, path: str, message: str) -> None:
+    def add_difference(
+        self,
+        path: str,
+        message: str,
+        *,
+        group_key: str | None = None,
+    ) -> None:
         """Record one mismatch while bounding retained report text.
 
         Parameters
@@ -72,10 +82,28 @@ class ComparisonResult:
             Event/product path at which the mismatch occurred.
         message : str
             Concise description of the mismatch.
+        group_key : str, optional
+            Stable identity used to coalesce repeated descriptions. The total
+            mismatch count is preserved while the report retains one line.
         """
         self.num_mismatches += 1
+        if group_key is not None and group_key in self._difference_groups:
+            index = self._difference_groups[group_key]
+            self.difference_counts[index] += 1
+            return
+
         if len(self.differences) < self.max_differences:
+            if group_key is not None:
+                self._difference_groups[group_key] = len(self.differences)
             self.differences.append(f"{path}: {message}")
+            self.difference_counts.append(1)
+
+
+def _event_independent_path(path: str) -> str:
+    """Remove a leading event index from a comparison path."""
+    if path.startswith("event[") and "]." in path:
+        return path.split("].", maxsplit=1)[1]
+    return path
 
 
 def get_format_version(in_file: h5py.File) -> int:
@@ -94,7 +122,8 @@ def get_product_keys(in_file: h5py.File, format_version: int) -> set[str]:
     assert isinstance(events, h5py.Dataset)
     if format_version == 1:
         return set(events.dtype.names or ())
-    return set(in_file.keys()) - {"events", "info"}
+    products = _require_group(in_file, "products")
+    return set(products.keys())
 
 
 def _decode_attribute(value: Any) -> Any:
@@ -203,7 +232,8 @@ def load_event_value(
         Dereferenced event value.
     """
     if format_version == 2:
-        group = in_file[key]
+        products = _require_group(in_file, "products")
+        group = products[key]
         if not isinstance(group, h5py.Group) or "kind" not in group.attrs:
             raise ValueError(f"V2 product '{key}' is not a recognized product group.")
 
@@ -425,12 +455,35 @@ def compare_values(
     ref_fields = reference.dtype.names
     candidate_fields = candidate.dtype.names
     if ref_fields is not None or candidate_fields is not None:
-        if set(ref_fields or ()) != set(candidate_fields or ()):
+        ref_fields = ref_fields or ()
+        candidate_fields = candidate_fields or ()
+        ref_field_set = set(ref_fields)
+        candidate_field_set = set(candidate_fields)
+        if ref_field_set != candidate_field_set:
+            reference_only = [
+                name for name in ref_fields if name not in candidate_field_set
+            ]
+            candidate_only = [
+                name for name in candidate_fields if name not in ref_field_set
+            ]
+            parts = []
+            if reference_only:
+                parts.append(f"reference-only fields: {reference_only}")
+            if candidate_only:
+                parts.append(f"candidate-only fields: {candidate_only}")
+            schema_path = _event_independent_path(path)
+            message = "; ".join(parts)
             result.add_difference(
-                path, f"structured fields differ ({ref_fields} != {candidate_fields})"
+                schema_path,
+                f"structured fields differ; {message}",
+                group_key=f"structured:{schema_path}:{message}",
             )
-            return
-        for name in ref_fields or ():
+
+        # A schema extension should not hide differences in fields that both
+        # files contain. Preserve reference field order for stable reports.
+        for name in ref_fields:
+            if name not in candidate_field_set:
+                continue
             compare_values(
                 reference[name],
                 candidate[name],
@@ -637,8 +690,12 @@ def format_result(
     ]
     if not result.agrees:
         lines.append(f"Mismatches: {result.num_mismatches}")
-        lines.extend(f"- {difference}" for difference in result.differences)
-        hidden = result.num_mismatches - len(result.differences)
+        for difference, count in zip(
+            result.differences, result.difference_counts, strict=True
+        ):
+            suffix = f" ({count} occurrences)" if count > 1 else ""
+            lines.append(f"- {difference}{suffix}")
+        hidden = result.num_mismatches - sum(result.difference_counts)
         if hidden > 0:
             lines.append(f"- ... {hidden} additional mismatches not shown")
     return "\n".join(lines)

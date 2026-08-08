@@ -6,7 +6,7 @@ from spine.data import TensorBatch
 from spine.io.unwrap import Unwrapper
 from spine.model import sparse
 from spine.model.manager import ModelManager
-from spine.model.uresnet_ppn import UResNetPPN
+from spine.model.uresnet.ppn import UResNetPPN
 
 
 def test_sparse_output_is_unwrapped_and_cast_to_numpy():
@@ -72,6 +72,7 @@ def test_uresnet_ppn_accepts_an_empty_batch(uresnet_config):
 
     result = model(data)
 
+    assert isinstance(model.ppn, sparse.Network)
     assert result["segmentation"].shape == (0, 3)
     assert result["ppn_points"].counts.tolist() == [0, 0]
     assert result["ppn_points"].shape[0] == 0

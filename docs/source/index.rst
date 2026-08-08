@@ -70,12 +70,12 @@ For the most direct end-to-end path, run SPINE from the released container with 
    # Using the newest published image
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:latest \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
    # Or use a pinned release image
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:<release> \
-       spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 
 On Apple Silicon macOS systems, pass ``--platform=linux/amd64`` to ``docker
 run`` when using the published SPINE image. For Jupyter notebook/lab use,
@@ -91,7 +91,7 @@ If you want to inspect one entry interactively, the Python entry point looks lik
    from spine.driver import Driver
    from spine.vis.out import Drawer
 
-   cfg = load_config_file("/workspace/config/train_uresnet.yaml")
+   cfg = load_config_file("/workspace/config/uresnet/uresnet_train.yaml")
 
    driver = Driver(cfg)
    data = driver.process(entry=0)

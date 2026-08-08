@@ -5,6 +5,7 @@ import pytest
 
 from spine.constants import LOWES_SHP, TRACK_SHP
 from spine.construct.particle import ParticleBuilder
+from spine.data import EdgeIndexData
 from spine.data.larcv.particle import Particle
 from spine.data.out import RecoFragment, RecoParticle, TruthFragment, TruthParticle
 
@@ -29,6 +30,7 @@ def test_build_reco_particles_without_orientation_logits(points, depositions):
         particle_group_pred=np.array([20, 21], dtype=np.int32),
         particle_node_type_pred=np.eye(2, 6, dtype=np.float32),
         particle_node_primary_pred=np.array([[3.0, 0.0], [0.0, 3.0]], dtype=np.float32),
+        depositions_q=depositions + 10,
         reco_fragments=fragments,
         sources=np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int32),
         orig_index=np.array([10, 11, 12, 13], dtype=np.int32),
@@ -45,6 +47,7 @@ def test_build_reco_particles_without_orientation_logits(points, depositions):
     assert fragments[1].interaction_id == 21
     np.testing.assert_array_equal(particles[0].sources, [[0, 0], [0, 1]])
     np.testing.assert_array_equal(particles[1].orig_index, [12, 13])
+    np.testing.assert_array_equal(particles[0].depositions_q, [11, 12])
 
 
 def test_build_reco_track_orientation_can_flip_endpoints(points, depositions):
@@ -119,7 +122,9 @@ def test_build_truth_particles_from_groups(points, depositions):
             "label_g4_tensor": labels,
             "points_g4": points + 20,
             "depositions_g4": depositions + 20,
-            "graph_label": np.array([[0, 1], [0, 99]], dtype=np.int64),
+            "graph_label": EdgeIndexData(
+                np.array([[0, 0], [1, 99]], dtype=np.int64), span=100
+            ),
             "truth_fragments": fragments,
         }
     )

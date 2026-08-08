@@ -605,6 +605,12 @@ class TestDataBase:
 
         assert obj.index_attrs == ("id", "parent_id", "cluster_ids")
 
+    def test_fixed_length_attrs(self):
+        """Test fixed_length_attrs property."""
+        obj = ArrayData()
+
+        assert obj.fixed_length_attrs == ("position", "vector", "fixed_array")
+
     def test_output_stored_property_metadata(self):
         """Test stored output properties carry array and unit metadata."""
         classes = (OutBase, TruthFragment, RecoParticle, TruthParticle, InteractionBase)

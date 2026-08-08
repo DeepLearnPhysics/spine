@@ -30,19 +30,8 @@ class ParserBase(ABC):
     # Alternative allowed names of the parser
     aliases: ClassVar[tuple[str, ...]] = ()
 
-    # Type of object(s) returned by the parser
-    returns: ClassVar[str | None] = None
-
     # Overlay method for the objects returned by the parser
-    overlay: ClassVar[str | None] = None
-
-    # List of recognized data type returns
-    _data_types: ClassVar[tuple[str, ...]] = (
-        "tensor",
-        "object",
-        "object_list",
-        "scalar",
-    )
+    overlay_method: ClassVar[str | None] = None
 
     def __init__(self, dtype: str, **kwargs: Any) -> None:
         """Register parser configuration and input tree requirements.
@@ -64,12 +53,6 @@ class ParserBase(ABC):
         # Store the type in which the parsers should return their data
         self.ftype = dtype
         self.itype = dtype.replace("float", "int")
-
-        # Do a self-consistency check on return data types
-        assert self.returns in self._data_types, (
-            f"Parser return data type not recognized for '{self.name}': "
-            f"{self.returns}. Should be one of {self._data_types}."
-        )
 
         # Find data keys, append them to the map
         self.data_map = {}
@@ -128,5 +111,10 @@ class ParserBase(ABC):
         ----------
         trees : dict
             Mapping from data-product names to loaded event objects.
+
+        Returns
+        -------
+        Any
+            Canonical event-level product produced by the concrete parser.
         """
         raise NotImplementedError("Must define `__call__` method.")

@@ -8,35 +8,50 @@ from warnings import warn
 
 import numba as nb
 import numpy as np
+from numpy.typing import DTypeLike
 
 import spine.math as sm
 from spine.constants import (
-    BATCH_COL,
-    COORD_COLS,
     DELTA_SHP,
     LOWES_SHP,
     MICHL_SHP,
-    PPN_CLASS_COLS,
-    PPN_END_COLS,
-    PPN_OCC_COL,
-    PPN_ROFF_COLS,
-    PPN_ROFF_COLS_HI,
-    PPN_ROFF_COLS_LO,
-    PPN_RPOS_COLS,
-    PPN_RPOS_COLS_HI,
-    PPN_RPOS_COLS_LO,
-    PPN_RTYPE_COLS,
-    PPN_SCORE_COLS,
-    PPN_SHAPE_COL,
     SHOWR_SHP,
     TRACK_SHP,
     UNKWN_SHP,
 )
-from spine.data import IndexBatch, TensorBatch
+from spine.data import IndexBatch, TensorBatch, TensorData, TensorSchema
 
 from .conditional import torch
 from .jit import numbafy
 from .torch.scripts import cdist_fast
+
+
+def ppn_raw_schema() -> TensorSchema:
+    """Return the schema of the raw PPN prediction head output."""
+    return TensorSchema(
+        feature_fields={
+            "offsets": (0, 1, 2),
+            "type_logits": (3, 4, 5, 6, 7),
+            "point_logits": (8, 9),
+        },
+        feats_only=True,
+    )
+
+
+def ppn_prediction_schema(endpoints: bool = False) -> TensorSchema:
+    """Return the schema of discrete post-processed point predictions."""
+    fields = {
+        "scores": (0, 1),
+        "occupancy": (2,),
+        "class_scores": (3, 4, 5, 6, 7),
+        "shape": (8,),
+    }
+    if endpoints:
+        fields["endpoint_scores"] = (9, 10)
+    return TensorSchema(
+        coordinate_groups={"point": (0, 1, 2)},
+        feature_fields=fields,
+    )
 
 
 class PPNPredictor:
@@ -136,41 +151,49 @@ class PPNPredictor:
             [batch_id, x, y, z, validity scores (2), occupancy, type scores (5),
              predicted type, endpoint type]
         """
+        # Wrapped and unwrapped batches share the same event-level contract;
+        # only their outer containers differ.
+        is_batched = isinstance(ppn_points, TensorBatch)
+
         # Set the list of entries to loop over
         if entry is not None:
-            assert isinstance(entry, int), "If entry is specified, must be integer"
+            if not isinstance(entry, int):
+                raise TypeError("If `entry` is specified, it must be an integer.")
             entries = [entry]
         else:
             entries = range(len(ppn_points))
 
         # Loop over the entries, process it
-        ppn_pred = []
+        ppn_pred: list[TensorData] = []
         ppn_classify_endpoints_b, segmentation_b, ghost_b, selection_b = (
             None,
             None,
             None,
             None,
         )
-        for b in range(len(ppn_points)):
+        for b in entries:
             # Prepare input for that entry
-            ppn_points_b = ppn_points[b]
-            if isinstance(ppn_points, TensorBatch):
-                ppn_coords_b = ppn_coords[-1][b][:, COORD_COLS]
-                ppn_mask_b = ppn_masks[-1][b].flatten()
+            if is_batched:
+                ppn_points_b = ppn_points.event(b)
+                ppn_coords_b = ppn_coords[-1].coords[b]
+                ppn_mask_b = ppn_masks[-1].features[b].flatten()
             else:
-                ppn_coords_b = ppn_coords[b][-1][:, COORD_COLS]
-                ppn_mask_b = ppn_masks[b][-1].flatten()
+                ppn_points_b = ppn_points[b]
+                ppn_coords_b = ppn_coords[b][-1].coords
+                ppn_mask_b = ppn_masks[b][-1].features.flatten()
             if ppn_classify_endpoints is not None:
-                ppn_classify_endpoints_b = ppn_classify_endpoints[b]
+                endpoint = ppn_classify_endpoints[b]
+                ppn_classify_endpoints_b = endpoint if is_batched else endpoint.features
             if segmentation is not None:
-                segmentation_b = segmentation[b]
+                segment = segmentation[b]
+                segmentation_b = segment if is_batched else segment.features
             if ghost is not None:
-                ghost_b = ghost[b]
+                ghost_entry = ghost[b]
+                ghost_b = ghost_entry if is_batched else ghost_entry.features
             if selection is not None:
                 selection_b = selection[b]
 
             # Append
-            self.entry = b
             ppn_pred.append(
                 self.process_single(
                     ppn_points_b,
@@ -186,23 +209,21 @@ class PPNPredictor:
         # Return
         if entry is not None:
             return ppn_pred[0]
-        elif not isinstance(ppn_points, TensorBatch):
+        elif not is_batched:
             return ppn_pred
         else:
-            tensor = TensorBatch.from_list(ppn_pred)
-            tensor.coord_cols = COORD_COLS
-            return tensor
+            return TensorBatch.from_data_list(ppn_pred)
 
     def process_single(
         self,
-        ppn_raw,
+        ppn_raw: TensorData,
         ppn_coords,
         ppn_mask,
         ppn_ends=None,
         segmentation=None,
         ghost=None,
         selection=None,
-    ):
+    ) -> TensorData:
         """Converts the PPN output from a single entry into points of interests
         for that entry.
 
@@ -212,8 +233,8 @@ class PPNPredictor:
 
         Parameters
         ----------
-        ppn_raw : Union[torch.Tensor, np.ndarray]
-             Raw output of PPN
+        ppn_raw : TensorData
+             Raw output of PPN with named feature fields
         ppn_coords : Union[torch.Tensor, np.ndarray]
              Coordinates of the image at each PPN layer
         ppn_masks : Union[torch.Tensor, np.ndarray]
@@ -230,18 +251,22 @@ class PPNPredictor:
 
         Returns
         -------
-        Union[torch.Tensor, np.ndarray]
-            Predicted points encoded as rows containing coordinates, validity
-            scores, occupancy, type scores, predicted type and endpoint type.
+        TensorData
+            Predicted points with named coordinates and feature fields.
         """
+        raw_features = ppn_raw.features
+        offsets = ppn_raw.feature("offsets")
+        type_logits = ppn_raw.feature("type_logits")
+        point_logits = ppn_raw.feature("point_logits")
+
         # Define operations on the basis of the input type
-        if torch.is_tensor(ppn_raw):
-            dtype, device = ppn_raw.dtype, ppn_raw.device
+        if torch.is_tensor(raw_features):
+            dtype, device = raw_features.dtype, raw_features.device
             cat, unique, argmax = torch.cat, torch.unique, torch.argmax
             where, mean, softmax = torch.where, torch.mean, torch.softmax
             cdist = cdist_fast
             empty = lambda x: torch.empty(x, dtype=dtype, device=device)
-            zeros = lambda x: torch.zeros(x, dtype=dtype, device=device)
+            zeros_bool = lambda x: torch.zeros(x, dtype=torch.bool, device=device)
             pool_fn = getattr(torch, self.pool_score_fn)
             if self.pool_score_fn == "max":
                 pool_fn = torch.amax
@@ -250,59 +275,56 @@ class PPNPredictor:
             cat, unique, argmax = np.concatenate, np.unique, np.argmax
             where, mean = np.where, np.mean
             softmax, cdist = sm.softmax, sm.distance.cdist
-            empty = lambda x: np.empty(x, dtype=ppn_raw.dtype)
-            zeros = lambda x: np.zeros(x, dtype=ppn_raw.dtype)
+            empty = lambda x: np.empty(x, dtype=raw_features.dtype)
+            zeros_bool = lambda x: np.zeros(x, dtype=bool)
             pool_fn = getattr(np, self.pool_score_fn)
 
         # Fetch the segmentation tensor, if needed
+        segmentation_values = segmentation
         if self.enforce_type:
-            assert (
-                segmentation is not None
-            ), "Must provide the segmentation tensor to enforce types"
+            if segmentation_values is None:
+                raise ValueError("Must provide segmentation to enforce PPN types.")
             if ghost is not None and self.apply_deghosting:
                 mask_ghost = where(argmax(ghost, 1) == 0)[0]
-                segmentation = segmentation[mask_ghost]
+                segmentation_values = segmentation_values[mask_ghost]
 
         # Restrict the PPN output to points above the score threshold
-        scores = softmax(ppn_raw[:, PPN_RPOS_COLS], 1)
+        scores = softmax(point_logits, 1)
         mask = ppn_mask & (scores[:, -1] > self.score_threshold)
 
         # Restrict the PPN output to a subset of points, if requested
         if selection is not None:
-            mask_update = zeros(mask.shape, dtype=bool)
-            if entry is not None:
-                assert len(selection) == len(ppn_points) and not np.issclar(
-                    selection[0]
-                )
-                mask_update[selection[b]] = True
-            else:
-                assert len(selection) and np.issclar(selection[0])
-                mask_update[selection] = True
+            mask_update = zeros_bool(mask.shape)
+            mask_update[selection] = True
 
             mask &= mask_update
 
         # Apply the mask
         mask = where(mask)[0]
         scores = scores[mask]
-        ppn_raw = ppn_raw[mask]
+        offsets = offsets[mask]
+        type_logits = type_logits[mask]
         ppn_coords = ppn_coords[mask]
         if ppn_ends is not None:
             ppn_ends = ppn_ends[mask]
 
         # Get the type predictions
-        type_scores = softmax(ppn_raw[:, PPN_RTYPE_COLS], 1)
+        type_scores = softmax(type_logits, 1)
         type_pred = argmax(type_scores, 1)
+        end_scores = None
         if ppn_ends is not None:
             end_scores = softmax(ppn_ends, 1)
 
         # Get the PPN point predictions
-        coords = ppn_coords + 0.5 + ppn_raw[:, PPN_ROFF_COLS]
+        coords = ppn_coords + 0.5 + offsets
         if self.enforce_type:
+            if segmentation_values is None:  # pragma: no cover - guarded above
+                raise RuntimeError("Segmentation values were not initialized.")
             # Loop over the invidual classes
             seg_masks = []
             for c in self.classes:
                 # Restrict the points to a specific class
-                seg_pred = argmax(segmentation[mask], 1)
+                seg_pred = argmax(segmentation_values[mask], 1)
                 seg_mask = seg_pred == c
                 seg_mask &= type_scores[:, c] > self.type_score_threshold
                 seg_mask = where(seg_mask)[0]
@@ -321,12 +343,17 @@ class PPNPredictor:
             scores = scores[seg_mask]
             type_pred = type_pred[seg_mask]
             type_scores = type_scores[seg_mask]
-            if ppn_ends is not None:
+            if end_scores is not None:
                 end_scores = end_scores[seg_mask]
 
         # At this point, if there are no valid proposed points left, abort
+        schema = ppn_prediction_schema(ppn_ends is not None)
         if not len(coords):
-            return empty((0, 13 + 2 * (ppn_ends is not None)))
+            return TensorData(
+                coords=empty((0, 3)),
+                features=empty((0, 9 + 2 * (ppn_ends is not None))),
+                schema=schema,
+            )
 
         # Cluster nearby points together
         if torch.is_tensor(coords):
@@ -334,20 +361,21 @@ class PPNPredictor:
         else:
             clusts = self.dbscan_points(coords)
 
-        ppn_pred = empty((len(clusts), 13 + 2 * (ppn_ends is not None)))
+        point_coords = empty((len(clusts), 3))
+        point_features = empty((len(clusts), 9 + 2 * (ppn_ends is not None)))
+        fields = schema.feature_fields
         for i, c in enumerate(clusts):
             types, cnts = unique(type_pred[c], return_counts=True)
             type_c = types[argmax(cnts)]
-            ppn_pred[i, BATCH_COL] = self.entry
-            ppn_pred[i, COORD_COLS] = mean(coords[c], 0)
-            ppn_pred[i, PPN_SCORE_COLS] = pool_fn(scores[c], 0)
-            ppn_pred[i, PPN_OCC_COL] = len(c)
-            ppn_pred[i, PPN_CLASS_COLS] = pool_fn(type_scores[c], 0)
-            ppn_pred[i, PPN_SHAPE_COL] = type_c
-            if ppn_ends is not None:
-                ppn_pred[i, PPN_END_COLS] = pool_fn(end_scores[c], 0)
+            point_coords[i] = mean(coords[c], 0)
+            point_features[i, fields["scores"]] = pool_fn(scores[c], 0)
+            point_features[i, fields["occupancy"]] = len(c)
+            point_features[i, fields["class_scores"]] = pool_fn(type_scores[c], 0)
+            point_features[i, fields["shape"]] = type_c
+            if end_scores is not None:
+                point_features[i, fields["endpoint_scores"]] = pool_fn(end_scores[c], 0)
 
-        return ppn_pred
+        return TensorData(coords=point_coords, features=point_features, schema=schema)
 
     def dbscan_points(self, coordinates):
         """Form clusters of predited points based on proximity.
@@ -418,7 +446,13 @@ class ParticlePointPredictor:
         self.enhance_track_points = enhance_track_points
         self.approx_farthest_points = approx_farthest_points
 
-    def __call__(self, data, clusts, clust_shapes, ppn_points):
+    def __call__(
+        self,
+        data: TensorBatch,
+        clusts: IndexBatch,
+        clust_shapes: TensorBatch,
+        ppn_points: TensorBatch,
+    ) -> TensorBatch:
         """Assign start/end points to one batch of events.
 
         Parameters
@@ -436,49 +470,41 @@ class ParticlePointPredictor:
         ppn_points : TensorBatch
             Raw output of PPN
         """
-        # Bring TensorBatch to torch.Tensor, if needed
-        is_batch = False
-        if isinstance(data, TensorBatch):
-            is_batch = True
-            if not isinstance(clusts, IndexBatch):
-                raise TypeError(
-                    "Batched particle point prediction expects an IndexBatch."
-                )
-            if not clusts.is_list:
-                raise TypeError(
-                    "Particle point prediction expects list-backed cluster indexes."
-                )
-            data, clust_shapes, ppn_points = (
-                data.tensor,
-                clust_shapes.tensor,
-                ppn_points.tensor,
+        if not clusts.is_list:
+            raise TypeError(
+                "Particle point prediction expects list-backed cluster indexes."
             )
-            clusts, counts = clusts.index_list, clusts.counts
+        points = data.coords.tensor
+        shapes = clust_shapes.tensor
+        offsets = ppn_points.feature("offsets").tensor
+        point_logits = ppn_points.feature("point_logits").tensor
+        cluster_list, counts = clusts.index_list, clusts.counts
 
         # Get cluster point coordinates, dispatch
-        points = data[:, COORD_COLS]
         if not self.use_numpy:
             # Check type, pass to torch function
-            assert isinstance(
-                data, torch.Tensor
-            ), "When using `use_numpy=False`, must use torch data."
+            if not isinstance(points, torch.Tensor):
+                raise TypeError("Torch point prediction requires torch-backed data.")
             end_points = self.get_end_points_torch(
-                points, clusts, clust_shapes, ppn_points
+                points, cluster_list, shapes, offsets, point_logits
             )
 
         else:
             # Pass to numpy function (takes care of object conversion)
             end_points = self.get_end_points_numpy(
-                points, clusts, clust_shapes, ppn_points
+                points, cluster_list, shapes, offsets, point_logits
             )
 
-        # Transform back to TensorBatch, if needed, then return
-        if is_batch:
-            end_points = TensorBatch(end_points, counts, coord_cols=np.arange(6))
+        return TensorBatch(
+            end_points,
+            counts,
+            coord_cols=np.arange(6),
+            schema=TensorSchema(
+                coordinate_groups={"start": (0, 1, 2), "end": (3, 4, 5)}
+            ),
+        )
 
-        return end_points
-
-    def get_end_points_torch(self, points, clusts, clusts_seg, ppn_points):
+    def get_end_points_torch(self, points, clusts, clusts_seg, offsets, point_logits):
         """Torch function to fetch each of the cluster end points.
 
         Parameters
@@ -499,7 +525,8 @@ class ParticlePointPredictor:
         for i, c in enumerate(clusts):
             # Get cluster coordinates
             points_c = points[c]
-            ppn_points_c = ppn_points[c]
+            offsets_c = offsets[c]
+            point_logits_c = point_logits[c]
 
             # For tracks, find the two poins farthest away from each other
             if clusts_seg[i] == TRACK_SHP:
@@ -511,13 +538,8 @@ class ParticlePointPredictor:
                 # If requested, enhance using the PPN predictions. Only consider
                 # points in the cluster that have a positive score
                 if self.enhance_track_points:
-                    pos_mask = (
-                        ppn_points_c[idxs, PPN_RPOS_COLS[1]]
-                        >= ppn_points_c[idxs, PPN_RPOS_COLS[0]]
-                    )
-                    track_points += pos_mask * (
-                        ppn_points_c[idxs][:, PPN_ROFF_COLS] + 0.5
-                    )
+                    pos_mask = point_logits_c[idxs, 1] >= point_logits_c[idxs, 0]
+                    track_points += pos_mask[:, None] * (offsets_c[idxs] + 0.5)
 
                     # If needed, anchor the track endpoints to the track cluster
                     if self.anchor_points:
@@ -531,9 +553,9 @@ class ParticlePointPredictor:
             else:
                 # Only use positive voxels and give precedence to predictions
                 # that are contained within the voxel making the prediction.
-                ppn_scores = torch.softmax(ppn_points_c[:, PPN_RPOS_COLS], 1)[:, -1]
+                ppn_scores = torch.softmax(point_logits_c, 1)[:, -1]
                 if self.contained_first:
-                    dists = torch.abs(ppn_points_c[:, PPN_ROFF_COLS])
+                    dists = torch.abs(offsets_c)
 
                     val_index = torch.where((ppn_scores > 0.5) & (dists < 1.0).all(1))[
                         0
@@ -545,9 +567,7 @@ class ParticlePointPredictor:
                 else:
                     best_id = torch.argmax(ppn_scores)
 
-                start_point = (
-                    points_c[best_id] + ppn_points_c[best_id, PPN_ROFF_COLS] + 0.5
-                )
+                start_point = points_c[best_id] + offsets_c[best_id] + 0.5
 
                 # If needed, anchor the shower start point to the shower cluster
                 if self.anchor_points:
@@ -561,12 +581,12 @@ class ParticlePointPredictor:
         return end_points
 
     @numbafy(
-        cast_args=["points", "ppn_points"],
+        cast_args=["points", "offsets", "point_logits"],
         list_args=["clusts"],
         keep_torch=True,
         ref_arg="points",
     )
-    def get_end_points_numpy(self, points, clusts, clust_shapes, ppn_points):
+    def get_end_points_numpy(self, points, clusts, clust_shapes, offsets, point_logits):
         """Parallelized numba function to fetch each of the cluster end points.
 
         Parameters
@@ -588,7 +608,8 @@ class ParticlePointPredictor:
             points,
             clusts,
             clust_shapes,
-            ppn_points,
+            offsets,
+            point_logits,
             self.contained_first,
             self.anchor_points,
             self.enhance_track_points,
@@ -601,7 +622,8 @@ class ParticlePointPredictor:
         points: nb.float32[:, :],
         clusts: nb.types.List(nb.int64[:]),
         clust_shapes: nb.int64[:],
-        ppn_points: nb.float32[:, :],
+        offsets: nb.float32[:, :],
+        point_logits: nb.float32[:, :],
         contained_first: nb.boolean,
         anchor_points: nb.boolean,
         enhance_track_points: nb.boolean,
@@ -613,7 +635,8 @@ class ParticlePointPredictor:
             # Get cluster coordinates
             c = clusts[k]
             points_c = points[c]
-            ppn_points_c = ppn_points[c]
+            offsets_c = offsets[c]
+            point_logits_c = point_logits[c]
 
             # For tracks, find the two poins farthest away from each other
             if clust_shapes[k] == TRACK_SHP:
@@ -628,13 +651,9 @@ class ParticlePointPredictor:
                 # If requested, enhance using the PPN predictions. Only consider
                 # points in the cluster that have a positive score
                 if enhance_track_points:
-                    pos_mask = (
-                        ppn_points_c[idxs, PPN_RPOS_COLS[1]]
-                        >= ppn_points_c[idxs, PPN_RPOS_COLS[0]]
-                    )
-                    track_points += pos_mask * (
-                        ppn_points_c[idxs][:, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI]
-                        + np.array(0.5, dtype=points.dtype)
+                    pos_mask = point_logits_c[idxs, 1] >= point_logits_c[idxs, 0]
+                    track_points += pos_mask.reshape(-1, 1) * (
+                        offsets_c[idxs] + np.array(0.5, dtype=points.dtype)
                     )
 
                     # If needed, anchor the track endpoints to the track cluster
@@ -649,11 +668,9 @@ class ParticlePointPredictor:
             else:
                 # Only use positive voxels and give precedence to predictions
                 # that are contained within the voxel making the prediction.
-                ppn_scores = sm.softmax(
-                    ppn_points_c[:, PPN_RPOS_COLS_LO:PPN_RPOS_COLS_HI], 1
-                )[:, -1]
+                ppn_scores = sm.softmax(point_logits_c, 1)[:, -1]
                 if contained_first:
-                    dists = np.abs(ppn_points_c[:, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI])
+                    dists = np.abs(offsets_c)
 
                     val_index = np.where((ppn_scores > 0.5) & sm.all(dists < 1.0, 1))[0]
                     if len(val_index):
@@ -665,7 +682,7 @@ class ParticlePointPredictor:
 
                 start_point = (
                     points_c[best_id]
-                    + ppn_points_c[best_id, PPN_ROFF_COLS_LO:PPN_ROFF_COLS_HI]
+                    + offsets_c[best_id]
                     + np.array(0.5, dtype=points.dtype)
                 )
 
@@ -680,7 +697,11 @@ class ParticlePointPredictor:
         return end_points
 
 
-def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
+def check_track_orientation_ppn(
+    start_point: np.ndarray,
+    end_point: np.ndarray,
+    ppn_candidates: TensorData,
+) -> bool:
     """Use PPN end point predictions to predict track orientation.
 
     Use the PPN point assignments as a basis to orient a track. Match
@@ -693,8 +714,8 @@ def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
         (3) Start point of the track
     end_point : np.ndarray
         (3) End point of the track
-    ppn_candidates : np.ndarray
-        (N, 10)  PPN point candidates and their associated scores
+    ppn_candidates : TensorData
+        Named PPN point candidates and their associated endpoint scores.
 
     Returns
     -------
@@ -707,8 +728,8 @@ def check_track_orientation_ppn(start_point, end_point, ppn_candidates):
         return True
 
     # Get the candidate coordinates and end point classification predictions
-    ppn_points = ppn_candidates[:, COORD_COLS]
-    end_scores = ppn_candidates[:, PPN_END_COLS]
+    ppn_points = ppn_candidates.coords
+    end_scores = ppn_candidates.feature("endpoint_scores")
 
     # Compute the distance between the track end points and the PPN candidates
     end_points = np.vstack([start_point, end_point])
@@ -949,7 +970,13 @@ def image_coordinates(meta, point, dim=3):
         return [x, y]
 
 
-def image_coordinates_batch(meta, objects, dim=3, dtype=np.float32, position_attr=None):
+def image_coordinates_batch(
+    meta,
+    objects,
+    dim=3,
+    dtype: DTypeLike = np.float32,
+    position_attr=None,
+):
     """Convert a sequence of physical positions to image coordinates.
 
     Unlike :func:`image_coordinates`, this function fetches the image origin

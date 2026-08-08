@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 from scipy.special import softmax
 
-from spine.constants import CLUST_COL, PART_COL, TRACK_SHP
+from spine.constants import TRACK_SHP
+from spine.data import ClusterLabelData
 from spine.data.out import RecoFragment, TruthFragment
 
 from .base import BuilderBase
@@ -75,6 +76,7 @@ class FragmentBuilder(BuilderBase):
         fragment_end_points: np.ndarray | None = None,
         fragment_group_pred: np.ndarray | None = None,
         fragment_node_pred: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         orig_index: np.ndarray | None = None,
     ) -> list[RecoFragment]:
@@ -96,6 +98,8 @@ class FragmentBuilder(BuilderBase):
             (P, 3) List of fragment end point coordinates
         fragment_group_pred : np.ndarray, optional
             (P) Interaction group each fragment belongs to
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         orig_index : np.ndarray, optional
@@ -107,6 +111,10 @@ class FragmentBuilder(BuilderBase):
         List[RecoFragment]
             List of constructed reconstructed fragment instances
         """
+        # Reconstructed objects always expose charge. In an uncalibrated chain
+        # it is identical to the preferred deposition representation.
+        charge = depositions if depositions_q is None else depositions_q
+
         # Convert the logits to softmax scores and the scores to a prediction
         primary_info: tuple[np.ndarray, np.ndarray] | None = None
         if fragment_node_pred is not None:
@@ -124,6 +132,7 @@ class FragmentBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
+                depositions_q=charge[index],
             )
 
             # Add optional arguments
@@ -164,14 +173,14 @@ class FragmentBuilder(BuilderBase):
 
     def _build_truth(
         self,
-        label_tensor: np.ndarray,
+        label_tensor: ClusterLabelData,
         points_label: np.ndarray,
         depositions_label: np.ndarray,
         depositions_q_label: np.ndarray | None = None,
-        label_adapt_tensor: np.ndarray | None = None,
+        label_adapt_tensor: ClusterLabelData | None = None,
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
-        label_g4_tensor: np.ndarray | None = None,
+        label_g4_tensor: ClusterLabelData | None = None,
         points_g4: np.ndarray | None = None,
         depositions_g4: np.ndarray | None = None,
         sources_label: np.ndarray | None = None,
@@ -183,8 +192,8 @@ class FragmentBuilder(BuilderBase):
 
         Parameters
         ----------
-        label_tensor : np.ndarray
-            Tensor which contains the cluster labels of each deposition
+        label_tensor : ClusterLabelData
+            Structured cluster labels for each deposition
         points_label : np.ndarray
             (N', 3) Set of deposition coordinates in the label image (identical
             for pixel TPCs, different if deghosting is involved)
@@ -192,15 +201,15 @@ class FragmentBuilder(BuilderBase):
             (N') Set of true deposition values in MeV
         depositions_q_label : np.ndarray, optional
             (N') Set of true deposition values in ADC, if relevant
-        label_adapt_tensor : np.ndarray, optional
-            Tensor which contains the cluster labels of each deposition,
-            adapted to the semantic segmentation prediction.
+        label_adapt_tensor : ClusterLabelData, optional
+            Structured cluster labels adapted to the semantic segmentation
+            prediction
         points : np.ndarray, optional
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
-        label_tensor_g4 : np.ndarray, optional
-            Tensor which contains the cluster labels of each deposition
+        label_g4_tensor : ClusterLabelData, optional
+            Structured cluster labels for each deposition
             in the Geant4 image (before the detector simulation)
         points_g4 : np.ndarray, optional
             (N'', 3) Set of deposition coordinates in the Geant4 image
@@ -222,27 +231,33 @@ class FragmentBuilder(BuilderBase):
             List of constructed true fragment instances
         """
         # Check once if the fragment labels have been altered
-        broken = (label_tensor[:, CLUST_COL] != label_tensor[:, PART_COL]).any()
-        truth_only = label_adapt_tensor is None
-
+        broken = (label_tensor.cluster_ids != label_tensor.particle_ids).any()
         # If the adapted labels are available (the full chain was run), use
         # those as a basis to form fragments (fragments depend on upstream
         # segmentation). Use original labels otherwise (pure truth mode)
         truth_fragments = []
-        ref_tensor = label_tensor if truth_only else label_adapt_tensor
-        unique_fragment_ids = np.unique(ref_tensor[:, CLUST_COL]).astype(int)
+        if label_adapt_tensor is None:
+            truth_only = True
+            ref_tensor = label_tensor
+        else:
+            truth_only = False
+            ref_tensor = label_adapt_tensor
+
+        fragment_ids = ref_tensor.cluster_ids
+        particle_ids = ref_tensor.particle_ids
+        unique_fragment_ids = np.unique(fragment_ids).astype(int)
         valid_fragment_ids = unique_fragment_ids[unique_fragment_ids > -1]
         for i, frag_id in enumerate(valid_fragment_ids):
             # Initialize fragment
             fragment = TruthFragment(id=i)
 
             # Find the particle which matches this fragment best
-            index_ref = np.where(ref_tensor[:, CLUST_COL] == frag_id)[0]
+            index_ref = np.where(fragment_ids == frag_id)[0]
             if particles is not None:
                 part_id = frag_id
                 if not truth_only or broken:
                     part_ids, counts = np.unique(
-                        ref_tensor[index_ref, PART_COL], return_counts=True
+                        particle_ids[index_ref], return_counts=True
                     )
                     part_id = int(part_ids[np.argmax(counts)])
 
@@ -291,7 +306,7 @@ class FragmentBuilder(BuilderBase):
                                 "Geant4 points and depositions must be provided "
                                 "if label_g4_tensor is given."
                             )
-                        index_g4 = np.where(label_g4_tensor[:, CLUST_COL] == frag_id)[0]
+                        index_g4 = np.where(label_g4_tensor.cluster_ids == frag_id)[0]
                         fragment.index_g4 = index_g4
                         fragment.points_g4 = points_g4[index_g4]
                         fragment.depositions_g4 = depositions_g4[index_g4]
@@ -334,6 +349,7 @@ class FragmentBuilder(BuilderBase):
         reco_fragments: list[RecoFragment],
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
     ) -> list[RecoFragment]:
         """Load :class:`RecoFragment` objects from their stored versions.
@@ -346,6 +362,8 @@ class FragmentBuilder(BuilderBase):
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
 
@@ -369,6 +387,10 @@ class FragmentBuilder(BuilderBase):
                     )
                 fragment.points = points[fragment.index]
                 fragment.depositions = depositions[fragment.index]
+                # Older files may not contain a separate charge array. Restore
+                # the pre-refactor behavior by falling back to depositions.
+                charge = depositions if depositions_q is None else depositions_q
+                fragment.depositions_q = charge[fragment.index]
                 if sources is not None:
                     fragment.sources = sources[fragment.index]
 

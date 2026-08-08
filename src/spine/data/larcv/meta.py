@@ -38,6 +38,8 @@ class ImageMetaBase(DataBase):
     """
 
     _dynamic_attrs: ClassVar[frozenset[str]] = frozenset({"_index_multipliers"})
+    _upper_rtol: ClassVar[float] = 1.0e-5
+    _upper_atol: ClassVar[float] = 1.0e-4
 
     if TYPE_CHECKING:  # pragma: no cover
         # Type hints for fields defined in subclasses (only for type checking)
@@ -75,11 +77,25 @@ class ImageMetaBase(DataBase):
                 "all must be initialized with valid values"
             )
 
-        # Validate that the count and size yield the correct upper bound
+        # Validate that the count and size yield the correct upper bound. LArCV
+        # stores these values independently, and ``from_larcv`` converts each
+        # one to float32. When a large negative lower bound nearly cancels the
+        # image extent, the reconstructed upper bound can consequently differ
+        # by a few float32 ULPs. Use an absolute tolerance because a relative
+        # tolerance becomes artificially strict when the upper bound is near 0.
+        # Retain the relative tolerance used on main for bounds farther from 0.
         expected_upper = self.lower + self.size * self.count
-        if not np.allclose(self.upper, expected_upper, equal_nan=True):
+        if not np.allclose(
+            self.upper,
+            expected_upper,
+            rtol=self._upper_rtol,
+            atol=self._upper_atol,
+            equal_nan=True,
+        ):
             raise ValueError(
-                "Upper must be equal to lower + size * count (within numerical precision)"
+                "Upper must be equal to lower + size * count within an "
+                f"absolute tolerance of {self._upper_atol:g} cm and a "
+                f"relative tolerance of {self._upper_rtol:g}"
             )
 
     def _post_deserialize(self) -> None:

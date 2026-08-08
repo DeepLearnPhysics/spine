@@ -15,12 +15,11 @@ from typing import Any
 import numpy as np
 
 from spine.constants import GHOST_SHP, SHAPE_PREC
-from spine.data import Meta
+from spine.data import Meta, TensorData
 from spine.utils.conditional import larcv
 from spine.utils.ghost import ChargeRescaler
 
 from ..base import ParserBase
-from ..data import ParserTensor
 
 __all__ = [
     "LArCVSparse2DParser",
@@ -50,7 +49,6 @@ class LArCVSparse2DParser(ParserBase):
     name = "parse_sparse2d"
 
     # Type of object(s) returned by the parser
-    returns = "tensor"
 
     def __init__(
         self,
@@ -90,13 +88,18 @@ class LArCVSparse2DParser(ParserBase):
         if sparse_event_list is not None:
             self.num_features = len(sparse_event_list)
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Parsed two-dimensional sparse tensor.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -104,11 +107,11 @@ class LArCVSparse2DParser(ParserBase):
         self,
         sparse_event: Any | None = None,
         sparse_event_list: list[Any] | None = None,
-    ) -> ParserTensor:
+    ) -> TensorData:
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
-        -------------
+        ----------
         sparse_event: larcv.EventSparseTensor2D, optional
             Sparse tensor to get the voxel/features from
         sparse_event_list: List[larcv.EventSparseTensor2D], optional
@@ -116,7 +119,7 @@ class LArCVSparse2DParser(ParserBase):
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 2) array of [x, y] coordinates
             features : np.ndarray
@@ -155,7 +158,7 @@ class LArCVSparse2DParser(ParserBase):
             np_data = np_data.astype(self.ftype)
             np_features.append(np_data)
 
-        return ParserTensor(
+        return TensorData(
             coords=np_voxels,
             features=np.hstack(np_features),
             meta=Meta.from_larcv(meta),
@@ -180,7 +183,6 @@ class LArCVSparse3DParser(ParserBase):
     name = "sparse3d"
 
     # Type of object(s) returned by the parser
-    returns = "tensor"
 
     def __init__(
         self,
@@ -301,13 +303,18 @@ class LArCVSparse3DParser(ParserBase):
         self.precedence = np.asarray(precedence)
         self.overlay_reference = overlay_reference
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Parsed three-dimensional sparse tensor.
         """
         return self.process(**self.get_input_data(trees))
 
@@ -315,7 +322,7 @@ class LArCVSparse3DParser(ParserBase):
         self,
         sparse_event: Any | None = None,
         sparse_event_list: list[Any] | None = None,
-    ) -> ParserTensor:
+    ) -> TensorData:
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
@@ -327,7 +334,7 @@ class LArCVSparse3DParser(ParserBase):
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
@@ -422,7 +429,7 @@ class LArCVSparse3DParser(ParserBase):
             all_features = all_features[perm]
 
         # Return
-        return ParserTensor(
+        return TensorData(
             coords=all_voxels,
             features=all_features,
             meta=Meta.from_larcv(meta),
@@ -468,27 +475,32 @@ class LArCVSparse3DAggregateParser(LArCVSparse3DParser):
         # Store the revelant attributes
         self.aggr_fn = getattr(np, aggr)
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Sparse tensor with features aggregated across input tensors.
         """
         return self.process_aggr(**self.get_input_data(trees))
 
-    def process_aggr(self, sparse_event_list: list[Any]) -> ParserTensor:
+    def process_aggr(self, sparse_event_list: list[Any]) -> TensorData:
         """Fetches a list of tensors, aggregate their feature vectors.
 
         Parameters
-        -------------
+        ----------
         sparse_event_list: List[larcv.EventSparseTensor3D]
             Sparse tensor list to get the voxel/features from
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
@@ -546,21 +558,26 @@ class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
         # Initialize the charge rescaler
         self.rescaler = ChargeRescaler(collection_only, collection_id)
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Sparse tensor containing charge-rescaled features.
         """
         return self.process_rescale(**self.get_input_data(trees))
 
-    def process_rescale(self, sparse_event_list: list[Any]) -> ParserTensor:
+    def process_rescale(self, sparse_event_list: list[Any]) -> TensorData:
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
-        -------------
+        ----------
         sparse_event_list: List[larcv.EventSparseTensor3D]
             (7) List of sparse tensors used to compute the rescaled charge
             - Charge value of each of the contributing planes (3)
@@ -569,7 +586,7 @@ class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray
@@ -603,27 +620,32 @@ class LArCVSparse3DGhostParser(LArCVSparse3DParser):
     # Name of the parser (as specified in the configuration)
     name = "sparse3d_ghost"
 
-    def __call__(self, trees: dict[str, Any]) -> ParserTensor:
+    def __call__(self, trees: dict[str, Any]) -> TensorData:
         """Parse one entry.
 
         Parameters
         ----------
         trees : dict
             Dictionary which maps each data product name to a LArCV object
+
+        Returns
+        -------
+        TensorData
+            Sparse tensor containing ghost-point labels.
         """
         return self.process_ghost(**self.get_input_data(trees))
 
-    def process_ghost(self, sparse_event: Any) -> ParserTensor:
+    def process_ghost(self, sparse_event: Any) -> TensorData:
         """Fetches one or a list of tensors, concatenate their feature vectors.
 
         Parameters
-        -------------
+        ----------
         sparse_event: larcv.EventSparseTensor3D
             Sparse tensor to get the semantic labels
 
         Returns
         -------
-        ParserTensor
+        TensorData
             coords : np.ndarray
                 (N, 3) array of [x, y, z] coordinates
             features : np.ndarray

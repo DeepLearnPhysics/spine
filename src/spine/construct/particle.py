@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 from scipy.special import softmax
 
-from spine.constants import COORD_COLS, GROUP_COL, TRACK_SHP, VALUE_COL
+from spine.constants import TRACK_SHP
+from spine.data import ClusterLabelData, EdgeIndexData
 from spine.data.out import RecoParticle, TruthParticle
 from spine.utils.gnn.network import filter_invalid_nodes
 
@@ -89,6 +90,7 @@ class ParticleBuilder(BuilderBase):
         particle_node_type_pred: np.ndarray,
         particle_node_primary_pred: np.ndarray,
         particle_node_orient_pred: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         orig_index: np.ndarray | None = None,
         reco_fragments: list[Any] | None = None,
@@ -117,6 +119,8 @@ class ParticleBuilder(BuilderBase):
             (P, 2) Particle primary classification logits
         particle_node_orient_pred : np.ndarray, optional
             (P, 2) Particle orientation classification logits
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         orig_index : np.ndarray, optional
@@ -130,6 +134,10 @@ class ParticleBuilder(BuilderBase):
         List[RecoParticle]
             List of constructed reconstructed particle instances
         """
+        # Reconstructed objects always expose charge. In an uncalibrated chain
+        # it is identical to the preferred deposition representation.
+        charge = depositions if depositions_q is None else depositions_q
+
         # Convert the logits to softmax scores and the scores to a prediction
         pid_scores = softmax(particle_node_type_pred, axis=1)
         primary_scores = softmax(particle_node_primary_pred, axis=1)
@@ -156,6 +164,7 @@ class ParticleBuilder(BuilderBase):
                 index=index,
                 points=points[index],
                 depositions=depositions[index],
+                depositions_q=charge[index],
                 pid=pid_pred[i],
                 primary_scores=primary_scores[i],
                 is_primary=bool(primary_pred[i]),
@@ -212,20 +221,20 @@ class ParticleBuilder(BuilderBase):
     def _build_truth(
         self,
         particles: list[Any],
-        label_tensor: np.ndarray,
+        label_tensor: ClusterLabelData,
         points_label: np.ndarray,
         depositions_label: np.ndarray,
         depositions_q_label: np.ndarray | None = None,
-        label_adapt_tensor: np.ndarray | None = None,
+        label_adapt_tensor: ClusterLabelData | None = None,
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
-        label_g4_tensor: np.ndarray | None = None,
+        label_g4_tensor: ClusterLabelData | None = None,
         points_g4: np.ndarray | None = None,
         depositions_g4: np.ndarray | None = None,
         sources_label: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         orig_index_label: np.ndarray | None = None,
-        graph_label: np.ndarray | None = None,
+        graph_label: EdgeIndexData | np.ndarray | None = None,
         truth_fragments: list[Any] | None = None,
     ) -> list[TruthParticle]:
         """Builds :class:`TruthParticle` objects from the full chain output.
@@ -234,8 +243,8 @@ class ParticleBuilder(BuilderBase):
         ----------
         particles : List[Particle]
             List of true particles
-        label_tensor : np.ndarray
-            Tensor which contains the cluster labels of each deposition
+        label_tensor : ClusterLabelData
+            Structured cluster labels for each deposition
         points_label : np.ndarray
             (N', 3) Set of deposition coordinates in the label image (identical
             for pixel TPCs, different if deghosting is involved)
@@ -243,15 +252,15 @@ class ParticleBuilder(BuilderBase):
             (N') Set of true deposition values in MeV
         depositions_q_label : np.ndarray, optional
             (N') Set of true deposition values in ADC, if relevant
-        label_adapt_tensor : np.ndarray, optional
-            Tensor which contains the cluster labels of each deposition,
-            adapted to the semantic segmentation prediction.
+        label_adapt_tensor : ClusterLabelData, optional
+            Structured cluster labels adapted to the semantic segmentation
+            prediction
         points : np.ndarray, optional
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
-        label_tensor_g4 : np.ndarray, optional
-            Tensor which contains the cluster labels of each deposition
+        label_g4_tensor : ClusterLabelData, optional
+            Structured cluster labels for each deposition
             in the Geant4 image (before the detector simulation)
         points_g4 : np.ndarray, optional
             (N'', 3) Set of deposition coordinates in the Geant4 image
@@ -286,7 +295,8 @@ class ParticleBuilder(BuilderBase):
 
         # Loop over the true *visible* particle instance groups
         truth_particles = []
-        unique_group_ids = np.unique(label_tensor[:, GROUP_COL]).astype(int)
+        group_labels = label_tensor.group_ids
+        unique_group_ids = np.unique(group_labels).astype(int)
         valid_group_ids = unique_group_ids[unique_group_ids > -1]
         for i, group_id in enumerate(valid_group_ids):
             # Load the MC particle information
@@ -333,9 +343,7 @@ class ParticleBuilder(BuilderBase):
                 particle.end_point = particle.last_step
 
             # Update the particle with its long-form attributes
-            index = np.where(label_tensor[:, GROUP_COL] == group_id)[0].astype(
-                np.int32, copy=False
-            )
+            index = np.where(group_labels == group_id)[0].astype(np.int32, copy=False)
             particle.index = index
             particle.points = points_label[index]
             particle.depositions = depositions_label[index]
@@ -352,9 +360,10 @@ class ParticleBuilder(BuilderBase):
                         "Points and depositions must be provided to build "
                         "adapted truth particles."
                     )
-                index_adapt = np.where(label_adapt_tensor[:, GROUP_COL] == group_id)[
-                    0
-                ].astype(np.int32, copy=False)
+                adapted_groups = label_adapt_tensor.group_ids
+                index_adapt = np.where(adapted_groups == group_id)[0].astype(
+                    np.int32, copy=False
+                )
                 particle.index_adapt = index_adapt
                 particle.points_adapt = points[index_adapt]
                 particle.depositions_adapt = depositions[index_adapt]
@@ -367,9 +376,10 @@ class ParticleBuilder(BuilderBase):
                         "Geant4 points and depositions must be provided if "
                         "label_g4_tensor is given."
                     )
-                index_g4 = np.where(label_g4_tensor[:, GROUP_COL] == group_id)[
-                    0
-                ].astype(np.int32, copy=False)
+                g4_groups = label_g4_tensor.group_ids
+                index_g4 = np.where(g4_groups == group_id)[0].astype(
+                    np.int32, copy=False
+                )
                 particle.index_g4 = index_g4
                 particle.points_g4 = points_g4[index_g4]
                 particle.depositions_g4 = depositions_g4[index_g4]
@@ -390,6 +400,9 @@ class ParticleBuilder(BuilderBase):
         # If the parentage relations of non-empty particles are available,
         # use them to assign parent/children IDs in the new particle set
         if graph_label is not None:
+            if isinstance(graph_label, EdgeIndexData):
+                graph_label = graph_label.index_t
+
             # Narrow down the list of edges to those connecting visible particles
             edge_index = graph_label
             inval = set(np.unique(graph_label)).difference(set(valid_group_ids))
@@ -424,6 +437,7 @@ class ParticleBuilder(BuilderBase):
         reco_particles: list[RecoParticle],
         points: np.ndarray | None = None,
         depositions: np.ndarray | None = None,
+        depositions_q: np.ndarray | None = None,
         sources: np.ndarray | None = None,
         reco_fragments: list[Any] | None = None,
     ) -> list[RecoParticle]:
@@ -437,6 +451,8 @@ class ParticleBuilder(BuilderBase):
             (N, 3) Set of deposition coordinates in the image
         depositions : np.ndarray, optional
             (N) Set of deposition values
+        depositions_q : np.ndarray, optional
+            (N) Set of input charge values
         sources : np.ndarray, optional
             (N, 2) Tensor which contains the module/tpc information
         reco_fragments : List[RecoFragment], optional
@@ -462,6 +478,10 @@ class ParticleBuilder(BuilderBase):
                     )
                 particle.points = points[particle.index]
                 particle.depositions = depositions[particle.index]
+                # Older files may not contain a separate charge array. Restore
+                # the pre-refactor behavior by falling back to depositions.
+                charge = depositions if depositions_q is None else depositions_q
+                particle.depositions_q = charge[particle.index]
                 if sources is not None:
                     particle.sources = sources[particle.index]
 

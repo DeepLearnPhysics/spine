@@ -3,8 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from spine.data import Meta
-from spine.io.parse.data import ParserTensor
+from spine.data import Meta, TensorData
 
 from .crop import CropAugment
 from .flip import FlipAugment
@@ -50,6 +49,7 @@ class AugmentManager:
         if not augmenters:
             raise ValueError("Must provide at least one augmentation module.")
 
+        # Instantiate enabled modules in the user-provided execution order
         self.modules = []
         for key, cfg in augmenters.items():
             if cfg is None:
@@ -85,10 +85,11 @@ class AugmentManager:
         dict
             Updated dictionary of augmented data products
         """
+        # Discover coordinate-bearing products and their shared image metadata
         augment_keys = []
         meta = None
         for key, value in data.items():
-            if isinstance(value, ParserTensor) and value.coords is not None:
+            if isinstance(value, TensorData) and value.coordinate_data is not None:
                 augment_keys.append(key)
                 if meta is None:
                     meta = value.meta
@@ -102,6 +103,7 @@ class AugmentManager:
         if meta is None:
             return data
 
+        # Preserve the original frame while threading updated metadata forward
         context = {"original_meta": self.copy_meta(meta)}
         for module in self.modules:
             data, meta = module(data, meta, augment_keys, context)

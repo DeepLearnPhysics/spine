@@ -7,7 +7,7 @@ from typing import Any
 
 import torch
 
-from spine.data.batch import TensorBatch
+from spine.data import TensorBatch
 
 from . import backend
 
@@ -160,7 +160,9 @@ class SparseTensor:
             self._tensor_stride = _normalize_stride(tensor_stride, dimension)
             if batch_size is None:
                 batch_size = (
-                    int(coordinates[:, 0].max().item()) + 1 if len(coordinates) else 0
+                    int(coordinates[:, 0].max().item()) + 1
+                    if len(coordinates) > 0
+                    else 0
                 )
             self._batch_size = batch_size
             self._coordinates = coordinates
@@ -177,7 +179,7 @@ class SparseTensor:
                 coordinate_map_key.get_tensor_stride(), dimension
             )
 
-        if len(self._features):
+        if len(self._features) > 0:
             if coordinates is not None:
                 self._backend_tensor = backend.create_tensor(
                     features=self._features,
@@ -292,7 +294,7 @@ class SparseTensor:
         coordinates: torch.Tensor, batch_size: int
     ) -> torch.Tensor:
         """Count active coordinate rows in each batch entry."""
-        if not len(coordinates):
+        if len(coordinates) == 0:
             return torch.zeros(batch_size, dtype=torch.long, device=coordinates.device)
         return torch.bincount(coordinates[:, 0].long(), minlength=batch_size).to(
             coordinates.device
@@ -345,7 +347,7 @@ class SparseTensor:
         """Return the number of batch entries, including trailing empty ones."""
         if self._batch_size is not None:
             return self._batch_size
-        return int(self.C[:, 0].max().item()) + 1 if len(self) else 0
+        return int(self.C[:, 0].max().item()) + 1 if len(self) > 0 else 0
 
     @property
     def counts(self) -> torch.Tensor:
@@ -477,7 +479,7 @@ class SparseTensor:
         SparseTensor
             Tensor sharing coordinates and provenance with this tensor.
         """
-        if not len(self):
+        if len(self) == 0:
             result = SparseTensor.empty_like(self, features.shape[1])
             result._features = features
             return result
@@ -501,9 +503,26 @@ class SparseTensor:
         reference = self._reference_coordinates
         if reference is None:
             return self.F
-        if not len(self):
+        if len(self) == 0:
             return self.F.new_zeros((len(reference), self.F.shape[1]))
         queries = reference.to(device=self.C.device, dtype=self.F.dtype)
+        return backend.features_at_coordinates(self.backend_tensor, queries)
+
+    def features_at_coordinates(self, coordinates: torch.Tensor) -> torch.Tensor:
+        """Query features at batched coordinates in the requested row order.
+
+        Parameters
+        ----------
+        coordinates : torch.Tensor
+            ``(N, D + 1)`` batch-and-spatial coordinate matrix. Coordinates
+            absent from this sparse tensor receive zero features.
+
+        Returns
+        -------
+        torch.Tensor
+            ``(N, C)`` feature matrix aligned with ``coordinates``.
+        """
+        queries = coordinates.to(device=self.C.device, dtype=self.F.dtype)
         return backend.features_at_coordinates(self.backend_tensor, queries)
 
     def to_tensor_batch(
@@ -568,7 +587,7 @@ class SparseTensor:
     def __add__(self, other: Any) -> "SparseTensor":
         """Add another sparse tensor or a value to the feature matrix."""
         if isinstance(other, SparseTensor):
-            if not len(self) and not len(other):
+            if len(self) == 0 and len(other) == 0:
                 return SparseTensor.empty_like(self)
             return self._wrap(self.backend_tensor + other.backend_tensor)
         return self.replace_features(self.F + other)
@@ -576,7 +595,7 @@ class SparseTensor:
     def __mul__(self, other: Any) -> "SparseTensor":
         """Multiply by another sparse tensor or a feature-wise value."""
         if isinstance(other, SparseTensor):
-            if not len(self) and not len(other):
+            if len(self) == 0 and len(other) == 0:
                 return SparseTensor.empty_like(self)
             return self._wrap(self.backend_tensor * other.backend_tensor)
         return self.replace_features(self.F * other)
@@ -584,7 +603,7 @@ class SparseTensor:
     def __truediv__(self, other: Any) -> "SparseTensor":
         """Divide by another sparse tensor or a feature-wise value."""
         if isinstance(other, SparseTensor):
-            if not len(self) and not len(other):
+            if len(self) == 0 and len(other) == 0:
                 return SparseTensor.empty_like(self)
             return self._wrap(self.backend_tensor / other.backend_tensor)
         return self.replace_features(self.F / other)

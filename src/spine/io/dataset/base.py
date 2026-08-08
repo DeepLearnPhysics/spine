@@ -106,19 +106,6 @@ class BaseDataset(Dataset):
         return {key: data[key] for key in data if key in keep}
 
     @classmethod
-    def index_data_types(cls) -> dict[str, str]:
-        """Return the standard collate types for metadata keys.
-
-        Returns
-        -------
-        dict[str, str]
-            Mapping from standard metadata key name to the collate type used
-            by :class:`spine.io.collate.CollateAll`.
-        """
-        keys = (*cls._index_keys, *cls._source_keys)
-        return {key: "scalar" for key in keys}
-
-    @classmethod
     def index_overlay_methods(cls) -> dict[str, str]:
         """Return the standard overlay methods for metadata keys.
 

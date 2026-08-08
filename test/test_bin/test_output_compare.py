@@ -150,7 +150,7 @@ def test_compare_files_v2_reports_semantic_difference(tmp_path):
     make_versioned_output(reference, 2)
     make_versioned_output(candidate, 2)
     with h5py.File(candidate, "a") as out_file:
-        out_file["tensor"]["values"][0, 0] += 1.0
+        out_file["products"]["tensor"]["values"][0, 0] += 1.0
 
     result = module.compare_files(reference, candidate, exact=True)
 
@@ -273,6 +273,79 @@ def test_compare_values_structured_and_object_fields():
 
     assert not result.agrees
     assert "objects.scores[0][1]" in result.differences[0]
+
+
+def test_compare_values_reports_concise_schema_and_common_differences():
+    """Schema extensions should not obscure differences in shared fields."""
+    module = load_output_compare_module()
+    reference = np.asarray(
+        [(4, 1.0, 10)],
+        dtype=[
+            ("id", np.int64),
+            ("score", np.float32),
+            ("legacy", np.int64),
+        ],
+    )
+    candidate = np.asarray(
+        [(4, 2.0, 20)],
+        dtype=[
+            ("id", np.int64),
+            ("score", np.float32),
+            ("added", np.int64),
+        ],
+    )
+    result = module.ComparisonResult()
+
+    module.compare_values(
+        reference,
+        candidate,
+        "event[0].objects",
+        result,
+        rtol=0.0,
+        atol=0.0,
+        exact=True,
+    )
+
+    assert result.num_mismatches == 2
+    assert result.num_values == 2
+    assert result.differences[0] == (
+        "objects: structured fields differ; reference-only fields: ['legacy']; "
+        "candidate-only fields: ['added']"
+    )
+    assert "event[0].objects.score[0]" in result.differences[1]
+
+
+def test_format_result_coalesces_repeated_schema_differences():
+    """Identical per-event schema failures should occupy one report line."""
+    module = load_output_compare_module()
+    reference = np.asarray([(1,)], dtype=[("id", np.int64)])
+    candidate = np.asarray([(1, 2)], dtype=[("id", np.int64), ("added", np.int64)])
+    result = module.ComparisonResult()
+
+    for event_id in range(3):
+        module.compare_values(
+            reference,
+            candidate,
+            f"event[{event_id}].objects",
+            result,
+            rtol=0.0,
+            atol=0.0,
+            exact=True,
+        )
+
+    report = module.format_result(
+        result,
+        "reference.h5",
+        "candidate.h5",
+        rtol=0.0,
+        atol=0.0,
+        exact=True,
+    )
+
+    assert result.num_mismatches == 3
+    assert len(result.differences) == 1
+    assert "candidate-only fields: ['added'] (3 occurrences)" in report
+    assert "additional mismatches not shown" not in report
 
 
 def test_compare_files_rejects_invalid_options(tmp_path):

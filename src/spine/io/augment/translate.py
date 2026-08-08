@@ -37,6 +37,7 @@ class TranslateAugment(AugmentBase):
         None
             This method does not return anything
         """
+        # Normalize and validate an optional explicit translation volume
         lower = np.asarray(lower, dtype=np.float32) if lower is not None else None
         upper = np.asarray(upper, dtype=np.float32) if upper is not None else None
         if (lower is None) != (upper is None):
@@ -50,6 +51,7 @@ class TranslateAugment(AugmentBase):
         self.lower = lower
         self.upper = upper
 
+        # Detector geometry may provide the target bounds instead
         if use_geo:
             if lower is not None or upper is not None:
                 raise ValueError(
@@ -85,20 +87,21 @@ class TranslateAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and translated metadata
         """
+        # Resolve the target frame and sample one shared event-level displacement
         target_meta = self.get_target_meta(meta, context.get("original_meta"))
-
         offset = self.generate_offset(meta, target_meta)
 
+        # Apply the same voxel offset to every coordinate group in every product
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = target_meta
                 continue
 
-            voxels = data[key].coords
+            voxels = data[key].coordinate_data
             width = voxels.shape[1]
             voxels = (voxels.reshape(-1, 3) + offset).reshape(-1, width)
 
-            data[key].coords = voxels
+            data[key].coordinate_data = voxels
             data[key].meta = target_meta
 
         return data, target_meta
@@ -118,6 +121,7 @@ class TranslateAugment(AugmentBase):
         Meta
             Metadata describing the translation target volume
         """
+        # Explicit bounds inherit the original grid pitch when one is available
         if self.lower is not None and self.upper is not None:
             size = (
                 meta.size.copy() if original_meta is None else original_meta.size.copy()
@@ -131,7 +135,9 @@ class TranslateAugment(AugmentBase):
                 count=count,
             )
 
+        # Without explicit bounds, restore the pre-augmentation image frame
         source_meta = original_meta if original_meta is not None else meta
+
         return Meta(
             lower=source_meta.lower.copy(),
             upper=source_meta.upper.copy(),

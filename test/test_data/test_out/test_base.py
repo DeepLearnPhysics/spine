@@ -33,6 +33,8 @@ class TestOutBase:
         assert obj.points.dtype == np.float32
         assert len(obj.depositions) == 0
         assert obj.depositions.dtype == np.float32
+        assert len(obj.depositions_q) == 0
+        assert obj.depositions_q.dtype == np.float32
         assert obj.sources.shape == (0, 2)
         assert obj.sources.dtype == np.int32
         assert len(obj.match_ids) == 0
@@ -98,6 +100,15 @@ class TestOutBase:
         )
         expected_sum = np.sum(depositions)
         assert abs(obj2.depositions_sum - expected_sum) < 1e-6
+
+    def test_outbase_depositions_q_sum_property(self):
+        """Input charge totals should be available to reco and truth objects."""
+        from spine.data.out.base import OutBase
+
+        charge = np.array([1.5, 2.5, 3.5], dtype=np.float32)
+        obj = OutBase(depositions_q=charge)
+
+        assert obj.depositions_q_sum == np.sum(charge)
 
     def test_outbase_module_ids_property(self):
         """Test OutBase module_ids derived property."""

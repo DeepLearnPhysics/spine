@@ -154,6 +154,26 @@ class InteractionBase(OutBase):
         self.flash_scores = np.empty(0, dtype=np.float32)
         self.flash_hypothesis_ids = np.empty(0, dtype=np.int32)
 
+    def set_particles(self, particles: list[ParticleBase]) -> None:
+        """Attach constituent particles and rebuild aggregate attributes.
+
+        Parameters
+        ----------
+        particles : List[ParticleBase]
+            Particles that make up this interaction.
+
+        Notes
+        -----
+        This method refreshes the particle IDs and all long-form attributes
+        defined as concatenations of particle attributes.
+        """
+        self.particles = particles
+        self.particle_ids = np.asarray([part.id for part in particles], dtype=np.int32)
+
+        for attr in self._cat_attrs:
+            values = [getattr(part, attr) for part in particles]
+            setattr(self, attr, np.concatenate(values))
+
     @property
     def primary_particles(self) -> list[ParticleBase]:
         """List of primary particles associated with this interaction.
@@ -334,14 +354,8 @@ class InteractionBase(OutBase):
                     raise ValueError(f"{attr} must be unique in the list of particles.")
                 setattr(interaction, attr, getattr(particles[0], attr))
 
-        # Attach particle list
-        interaction.particles = particles
-        interaction.particle_ids = np.array([p.id for p in particles])
-
-        # Build long-form attributes
-        for attr in interaction._cat_attrs:
-            val_list = [getattr(p, attr) for p in particles]
-            setattr(interaction, attr, np.concatenate(val_list))
+        # Attach particles and build the corresponding aggregate attributes
+        interaction.set_particles(particles)
 
         return interaction
 

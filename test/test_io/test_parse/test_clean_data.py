@@ -46,6 +46,16 @@ def test_filter_duplicate_voxels_group_with_precedence():
     assert np.array_equal(groups[1], np.asarray([0, 1]))
 
 
+def test_filter_duplicate_voxels_group_with_invalid_reference():
+    """Invalid references should lose to labels in the precedence order."""
+    voxels = np.asarray([[0, 0, 0], [0, 0, 0]], dtype=np.int32)
+    reference = np.asarray([-1, 2], dtype=np.int32)
+    precedence = [2, 1, -1]
+    mask, groups = filter_duplicate_voxels_group(voxels, reference, precedence)
+    assert np.array_equal(mask, np.asarray([False, True]))
+    assert np.array_equal(groups[1], np.asarray([0, 1]))
+
+
 def test_filter_voxels_ref():
     """Reference filtering should drop voxels absent from the sparse reference."""
     voxels = np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0]], dtype=np.int32)

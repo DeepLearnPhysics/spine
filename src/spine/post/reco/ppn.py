@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from spine.constants import COORD_COLS, PPN_SHAPE_COL
 from spine.post.base import PostBase
 from spine.utils.ppn import PPNPredictor
 
@@ -37,9 +36,11 @@ class PPNProcessor(PostBase):
     _keys = (
         ("segmentation", True),
         ("ppn_points", True),
+        ("ppn_points_unique", False),
         ("ppn_coords", True),
         ("ppn_masks", True),
         ("ppn_classify_endpoints", False),
+        ("ppn_classify_endpoints_unique", False),
     )
 
     def __init__(
@@ -84,19 +85,26 @@ class PPNProcessor(PostBase):
         # Get the PPN candidates
         # TODO: remove requirement to nest output
         data_nest = {k: [v] for k, v in data.items()}
+        if "ppn_points_unique" in data:
+            data_nest["ppn_points"] = [data["ppn_points_unique"]]
+        if "ppn_classify_endpoints_unique" in data:
+            data_nest["ppn_classify_endpoints"] = [
+                data["ppn_classify_endpoints_unique"]
+            ]
         ppn_pred = self.ppn_predictor(**data_nest)[0]
         result = {"ppn_pred": ppn_pred}
 
         # If requested, assign PPN candidates to particles
         if self.assign_to_particles:
-            ppn_points = ppn_pred[:, COORD_COLS]
+            ppn_points = ppn_pred.coords
+            ppn_shapes = ppn_pred.feature("shape").reshape(-1)
             for part in data["reco_particles"]:
                 # Get the valid list of candidates
                 valid_index = np.arange(len(ppn_pred))
                 if not self.restrict_shape:
                     candidates = ppn_points
                 else:
-                    valid_index = np.where(ppn_pred[:, PPN_SHAPE_COL] == part.shape)[0]
+                    valid_index = np.where(ppn_shapes == part.shape)[0]
                     candidates = ppn_points[valid_index]
 
                 # Restrict to points that are sufficiently close

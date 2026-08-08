@@ -7,15 +7,29 @@ from typing import Any, Literal
 import numpy as np
 import plotly.graph_objs as go
 
-from spine.constants import COORD_COLS
+from spine.data import TensorBatch, TensorData
 
 from .utils import ColorInput, HoverTextInput, NumericOrSequence, is_scalar_sequence
 
 __all__ = ["scatter_points", "scatter_points_2d", "scatter_points_3d"]
 
 
+def _coordinate_array(
+    points: np.ndarray | TensorData | TensorBatch,
+) -> np.ndarray:
+    """Normalize a self-describing or raw point product to NumPy coordinates."""
+    if isinstance(points, TensorData):
+        coordinates = points.coords
+        if coordinates is None:
+            raise ValueError("Point data does not carry coordinates.")
+        return np.asarray(coordinates)
+    if isinstance(points, TensorBatch):
+        return points.to_numpy().coords.numpy_tensor()
+    return np.asarray(points)
+
+
 def _prepare_point_trace_inputs(
-    points: np.ndarray,
+    points: np.ndarray | TensorData | TensorBatch,
     color: ColorInput = None,
     markersize: NumericOrSequence = 2,
     linewidth: float = 2,
@@ -40,8 +54,8 @@ def _prepare_point_trace_inputs(
 
     Parameters
     ----------
-    points : np.ndarray
-        ``(N, 2+)`` array of point coordinates.
+    points : numpy.ndarray, TensorData or TensorBatch
+        Self-describing points or an ``(N, 2/3)`` coordinate array.
     color : Union[str, int, float, Sequence], optional
         Color of markers or lines. Can be one shared scalar value or one value
         per point.
@@ -77,14 +91,17 @@ def _prepare_point_trace_inputs(
         Coordinate dictionary, marker dictionary, line dictionary, hovertext,
         and hovertemplate.
     """
+    points = _coordinate_array(points)
+
     if dim not in [2, 3]:
         raise ValueError("This function only supports dimension 2 or 3.")
     if points.shape[1] == 2:
         dim = 2
-
-    coord_cols = COORD_COLS[:dim]
-    if points.shape[1] == dim:
-        coord_cols = np.arange(dim)
+    if points.shape[1] != dim:
+        raise ValueError(
+            "Raw point arrays must contain coordinates only; pass a "
+            "TensorData/TensorBatch for self-describing packed products."
+        )
 
     if hovertext is None and color is not None and is_scalar_sequence(color):
         hovertext = [f"Value: {color_value}" for color_value in color]
@@ -122,7 +139,7 @@ def _prepare_point_trace_inputs(
             )
 
     axes = ["x", "y", "z"][:dim]
-    pos_dict = {axis: points[:, coord_cols[i]] for i, axis in enumerate(axes)}
+    pos_dict = {axis: points[:, i] for i, axis in enumerate(axes)}
 
     return pos_dict, marker, line, hovertext, hovertemplate
 

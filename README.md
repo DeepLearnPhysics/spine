@@ -39,12 +39,12 @@ Use Docker when you have a local workstation or server with container runtime su
 ```bash
 docker run --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:latest \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.root
 
 # Or pin to a specific release
 docker run --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:<release> \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.root
 ```
 
 On Apple Silicon macOS systems, the published SPINE image should still be run
@@ -54,7 +54,7 @@ as `linux/amd64`. Specify that explicitly by adding
 ```bash
 docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:<release> \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 ```
 
 For Jupyter notebook/lab use specifically, avoid the Docker Desktop
@@ -70,12 +70,12 @@ Use Apptainer or Singularity on HPC systems that do not allow Docker directly. T
 ```bash
 apptainer pull spine_latest.sif docker://ghcr.io/deeplearnphysics/spine:latest
 apptainer exec --nv spine_latest.sif \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.root
 
 # Or pin to a specific release
 apptainer pull spine_<release>.sif docker://ghcr.io/deeplearnphysics/spine:<release>
 apptainer exec --nv spine_<release>.sif \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.root
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.root
 ```
 
 The Docker and Apptainer paths consume the same released image; the difference is only the container runtime.
@@ -180,7 +180,7 @@ cd spine
 pip install numpy scipy pandas pyyaml h5py numba psutil
 
 # Run directly from source
-python src/spine/bin/run.py --config config/train_uresnet.yaml --source /path/to/data.root
+python src/spine/bin/run.py --config config/uresnet/uresnet_train.yaml --source /path/to/data.root
 
 # Or make it executable and run directly
 chmod +x src/spine/bin/run.py
@@ -207,21 +207,21 @@ pip install dist/spine-*.whl[all]
 ```bash
 docker run --gpus all -v $(pwd):/workspace \
     ghcr.io/deeplearnphysics/spine:<release> \
-    spine --config /workspace/config/train_uresnet.yaml --source /workspace/data.h5
+    spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
 ```
 
 **Option 2: After installation, use the `spine` command locally:**
 
 ```bash
 # Run training/inference/analysis
-spine --config config/train_uresnet.yaml --source /path/to/data.h5
+spine --config config/uresnet/uresnet_train.yaml --source /path/to/data.h5
 ```
 
 **Option 3: Run directly from source (development):**
 
 ```bash
 # From the spine repository directory
-python src/spine/bin/cli.py --config config/train_uresnet.yaml --source /path/to/data.h5
+python src/spine/bin/cli.py --config config/uresnet/uresnet_train.yaml --source /path/to/data.h5
 ```
 
 ### Python API
@@ -233,7 +233,7 @@ from spine.config import load_config_file
 from spine.driver import Driver
 
 # Load configuration file  
-cfg_path = 'config/train_uresnet.yaml'  # or your config file
+cfg_path = 'config/uresnet/uresnet_train.yaml'  # or your config file
 cfg = load_config_file(cfg_path)
 
 # Initialize driver class
@@ -250,24 +250,30 @@ driver.run()
 
 Example configurations are available in the `config` folder:
 
-| Configuration name            | Model          |
-| ------------------------------|----------------|
-| `train_uresnet.yaml`          | UResNet alone  |
-| `train_uresnet_ppn.yaml`      | UResNet + PPN  |
-| `train_graph_spice.yaml`      | GraphSpice     |
-| `train_grappa_shower.yaml`    | GrapPA for shower fragments clustering |
-| `train_grappa_track.yaml`     | GrapPA for track fragments clustering |
-| `train_grappa_inter.yaml`     | GrapPA for interaction clustering |
+| Configuration name                              | Model          |
+| ------------------------------------------------|----------------|
+| `uresnet/uresnet_{train,test}.yaml`              | UResNet alone  |
+| `uresnet/bayes/uresnet_bayes_{train,test}.yaml`  | Bayesian UResNet |
+| `uresnet/ppn/uresnet_ppn_{train,test}.yaml`      | UResNet + PPN  |
+| `image/pid/image_pid_{train,test}.yaml`           | Image PID classification |
+| `image/energy/image_energy_{train,test}.yaml`     | Image energy regression |
+| `image/pid/image_pid_ancestor_{train,test}.yaml`  | Ancestor-tree PID classification |
+| `image/energy/image_energy_ancestor_{train,test}.yaml` | Ancestor-tree energy regression |
+| `graph_spice/graph_spice_{train,test}.yaml`      | Graph-SPICE    |
+| `grappa_shower/grappa_shower_{train,test}.yaml` | GrapPA for shower fragment clustering |
+| `grappa_track/grappa_track_{train,test}.yaml` | GrapPA for track fragment clustering |
+| `grappa_inter/grappa_inter_{train,test}.yaml` | GrapPA for interaction clustering |
 
-To switch from training to inference mode, set `trainval.train: False` in your configuration file.
+The maintained model directories provide separate training and inference/test
+configurations where both modes are supported.
 
 Key configuration parameters you may want to modify:
-* `batch_size` - batch size for training/inference
+* `minibatch_size` - per-process batch size for training/inference
 * `weight_prefix` - directory to save model checkpoints
 * `log_dir` - directory to save training logs
 * `tensorboard` - optional TensorBoard scalar logging configuration
-* `iterations` - number of training iterations
-* `model_path` - path to checkpoint to load (optional)
+* `epochs` - number of training epochs
+* `weight_path` - path to checkpoint to load (optional)
 * `train` - training instruction block
 * `gpus` - GPU IDs to use (leave empty '' for CPU)
 
@@ -276,10 +282,10 @@ Key configuration parameters you may want to modify:
 Basic usage with the `spine` command:
 ```bash
 # Run training/inference directly
-spine --config config/train_uresnet.yaml --source /path/to/data.h5
+spine --config config/uresnet/uresnet_train.yaml --source /path/to/data.h5
 
 # Or run in background with logging
-nohup spine --config config/train_uresnet.yaml --source /path/to/data.h5 > log_uresnet.txt 2>&1 &
+nohup spine --config config/uresnet/uresnet_train.yaml --source /path/to/data.h5 > log_uresnet.txt 2>&1 &
 ```
 
 You can load a configuration file into a Python dictionary using:
@@ -287,7 +293,7 @@ You can load a configuration file into a Python dictionary using:
 from spine.config import load_config_file
 
 # Load configuration file with SPINE's config loader
-cfg = load_config_file('config/train_uresnet.yaml')
+cfg = load_config_file('config/uresnet/uresnet_train.yaml')
 ```
 
 ### Reading a Log

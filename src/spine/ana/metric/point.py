@@ -9,14 +9,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from spine.ana.base import AnaBase
-from spine.constants import (
-    COORD_COLS,
-    LOWES_SHP,
-    PPN_END_COLS,
-    PPN_LENDP_COL,
-    PPN_LTYPE_COL,
-    PPN_SHAPE_COL,
-)
+from spine.constants import LOWES_SHP
 
 __all__ = ["PointProposalAna"]
 
@@ -93,16 +86,18 @@ class PointProposalAna(AnaBase):
         points, types, ends = {}, {}, {}
 
         # Fetch the list of label points and their characteristics
-        points["truth"] = data[self.label_key][:, COORD_COLS]
-        types["truth"] = data[self.label_key][:, PPN_LTYPE_COL].astype(int)
+        label = data[self.label_key]
+        prediction = data["ppn_pred"]
+        points["truth"] = label.coords
+        types["truth"] = label.feature("shape").reshape(-1).astype(int)
         if self.endpoints:
-            ends["truth"] = data[self.label_key][:, PPN_LENDP_COL].astype(int)
+            ends["truth"] = label.feature("endpoint").reshape(-1).astype(int)
 
         # Fetch the list of predicted points and their characteristics
-        points["reco"] = data["ppn_pred"][:, COORD_COLS]
-        types["reco"] = data["ppn_pred"][:, PPN_SHAPE_COL].astype(int)
+        points["reco"] = prediction.coords
+        types["reco"] = prediction.feature("shape").reshape(-1).astype(int)
         if self.endpoints:
-            ends["reco"] = np.argmax(data["ppn_pred"][:, PPN_END_COLS], axis=1)
+            ends["reco"] = np.argmax(prediction.feature("endpoint_scores"), axis=1)
 
         # Compute the pair-wise distances between label and predicted points
         dist_mat = {}

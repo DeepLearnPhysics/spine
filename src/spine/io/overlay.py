@@ -8,14 +8,17 @@ from warnings import warn
 
 import numpy as np
 
-from .parse.clean_data import clean_sparse_data
-from .parse.data import (
-    ParserEdgeIndex,
-    ParserIndex,
-    ParserIndexList,
-    ParserObjectList,
-    ParserTensor,
+from spine.data import (
+    ClusterLabelData,
+    DataBase,
+    EdgeIndexData,
+    IndexData,
+    IndexListData,
+    ObjectListData,
+    TensorData,
 )
+
+from .parse.clean_data import clean_sparse_data
 
 SampleDict = dict[str, Any]
 BatchType = Sequence[SampleDict]
@@ -40,7 +43,7 @@ class Overlayer:
 
     def __init__(
         self,
-        data_types: Mapping[str, str],
+        data_keys: Sequence[str] | Mapping[str, Any] | None,
         methods: Mapping[str, str | None],
         multiplicity: int,
         mode: str = "constant",
@@ -49,8 +52,8 @@ class Overlayer:
 
         Parameters
         ----------
-        data_types : mapping
-            Types of data returned by the upstream parsers
+        data_keys : sequence or mapping
+            Names of products returned by the upstream dataset.
         methods : mapping
             Maps data products onto overlay methods
         multiplicity : int
@@ -72,8 +75,9 @@ class Overlayer:
             )
         self.multiplicity = multiplicity
 
-        # Store the data types and methods
-        self.data_types = data_types
+        if data_keys is None:
+            raise ValueError("Must provide the dataset `data_keys`.")
+        self.data_keys = tuple(data_keys)
         self.methods = methods
 
         # Initialize row selection references for feature-only tensors
@@ -114,30 +118,173 @@ class Overlayer:
             # Loop over the keys to overlay
             overlay = {}
             for key in self.get_overlay_order(batch, index):
-                # Load up the data type and overlay method for this key
-                data_type = self.data_types[key]
-
-                # Dispatch and fill the overlay
-                if data_type == "scalar":
+                # Dispatch directly on the event product
+                reference = batch[index[0]][key]
+                if np.isscalar(reference) or isinstance(reference, str):
                     # Check whether scalars can be harmonized
                     overlay[key] = self.merge_scalars(batch, key, index)
 
-                elif data_type == "object":
-                    # Check that objects are compatible when overlaying
-                    overlay[key] = self.merge_objects(batch, key, index)
-
-                elif data_type == "object_list":
+                elif isinstance(reference, ObjectListData):
                     # Offset object list index attributes if needed
                     overlay[key] = self.cat_objects(batch, key, index)
 
-                elif data_type == "tensor":
+                elif isinstance(reference, DataBase):
+                    # Check that objects are compatible when overlaying
+                    overlay[key] = self.merge_objects(batch, key, index)
+
+                elif isinstance(
+                    reference, (TensorData, IndexData, IndexListData, EdgeIndexData)
+                ):
                     # Stack tensors, offset index columns if needed
                     overlay[key] = self.stack_tensors(batch, key, index)
+
+                elif isinstance(reference, ClusterLabelData):
+                    overlay[key] = self.stack_cluster_labels(batch, key, index)
+
+                else:
+                    # Scalar-like Python and user data objects need no parser
+                    # taxonomy: their configured merge policy is sufficient.
+                    overlay[key] = self.merge_objects(batch, key, index)
 
             # Add overlay to the batch
             overlay_batch.append(overlay)
 
         return overlay_batch
+
+    def stack_cluster_labels(
+        self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
+    ) -> ClusterLabelData:
+        """Overlay compact cluster labels and their particle tables.
+
+        Parameters
+        ----------
+        batch : sequence of dict
+            Event dictionaries containing the cluster-label product.
+        key : str
+            Cluster-label product key to overlay.
+        index : np.ndarray or sequence[int]
+            Positions of the source events included in this overlay.
+
+        Returns
+        -------
+        ClusterLabelData
+            Merged voxel labels with disjoint cluster and particle namespaces.
+
+        Raises
+        ------
+        TypeError
+            If any selected entry is not a :class:`ClusterLabelData` product.
+        ValueError
+            If spatial metadata or particle-table availability differs between
+            the selected entries.
+        """
+        entries = [batch[idx][key] for idx in index]
+        reference = entries[0]
+        if not all(isinstance(entry, ClusterLabelData) for entry in entries):
+            raise TypeError("Cluster-label overlay requires matching parser products.")
+        if not all(entry.meta == reference.meta for entry in entries):
+            raise ValueError("Cluster-label metadata must match across an overlay.")
+        has_particles = reference.particles is not None
+        if any((entry.particles is not None) != has_particles for entry in entries):
+            raise ValueError(
+                "Particle information must be consistent across an overlay."
+            )
+        precedence = reference.precedence
+        if any(
+            not np.array_equal(entry.precedence, precedence) for entry in entries[1:]
+        ):
+            raise ValueError("Shape precedence must be consistent across an overlay.")
+
+        # Track independent namespaces while concatenating source events
+        coords_list = []
+        feature_list = []
+        shape_list = []
+        particle_tables = []
+        cluster_offset = 0
+        particle_table_offset = 0
+        particle_id_offset = 0
+        group_offset = 0
+        interaction_offset = 0
+        neutrino_offset = 0
+        has_precedence = precedence is not None
+        for entry in entries:
+            # Cluster IDs index voxel-level instances
+            features = entry.features.copy()
+            valid_cluster = features[:, 1] >= 0
+            features[valid_cluster, 1] += cluster_offset
+            cluster_offset += int(np.max(entry.features[:, 1], initial=-1)) + 1
+
+            if has_particles:
+                if has_precedence:
+                    shape_list.append(entry.shapes)
+
+                # Associations and ancestors index rows in the particle table
+                valid_particle = features[:, 2] >= 0
+                features[valid_particle, 2] += particle_table_offset
+                table = {name: value.copy() for name, value in entry.particles.items()}
+
+                # Physical particle/group/interaction IDs have distinct namespaces
+                particle_id_count = int(np.max(table["particle"], initial=-1)) + 1
+                valid = table["particle"] >= 0
+                table["particle"][valid] += particle_id_offset
+                group_count = int(np.max(table["group"], initial=-1)) + 1
+                valid = table["group"] >= 0
+                table["group"][valid] += group_offset
+                valid = table["ancestor"] >= 0
+                table["ancestor"][valid] += particle_table_offset
+                interaction_count = int(np.max(table["interaction"], initial=-1)) + 1
+                valid = table["interaction"] >= 0
+                table["interaction"][valid] += interaction_offset
+                neutrino_count = int(np.max(table["nu"], initial=-1)) + 1
+                valid = table["nu"] >= 0
+                table["nu"][valid] += neutrino_offset
+                particle_table_offset += len(table["particle"])
+                particle_id_offset += particle_id_count
+                group_offset += group_count
+                interaction_offset += interaction_count
+                neutrino_offset += neutrino_count
+                particle_tables.append(table)
+
+            coords_list.append(entry.coords)
+            feature_list.append(features)
+
+        # Merge overlapping voxels only after all index spaces are disjoint
+        coords = np.concatenate(coords_list, axis=0)
+        features = np.concatenate(feature_list, axis=0)
+        prec_col = None
+        if has_precedence:
+            # Expand the carried precedence field only for duplicate selection.
+            shapes = np.concatenate(shape_list, axis=0).reshape(-1, 1)
+            shapes = shapes.astype(features.dtype, copy=False)
+            features = np.concatenate((features, shapes), axis=1)
+            prec_col = features.shape[1] - 1
+        coords, features, selection = clean_sparse_data(
+            coords,
+            features,
+            sum_cols=np.asarray([0], dtype=np.int64),
+            prec_col=prec_col,
+            precedence=precedence,
+            return_index=True,
+        )
+        if has_precedence:
+            features = features[:, :-1]
+        self._row_selections[key] = (selection, sum(len(x) for x in feature_list))
+
+        # Reassemble the particle side of the structured product
+        particles = None
+        if has_particles:
+            particles = {
+                name: np.concatenate([table[name] for table in particle_tables], axis=0)
+                for name in particle_tables[0]
+            }
+        return ClusterLabelData(
+            coords=coords,
+            features=features,
+            particles=particles,
+            meta=reference.meta,
+            sum_cols=reference.sum_cols,
+            precedence=precedence,
+        )
 
     def get_overlay_order(
         self, batch: BatchType, index: np.ndarray | Sequence[int]
@@ -173,9 +320,9 @@ class Overlayer:
                 raise ValueError(f"Cyclic overlay reference involving `{key}`.")
 
             ref_data = batch[index[0]][key]
-            if isinstance(ref_data, ParserTensor) and ref_data.overlay_reference:
+            if isinstance(ref_data, TensorData) and ref_data.overlay_reference:
                 reference = ref_data.overlay_reference
-                if reference not in self.data_types:
+                if reference not in self.data_keys:
                     raise ValueError(
                         f"Overlay reference `{reference}` for `{key}` is not "
                         "available in the overlaid products."
@@ -187,7 +334,7 @@ class Overlayer:
             visited.add(key)
             ordered.append(key)
 
-        for key in self.data_types:
+        for key in self.data_keys:
             visit(key)
 
         return ordered
@@ -319,7 +466,7 @@ class Overlayer:
 
         elif self.methods[key] == "cat":
             # Concatenate the objects in a single list (type change)
-            return ParserObjectList(objects, default=objects[0])
+            return ObjectListData(objects, default=objects[0])
 
         else:
             if self.methods[key] is None:
@@ -332,7 +479,7 @@ class Overlayer:
 
     def cat_objects(
         self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
-    ) -> ParserObjectList:
+    ) -> ObjectListData:
         """Concatenate object lists into one, offset index attributes if needed.
 
         Parameters
@@ -375,11 +522,11 @@ class Overlayer:
         for idx in index:
             obj_list.extend(batch[idx][key])
 
-        return ParserObjectList(obj_list, ref_list.default, shifts)
+        return ObjectListData(obj_list, ref_list.default, shifts)
 
     def stack_tensors(
         self, batch: BatchType, key: str, index: np.ndarray | Sequence[int]
-    ) -> ParserTensor | ParserIndex | ParserIndexList | ParserEdgeIndex:
+    ) -> TensorData | IndexData | IndexListData | EdgeIndexData:
         """Stack parser payloads together across an overlay.
 
         Parameters
@@ -394,24 +541,24 @@ class Overlayer:
 
         Returns
         -------
-        ParserTensor or ParserIndex or ParserIndexList or ParserEdgeIndex
+        TensorData or IndexData or IndexListData or EdgeIndexData
             Overlayed parser payload of the same logical type as the input.
         """
         # Define a reference tensor
         ref_data = batch[index[0]][key]
 
-        if isinstance(ref_data, ParserTensor):
+        if isinstance(ref_data, TensorData):
             if ref_data.feats_only:
                 return self.stack_feature_tensor_data(batch, key, index, ref_data)
             return self.stack_tensor_data(batch, key, index, ref_data)
 
-        if isinstance(ref_data, ParserIndex):
+        if isinstance(ref_data, IndexData):
             return self.stack_flat_index_data(batch, key, index, ref_data)
 
-        if isinstance(ref_data, ParserIndexList):
+        if isinstance(ref_data, IndexListData):
             return self.stack_index_list_data(batch, key, index, ref_data)
 
-        if isinstance(ref_data, ParserEdgeIndex):
+        if isinstance(ref_data, EdgeIndexData):
             return self.stack_edge_index_data(batch, key, index, ref_data)
 
         raise TypeError(
@@ -423,8 +570,8 @@ class Overlayer:
         batch: BatchType,
         key: str,
         index: np.ndarray | Sequence[int],
-        ref_data: ParserTensor,
-    ) -> ParserTensor:
+        ref_data: TensorData,
+    ) -> TensorData:
         """Overlay one tensor-like parser payload.
 
         Parameters
@@ -436,26 +583,26 @@ class Overlayer:
             Tensor data product key
         index : np.ndarray
             List of indexes to merge into an overlay
-        ref_data : ParserTensor
+        ref_data : TensorData
             Reference tensor used to check metadata and index columns, and to
             preserve overlay metadata in the output.
 
         Returns
         -------
-        ParserTensor
+        TensorData
             Overlayed parser tensor
         """
         # Stack coordinates, if present
         coords = None
-        if ref_data.coords is not None:
+        if ref_data.coordinate_data is not None:
             # Check that the meta data matches between all images (it must)
             if not np.all([batch[idx][key].meta == ref_data.meta for idx in index]):
                 raise ValueError("The metadata must match across all overlayed tensor.")
-            coords = np.vstack([batch[idx][key].coords for idx in index])
+            coords = np.vstack([batch[idx][key].coordinate_data for idx in index])
 
         # If required, offset indexes in the feature tensor
         index_shifts = None
-        if ref_data.feat_index_cols is not None:
+        if ref_data.index_cols is not None:
             # Apply offsets to the relevant columns only (mixed features)
             if ref_data.index_shifts is None:
                 raise ValueError(
@@ -463,7 +610,7 @@ class Overlayer:
                 )
             index_shifts = ref_data.index_shifts.copy()
             for idx in index[1:]:
-                for i, col in enumerate(ref_data.feat_index_cols):
+                for i, col in enumerate(ref_data.index_cols):
                     mask = batch[idx][key].features[:, col] > -1
                     batch[idx][key].features[mask, col] += index_shifts[i]
                 index_shifts += batch[idx][key].index_shifts
@@ -482,9 +629,9 @@ class Overlayer:
             coords, features, selection = clean_sparse_data(
                 coords,
                 features,
-                sum_cols=ref_data.feat_sum_cols,
-                avg_cols=ref_data.feat_avg_cols,
-                prec_col=ref_data.feat_prec_col,
+                sum_cols=ref_data.sum_cols,
+                avg_cols=ref_data.avg_cols,
+                prec_col=ref_data.prec_col,
                 precedence=ref_data.precedence,
                 return_index=True,
             )
@@ -497,8 +644,8 @@ class Overlayer:
         batch: BatchType,
         key: str,
         index: np.ndarray | Sequence[int],
-        ref_data: ParserTensor,
-    ) -> ParserTensor:
+        ref_data: TensorData,
+    ) -> TensorData:
         """Overlay one feature-only parser payload.
 
         Parameters
@@ -510,13 +657,13 @@ class Overlayer:
             Tensor data product key
         index : np.ndarray
             List of indexes to merge into an overlay
-        ref_data : ParserTensor
+        ref_data : TensorData
             Reference tensor used to check metadata and index columns, and to
             preserve overlay metadata in the output.
 
         Returns
         -------
-        ParserTensor
+        TensorData
             Overlayed parser tensor with feature-only coordinates
         """
         # Stack the features
@@ -556,17 +703,17 @@ class Overlayer:
 
     @staticmethod
     def build_parser_tensor(
-        ref_data: ParserTensor,
+        ref_data: TensorData,
         features: np.ndarray,
         coords: np.ndarray | None = None,
         index_shifts: np.ndarray | None = None,
         feats_only: bool | None = None,
-    ) -> ParserTensor:
+    ) -> TensorData:
         """Build a parser tensor while preserving overlay metadata.
 
         Parameters
         ----------
-        ref_data : ParserTensor
+        ref_data : TensorData
             Reference tensor used to check metadata and index columns, and to
             preserve overlay metadata in the output.
         features : np.ndarray
@@ -578,19 +725,18 @@ class Overlayer:
         feats_only : bool, optional
             Whether the output tensor should be feature-only. If not provided, will
             be inferred from the reference tensor.
+
+        Returns
+        -------
+        TensorData
+            Overlay tensor carrying the reference product's schema and metadata.
         """
-        return ParserTensor(
+        return TensorData(
             coords=coords,
             features=features,
             meta=ref_data.meta,
             index_shifts=index_shifts,
-            index_cols=ref_data.index_cols,
-            sum_cols=ref_data.sum_cols,
-            avg_cols=ref_data.avg_cols,
-            prec_col=ref_data.prec_col,
-            precedence=ref_data.precedence,
-            feats_only=ref_data.feats_only if feats_only is None else feats_only,
-            overlay_reference=ref_data.overlay_reference,
+            schema=ref_data.schema,
         )
 
     def stack_flat_index_data(
@@ -598,8 +744,8 @@ class Overlayer:
         batch: BatchType,
         key: str,
         index: np.ndarray | Sequence[int],
-        ref_data: ParserIndex,
-    ) -> ParserIndex:
+        ref_data: IndexData,
+    ) -> IndexData:
         """Overlay one flat index payload.
 
         Parameters
@@ -611,13 +757,13 @@ class Overlayer:
             Index data product key
         index : np.ndarray
             List of indexes to merge into an overlay
-        ref_data : ParserIndex
+        ref_data : IndexData
             Reference index used to check metadata and preserve overlay metadata in
             the output.
 
         Returns
         -------
-        ParserIndex
+        IndexData
             Overlayed index data.
         """
         span = ref_data.span
@@ -630,15 +776,15 @@ class Overlayer:
             span += batch[idx][key].span
 
         features = np.concatenate(shifted_indexes, axis=-1)
-        return ParserIndex(features=features, span=span)
+        return IndexData(features=features, span=span)
 
     def stack_index_list_data(
         self,
         batch: BatchType,
         key: str,
         index: np.ndarray | Sequence[int],
-        ref_data: ParserIndexList,
-    ) -> ParserIndexList:
+        ref_data: IndexListData,
+    ) -> IndexListData:
         """Overlay one jagged index-list payload.
 
         Parameters
@@ -650,13 +796,13 @@ class Overlayer:
             Index list data product key
         index : np.ndarray
             List of indexes to merge into an overlay
-        ref_data : ParserIndexList
+        ref_data : IndexListData
             Reference index list used to check metadata and preserve overlay metadata
             in the output.
 
         Returns
         -------
-        ParserIndexList
+        IndexListData
             Overlayed index list data.
         """
         span = ref_data.span
@@ -681,7 +827,7 @@ class Overlayer:
                 single_counts.extend(len(entry) for entry in shifted_entries)
             span += batch[idx][key].span
 
-        return ParserIndexList(
+        return IndexListData(
             features=features,
             span=span,
             single_counts=np.asarray(single_counts, dtype=np.int64),
@@ -692,8 +838,8 @@ class Overlayer:
         batch: BatchType,
         key: str,
         index: np.ndarray | Sequence[int],
-        ref_data: ParserEdgeIndex,
-    ) -> ParserEdgeIndex:
+        ref_data: EdgeIndexData,
+    ) -> EdgeIndexData:
         """Overlay one edge-index payload.
 
         Parameters
@@ -705,13 +851,13 @@ class Overlayer:
             Edge index data product key
         index : np.ndarray
             List of indexes to merge into an overlay
-        ref_data : ParserEdgeIndex
+        ref_data : EdgeIndexData
             Reference edge index used to check metadata and preserve overlay metadata
             in the output.
 
         Returns
         -------
-        ParserEdgeIndex
+        EdgeIndexData
             Overlayed edge index data.
         """
         span = ref_data.span
@@ -724,4 +870,4 @@ class Overlayer:
             span += batch[idx][key].span
 
         features = np.concatenate(shifted_indexes, axis=-1)
-        return ParserEdgeIndex(features=features, span=span)
+        return EdgeIndexData(features=features, span=span)

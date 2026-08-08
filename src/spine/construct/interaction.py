@@ -223,14 +223,9 @@ class InteractionBuilder(BuilderBase):
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [reco_particles[j] for j in interaction.particle_ids]
-            if not len(inter_particles):
+            if len(inter_particles) == 0:
                 raise ValueError("Every interaction should contain >= 1 particle.")
-            interaction.particles = inter_particles
-
-            # Update the interaction with its long-form attributes
-            for attr in interaction._cat_attrs:
-                val_list = [getattr(part, attr) for part in inter_particles]
-                setattr(interaction, attr, np.concatenate(val_list))
+            interaction.set_particles(inter_particles)
 
         return reco_interactions
 
@@ -281,13 +276,8 @@ class InteractionBuilder(BuilderBase):
 
             # Fetch and assign the list of particles matched to this interaction
             inter_particles = [truth_particles[j] for j in interaction.particle_ids]
-            if not len(inter_particles):
+            if len(inter_particles) == 0:
                 raise ValueError("Every interaction should contain >= 1 particle.")
-            interaction.particles = inter_particles
-
-            # Update the interaction with its long-form attributes
-            for attr in interaction._cat_attrs:
-                val_list = [getattr(part, attr) for part in inter_particles]
-                setattr(interaction, attr, np.concatenate(val_list))
+            interaction.set_particles(inter_particles)
 
         return truth_interactions

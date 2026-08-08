@@ -20,12 +20,14 @@ else:
         """Import-safe stand-in used when PyTorch is unavailable."""
 
         def __init__(self, *args, **kwargs):
+            """Accept sampler arguments without requiring PyTorch."""
             pass
 
     class DistributedSampler:
         """Import-safe stand-in used when PyTorch is unavailable."""
 
         def __init__(self, *args, **kwargs):
+            """Reject distributed sampling when PyTorch is unavailable."""
             raise ImportError("PyTorch is required for distributed sampling.")
 
 
@@ -198,9 +200,17 @@ class _Sized:
     """Minimal sized proxy used to drive paired secondary samplers."""
 
     def __init__(self, size: int) -> None:
+        """Initialize a proxy with a fixed length.
+
+        Parameters
+        ----------
+        size : int
+            Length exposed to the secondary sampler.
+        """
         self.size = size
 
     def __len__(self) -> int:
+        """Return the configured proxy length."""
         return self.size
 
 
@@ -260,9 +270,18 @@ class AbstractJointBatchSampler(Sampler):
         self._random = np.random.RandomState(seed=rng_seed)  # pylint: disable=E1101
 
     def __len__(self) -> int:
+        """Return the number of primary samples produced per epoch."""
         return self.num_samples
 
     def __iter__(self) -> Iterator[tuple[int, int | None]]:
+        """Iterate over primary indexes paired with optional secondary indexes.
+
+        Returns
+        -------
+        iterator of tuple[int, int or None]
+            Primary indexes and independently sampled optional secondary
+            indexes.
+        """
         primary_indices = list(self.primary_sampler)
         pair_mask = self._random.random_sample(len(primary_indices))
         pair_mask = pair_mask < self.pair_probability

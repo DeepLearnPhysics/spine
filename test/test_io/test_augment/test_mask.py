@@ -5,7 +5,7 @@ from .helpers import (
     Any,
     GeoManager,
     MaskAugment,
-    ParserTensor,
+    TensorData,
     make_meta,
     np,
     pytest,
@@ -50,7 +50,7 @@ def test_mask_augment_can_bias_toward_weighted_activity_center():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [8, 8, 8], [8, 7, 8]], dtype=np.int64)
     features = np.asarray([[1.0], [10.0], [10.0]], dtype=np.float32)
-    tensor = ParserTensor(coords=coords.copy(), features=features, meta=meta)
+    tensor = TensorData(coords=coords.copy(), features=features, meta=meta)
     data = {"voxels": tensor, "meta": meta}
 
     augment = MaskAugment(
@@ -71,7 +71,7 @@ def test_mask_augment_defaults_to_weighted_activity_spread(monkeypatch):
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)
     weights = np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
-    tensor = ParserTensor(coords=coords.copy(), features=weights, meta=meta)
+    tensor = TensorData(coords=coords.copy(), features=weights, meta=meta)
     data = {"voxels": tensor, "meta": meta}
     seen = {}
 
@@ -104,7 +104,7 @@ def test_mask_generate_mask_snaps_sampled_bounds_to_grid(monkeypatch):
         size=(0.5, 0.75, 0.5),
     )
     data = {
-        "voxels": ParserTensor(
+        "voxels": TensorData(
             coords=np.asarray([[1, 1, 1]], dtype=np.int64),
             features=np.asarray([[1.0]], dtype=np.float32),
             meta=meta,
@@ -187,7 +187,7 @@ def test_mask_constructor_validates_arguments():
 def test_mask_generate_mask_rejects_bounds_smaller_than_range():
     meta = make_meta()
     data = {
-        "voxels": ParserTensor(
+        "voxels": TensorData(
             coords=np.asarray([[0, 0, 0]], dtype=np.int64),
             features=np.asarray([[1.0]], dtype=np.float32),
             meta=meta,

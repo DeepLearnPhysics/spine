@@ -121,19 +121,6 @@ class LArCVDataset(BaseDataset):
         return self.apply_augmenter(result)
 
     @property
-    def data_types(self) -> dict[str, str]:
-        """Return the collate type for metadata and parsed products.
-
-        Parser return types are consumed by :class:`spine.io.collate.CollateAll`
-        to batch products consistently.
-        """
-        data_types = self.index_data_types()
-        for name, parser in self.parsers.items():
-            data_types[name] = parser.returns
-
-        return data_types
-
-    @property
     def overlay_methods(self) -> dict[str, str]:
         """Return overlay methods for metadata and parsed products.
 
@@ -142,7 +129,7 @@ class LArCVDataset(BaseDataset):
         """
         overlay_methods = self.index_overlay_methods()
         for name, parser in self.parsers.items():
-            overlay_methods[name] = parser.overlay
+            overlay_methods[name] = parser.overlay_method
         if self._overlay_methods is not None:
             overlay_methods.update(self._overlay_methods)
 

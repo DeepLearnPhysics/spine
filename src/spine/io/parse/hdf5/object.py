@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from spine.data import ObjectList
+from spine.data import ObjectList, ObjectListData
 
 from ..base import ParserBase
-from ..data import ParserObjectList
 
 __all__ = ["HDF5ObjectParser", "HDF5ObjectListParser"]
 
@@ -21,7 +20,6 @@ class HDF5ObjectParser(ParserBase):
     """
 
     name = "object"
-    returns = "object"
 
     def __call__(self, trees: dict[str, Any]) -> Any:
         """Parse one cached object entry.
@@ -55,7 +53,7 @@ class HDF5ObjectParser(ParserBase):
 
 
 class HDF5ObjectListParser(ParserBase):
-    """Wrap one cached HDF5 object list into a :class:`ParserObjectList`.
+    """Wrap one cached HDF5 object list into a :class:`ObjectListData`.
 
     This parser expects the HDF5 reader to have already reconstructed each
     element of the list as a local SPINE data object. It preserves an incoming
@@ -64,9 +62,8 @@ class HDF5ObjectListParser(ParserBase):
     """
 
     name = "object_list"
-    returns = "object_list"
 
-    def __call__(self, trees: dict[str, Any]) -> ParserObjectList:
+    def __call__(self, trees: dict[str, Any]) -> ObjectListData:
         """Parse one cached object-list entry.
 
         Parameters
@@ -76,12 +73,12 @@ class HDF5ObjectListParser(ParserBase):
 
         Returns
         -------
-        ParserObjectList
+        ObjectListData
             Parsed object list with batching metadata support.
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, object_list_event: ObjectList | list[Any]) -> ParserObjectList:
+    def process(self, object_list_event: ObjectList | list[Any]) -> ObjectListData:
         """Normalize one reconstructed cached object list.
 
         Parameters
@@ -91,7 +88,7 @@ class HDF5ObjectListParser(ParserBase):
 
         Returns
         -------
-        ParserObjectList
+        ObjectListData
             Parsed object list.
 
         Raises
@@ -100,14 +97,15 @@ class HDF5ObjectListParser(ParserBase):
             If the cached list is empty and does not carry a default object to
             preserve its intended type.
         """
+        # Preserve explicit empty-list typing whenever the cache retained it
         if isinstance(object_list_event, ObjectList):
-            return ParserObjectList(list(object_list_event), object_list_event.default)
+            return ObjectListData(list(object_list_event), object_list_event.default)
 
+        # Non-empty plain lists can recover their representative from element zero
         if len(object_list_event):
-            return ParserObjectList(
-                list(object_list_event), type(object_list_event[0])()
-            )
+            return ObjectListData(list(object_list_event), type(object_list_event[0])())
 
+        # An empty untyped list has no safe class reconstruction path
         raise ValueError(
             "Cannot infer the default type of an empty cached object list. "
             "Store object lists with preserved typing or ensure the list is "

@@ -3,8 +3,20 @@
 import numpy as np
 import pytest
 
-from spine.data import Meta, ObjectList, Particle
+from spine.data import (
+    ClusterLabelData,
+    EdgeIndexData,
+    IndexData,
+    IndexListData,
+    Meta,
+    ObjectList,
+    ObjectListData,
+    Particle,
+    ParticleLabel,
+    TensorData,
+)
 from spine.io.parse import (
+    HDF5ClusterLabelParser,
     HDF5ClusterTensorParser,
     HDF5EdgeIndexParser,
     HDF5FeatureTensorParser,
@@ -14,23 +26,74 @@ from spine.io.parse import (
     HDF5ObjectParser,
     HDF5TensorParser,
 )
-from spine.io.parse.data import (
-    ParserEdgeIndex,
-    ParserIndex,
-    ParserIndexList,
-    ParserObjectList,
-    ParserTensor,
-)
+
+
+def test_hdf5_cluster_label_parser_fuses_voxels_and_particles():
+    """Cached compact rows and particle objects should reconstruct one label."""
+    particle = ParticleLabel(particle=7, group=7, pid=2, shape=1)
+    particles = ObjectList([particle], default=ParticleLabel())
+    cached = np.asarray([[1, 2, 3, 4.0, 5, 0]], dtype=np.float32)
+    parser = HDF5ClusterLabelParser(
+        dtype="float32",
+        cluster_label_event="clust_label",
+        particle_event="clust_label_particles",
+    )
+
+    result = parser(
+        {
+            "clust_label": cached,
+            "clust_label_particles": particles,
+        }
+    )
+
+    assert isinstance(result, ClusterLabelData)
+    np.testing.assert_array_equal(result.coords, [[1, 2, 3]])
+    np.testing.assert_array_equal(result.features, [[4, 5, 0]])
+    np.testing.assert_array_equal(result.particles["particle"], [7])
+    np.testing.assert_array_equal(result.particles["pid"], [2])
+
+
+def test_hdf5_cluster_label_parser_requires_voxel_product():
+    """The primary cluster-label product must be declared at construction."""
+    with pytest.raises(TypeError, match="cluster_label_event"):
+        HDF5ClusterLabelParser(dtype="float32")
+
+
+def test_hdf5_cluster_label_parser_validates_compact_shape():
+    """Compact labels should enforce widths with and without particles."""
+    parser = HDF5ClusterLabelParser(dtype="float32", cluster_label_event="clust_label")
+    with pytest.raises(ValueError, match="must have 5 columns"):
+        parser({"clust_label": np.zeros((1, 6), dtype=np.float32)})
+
+
+def test_hdf5_cluster_label_parser_preserves_empty_particle_schema():
+    """An empty typed particle list should still expose named table fields."""
+    particles = ObjectList([], default=ParticleLabel())
+    parser = HDF5ClusterLabelParser(
+        dtype="float32",
+        cluster_label_event="clust_label",
+        particle_event="particles",
+    )
+
+    result = parser(
+        {
+            "clust_label": np.empty((0, 6), dtype=np.float32),
+            "particles": particles,
+        }
+    )
+
+    assert set(result.particles) == set(ParticleLabel().as_dict())
+    assert all(len(values) == 0 for values in result.particles.values())
 
 
 def test_hdf5_feature_tensor_parser():
-    """Feature-only cached arrays should rebuild a ParserTensor directly."""
+    """Feature-only cached arrays should rebuild a TensorData directly."""
     parser = HDF5FeatureTensorParser(dtype="float32", tensor_event="node_features")
     trees = {"node_features": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)}
 
     result = parser(trees)
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     assert result.feats_only is True
     assert result.coords is None
     np.testing.assert_allclose(result.features, trees["node_features"])
@@ -91,7 +154,7 @@ def test_hdf5_tensor_parser_splits_coords_features_and_meta():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserTensor)
+    assert isinstance(result, TensorData)
     np.testing.assert_array_equal(
         result.coords, np.asarray([[10, 11, 12], [20, 21, 22]], dtype=np.int32)
     )
@@ -185,7 +248,7 @@ def test_hdf5_object_list_parser_wraps_typed_object_list():
 
     result = parser({"particles": particles})
 
-    assert isinstance(result, ParserObjectList)
+    assert isinstance(result, ObjectListData)
     assert isinstance(result.default, Particle)
     assert len(result) == 2
     assert result[0].id == 1
@@ -198,7 +261,7 @@ def test_hdf5_object_list_parser_infers_default_from_first_element():
 
     result = parser({"particles": [Particle(id=3)]})
 
-    assert isinstance(result, ParserObjectList)
+    assert isinstance(result, ObjectListData)
     assert isinstance(result.default, Particle)
     assert len(result) == 1
     assert result[0].id == 3
@@ -232,7 +295,7 @@ def test_hdf5_index_list_parser_with_count_event():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserIndexList)
+    assert isinstance(result, IndexListData)
     assert isinstance(result.features, list)
     assert result.span == 5
     np.testing.assert_array_equal(result.single_counts, np.asarray([2, 3]))
@@ -254,7 +317,7 @@ def test_hdf5_index_parser_with_count_event():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserIndex)
+    assert isinstance(result, IndexData)
     assert isinstance(result.features, np.ndarray)
     np.testing.assert_array_equal(result.features, np.asarray([0, 2, 4]))
     assert result.span == 5
@@ -316,7 +379,7 @@ def test_hdf5_edge_index_parser_accepts_transposed_input():
 
     result = parser(trees)
 
-    assert isinstance(result, ParserEdgeIndex)
+    assert isinstance(result, EdgeIndexData)
     np.testing.assert_array_equal(
         result.features,
         np.asarray([[0, 1, 2], [1, 2, 3]], dtype=np.int64),

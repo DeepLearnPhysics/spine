@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from spine.ana.metric.segment import SegmentAna
-from spine.constants import GHOST_SHP, SHAPE_COL
+from spine.constants import GHOST_SHP
+from spine.data import TensorData
 
 
 class FakeObject:
@@ -35,8 +36,9 @@ def test_segment_ana_writes_summary(monkeypatch):
         SegmentAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
     )
     ana = SegmentAna(summary=True, num_classes=2)
-    labels = np.zeros((3, 5), dtype=np.float32)
-    labels[:, SHAPE_COL] = [0, 1, 1]
+    labels = TensorData(
+        features=np.asarray([[0], [1], [1]], dtype=np.float32), feats_only=True
+    )
 
     ana.process(
         {
@@ -54,8 +56,9 @@ def test_segment_ana_detailed_ghost_scores(monkeypatch):
         SegmentAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
     )
     ana = SegmentAna(summary=False, ghost=True)
-    labels = np.zeros((2, 5), dtype=np.float32)
-    labels[:, SHAPE_COL] = [0, GHOST_SHP]
+    labels = TensorData(
+        features=np.asarray([[0], [GHOST_SHP]], dtype=np.float32), feats_only=True
+    )
 
     ana.process(
         {

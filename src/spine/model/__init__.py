@@ -11,8 +11,10 @@ Supported model families:
 
 - ``UResNet`` for semantic segmentation.
 - ``PPN`` for endpoint proposals.
-- ``SPICE`` for point-cloud instance clustering.
+- ``SPICE`` for spatial-embedding instance clustering.
+- ``GraphSPICE`` for point-cloud instance clustering.
 - ``GrapPA`` and related graph models for relational reconstruction.
+- Whole-image classification models.
 - End-to-end chain models for full reconstruction workflows.
 
 Key features:
@@ -27,11 +29,10 @@ Example
 
 .. code-block:: python
 
-   from spine.model import ModelManager
+   from spine.driver import Driver
 
-   manager = ModelManager(config)
-   manager.train(train_loader, val_loader)
-   results = manager.forward(data_batch)
+   driver = Driver(config)
+   results = driver.process(iteration=0)
 
 The module integrates with the broader SPINE ecosystem for data I/O,
 visualization, and post-processing workflows.

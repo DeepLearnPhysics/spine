@@ -4,13 +4,8 @@ import numpy as np
 import pytest
 
 from spine.ana.metric.point import PointProposalAna
-from spine.constants import (
-    COORD_COLS,
-    PPN_END_COLS,
-    PPN_LENDP_COL,
-    PPN_LTYPE_COL,
-    PPN_SHAPE_COL,
-)
+from spine.data import TensorData, TensorSchema
+from spine.utils.ppn import ppn_prediction_schema
 
 
 @pytest.fixture(autouse=True)
@@ -18,8 +13,39 @@ def _disable_writers(monkeypatch):
     monkeypatch.setattr(PointProposalAna, "initialize_writer", lambda self, name: None)
 
 
-def _point_tensor(num_rows: int) -> np.ndarray:
-    return np.zeros((num_rows, max(PPN_END_COLS) + 1), dtype=np.float32)
+def _point_label(
+    coords: list[list[float]], shapes: list[int], endpoints: list[int] | None = None
+) -> TensorData:
+    features = np.zeros((len(coords), 3), dtype=np.float32)
+    features[:, 0] = shapes
+    if endpoints is not None:
+        features[:, 2] = endpoints
+    return TensorData(
+        coords=np.asarray(coords, dtype=np.float32).reshape(-1, 3),
+        features=features,
+        schema=TensorSchema(
+            coordinate_groups={"point": (0, 1, 2)},
+            feature_fields={"shape": (0,), "particle": (1,), "endpoint": (2,)},
+        ),
+    )
+
+
+def _point_prediction(
+    coords: list[list[float]],
+    shapes: list[int],
+    endpoint_scores: list[list[float]] | None = None,
+) -> TensorData:
+    features = np.zeros(
+        (len(coords), 9 + 2 * (endpoint_scores is not None)), dtype=np.float32
+    )
+    features[:, 8] = shapes
+    if endpoint_scores is not None:
+        features[:, 9:11] = np.asarray(endpoint_scores).reshape(-1, 2)
+    return TensorData(
+        coords=np.asarray(coords, dtype=np.float32).reshape(-1, 3),
+        features=features,
+        schema=ppn_prediction_schema(endpoint_scores is not None),
+    )
 
 
 def test_point_proposal_ana_processes_bidirectional_matches(monkeypatch):
@@ -29,14 +55,8 @@ def test_point_proposal_ana_processes_bidirectional_matches(monkeypatch):
         "append",
         lambda self, name, **kwargs: rows.append((name, kwargs)),
     )
-    labels = _point_tensor(2)
-    labels[:, COORD_COLS] = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
-    labels[:, PPN_LTYPE_COL] = [0, 1]
-    labels[:, PPN_LENDP_COL] = [0, 1]
-    preds = _point_tensor(1)
-    preds[:, COORD_COLS] = [[1.0, 0.0, 0.0]]
-    preds[:, PPN_SHAPE_COL] = [0]
-    preds[:, PPN_END_COLS] = [[0.1, 0.9]]
+    labels = _point_label([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], [0, 1], [0, 1])
+    preds = _point_prediction([[1.0, 0.0, 0.0]], [0], [[0.1, 0.9]])
     ana = PointProposalAna(num_classes=2, endpoints=True)
 
     ana.process({"ppn_label": labels, "ppn_pred": preds})
@@ -55,10 +75,8 @@ def test_point_proposal_ana_records_dummy_when_target_is_empty(monkeypatch):
         "append",
         lambda self, name, **kwargs: rows.append((name, kwargs)),
     )
-    labels = _point_tensor(1)
-    labels[:, COORD_COLS] = [[0.0, 0.0, 0.0]]
-    labels[:, PPN_LTYPE_COL] = [1]
-    preds = _point_tensor(0)
+    labels = _point_label([[0.0, 0.0, 0.0]], [1])
+    preds = _point_prediction([], [])
     ana = PointProposalAna(num_classes=2)
 
     ana.process({"ppn_label": labels, "ppn_pred": preds})
@@ -84,11 +102,8 @@ def test_point_proposal_ana_records_endpoint_dummy_when_target_is_empty(monkeypa
         "append",
         lambda self, name, **kwargs: rows.append((name, kwargs)),
     )
-    labels = _point_tensor(1)
-    labels[:, COORD_COLS] = [[0.0, 0.0, 0.0]]
-    labels[:, PPN_LTYPE_COL] = [1]
-    labels[:, PPN_LENDP_COL] = [0]
-    preds = _point_tensor(0)
+    labels = _point_label([[0.0, 0.0, 0.0]], [1], [0])
+    preds = _point_prediction([], [], [])
     ana = PointProposalAna(num_classes=2, endpoints=True)
 
     ana.process({"ppn_label": labels, "ppn_pred": preds})

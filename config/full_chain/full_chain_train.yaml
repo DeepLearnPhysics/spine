@@ -1,0 +1,45 @@
+# Canonical end-to-end full-chain training configuration.
+#
+# This inherits the maintained model definition used by the deterministic
+# regression job, then removes reconstruction and output-writing stages. Set
+# file_keys and adjust output paths before launching a production job.
+
+include: full_chain_regression.yaml
+
+remove:
+- base.iterations
+- build
+- post
+- io.writer
+- io.loader.dataset.schema.particles
+- io.loader.dataset.schema.meta
+- io.loader.dataset.schema.run_info
+
+base:
+  world_size: 1
+  epochs: 25.0
+  unwrap: false
+  log_dir: logs/full_chain/train
+  prefix_log: true
+  split_output: false
+  train:
+    weight_prefix: weights/full_chain/snapshot
+    save_epoch: 1.0
+    optimizer:
+      name: Adam
+      lr: 0.001
+
+io:
+  loader:
+    minibatch_size: 2
+    shuffle: false
+    num_workers: 8
+    sampler:
+      name: random_sequence
+      seed: 0
+    dataset:
+      file_keys: null
+
+model:
+  to_numpy: false
+  weight_path: null

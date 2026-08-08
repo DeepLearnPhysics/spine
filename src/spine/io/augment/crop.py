@@ -65,6 +65,7 @@ class CropAugment(AugmentBase):
         None
             This method does not return anything
         """
+        # Validate the optional box dimensions and explicit sampling bounds
         if (min_dimensions is None) != (max_dimensions is None):
             raise ValueError(
                 "Must provide both `min_dimensions` and `max_dimensions`, or neither."
@@ -82,6 +83,7 @@ class CropAugment(AugmentBase):
         if upper is not None and not len(upper) == 3:
             raise ValueError("Must provide upper bounds for each axis.")
 
+        # Normalize and validate the configured crop-size range
         self.has_box_crop = min_dimensions is not None
         if self.has_box_crop:
             self.min_dimensions = np.asarray(min_dimensions)
@@ -99,6 +101,7 @@ class CropAugment(AugmentBase):
             self.max_dimensions = None
             self.range = None
 
+        # Resolve explicit or detector-derived sampling boundaries
         self.lower = np.asarray(lower) if lower is not None else None
         self.upper = np.asarray(upper) if upper is not None else None
         if (
@@ -121,6 +124,7 @@ class CropAugment(AugmentBase):
             self.lower = geo.tpc.lower
             self.upper = geo.tpc.upper
 
+        # Validate activity-biased center sampling options
         if center_mode not in ("uniform", "activity", "weighted_activity"):
             raise ValueError(
                 "Cropping center mode must be one of ('uniform', 'activity', 'weighted_activity')."
@@ -128,6 +132,7 @@ class CropAugment(AugmentBase):
         if center_feature_index < 0:
             raise ValueError("Cropping center_feature_index must be non-negative.")
 
+        # Store sampling and output-frame behavior
         self.center_mode = center_mode
         self.center_spread = self.parse_optional_vector(center_spread, "center_spread")
         self.center_feature_index = int(center_feature_index)
@@ -159,6 +164,7 @@ class CropAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and cropped metadata
         """
+        # Resolve the optional crop box, active envelope and final output frame
         crop_meta = self.generate_crop(data, meta, keys) if self.has_box_crop else None
         active_meta = (
             self.generate_active_volume_meta(meta) if self.active_volume else None
@@ -172,12 +178,13 @@ class CropAugment(AugmentBase):
         if output_meta is None:
             raise ValueError("Crop augmenter must define an output metadata volume.")
 
+        # Apply all enabled spatial restrictions to each coordinate product
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = output_meta
                 continue
 
-            voxels, features = data[key].coords, data[key].features
+            voxels, features = data[key].coordinate_data, data[key].features
             voxels_cm = meta.to_cm(voxels, center=True)
             keep_mask = np.ones(len(voxels), dtype=bool)
             if crop_meta is not None:
@@ -187,15 +194,18 @@ class CropAugment(AugmentBase):
             if active_meta is not None:
                 keep_mask &= active_meta.inner_mask(voxels_cm)
 
+            # Restrict aligned coordinates and features to surviving rows
             index = np.where(keep_mask)[0]
-
             voxels_cm, features = voxels_cm[index], features[index]
+
+            # Preserve original indexes or express them in the cropped frame
             if self.keep_meta:
                 voxels = voxels[index]
             else:
                 voxels = output_meta.to_px(voxels_cm, floor=True).astype(voxels.dtype)
 
-            data[key].coords = voxels
+            # Update the product atomically with its new spatial metadata
+            data[key].coordinate_data = voxels
             data[key].features = features
             data[key].meta = output_meta
 
@@ -214,6 +224,7 @@ class CropAugment(AugmentBase):
         np.ndarray
             Boolean mask selecting coordinates inside at least one module box
         """
+        # Accumulate membership in the union of all module active volumes
         geo = GeoManager.get_instance()
         mask = np.zeros(len(coords_cm), dtype=bool)
         for module in geo.tpc.modules:
@@ -239,18 +250,22 @@ class CropAugment(AugmentBase):
             Metadata covering the overlap between the current image grid and the
             detector active-volume envelope
         """
+        # Intersect the detector envelope with the current image volume
         geo = GeoManager.get_instance()
         lower_bound = np.maximum(meta.lower, geo.tpc.lower)
         upper_bound = np.minimum(meta.upper, geo.tpc.upper)
 
+        # Convert the physical overlap to clipped source-grid boundaries
         start = np.ceil((lower_bound - meta.lower) / meta.size - 0.5).astype(np.int64)
         stop = np.ceil((upper_bound - meta.lower) / meta.size - 0.5).astype(np.int64)
         start = np.clip(start, 0, meta.count)
         stop = np.clip(stop, start, meta.count)
 
+        # Rebuild exact physical bounds from the integer grid range
         lower = meta.lower + start * meta.size
         count = stop - start
         upper = lower + count * meta.size
+
         return Meta(lower=lower, upper=upper, size=meta.size.copy(), count=count)
 
     def generate_crop(self, data: dict[str, Any], meta: Meta, keys: list[str]) -> Meta:
@@ -274,6 +289,7 @@ class CropAugment(AugmentBase):
         if self.min_dimensions is None or self.range is None:
             raise ValueError("Box cropping dimensions are not configured.")
 
+        # Resolve and validate the physical region available for sampling
         lower = self.lower if self.lower is not None else meta.lower
         upper = self.upper if self.upper is not None else meta.upper
         if np.any(self.range > (upper - lower)):
@@ -281,10 +297,12 @@ class CropAugment(AugmentBase):
                 "The cropping range is larger than the allowed cropping bounds."
             )
 
+        # Sample dimensions, then quantize them to whole source voxels
         dimensions = self.min_dimensions + np.random.rand(3) * self.range
         count = np.ceil(dimensions / meta.size).astype(int)
         dimensions = count * meta.size
 
+        # Optionally bias the box proposal toward the observed event activity
         center = None
         spread = self.center_spread
         if self.center_mode != "uniform":
@@ -298,7 +316,9 @@ class CropAugment(AugmentBase):
             if spread is None:
                 spread = activity_spread
 
+        # Sample the lower corner and snap the resulting box to the source grid
         crop_lower = self.sample_box_lower(
             lower, upper, dimensions, anchor=center, spread=spread
         )
+
         return self.make_grid_aligned_meta(meta, lower, upper, count, crop_lower)

@@ -8,18 +8,35 @@ import pytest
 import yaml
 
 from spine.data import (
+    ClusterLabelData,
     CRTHit,
+    EdgeIndexData,
     Flash,
     FlashHypothesis,
+    IndexData,
+    IndexListData,
     Meta,
     Neutrino,
     ObjectList,
+    ObjectListData,
     Particle,
+    ParticleLabel,
     RecoParticle,
     RunInfo,
+    TensorData,
+    TensorSchema,
     Trigger,
 )
+from spine.io.collate import CollateAll
+from spine.io.parse import HDF5ClusterLabelParser
+from spine.io.read import HDF5Reader
 from spine.io.write import *
+from spine.io.write.hdf5.common import (
+    DataFormat,
+    decode_string_attribute,
+    require_dataset,
+    require_group,
+)
 
 
 @pytest.fixture(name="hdf5_output")
@@ -127,6 +144,424 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
 
     # Write output
     writer(data)
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_writer_round_trips_cluster_labels(hdf5_output, format_version):
+    """Both HDF5 layouts should preserve compact labels and particle tables."""
+    particle = ParticleLabel(particle=4, group=4, pid=2, shape=1)
+    fields = {
+        name: np.asarray([value])
+        for name, value in particle.as_dict(include_derived=False).items()
+    }
+    label = ClusterLabelData(
+        np.asarray([[1, 2, 3, 5.0, 7, 0]], dtype=np.float32),
+        fields,
+        Meta(),
+    )
+    with HDF5Writer(
+        hdf5_output,
+        format_version=format_version,
+    ) as writer:
+        writer({"index": np.asarray([0]), "clust_label": [label]}, cfg={})
+
+    reader = HDF5Reader(hdf5_output)
+    entry = reader.get(0)
+    reader.close()
+    if format_version == 2:
+        with h5py.File(hdf5_output, "r") as in_file:
+            assert set(in_file) == {"events", "info", "products"}
+            product = in_file["products"]["clust_label"]
+            assert "particles" in product
+            assert "meta" in product
+            assert "clust_label_particles" not in in_file["products"]
+            assert "clust_label_meta" not in in_file["products"]
+
+        restored = entry["clust_label"]
+        assert isinstance(restored, ClusterLabelData)
+        assert isinstance(restored.meta, Meta)
+        assert "clust_label_particles" not in entry
+        assert "clust_label_meta" not in entry
+    else:
+        parser = HDF5ClusterLabelParser(
+            dtype="float32",
+            cluster_label_event="clust_label",
+            particle_event="clust_label_particles",
+        )
+        restored = parser(
+            {
+                "clust_label": entry["clust_label"],
+                "clust_label_particles": entry["clust_label_particles"],
+            }
+        )
+
+    np.testing.assert_array_equal(restored.coords, [[1, 2, 3]])
+    np.testing.assert_array_equal(restored.features, [[5, 7, 0]])
+    np.testing.assert_array_equal(restored.particles["particle"], [4])
+    np.testing.assert_array_equal(restored.particles["pid"], [2])
+
+
+def test_hdf5_v2_round_trips_product_metadata(hdf5_output):
+    """V2 should restore tensor schemas and index spans without parsers."""
+    tensor = TensorData(
+        coords=np.asarray([[1, 2, 3, 4, 5, 6]], dtype=np.int32),
+        features=np.asarray([[7.0, 8.0]], dtype=np.float32),
+        meta=Meta(),
+        coordinate_groups={"start": (0, 1, 2), "end": (3, 4, 5)},
+        feature_fields={"time": (0,), "shape": (1,)},
+    )
+    index = IndexData(np.asarray([1, 3], dtype=np.int64), span=5)
+    index_list = IndexListData([np.asarray([0, 2]), np.asarray([1])], span=4)
+    edge_index = EdgeIndexData(
+        np.asarray([[0, 1], [1, 2]], dtype=np.int64), span=3, directed=False
+    )
+    objects = ObjectListData([Particle(id=3)], Particle(), index_shifts={"id": 4})
+    scalar_shift_objects = ObjectListData([Particle(id=4)], Particle(), index_shifts=6)
+
+    with HDF5Writer(hdf5_output, format_version=2) as writer:
+        writer(
+            {
+                "index": np.asarray([0]),
+                "coordinates": [tensor],
+                "selection": [index],
+                "groups": [index_list],
+                "edges": [edge_index],
+                "particles": [objects],
+                "scalar_shift_particles": [scalar_shift_objects],
+            },
+            cfg={},
+        )
+
+    with h5py.File(hdf5_output, "r") as in_file:
+        products = in_file["products"]
+        assert "product_metadata" in products["coordinates"].attrs
+        assert "product_metadata" in products["selection"].attrs
+        assert "product_metadata" in products["particles"].attrs
+        assert "meta" in products["coordinates"]
+        assert "spans" in products["selection"]
+        assert "index_shifts" in products["particles"]
+
+    reader = HDF5Reader(hdf5_output)
+    entry = reader.get(0)
+    reader.close()
+
+    restored = entry["coordinates"]
+    assert isinstance(restored, TensorData)
+    assert isinstance(restored.meta, Meta)
+    assert restored.coordinate_groups == {
+        "start": (0, 1, 2),
+        "end": (3, 4, 5),
+    }
+    np.testing.assert_array_equal(restored.coordinates("end"), [[4, 5, 6]])
+    np.testing.assert_array_equal(restored.feature("shape"), [[8.0]])
+
+    restored_index = entry["selection"]
+    assert isinstance(restored_index, IndexData)
+    assert restored_index.span == 5
+    np.testing.assert_array_equal(restored_index.features, [1, 3])
+    assert "selection_spans" not in entry
+    assert "coordinates_meta" not in entry
+
+    restored_groups = entry["groups"]
+    assert isinstance(restored_groups, IndexListData)
+    assert restored_groups.span == 4
+    np.testing.assert_array_equal(restored_groups.features[0], [0, 2])
+
+    restored_edges = entry["edges"]
+    assert isinstance(restored_edges, EdgeIndexData)
+    assert restored_edges.span == 3
+    assert restored_edges.directed is False
+    np.testing.assert_array_equal(restored_edges.features, [[0, 1], [1, 2]])
+
+    restored_objects = entry["particles"]
+    assert isinstance(restored_objects, ObjectListData)
+    assert restored_objects.index_shifts == {"id": 4}
+    assert restored_objects[0].id == 3
+    assert "particles_index_shifts" not in entry
+
+    assert entry["scalar_shift_particles"].index_shifts == 6
+
+
+def test_hdf5_writer_prepares_batched_v2_products(hdf5_output):
+    """V2 lowering should accept every supported batched product type."""
+    events = []
+    for i in range(2):
+        events.append(
+            {
+                "tensor": TensorData(
+                    coords=np.asarray([[i, i, i]]),
+                    features=np.asarray([[float(i)]]),
+                ),
+                "index_data": IndexData(np.asarray([0]), span=1),
+                "edge_data": EdgeIndexData(
+                    np.asarray([[0], [0]]), span=1, directed=True
+                ),
+                "label": ClusterLabelData(
+                    coords=np.asarray([[i, i, i]]),
+                    features=np.asarray([[1.0, 0.0]]),
+                ),
+            }
+        )
+    batched = CollateAll(data_keys=tuple(events[0]))(events)
+    writer = HDF5Writer(hdf5_output, format_version=2)
+
+    prepared = writer.prepare_products(batched)
+
+    assert writer.product_metadata["tensor"]["product_type"] == "tensor"
+    assert writer.product_metadata["index_data"]["product_type"] == "index"
+    assert writer.product_metadata["edge_data"]["product_type"] == "edge_index"
+    assert writer.product_metadata["label"]["product_type"] == "cluster_label"
+    assert prepared["edge_data"][0].shape == (1, 2)
+    writer.close()
+
+
+def test_hdf5_writer_expands_batched_cluster_labels_for_v1(hdf5_output):
+    """Legacy lowering should support batched labels and selected sidecars."""
+    particle = ParticleLabel(particle=0, group=0)
+    fields = {
+        name: np.asarray([value])
+        for name, value in particle.as_dict(include_derived=False).items()
+    }
+    events = [
+        {
+            "label": ClusterLabelData(
+                np.asarray([[0, 0, 0, 1.0, 0, 0]], dtype=np.float32), fields
+            )
+        }
+    ]
+    batch = CollateAll(data_keys=("label",))(events)["label"]
+    writer = HDF5Writer(hdf5_output, format_version=1, keys=("label",))
+
+    expanded = writer.expand_cluster_labels({"label": batch})
+
+    assert "label_particles" in expanded
+    assert "label_particles" in writer.keys
+
+    voxel_only = CollateAll(data_keys=("label",))(
+        [
+            {
+                "label": ClusterLabelData(
+                    coords=np.asarray([[0, 0, 0]]),
+                    features=np.asarray([[1.0, 0.0]]),
+                )
+            }
+        ]
+    )["label"]
+    assert "label_particles" not in writer.expand_cluster_labels({"label": voxel_only})
+    writer.close()
+
+
+def test_hdf5_writer_rejects_inconsistent_v2_products(hdf5_output):
+    """V2 schema discovery should reject inconsistent event products."""
+    writer = HDF5Writer(hdf5_output, format_version=2)
+    tensor = TensorData(
+        features=np.asarray([[1.0]]),
+        feats_only=True,
+        schema=TensorSchema(feature_fields={"value": (0,)}, feats_only=True),
+    )
+    other_schema = TensorData(
+        features=np.asarray([[1.0]]),
+        feats_only=True,
+        schema=TensorSchema(feature_fields={"other": (0,)}, feats_only=True),
+    )
+    tensor_with_meta = TensorData(
+        features=np.asarray([[1.0]]), feats_only=True, meta=Meta()
+    )
+
+    with pytest.raises(TypeError, match="mixes event data classes"):
+        writer.prepare_products({"mixed": [tensor, IndexData([0], span=1)]})
+    with pytest.raises(TypeError, match="is not a `IndexData` collection"):
+        writer._typed_entries([tensor], IndexData, "tensor")
+    with pytest.raises(ValueError, match="Tensor schemas differ"):
+        writer.prepare_products({"tensor": [tensor, other_schema]})
+    with pytest.raises(ValueError, match="metadata is inconsistent"):
+        writer.prepare_products({"tensor": [tensor, tensor_with_meta]})
+
+    label = ClusterLabelData(
+        coords=np.asarray([[0, 0, 0]]),
+        features=np.asarray([[1.0, 0.0]]),
+    )
+    label_with_particles = ClusterLabelData(
+        coords=np.asarray([[1, 1, 1]]),
+        features=np.asarray([[1.0, 0.0, 0.0]]),
+        particles={"particle": np.asarray([0])},
+    )
+    label_with_meta = ClusterLabelData(
+        coords=np.asarray([[1, 1, 1]]),
+        features=np.asarray([[1.0, 0.0]]),
+        meta=Meta(),
+    )
+    with pytest.raises(ValueError, match="particle tables are inconsistent"):
+        writer.prepare_products({"label": [label, label_with_particles]})
+    with pytest.raises(ValueError, match="metadata is inconsistent"):
+        writer.prepare_products({"label": [label, label_with_meta]})
+
+    object_a = ObjectListData([Particle(id=1)], Particle(), index_shifts={"id": 1})
+    object_b = ObjectListData(
+        [Particle(id=2)], Particle(), index_shifts={"group_id": 1}
+    )
+    with pytest.raises(ValueError, match="index shifts differ"):
+        writer.prepare_products({"objects": [object_a, object_b]})
+
+    scalar_object = ObjectListData([Particle(id=2)], Particle(), index_shifts=1)
+    with pytest.raises(ValueError, match="index shifts differ"):
+        writer.prepare_products({"objects": [scalar_object, object_a]})
+    writer.close()
+
+
+def test_hdf5_writer_v2_internal_schema_guards(hdf5_output):
+    """Internal V2 child registration should reject collisions and drift."""
+    writer = HDF5Writer(hdf5_output, format_version=2, keys=("tensor",))
+    internal_key = "__spine_v2_aux__tensor__meta"
+    with pytest.raises(KeyError, match="conflicts with an internal"):
+        writer._add_product_child({internal_key: object()}, "tensor", "meta", [Meta()])
+
+    prepared = {}
+    writer._add_product_child(prepared, "tensor", "meta", [Meta()])
+    assert internal_key in writer.keys
+
+    tensor = TensorData(features=np.asarray([[1.0]]), feats_only=True)
+    writer.ready = False
+    writer.prepare_products({"tensor": [tensor]})
+    writer.ready = True
+    with pytest.raises(ValueError, match="schemas changed"):
+        writer.prepare_products(
+            {"tensor": [TensorData(features=np.asarray([[1.0, 2.0]]), feats_only=True)]}
+        )
+
+    with pytest.raises(ValueError, match="Particle information"):
+        writer._serialize_particle_tables(
+            [
+                ClusterLabelData(
+                    coords=np.asarray([[0, 0, 0]]),
+                    features=np.asarray([[1.0, 0.0]]),
+                )
+            ]
+        )
+    writer.close()
+
+
+def test_hdf5_writer_v2_skips_configured_products(hdf5_output):
+    """V2 preparation should honor explicit skip-key projection."""
+    writer = HDF5Writer(hdf5_output, format_version=2, skip_keys=("skipped",))
+    skipped = TensorData(features=np.asarray([[1.0]]), feats_only=True)
+
+    prepared = writer.prepare_products({"skipped": [skipped]})
+
+    assert prepared["skipped"] == [skipped]
+    assert "skipped" not in writer.product_metadata
+    writer.close()
+
+
+def test_hdf5_writer_v2_honors_explicit_product_keys(hdf5_output):
+    """V2 preparation should ignore products outside an explicit projection."""
+    writer = HDF5Writer(hdf5_output, format_version=2, keys=("stored",))
+    omitted = TensorData(features=np.asarray([[1.0]]), feats_only=True)
+
+    prepared = writer.prepare_products({"omitted": [omitted]})
+
+    assert prepared["omitted"] == [omitted]
+    assert "omitted" not in writer.product_metadata
+    writer.close()
+
+
+def test_hdf5_writer_v2_round_trips_fixed_heterogeneous_lists(hdf5_output):
+    """V2 should store each position of a fixed heterogeneous list separately."""
+    jagged = [
+        [
+            np.ones((1, 2), dtype=np.float32),
+            np.ones((2, 3), dtype=np.float32),
+        ]
+    ]
+
+    with HDF5Writer(hdf5_output, format_version=2) as writer:
+        writer({"index": np.asarray([0]), "jagged": jagged}, cfg={})
+
+    with h5py.File(hdf5_output, "r") as in_file:
+        group = in_file["products"]["jagged"]
+        assert group.attrs["kind"] == "multi_list"
+        np.testing.assert_array_equal(group["element_0"]["values"], jagged[0][0])
+        np.testing.assert_array_equal(group["element_1"]["values"], jagged[0][1])
+
+
+def test_hdf5_writer_validates_v2_append_schema_components(hdf5_output):
+    """Appending should validate the logical root, metadata, and child groups."""
+    writer = HDF5Writer(hdf5_output, format_version=2)
+    writer.product_metadata = {"tensor": {"product_type": "tensor"}}
+    writer.product_children = {"aux": ("tensor", "meta")}
+
+    with h5py.File(hdf5_output, "w") as out_file:
+        info = out_file.create_group("info")
+        info.attrs["format_version"] = 2
+        with pytest.raises(ValueError, match="missing V2 products"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+        products = out_file.create_group("products")
+        with pytest.raises(ValueError, match="metadata is missing"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+        tensor_group = products.create_group("tensor")
+        with pytest.raises(ValueError, match="metadata is missing"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+        tensor_group.attrs["product_metadata"] = yaml.safe_dump(
+            {"product_type": "other"}
+        )
+        with pytest.raises(ValueError, match="schemas differ"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+        tensor_group.attrs["product_metadata"] = yaml.safe_dump(
+            writer.product_metadata["tensor"]
+        )
+        with pytest.raises(ValueError, match="stored child `meta` is missing"):
+            writer._validate_append_format(out_file, hdf5_output)
+
+        writer.product_children = {"aux": ("absent", "meta")}
+        with pytest.raises(
+            ValueError, match="product `absent`.*child `meta` is missing"
+        ):
+            writer._validate_append_format(out_file, hdf5_output)
+    writer.close()
+
+
+def test_hdf5_writer_common_hdf5_validation_helpers(hdf5_output):
+    """Shared HDF5 helpers should validate child and attribute types."""
+    with h5py.File(hdf5_output, "w") as out_file:
+        out_file.create_group("group")
+        out_file.create_dataset("dataset", data=np.asarray([1]))
+
+        assert require_group(out_file, "group").name.endswith("group")
+        assert require_dataset(out_file, "dataset").name.endswith("dataset")
+        with pytest.raises(TypeError, match="HDF5 group"):
+            require_group(out_file, "dataset")
+        with pytest.raises(TypeError, match="HDF5 dataset"):
+            require_dataset(out_file, "group")
+
+    assert decode_string_attribute(b"value", "attribute") == "value"
+    with pytest.raises(TypeError, match="must be a string"):
+        decode_string_attribute(1, "attribute")
+
+
+def test_hdf5_writer_region_backend_requires_initialized_state(hdf5_output):
+    """Region-reference appends should fail clearly without initialized state."""
+    writer = HDF5Writer(hdf5_output, format_version=1)
+    with h5py.File(hdf5_output, "w") as out_file:
+        writer.event_dtype = np.dtype(np.int64)
+        writer.keys = None
+        with pytest.raises(RuntimeError, match="Keys to be stored"):
+            writer.append_region_entry(out_file, {}, 0)
+
+        writer.type_dict = None
+        with pytest.raises(RuntimeError, match="data formats are not initialized"):
+            writer.append_region_key(out_file, np.empty(1), {}, "value", 0)
+
+        writer.type_dict = {
+            "value": DataFormat(dtype=int, width=0, merge=False, scalar=True)
+        }
+        writer.object_dtypes = [int]
+        with pytest.raises(TypeError, match="Object dtype.*must be compound"):
+            writer.append_region_key(out_file, np.empty(1), {"value": 1}, "value", 0)
+    writer.close()
 
 
 def test_hdf5_writer_file_name_inferred_from_prefix():
@@ -1056,7 +1491,7 @@ def test_hdf5_writer_get_file_names_errors():
 def test_hdf5_writer_get_stored_keys_errors(hdf5_output):
     """Stored key selection should reject inconsistent requests."""
     writer = HDF5Writer(hdf5_output, keys=["a"], skip_keys=["b"])
-    with pytest.raises(AssertionError, match="Must not specify both"):
+    with pytest.raises(ValueError, match="Must not specify both"):
         writer.get_stored_keys({"index": np.array([0]), "a": [1]})
 
     writer = HDF5Writer(hdf5_output, skip_keys=["missing"])
@@ -1064,7 +1499,7 @@ def test_hdf5_writer_get_stored_keys_errors(hdf5_output):
         writer.get_stored_keys({"index": np.array([0]), "a": [1]})
 
     writer = HDF5Writer(hdf5_output, keys=["missing"])
-    with pytest.raises(AssertionError, match="does not appear"):
+    with pytest.raises(KeyError, match="not present"):
         writer.get_stored_keys({"index": np.array([0]), "a": [1]})
 
 
@@ -1098,7 +1533,7 @@ def test_hdf5_writer_get_stored_keys_ready_and_dummy(hdf5_output):
     assert "dummy" in keys
 
     writer = HDF5Writer(hdf5_output, overwrite=True, dummy_ds={"a": "RunInfo"})
-    with pytest.raises(AssertionError, match="already exists"):
+    with pytest.raises(KeyError, match="conflicts with a real product"):
         writer.get_stored_keys({"index": [0], "a": [1]})
 
 
@@ -1189,7 +1624,7 @@ def test_hdf5_writer_reuses_open_handles(monkeypatch, hdf5_output):
         open_calls += 1
         return real_file(*args, **kwargs)
 
-    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.write.hdf5.writer.h5py.File", counted_file)
     writer = HDF5Writer(hdf5_output, overwrite=True)
     writer(
         {
@@ -1219,7 +1654,7 @@ def test_hdf5_writer_keep_open_false_opens_per_write(monkeypatch, hdf5_output):
         open_calls += 1
         return real_file(*args, **kwargs)
 
-    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.write.hdf5.writer.h5py.File", counted_file)
     writer = HDF5Writer(hdf5_output, overwrite=True, keep_open=False)
     writer(
         {
@@ -1249,7 +1684,7 @@ def test_hdf5_writer_reopens_invalid_persistent_handle(monkeypatch, hdf5_output)
         open_calls += 1
         return real_file(*args, **kwargs)
 
-    monkeypatch.setattr("spine.io.write.hdf5.h5py.File", counted_file)
+    monkeypatch.setattr("spine.io.write.hdf5.writer.h5py.File", counted_file)
     writer = HDF5Writer(hdf5_output, overwrite=True)
     writer(
         {
@@ -1273,7 +1708,7 @@ def test_hdf5_writer_reopens_invalid_persistent_handle(monkeypatch, hdf5_output)
 def test_hdf5_writer_rejects_pid_reuse(monkeypatch, hdf5_output):
     """Persistent writer handles should not be reused across process boundaries."""
     pids = iter([100, 100, 200])
-    monkeypatch.setattr("spine.io.write.hdf5.os.getpid", lambda: next(pids))
+    monkeypatch.setattr("spine.io.write.hdf5.writer.os.getpid", lambda: next(pids))
 
     writer = HDF5Writer(hdf5_output, overwrite=True)
     writer(
@@ -1387,7 +1822,7 @@ def test_hdf5_writer_call_scalar_split_and_dummy(tmp_path):
         overwrite=True,
         dummy_ds={"dummy": "RunInfo"},
     )
-    with pytest.raises(AssertionError, match="dummy dataset dummy already exists"):
+    with pytest.raises(KeyError, match="conflicts with a real product"):
         writer(
             {"index": 0, "file_index": 1, "value": np.asarray([1.0], dtype=np.float32)}
         )
@@ -1567,7 +2002,7 @@ def test_hdf5_writer_rejects_writes_to_finalized_file(tmp_path):
         writer._ensure_file(0)
 
 
-def test_hdf5_writer_store_jagged_and_scalar_append_key(hdf5_output):
+def test_hdf5_writer_store_jagged_and_scalar_append_region_key(hdf5_output):
     """Append-key should cover scalar fanout and jagged list storage."""
     writer = HDF5Writer(hdf5_output, overwrite=True)
     data = {
@@ -1582,8 +2017,8 @@ def test_hdf5_writer_store_jagged_and_scalar_append_key(hdf5_output):
 
     with h5py.File(hdf5_output, "a") as out_file:
         event = np.empty(1, writer.event_dtype)
-        writer.append_key(out_file, event, data, "scalar", 0)
-        writer.append_key(out_file, event, data, "jagged", 0)
+        writer.append_region_key(out_file, event, data, "scalar", 0)
+        writer.append_region_key(out_file, event, data, "jagged", 0)
 
         assert out_file["scalar"].shape[0] == 1
         assert isinstance(out_file["jagged"], h5py.Group)
@@ -1632,7 +2067,7 @@ def test_hdf5_writer_v2_uses_offsets_and_preserves_derived_fields(hdf5_output):
         assert info["format_version"] == 2
         assert "spine_version" in info
 
-        particles = out_file["particles"]
+        particles = out_file["products"]["particles"]
         assert particles.attrs["kind"] == "objects"
         assert particles["event_offsets"][:].tolist() == [0, 1]
         index_pool = next(
@@ -1730,10 +2165,10 @@ def test_hdf5_writer_v2_single_entry_wrapper_and_scalar(hdf5_output):
     writer._ensure_file(0)
 
     with h5py.File(hdf5_output, "a") as out_file:
-        writer.append_entry(out_file, data, 0)
+        writer.append_product_entry(out_file, data, 0)
 
     with h5py.File(hdf5_output, "r") as out_file:
-        assert out_file["scalar"]["values"][:].tolist() == [5]
+        assert out_file["products"]["scalar"]["values"][:].tolist() == [5]
         assert len(out_file["events"]) == 1
 
 
@@ -1769,7 +2204,7 @@ def test_hdf5_writer_v2_decodes_byte_pool_fields_and_empty_lengths(
     """Byte-valued field metadata and empty appends should be harmless."""
     with h5py.File(hdf5_output, "w") as out_file:
         objects = _make_v2_variable_object_group(out_file, np.bytes_(b"- field\n"))
-        HDF5Writer.store_object_batches_v2(objects, [], lite=False)
+        HDF5Writer.store_object_batches(objects, [], lite=False)
         assert objects["event_offsets"][:].tolist() == [0]
 
 
@@ -1785,7 +2220,7 @@ def test_hdf5_writer_v2_rejects_bad_pool_field_metadata(hdf5_output, fields, mes
     with h5py.File(hdf5_output, "w") as out_file:
         objects = _make_v2_variable_object_group(out_file, fields)
         with pytest.raises(TypeError, match=message):
-            HDF5Writer.store_object_batches_v2(objects, [], lite=False)
+            HDF5Writer.store_object_batches(objects, [], lite=False)
 
 
 def test_hdf5_writer_v2_rejects_multidimensional_variable_fields(
@@ -1800,4 +2235,4 @@ def test_hdf5_writer_v2_rejects_multidimensional_variable_fields(
     with h5py.File(hdf5_output, "w") as out_file:
         objects = _make_v2_variable_object_group(out_file, yaml.safe_dump(["field"]))
         with pytest.raises(ValueError, match="must be one-dimensional"):
-            HDF5Writer.store_object_batches_v2(objects, [[BadObject()]], lite=False)
+            HDF5Writer.store_object_batches(objects, [[BadObject()]], lite=False)

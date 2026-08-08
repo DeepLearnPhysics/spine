@@ -60,6 +60,7 @@ class MaskAugment(AugmentBase):
         None
             This method does not return anything
         """
+        # Validate paired dimensions and optional physical sampling bounds
         if (min_dimensions is None) != (max_dimensions is None):
             raise ValueError(
                 "Must provide both `min_dimensions` and `max_dimensions`, or neither."
@@ -75,6 +76,7 @@ class MaskAugment(AugmentBase):
         if upper is not None and not len(upper) == 3:
             raise ValueError("Must provide upper bounds for each axis.")
 
+        # Normalize and validate the masking-size range
         self.min_dimensions = np.asarray(min_dimensions)
         self.max_dimensions = np.asarray(max_dimensions)
         if np.any(self.min_dimensions <= 0) or np.any(self.max_dimensions <= 0):
@@ -84,6 +86,7 @@ class MaskAugment(AugmentBase):
 
         self.range = self.max_dimensions - self.min_dimensions
 
+        # Resolve explicit or detector-derived sampling boundaries
         self.lower = np.asarray(lower) if lower is not None else None
         self.upper = np.asarray(upper) if upper is not None else None
         if (
@@ -102,6 +105,7 @@ class MaskAugment(AugmentBase):
             self.lower = geo.tpc.lower
             self.upper = geo.tpc.upper
 
+        # Validate and retain activity-biased center sampling options
         if center_mode not in ("uniform", "activity", "weighted_activity"):
             raise ValueError(
                 "Masking center mode must be one of ('uniform', 'activity', 'weighted_activity')."
@@ -138,20 +142,23 @@ class MaskAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and unchanged metadata
         """
+        # Sample one mask volume shared by every coordinate-bearing product
         mask_meta = self.generate_mask(data, meta, keys)
 
+        # Remove rows inside the mask while retaining the original image frame
         for key in keys:
             if isinstance(data[key], Meta):
                 continue
 
-            voxels, features = data[key].coords, data[key].features
+            voxels, features = data[key].coordinate_data, data[key].features
             voxels_cm = meta.to_cm(voxels, center=True)
             mask = mask_meta.inner_mask(voxels_cm)
             index = np.where(~mask)[0]
 
+            # Apply the same row selection to coordinates and aligned features
             voxels, features = voxels[index], features[index]
 
-            data[key].coords = voxels
+            data[key].coordinate_data = voxels
             data[key].features = features
 
         return data, meta
@@ -174,6 +181,7 @@ class MaskAugment(AugmentBase):
         Meta
             Metadata describing the masked box
         """
+        # Resolve and validate the physical region available for sampling
         lower = self.lower if self.lower is not None else meta.lower
         upper = self.upper if self.upper is not None else meta.upper
         if np.any(self.range > (upper - lower)):
@@ -181,10 +189,12 @@ class MaskAugment(AugmentBase):
                 "The masking range is larger than the allowed masking bounds."
             )
 
+        # Sample dimensions, then quantize them to whole source voxels
         dimensions = self.min_dimensions + np.random.rand(3) * self.range
         count = np.ceil(dimensions / meta.size).astype(int)
         dimensions = count * meta.size
 
+        # Optionally bias the box proposal toward the observed event activity
         center = None
         spread = self.center_spread
         if self.center_mode != "uniform":
@@ -198,7 +208,9 @@ class MaskAugment(AugmentBase):
             if spread is None:
                 spread = activity_spread
 
+        # Sample the lower corner and snap the mask to the source grid
         mask_lower = self.sample_box_lower(
             lower, upper, dimensions, anchor=center, spread=spread
         )
+
         return self.make_grid_aligned_meta(meta, lower, upper, count, mask_lower)

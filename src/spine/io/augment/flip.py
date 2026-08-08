@@ -40,6 +40,7 @@ class FlipAugment(AugmentBase):
             Probability of applying the flip to an event. Values less than 1
             randomly leave some events unchanged.
         """
+        # Validate the reflection axis and event-level application probability
         if not isinstance(axis, (int, np.integer)) or axis < 0 or axis > 2:
             raise ValueError("Flip axis must be an integer in the range [0, 2].")
         p = float(p)
@@ -80,22 +81,28 @@ class FlipAugment(AugmentBase):
         if np.random.rand() >= self.p:
             return data, meta
 
+        # Resolve the reflection plane and whether the image frame moves with it
         pivot = self.resolve_center(meta, self.center, self.use_geo_center)
         flip_meta = meta if self.keep_meta else self.generate_meta(meta, pivot)
 
+        # Reflect every coordinate-bearing product through the shared plane
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = flip_meta
                 continue
 
-            coords_cm = self.voxel_to_cm(data[key].coords, meta)
+            coords_cm = self.voxel_to_cm(data[key].coordinate_data, meta)
             flip_cm = self.flip_points(coords_cm, pivot)
+
+            # A fixed frame discards reflected points that leave its bounds
             if self.keep_meta:
                 keep_mask = flip_meta.inner_mask(flip_cm)
                 flip_cm = flip_cm[keep_mask]
                 data[key].features = data[key].features[keep_mask]
-            data[key].coords = self.cm_to_voxel(
-                flip_cm, flip_meta, data[key].coords.dtype
+
+            # Store coordinates in the output frame alongside its metadata
+            data[key].coordinate_data = self.cm_to_voxel(
+                flip_cm, flip_meta, data[key].coordinate_data.dtype
             )
             data[key].meta = flip_meta
 
@@ -135,12 +142,14 @@ class FlipAugment(AugmentBase):
         Meta
             Metadata of the reflected image volume
         """
+        # Reflect the image center while retaining its size and voxel count
         dimensions = meta.size * meta.count
         meta_center = (meta.lower + meta.upper) / 2.0
         refl_center = meta_center.copy()
         refl_center[self.axis] = 2.0 * pivot[self.axis] - meta_center[self.axis]
 
         lower = refl_center - dimensions / 2.0
+
         return self.make_snapped_meta(
             meta,
             meta.size.copy(),

@@ -145,6 +145,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "gpu: marks tests that require GPU",
     "integration: marks tests as integration tests",
+    "model: marks tests that require the full model runtime",
 ]
 
 # Coverage configuration

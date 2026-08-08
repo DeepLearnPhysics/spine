@@ -58,6 +58,11 @@ def adapter() -> Any:
 def module(operation: str) -> type:
     """Resolve a semantic sparse operation to a backend module class.
 
+    The implementation must accept the canonical constructor arguments
+    exposed by the corresponding wrapper in :mod:`spine.model.sparse.modules`.
+    That frontend contract follows MinkowskiEngine; adapters for other
+    backends are responsible for translating it to their native API.
+
     Parameters
     ----------
     operation : str

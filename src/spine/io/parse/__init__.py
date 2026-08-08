@@ -1,4 +1,4 @@
-"""Parser data structures and registered parser implementations.
+"""Registered parser implementations.
 
 Parsers are listed under :mod:`io.dataset.schema` in the configuration.
 `schema` is a list of named values. Each name is arbitrary and will be
@@ -82,6 +82,5 @@ To be completed.
 
 from .base import *
 from .clean_data import *
-from .data import *
 from .hdf5 import *
 from .larcv import *

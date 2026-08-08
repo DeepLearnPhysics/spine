@@ -8,37 +8,27 @@ import numba as nb
 import numpy as np
 
 import spine.math as sm
-from spine.constants import (
-    CLUST_COL,
-    COORD_COLS,
-    COORD_COLS_HI,
-    COORD_COLS_LO,
-    COORD_END_COLS_HI,
-    COORD_END_COLS_LO,
-    COORD_START_COLS_HI,
-    COORD_START_COLS_LO,
-    COORD_TIME_COL,
-    GROUP_COL,
-    PART_COL,
-    SHAPE_COL,
-    VALUE_COL,
-)
-from spine.data import IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch, TensorSchema
 from spine.utils.conditional import torch
 from spine.utils.jit import numbafy
 
 
-def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
+def form_clusters_batch(
+    data: ClusterLabelBatch,
+    min_size: int = -1,
+    column: str = "cluster",
+    shapes=None,
+) -> IndexBatch:
     """Batched version of :func:`form_clusters`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     min_size : int, default -1
         Minimum size of a cluster to be included in the list
-    column : int, default CLUST_COL
-        Column of the label tensor to use to fetch the pixel cluster IDs
+    column : str, default 'cluster'
+        Named field used to fetch the voxel cluster IDs.
     shapes : List[int], optional
         List of semantic classes to include in the list of cluster
 
@@ -47,55 +37,71 @@ def form_clusters_batch(data, min_size=-1, column=CLUST_COL, shapes=None):
     IndexBatch
         Object used to index clusters within a batch of data
     """
-    # Loop over the individual entries
+    # Resolve named association/particle fields before clustering
+    ids = data.voxel_field(column)
+    shape_values = data.shapes if shapes is not None else None
     clusts, counts, single_counts = [], [], []
-    for b in range(data.batch_size):
-        # Get the list of clusters and cluster sizes within this entry
-        data_b = data[b]
-        clusts_b, counts_b = form_clusters(data_b, min_size, column, shapes)
-
-        # Offset the cluster indexes appropriately
+    for batch_id in range(data.batch_size):
+        ids_b = ids[batch_id]
+        shape_b = None if shape_values is None else shape_values[batch_id]
+        clusts_b, sizes_b = _form_clusters_from_fields(ids_b, min_size, shapes, shape_b)
         for i, clust in enumerate(clusts_b):
-            clusts_b[i] = clust + data.edges[b]
-
-        # Append
+            clusts_b[i] = clust + data.data.edges[batch_id]
         clusts.extend(clusts_b)
-        counts.append(len(counts_b))
-        single_counts.extend(counts_b)
+        counts.append(len(sizes_b))
+        single_counts.extend(sizes_b)
 
-    # Make an IndexBatch out of the list
     return IndexBatch(clusts, data.counts, counts, single_counts)
 
 
-def get_cluster_label_batch(data, clusts, column=CLUST_COL):
+def get_cluster_label_batch(
+    data: ClusterLabelBatch,
+    clusts: IndexBatch,
+    column: str = "cluster",
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_label`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     clusts : IndexBatch
         (C) List of cluster indexes
-    column : int, default CLUST_COL
-        Column in the label tensor which specifies the requested label
+    column : str, default 'cluster'
+        Named voxel field to reduce within each cluster.
 
     Returns
     -------
     TensorBatch
         (C) List of individual cluster labels
     """
-    labels = get_cluster_label(data.tensor, clusts.index_list, column)
+    values = data.voxel_field(column).to_numpy().data
+    if values.ndim == 1:
+        labels = get_cluster_label(values, clusts.index_list)
+    else:
+        labels = np.column_stack(
+            [
+                get_cluster_label(values[:, index], clusts.index_list)
+                for index in range(values.shape[1])
+            ]
+        )
 
     return TensorBatch(labels, clusts.counts)
 
 
-def get_cluster_closest_label_batch(data, coord_label, clusts, labels, default):
+def get_cluster_closest_label_batch(
+    data: ClusterLabelBatch,
+    coord_label: TensorBatch,
+    clusts: IndexBatch,
+    labels: TensorBatch,
+    default,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_closest_label`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     coord_label : TensorBatch
         Batch of particle end points labels
     clusts : IndexBatch
@@ -110,23 +116,49 @@ def get_cluster_closest_label_batch(data, coord_label, clusts, labels, default):
     TensorBatch
         (C) List of individual cluster labels
     """
-    labels_adapt = np.empty(len(clusts.index_list), dtype=np.int64)
-    for b in range(data.batch_size):
-        lower, upper = clusts.edges[b], clusts.edges[b + 1]
-        labels_adapt[lower:upper] = get_cluster_closest_label(
-            data[b], coord_label[b], clusts[b], labels[b], default
-        )
+    data_np = data.to_numpy()
+    coord_np = coord_label.to_numpy()
+    labels_np = labels.to_numpy()
+    groups = get_cluster_label_batch(data, clusts, "group").to_numpy()
+    particle_ids = data.particle_field("particle").to_numpy()
+    output = labels_np.data.copy()
+    default = np.asarray(default)
+    for batch_id in range(data.batch_size):
+        lower, upper = clusts.edges[batch_id : batch_id + 2]
+        voxels = data_np.coords[batch_id]
+        points = coord_np.coordinates("start")[batch_id]
+        particle_ids_b = particle_ids[batch_id].astype(np.int64, copy=False)
+        event_offset = data_np.data.edges[batch_id]
+        for group in np.unique(groups[batch_id].astype(np.int64)):
+            indexes = np.where(groups[batch_id] == group)[0] + lower
+            particle_index = np.where(particle_ids_b == group)[0]
+            if not len(particle_index) or particle_index[0] >= len(points):
+                continue
+            point = points[particle_index[0]]
+            distances = []
+            for cluster_index in indexes:
+                local = clusts.index_list[cluster_index] - event_offset
+                distances.append(np.min(np.linalg.norm(voxels[local] - point, axis=1)))
+            closest = indexes[int(np.argmin(distances))]
+            label = int(labels_np.data[closest])
+            fallback = default[label] if 0 <= label < len(default) else -1
+            output[indexes] = fallback
+            output[closest] = label
 
-    return TensorBatch(labels_adapt, clusts.counts)
+    return TensorBatch(output, clusts.counts)
 
 
-def get_cluster_primary_label_batch(data, clusts, column):
+def get_cluster_primary_label_batch(
+    data: ClusterLabelBatch,
+    clusts: IndexBatch,
+    column: str,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_primary_label`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     clusts : IndexBatch
         (C) List of cluster indexes
     column : int
@@ -137,18 +169,46 @@ def get_cluster_primary_label_batch(data, clusts, column):
     TensorBatch
         (C) List of cluster primary labels
     """
-    labels = get_cluster_primary_label(data.tensor, clusts.index_list, column)
+    values = data.voxel_field(column).data
+    groups = data.group_ids.data
+    particles = data.particle_ids.data
+    labels = (
+        values.new_empty(len(clusts.index_list))
+        if isinstance(values, torch.Tensor)
+        else np.empty(len(clusts.index_list), dtype=values.dtype)
+    )
+    for i, clust in enumerate(clusts.index_list):
+        group_values = groups[clust]
+        unique, counts = (
+            torch.unique(group_values, return_counts=True)
+            if isinstance(group_values, torch.Tensor)
+            else np.unique(group_values, return_counts=True)
+        )
+        group = unique[counts.argmax()]
+        primary = particles[clust] == group
+        selected = values[clust][primary] if primary.any() else values[clust]
+        unique, counts = (
+            torch.unique(selected, return_counts=True)
+            if isinstance(selected, torch.Tensor)
+            else np.unique(selected, return_counts=True)
+        )
+        labels[i] = unique[counts.argmax()]
 
     return TensorBatch(labels, clusts.counts)
 
 
-def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_ids):
+def get_cluster_closest_primary_label_batch(
+    data: ClusterLabelBatch,
+    coord_label: TensorBatch,
+    clusts: IndexBatch,
+    primary_ids: TensorBatch,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_cloest_primary_label`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     coord_label : TensorBatch
         Batch of particle end points labels
     clusts : IndexBatch
@@ -161,23 +221,50 @@ def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_i
     TensorBatch
         (C) List of cluster primary labels
     """
-    labels = np.empty(len(clusts.index_list), dtype=np.int64)
-    for b in range(data.batch_size):
-        lower, upper = clusts.edges[b], clusts.edges[b + 1]
-        labels[lower:upper] = get_cluster_closest_primary_label(
-            data[b], coord_label[b], clusts[b], primary_ids[b]
-        )
+    data_np = data.to_numpy()
+    coord_np = coord_label.to_numpy()
+    primary_np = primary_ids.to_numpy()
+    groups = get_cluster_label_batch(data, clusts, "group").to_numpy()
+    particle_ids = data.particle_field("particle").to_numpy()
+    output = primary_np.data.copy()
+    for batch_id in range(data.batch_size):
+        lower, upper = clusts.edges[batch_id : batch_id + 2]
+        voxels = data_np.coords[batch_id]
+        points = coord_np.coordinates("start")[batch_id]
+        particle_ids_b = particle_ids[batch_id].astype(np.int64, copy=False)
+        event_offset = data_np.data.edges[batch_id]
+        primary_local = np.where(primary_np.data[lower:upper] == 1)[0]
+        for group in np.unique(groups.data[lower:upper][primary_local].astype(int)):
+            local_nodes = primary_local[
+                groups.data[lower:upper][primary_local] == group
+            ]
+            particle_index = np.where(particle_ids_b == group)[0]
+            if not len(particle_index) or particle_index[0] >= len(points):
+                continue
+            point = points[particle_index[0]]
+            indexes = local_nodes + lower
+            distances = []
+            for cluster_index in indexes:
+                local = clusts.index_list[cluster_index] - event_offset
+                distances.append(np.min(np.linalg.norm(voxels[local] - point, axis=1)))
+            output[indexes] = 0
+            output[indexes[int(np.argmin(distances))]] = 1
 
-    return TensorBatch(labels, clusts.counts)
+    return TensorBatch(output, clusts.counts)
 
 
-def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True):
+def get_cluster_points_label_batch(
+    data: ClusterLabelBatch,
+    coord_label: TensorBatch,
+    clusts: IndexBatch,
+    random_order: bool = True,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_points_label`
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
+    data : ClusterLabelBatch
+        Structured cluster labels
     coord_label : TensorBatch
         Batch of particle end points labels
     clusts : IndexBatch
@@ -190,25 +277,56 @@ def get_cluster_points_label_batch(data, coord_label, clusts, random_order=True)
     np.ndarray
         (C, 6) Cluster-wise start and end points (in random order if requested)
     """
-    num_clusts = len(clusts.index_list)
-    if isinstance(data.tensor, torch.Tensor):
-        points = torch.empty((num_clusts, 6), dtype=data.dtype, device=data.device)
-    else:
-        points = np.empty((num_clusts, 6), dtype=data.dtype)
+    data_np = data.to_numpy()
+    coord_np = coord_label.to_numpy()
+    particle_indexes = data.particle_indexes.to_numpy()
+    points = np.empty((len(clusts.index_list), 6), dtype=data_np.dtype)
+    starts = coord_np.coordinates("start")
+    ends = coord_np.coordinates("end")
+    times = coord_np.feature("time")
+    for batch_id in range(data.batch_size):
+        lower, upper = clusts.edges[batch_id : batch_id + 2]
+        event_offset = data_np.data.edges[batch_id]
+        event_voxels = data_np.coords[batch_id]
+        starts_b = starts[batch_id]
+        ends_b = ends[batch_id]
+        times_b = times[batch_id]
+        for cluster_index in range(lower, upper):
+            local = clusts.index_list[cluster_index] - event_offset
+            ids = np.unique(particle_indexes[batch_id][local]).astype(np.int64)
+            valid_ids = ids[(ids >= 0) & (ids < len(starts_b))]
+            if not len(valid_ids):
+                raise IndexError("Cluster has no valid particle coordinate label.")
+            label_id = valid_ids[np.argmin(times_b[valid_ids])]
+            start = starts_b[label_id].copy()
+            end = ends_b[label_id].copy()
+            if random_order and np.random.choice(2):
+                start, end = end, start
+            voxels = event_voxels[local]
+            point_pair = np.stack((start, end))
+            distances = np.linalg.norm(
+                point_pair[:, None, :] - voxels[None, :, :], axis=2
+            )
+            points[cluster_index, :3] = voxels[np.argmin(distances[0])]
+            points[cluster_index, 3:] = voxels[np.argmin(distances[1])]
+    if not data.is_numpy:
+        points = torch.as_tensor(points, dtype=data.dtype, device=data.device)
 
-    for b in range(data.batch_size):
-        lower, upper = clusts.edges[b], clusts.edges[b + 1]
-        points[lower:upper] = get_cluster_points_label(
-            data[b],
-            coord_label[b],
-            clusts[b],
-            random_order,
-        )
-
-    return TensorBatch(points, clusts.counts, coord_cols=points.shape[1])
+    return TensorBatch(
+        points,
+        clusts.counts,
+        coord_cols=np.arange(6),
+        schema=TensorSchema(coordinate_groups={"start": (0, 1, 2), "end": (3, 4, 5)}),
+    )
 
 
-def get_cluster_directions_batch(data, starts, clusts, max_dist=-1.0, optimize=False):
+def get_cluster_directions_batch(
+    data: ClusterLabelBatch | TensorBatch,
+    starts: TensorBatch,
+    clusts: IndexBatch,
+    max_dist: float = -1.0,
+    optimize: bool = False,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_directions`.
 
     Parameters
@@ -231,13 +349,18 @@ def get_cluster_directions_batch(data, starts, clusts, max_dist=-1.0, optimize=F
         (C, 3) List of cluster directions
     """
     dirs = get_cluster_directions(
-        data.tensor, starts.tensor, clusts.index_list, max_dist, optimize
+        data.coords.tensor, starts.tensor, clusts.index_list, max_dist, optimize
     )
 
     return TensorBatch(dirs, clusts.counts)
 
 
-def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1.0):
+def get_cluster_dedxs_batch(
+    data: ClusterLabelBatch | TensorBatch,
+    starts: TensorBatch,
+    clusts: IndexBatch,
+    max_dist: float = -1.0,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_dedxs`.
 
     Parameters
@@ -256,20 +379,30 @@ def get_cluster_dedxs_batch(data, starts, clusts, max_dist=-1.0):
     TensorBatch
         (C) List of cluster dE/dx value close to the start points
     """
-    dedxs = get_cluster_dedxs(data.tensor, starts.tensor, clusts.index_list, max_dist)
+    dedxs = get_cluster_dedxs(
+        data.coords.tensor,
+        data.values.tensor,
+        starts.tensor,
+        clusts.index_list,
+        max_dist,
+    )
 
     return TensorBatch(dedxs, clusts.counts)
 
 
-def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
+def get_cluster_features_batch(
+    data: ClusterLabelBatch | TensorBatch,
+    clusts: IndexBatch,
+    add_value: bool = False,
+    add_shape: bool = False,
+) -> TensorBatch:
     """Batched version of :func:`get_cluster_features`.
 
     Parameters
     ----------
-    data : TensorBatch
-        Batch of cluster label data tensor
-    starts : TensorBatch
-        (C, 3) Start points w.r.t. which to estimate the direction
+    data : ClusterLabelBatch or TensorBatch
+        Structured labels or raw sparse voxel data. Structured labels are
+        required when ``add_shape`` is enabled.
     clusts : IndexBatch
         (C) List of cluster indexes
     max_dist : float, default -1.0
@@ -280,26 +413,51 @@ def get_cluster_features_batch(data, clusts, add_value=False, add_shape=False):
     TensorBatch
         (C) List of cluster dE/dx value close to the start points
     """
-    feats = get_cluster_features(data.tensor, clusts.index_list, add_value, add_shape)
+    if add_shape and not isinstance(data, ClusterLabelBatch):
+        raise TypeError(
+            "Semantic cluster features require structured cluster labels or "
+            "an explicit `extra` feature tensor."
+        )
+
+    values = None
+    if add_value:
+        values = data.values.tensor
+
+    if isinstance(data, ClusterLabelBatch):
+        feats = get_cluster_features(data.coords.tensor, clusts.index_list, values)
+        if add_shape:
+            shapes = get_cluster_label_batch(data, clusts, "shape").data
+            if isinstance(feats, torch.Tensor):
+                shapes = torch.as_tensor(
+                    shapes,
+                    dtype=feats.dtype,
+                    device=feats.device,
+                )
+                feats = torch.cat((feats, shapes[:, None]), dim=1)
+            else:
+                shapes = np.asarray(shapes, dtype=feats.dtype)
+                feats = np.concatenate((feats, shapes[:, None]), axis=1)
+    else:
+        feats = get_cluster_features(data.coords.tensor, clusts.index_list, values)
 
     return TensorBatch(feats, clusts.counts)
 
 
-def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
+def form_clusters(ids, min_size=-1, shapes=None, shape_values=None):
     """Builds a list of indexes corresponding to each cluster in the event.
 
     The `data` tensor should only contain one entry.
 
     Parameters
     ----------
-    data : Union[np.ndarray, torch.Tensor]
-        Cluster label data tensor
+    ids : Union[np.ndarray, torch.Tensor]
+        Cluster identifier associated with each voxel.
     min_size : int, default -1
         Minimum size of a cluster to be included in the list
-    column : int, default CLUST_COL
-        Column of the label tensor to use to fetch the pixel cluster IDs
     shapes : List[int], optional
         List of semantic classes to include in the list of cluster
+    shape_values : Union[np.ndarray, torch.Tensor], optional
+        Semantic class associated with each voxel. Required with ``shapes``.
 
     Returns
     -------
@@ -308,84 +466,59 @@ def form_clusters(data, min_size=-1, column=CLUST_COL, shapes=None):
     np.ndarray
         (C) Number of pixels in the mask for each cluster
     """
-    # Dispatch to the right functions based on input type
-    if isinstance(data, torch.Tensor):
-        return _form_clusters_torch(data, min_size, column, shapes)
+    if getattr(ids, "ndim", 1) == 2 and ids.shape[1] == 1:
+        ids = ids[:, 0]
+    if shapes is not None and shape_values is None:
+        raise ValueError("`shape_values` is required when filtering by shape.")
+    return _form_clusters_from_fields(ids, min_size, shapes, shape_values)
+
+
+def _form_clusters_from_fields(ids, min_size, shapes=None, shape_values=None):
+    """Build cluster indexes from explicit ID and optional shape arrays."""
+    if isinstance(ids, torch.Tensor):
+        selection = torch.arange(len(ids), device=ids.device)
+        if shapes is not None:
+            requested = torch.as_tensor(
+                shapes, dtype=shape_values.dtype, device=ids.device
+            )
+            mask = torch.any(shape_values[:, None] == requested[None, :], dim=1)
+            selection = selection[mask]
+            ids = ids[mask]
+        unique, counts = torch.unique(ids, return_counts=True)
+        order = torch.argsort(ids, stable=True)
+        order = selection[order]
+        valid = torch.where((counts >= min_size) & (unique > -1))[0].cpu().numpy()
+        sizes = counts.detach().cpu().numpy()
+        clusters = torch.tensor_split(order, tuple(np.cumsum(sizes)[:-1]))
     else:
-        return _form_clusters_np(data, min_size, column, shapes)
+        selection = np.arange(len(ids))
+        if shapes is not None:
+            mask = np.any(shape_values[:, None] == np.asarray(shapes)[None, :], axis=1)
+            selection = selection[mask]
+            ids = ids[mask]
+        unique, counts = np.unique(ids, return_counts=True)
+        order = selection[np.argsort(ids, stable=True)]
+        valid = np.where((counts >= min_size) & (unique > -1))[0]
+        sizes = counts
+        clusters = list(np.split(order, tuple(np.cumsum(sizes)[:-1])))
+    return [clusters[i] for i in valid], sizes[valid]
 
 
-def _form_clusters_torch(data, min_size, column, shapes):
-    # If requested, restrict data to a specific set of semantic classes
-    shape_index = None
-    if shapes is not None:
-        shapes = torch.as_tensor(shapes, dtype=data.dtype, device=data.device)
-        shape_index = torch.where(torch.any(data[:, SHAPE_COL] == shapes[:, None], 0))[
-            0
-        ]
-        data = data[shape_index]
-
-    # Get the list of unique clusters in this entry, order indices
-    clust_ids = data[:, column]
-    uniques, counts = torch.unique(clust_ids, return_counts=True)
-    full_index = torch.argsort(clust_ids, stable=True)
-    if shape_index is not None:
-        full_index = shape_index[full_index]
-
-    # Build valid index
-    valid_index = (
-        torch.where((counts >= min_size) & (uniques > -1))[0].detach().cpu().numpy()
-    )
-
-    # Build index list, restrict to valid clusters
-    counts = counts.detach().cpu().numpy()
-    breaks = tuple(np.cumsum(counts)[:-1])
-    clusts = torch.tensor_split(full_index, breaks)
-
-    # Restrict to valid clusters
-    clusts = [clusts[i] for i in valid_index]
-    counts = counts[valid_index]
-
-    return clusts, counts
-
-
-def _form_clusters_np(data, min_size, column, shapes):
-    # If requested, restrict data to a specific set of semantic classes
-    shape_index = None
-    if shapes is not None:
-        shapes = np.array(shapes, dtype=data.dtype)
-        shape_index = np.where(np.any(data[:, SHAPE_COL] == shapes[:, None], 0))[0]
-        data = data[shape_index]
-
-    # Get the clusters in this entry
-    clust_ids = data[:, column]
-    uniques, counts = np.unique(clust_ids, return_counts=True)
-    full_index = np.argsort(clust_ids, stable=True)
-    if shape_index is not None:
-        full_index = shape_index[full_index]
-
-    # Build valid index
-    valid_index = np.where((counts >= min_size) & (uniques > -1))[0]
-
-    # Build index list, restrict to valid clusters
-    breaks = tuple(np.cumsum(counts)[:-1])
-    clusts = list(np.split(full_index, breaks))
-
-    # Restrict to valid clusters
-    clusts = [clusts[i] for i in valid_index]
-    counts = counts[valid_index]
-
-    return clusts, counts
-
-
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def break_clusters(data, clusts, eps, metric_id, p):
+@numbafy(
+    cast_args=["coords", "labels"],
+    list_args=["clusts"],
+    keep_torch=True,
+    ref_arg="coords",
+)
+def break_clusters(coords, labels, clusts, eps, metric_id, p):
     """Runs DBSCAN on each invididual cluster to segment them further if needed.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
+    labels : np.ndarray
+        Cluster identifier associated with each voxel.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
     eps : float
@@ -401,13 +534,13 @@ def break_clusters(data, clusts, eps, metric_id, p):
         New array of broken cluster labels
     """
     if len(clusts) == 0:
-        return np.copy(data[:, CLUST_COL])
+        return np.copy(labels)
 
     # Break labels
-    break_labels = _break_clusters(data, clusts, eps, metric_id, p)
+    break_labels = _break_clusters(coords, clusts, eps, metric_id, p)
 
     # Offset individual broken labels to prevent overlap
-    labels = np.copy(data[:, CLUST_COL])
+    labels = np.copy(labels)
     offset = np.max(labels) + 1
     for clust in clusts:
         # Update IDs, offset
@@ -420,19 +553,18 @@ def break_clusters(data, clusts, eps, metric_id, p):
 
 @nb.njit(cache=True, parallel=True, nogil=True)
 def _break_clusters(
-    data: nb.float32[:, :],
+    coords: nb.float32[:, :],
     clusts: nb.types.List(nb.int64[:]),
     eps: nb.float64,
     metric_id: nb.int64,
     p: nb.float64,
 ) -> nb.int64[:]:
     # Loop over clusters to break, run DBSCAN
-    break_labels = np.full(len(data), -1, dtype=data.dtype)
-    points = data[:, COORD_COLS_LO:COORD_COLS_HI]
+    break_labels = np.full(len(coords), -1, dtype=coords.dtype)
     for k in nb.prange(len(clusts)):
         # Restrict the points to those in the cluster
         clust = clusts[k]
-        points_c = points[clust]
+        points_c = coords[clust]
 
         # Run DBSCAN on the cluster, update labels
         clust_ids = sm.cluster.dbscan(points_c, eps=eps, metric_id=metric_id, p=p)
@@ -443,237 +575,50 @@ def _break_clusters(
     return break_labels
 
 
-@numbafy(cast_args=["data"], list_args=["clusts"])
-def get_cluster_label(data, clusts, column=CLUST_COL):
+@numbafy(cast_args=["values"], list_args=["clusts"])
+def get_cluster_label(values, clusts):
     """Returns the majority label of each cluster, specified by the
     requested data column of the label tensor.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    values : np.ndarray
+        Voxel-level labels to reduce by majority vote.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
-    column : int, default CLUST_COL
-        Column in the label tensor which specifies the requested label
-
     Returns
     -------
     np.ndarray
         (C) List of individual cluster labels
     """
     if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
+        return np.empty(0, dtype=values.dtype)
 
-    return _get_cluster_label(data, clusts, column)
+    return _get_cluster_label(values, clusts)
 
 
 @nb.njit(cache=True)
 def _get_cluster_label(
-    data: nb.float64[:, :],
+    values: nb.float64[:],
     clusts: nb.types.List(nb.int64[:]),
-    column: nb.int64 = CLUST_COL,
 ) -> nb.float64[:]:
 
-    labels = np.empty(len(clusts), dtype=data.dtype)
+    labels = np.empty(len(clusts), dtype=values.dtype)
     for i, c in enumerate(clusts):
-        v, cts = sm.unique(data[c, column])
+        v, cts = sm.unique(values[c])
         labels[i] = v[np.argmax(cts)]
 
     return labels
 
 
-@numbafy(cast_args=["data", "coord_label"], list_args=["clusts"])
-def get_cluster_closest_label(data, coord_label, clusts, labels, default):
-    """Sets the label of clusters based on their proximity to the start point
-    of the particle which created them.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Cluster label data tensor
-    coord_label : np.ndarray
-        Coordinate labels associated with each particle
-    clusts : List[np.ndarray]
-        (C) List of cluster indexes
-    labels : np.ndarray
-        (C) Existing list of cluster labels (the new labels will be a subset)
-    default : np.ndarray
-        Default label to assign to secondary clusters
-
-    Returns
-    -------
-    np.ndarray
-        (C) List of cluster labels
-    """
-    if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
-
-    return _get_cluster_closest_label(data, coord_label, clusts, labels, default)
-
-
-@nb.njit(cache=True)
-def _get_cluster_closest_label(
-    data: nb.float64[:, :],
-    coord_label: nb.float64[:, :],
-    clusts: nb.types.List(nb.int64[:]),
-    labels: nb.float64[:],
-    default: nb.int64[:],
-) -> nb.float64[:]:
-
-    # Loop over the unique cluster groups
-    group_ids = _get_cluster_label(data, clusts, GROUP_COL)
-    labels_adapt = labels.copy()
-    voxels = data[:, COORD_COLS_LO:COORD_COLS_HI]
-    points = coord_label[:, COORD_COLS_LO:COORD_COLS_HI]
-    for g in np.unique(group_ids.astype(np.int64)):
-        # If the group index does not exist in the points, do not touch labels
-        group_index = np.where(group_ids == g)[0]
-        if g < 0 or g >= len(points):
-            continue
-
-        # Build a contiguous (1, 3) view for numba-safe distance calls.
-        start_point = np.empty((1, 3), dtype=data.dtype)
-        start_point[0] = points[g]
-
-        # Minimize the point-cluster distances
-        dists = np.empty(len(group_index), dtype=data.dtype)
-        for i, c in enumerate(group_index):
-            dists[i] = np.min(sm.distance.cdist(start_point, voxels[clusts[c]]))
-
-        # Label the closest cluster as the original label only, assign default
-        # values ot the other clusters in the group
-        closest_index = group_index[np.argmin(dists)]
-        label = int(labels[closest_index])
-        deflt = default[label] if label > -1 and label < len(default) else -1
-
-        labels_adapt[group_index] = deflt
-        labels_adapt[closest_index] = label
-
-    return labels_adapt
-
-
-@numbafy(cast_args=["data"], list_args=["clusts"])
-def get_cluster_primary_label(data, clusts, column):
-    """Returns the majority label of the primary cluster of the group each
-    cluster belongs to, specified in the requested data column of the label
-    tensor.
-
-    The primary component is identified by picking the set of label voxels
-    that have a `PART_COL` identical to the cluster `GROUP_COL`.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Cluster label data tensor
-    clusts : List[np.ndarray]
-        (C) List of cluster indexes
-    column : int
-        Column in the label tensor which specifies the requested label
-
-    Returns
-    -------
-    np.ndarray
-        (C) List of cluster primary labels
-    """
-    if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
-
-    return _get_cluster_primary_label(data, clusts, column)
-
-
-@nb.njit(cache=True)
-def _get_cluster_primary_label(
-    data: nb.float64[:, :], clusts: nb.types.List(nb.int64[:]), column: nb.int64
-) -> nb.float64[:]:
-
-    labels = np.empty(len(clusts), dtype=data.dtype)
-    group_ids = _get_cluster_label(data, clusts, GROUP_COL)
-    for i, clust in enumerate(clusts):
-        part_ids = data[clust, PART_COL]
-        primary_mask = np.where(part_ids == group_ids[i])[0]
-        if len(primary_mask):
-            # Only use the primary component to label the cluster
-            v, cts = sm.unique(data[clust[primary_mask], column])
-        else:
-            # If there is no primary contribution, use the whole cluster
-            v, cts = sm.unique(data[clust, column])
-        labels[i] = v[np.argmax(cts)]
-
-    return labels
-
-
-@numbafy(cast_args=["data", "coord_label"], list_args=["clusts"])
-def get_cluster_closest_primary_label(data, coord_label, clusts, primary_ids):
-    """Sets the primary label of clusters based on their proximity to the start
-    point of the particle which created them.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Cluster label data tensor
-    coord_label : np.ndarray
-        Coordinate labels associated with each particle
-    clusts : List[np.ndarray]
-        (C) List of cluster indexes
-    primary_ids : np.ndarray
-        (C) Existing list of primary IDs (the new labels will be a subset)
-
-    Returns
-    -------
-    np.ndarray
-        (C) List of cluster primary labels
-    """
-    if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
-
-    return _get_cluster_closest_primary_label(data, coord_label, clusts, primary_ids)
-
-
-@nb.njit(cache=True)
-def _get_cluster_closest_primary_label(
-    data: nb.float64[:, :],
-    coord_label: nb.float64[:, :],
-    clusts: nb.types.List(nb.int64[:]),
-    primary_ids: nb.float64[:],
-) -> nb.float64[:]:
-
-    # Loop over the unique primary cluster groups
-    primary_index = np.where(primary_ids == 1)[0]
-    group_ids = _get_cluster_label(data, clusts, GROUP_COL)[primary_index]
-    labels = primary_ids.copy()
-    voxels = data[:, COORD_COLS_LO:COORD_COLS_HI]
-    points = coord_label[:, COORD_COLS_LO:COORD_COLS_HI]
-    for g in np.unique(group_ids.astype(np.int64)):
-        # If the group index does not exist in the points, do not touch labels
-        group_index = primary_index[group_ids == g]
-        if g < 0 or g >= len(points):
-            continue
-
-        # Build a contiguous (1, 3) view for numba-safe distance calls.
-        start_point = np.empty((1, 3), dtype=data.dtype)
-        start_point[0] = points[g]
-
-        # Minimize the point-cluster distances
-        dists = np.empty(len(group_index), dtype=data.dtype)
-        for i, c in enumerate(group_index):
-            dists[i] = np.min(sm.distance.cdist(start_point, voxels[clusts[c]]))
-
-        # Label the closest cluster as the only primary cluster
-        labels[group_index] = 0
-        labels[group_index[np.argmin(dists)]] = 1
-
-    return labels
-
-
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def get_cluster_centers(data, clusts):
+@numbafy(cast_args=["coords"], list_args=["clusts"], keep_torch=True, ref_arg="coords")
+def get_cluster_centers(coords, clusts):
     """Returns the coordinate of the centroid associated with each cluster.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
 
@@ -683,19 +628,19 @@ def get_cluster_centers(data, clusts):
         (C, 3) Tensor of cluster centers
     """
     if len(clusts) == 0:
-        return np.empty((0, 3), dtype=data.dtype)
+        return np.empty((0, 3), dtype=coords.dtype)
 
-    return _get_cluster_centers(data, clusts)
+    return _get_cluster_centers(coords, clusts)
 
 
 @nb.njit(cache=True)
 def _get_cluster_centers(
-    data: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
+    coords: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
 ) -> nb.float64[:, :]:
 
-    centers = np.empty((len(clusts), 3), dtype=data.dtype)
+    centers = np.empty((len(clusts), 3), dtype=coords.dtype)
     for i, c in enumerate(clusts):
-        centers[i] = np.sum(data[c][:, COORD_COLS_LO:COORD_COLS_HI], axis=0) / len(c)
+        centers[i] = np.sum(coords[c], axis=0) / len(c)
 
     return centers
 
@@ -734,14 +679,14 @@ def _get_cluster_sizes(
     return sizes
 
 
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def get_cluster_energies(data, clusts):
+@numbafy(cast_args=["values"], list_args=["clusts"], keep_torch=True, ref_arg="values")
+def get_cluster_energies(values, clusts):
     """Returns the total charge/energy deposited by each cluster.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    values : np.ndarray
+        Value deposited at each voxel.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
 
@@ -751,24 +696,24 @@ def get_cluster_energies(data, clusts):
         (C) List of cluster pixel sums
     """
     if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
+        return np.empty(0, dtype=values.dtype)
 
-    return _get_cluster_energies(data, clusts)
+    return _get_cluster_energies(values, clusts)
 
 
 @nb.njit(cache=True)
 def _get_cluster_energies(
-    data: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
+    values: nb.float64[:], clusts: nb.types.List(nb.int64[:])
 ) -> nb.float64[:]:
 
-    energies = np.empty(len(clusts), dtype=data.dtype)
+    energies = np.empty(len(clusts), dtype=values.dtype)
     for i, c in enumerate(clusts):
-        energies[i] = np.sum(data[c, VALUE_COL])
+        energies[i] = np.sum(values[c])
 
     return energies
 
 
-def get_cluster_features(data, clusts, add_value=False, add_shape=False):
+def get_cluster_features(coords, clusts, values=None, shapes=None):
     """Returns an array of features for each cluster.
 
     The basic 16 geometric features are composed of:
@@ -786,8 +731,8 @@ def get_cluster_features(data, clusts, add_value=False, add_shape=False):
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
 
@@ -796,19 +741,22 @@ def get_cluster_features(data, clusts, add_value=False, add_shape=False):
     np.ndarray
         (C, N_c) Tensor of cluster features
     """
-    feats = get_cluster_features_base(data, clusts)
-    if add_value or add_shape:
-        feats_ext = get_cluster_features_extended(data, clusts, add_value, add_shape)
-        if isinstance(data, np.ndarray):
+    feats = get_cluster_features_base(coords, clusts)
+    if values is not None or shapes is not None:
+        feats_ext = get_cluster_features_extended(values, shapes, clusts)
+        if isinstance(coords, np.ndarray):
             feats = np.hstack((feats, feats_ext))
         else:
+            feats_ext = torch.as_tensor(
+                feats_ext, dtype=coords.dtype, device=coords.device
+            )
             feats = torch.cat((feats, feats_ext), dim=1)
 
     return feats
 
 
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def get_cluster_features_base(data, clusts):
+@numbafy(cast_args=["coords"], list_args=["clusts"], keep_torch=True, ref_arg="coords")
+def get_cluster_features_base(coords, clusts):
     """Returns an array of 16 geometric features for each of cluster.
 
     The 16 geometric features are composed of:
@@ -819,8 +767,8 @@ def get_cluster_features_base(data, clusts):
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
 
@@ -830,25 +778,25 @@ def get_cluster_features_base(data, clusts):
         (C, 16) Tensor of cluster features
     """
     if len(clusts) == 0:
-        return np.empty((0, 16), dtype=data.dtype)  # Cannot type empty list
+        return np.empty((0, 16), dtype=coords.dtype)  # Cannot type empty list
 
-    return _get_cluster_features_base(data, clusts)
+    return _get_cluster_features_base(coords, clusts)
 
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_features_base(
-    data: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
+    coords: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
 ) -> nb.float64[:, :]:
 
     # Loop over the clusters (parallelize). The `prange` function creates a
     # uint64 iterator which is cast to int64 to access a list, and throws a
     # warning. To avoid this, use a separate counter to acces clusts.
-    feats = np.empty((len(clusts), 16), dtype=data.dtype)
+    feats = np.empty((len(clusts), 16), dtype=coords.dtype)
     ids = np.arange(len(clusts)).astype(np.int64)
     for k in nb.prange(len(clusts)):
         # Get list of voxels in the cluster
         clust = clusts[ids[k]]
-        x = np.ascontiguousarray(data[clust][:, COORD_COLS_LO:COORD_COLS_HI])
+        x = np.ascontiguousarray(coords[clust])
 
         # Get cluster center
         center = sm.mean(x, 0)
@@ -881,7 +829,7 @@ def _get_cluster_features_base(
 
         # Evaluate the distance from the points to the principal axis
         xp0 = x - np.outer(x0, v0)
-        np0 = np.empty(len(xp0), dtype=data.dtype)
+        np0 = np.empty(len(xp0), dtype=coords.dtype)
         for i in range(len(xp0)):
             np0[i] = np.linalg.norm(xp0[i])
 
@@ -890,7 +838,7 @@ def _get_cluster_features_base(
         sc = np.dot(x0, np0)
         if sc < 0:
             # Numba does not support unary `-`, have to flip manually
-            v0 = np.zeros(3, dtype=data.dtype) - v0
+            v0 = np.zeros(3, dtype=coords.dtype) - v0
 
         # Weight direction
         v0 = dirwt * v0
@@ -904,8 +852,8 @@ def _get_cluster_features_base(
     return feats
 
 
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def get_cluster_features_extended(data, clusts, add_value=True, add_shape=True):
+@numbafy(cast_args=["values", "shapes"], list_args=["clusts"])
+def get_cluster_features_extended(values, shapes, clusts):
     """Returns an array of 3 additional features for each of cluster.
 
     The flag `add_value` adds the following 2 features:
@@ -917,37 +865,42 @@ def get_cluster_features_extended(data, clusts, add_value=True, add_shape=True):
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    values : np.ndarray, optional
+        Value deposited at each voxel.
+    shapes : np.ndarray, optional
+        Semantic shape associated with each voxel.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
-    add_value : bool, default True
-        Whether to add the mean and std of the pixel values
-    add_shape : bool, default True
-        Whether to add the shape of the cluster
-
     Returns
     -------
     np.ndarray
         (C, 1/2/3) Tensor of additional cluster features
     """
-    assert (
-        add_value or add_shape
-    ), "Must add either value or shape for this function to do anything"
+    if values is None and shapes is None:
+        raise ValueError("Provide values, shapes, or both.")
+    reference = values if values is not None else shapes
+    add_value = values is not None
+    add_shape = shapes is not None
     if len(clusts) == 0:
-        return np.empty((0, add_value * 2 + add_shape), dtype=data.dtype)
+        return np.empty((0, add_value * 2 + add_shape), dtype=reference.dtype)
 
-    return _get_cluster_features_extended(data, clusts, add_value, add_shape)
+    if values is None:
+        values = np.empty(0, dtype=reference.dtype)
+    if shapes is None:
+        shapes = np.empty(0, dtype=reference.dtype)
+    return _get_cluster_features_extended(values, shapes, clusts, add_value, add_shape)
 
 
 @nb.njit(parallel=True, cache=True)
 def _get_cluster_features_extended(
-    data: nb.float64[:, :],
+    values: nb.float64[:],
+    shapes: nb.float64[:],
     clusts: nb.types.List(nb.int64[:]),
     add_value: bool = True,
     add_shape: bool = True,
 ) -> nb.float64[:, :]:
-    feats = np.empty((len(clusts), add_value * 2 + add_shape), dtype=data.dtype)
+    dtype = values.dtype if add_value else shapes.dtype
+    feats = np.empty((len(clusts), add_value * 2 + add_shape), dtype=dtype)
     ids = np.arange(len(clusts)).astype(np.int64)
     for k in nb.prange(len(clusts)):
         # Get cluster
@@ -955,13 +908,13 @@ def _get_cluster_features_extended(
 
         # Get mean and RMS energy in the cluster, if requested
         if add_value:
-            mean_value = np.mean(data[clust, VALUE_COL])
-            std_value = np.std(data[clust, VALUE_COL])
-            feats[k, :2] = np.array([mean_value, std_value], dtype=data.dtype)
+            mean_value = np.mean(values[clust])
+            std_value = np.std(values[clust])
+            feats[k, :2] = np.array([mean_value, std_value], dtype=dtype)
 
         # Get the cluster semantic class, if requested
         if add_shape:
-            types, cnts = sm.unique(data[clust, SHAPE_COL])
+            types, cnts = sm.unique(shapes[clust])
             major_sem_type = types[np.argmax(cnts)]
             feats[k, -1] = major_sem_type
 
@@ -969,12 +922,14 @@ def _get_cluster_features_extended(
 
 
 @numbafy(
-    cast_args=["data", "coord_label"],
+    cast_args=["coords", "particle_ids", "starts", "ends", "times"],
     list_args=["clusts"],
     keep_torch=True,
-    ref_arg="data",
+    ref_arg="coords",
 )
-def get_cluster_points_label(data, coord_label, clusts, random_order=True):
+def get_cluster_points_label(
+    coords, particle_ids, starts, ends, times, clusts, random_order=True
+):
     """Gets label points for each cluster.
 
     Returns start point of primary shower fragment twice if shower, delta or
@@ -982,11 +937,14 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
-    coord_label : np.ndarray
-        (P, 9) Particle end points labels
-        [batch_id, start_x, start_y, start_z, end_x, end_y, end_z, time, shape]
+    coords : np.ndarray
+        Voxel coordinates.
+    particle_ids : np.ndarray
+        Particle-table index associated with each voxel.
+    starts, ends : np.ndarray
+        Start and end coordinates associated with each particle.
+    times : np.ndarray
+        Creation time associated with each particle.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
     random_order : bool, default True
@@ -998,40 +956,43 @@ def get_cluster_points_label(data, coord_label, clusts, random_order=True):
         (C, 6) Cluster start and end points (in random order if requested)
     """
     if len(clusts) == 0:
-        return np.empty((0, 6), dtype=data.dtype)
+        return np.empty((0, 6), dtype=coords.dtype)
 
-    return _get_cluster_points_label(data, coord_label, clusts, random_order)
+    return _get_cluster_points_label(
+        coords, particle_ids, starts, ends, times, clusts, random_order
+    )
 
 
 @nb.njit(cache=True)
 def _get_cluster_points_label(
-    data: nb.float64[:, :],
-    coord_label: nb.float64[:, :],
+    coords: nb.float64[:, :],
+    particle_ids: nb.float64[:],
+    starts: nb.float64[:, :],
+    ends: nb.float64[:, :],
+    times: nb.float64[:],
     clusts: nb.types.List(nb.int64[:]),
     random_order: nb.boolean = True,
 ) -> nb.float64[:, :]:
 
     # Get start and end points (one and the same for all but track class)
-    points = np.empty((len(clusts), 6), dtype=data.dtype)
+    points = np.empty((len(clusts), 6), dtype=coords.dtype)
     for i, c in enumerate(clusts):
         # Use the first constituent particle in time.
-        part_ids = np.unique(data[c, PART_COL]).astype(np.int64)
+        part_ids = np.unique(particle_ids[c]).astype(np.int64)
         label_id = -1
         min_time = np.inf
         for part_id in part_ids:
-            if part_id < 0 or part_id >= len(coord_label):
+            if part_id < 0 or part_id >= len(starts):
                 raise IndexError("Invalid label index for coord_label.")
-            time = coord_label[part_id, COORD_TIME_COL]
+            time = times[part_id]
             if time < min_time:
                 min_time = time
                 label_id = part_id
 
-        if label_id < 0 or label_id >= len(coord_label):
+        if label_id < 0 or label_id >= len(starts):
             raise IndexError("Invalid label index for coord_label.")
-        label = coord_label[label_id]
-
-        start = label[COORD_START_COLS_LO:COORD_START_COLS_HI]
-        end = label[COORD_END_COLS_LO:COORD_END_COLS_HI]
+        start = starts[label_id]
+        end = ends[label_id]
         if random_order and np.random.choice(2):
             start, end = end, start
 
@@ -1040,31 +1001,30 @@ def _get_cluster_points_label(
 
     # Bring the start points to the closest point in the corresponding cluster
     for i, c in enumerate(clusts):
-        point_pair = np.empty((2, 3), dtype=data.dtype)
+        point_pair = np.empty((2, 3), dtype=coords.dtype)
         point_pair[0] = points[i, :3]
         point_pair[1] = points[i, 3:6]
-        dist_mat = sm.distance.cdist(
-            point_pair, data[c][:, COORD_COLS_LO:COORD_COLS_HI]
-        )
+        dist_mat = sm.distance.cdist(point_pair, coords[c])
         argmins = sm.argmin(dist_mat, axis=1)
         for j, argmin in enumerate(argmins):
-            points[i, 3 * j : 3 * (j + 1)] = data[
-                c[argmin], COORD_COLS_LO:COORD_COLS_HI
-            ]
+            points[i, 3 * j : 3 * (j + 1)] = coords[c[argmin]]
 
     return points
 
 
 @numbafy(
-    cast_args=["data", "starts"], list_args=["clusts"], keep_torch=True, ref_arg="data"
+    cast_args=["coords", "starts"],
+    list_args=["clusts"],
+    keep_torch=True,
+    ref_arg="coords",
 )
-def get_cluster_directions(data, starts, clusts, max_dist=-1.0, optimize=False):
+def get_cluster_directions(coords, starts, clusts, max_dist=-1.0, optimize=False):
     """Estimates the direction of each cluster.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
     starts : np.ndarray
         (C, 3) Start points w.r.t. which to estimate the direction
     clusts : List[np.ndarray]
@@ -1083,10 +1043,9 @@ def get_cluster_directions(data, starts, clusts, max_dist=-1.0, optimize=False):
     """
     if len(clusts) == 0:
         return np.empty(starts.shape, dtype=starts.dtype)
-    if data.shape[1] > 3:
-        data = data[:, COORD_COLS_LO:COORD_COLS_HI]
-
-    return _get_cluster_directions(data, starts, clusts, max_dist, optimize)
+    if coords.shape[1] != 3:
+        raise ValueError("Cluster directions require three-dimensional coordinates.")
+    return _get_cluster_directions(coords, starts, clusts, max_dist, optimize)
 
 
 @nb.njit(parallel=True, cache=True)
@@ -1146,9 +1105,8 @@ def cluster_direction(
     """
     # If max_dist is set, limit the set of voxels to those within a sphere
     # of radius max_dist
-    assert (
-        voxels.shape[1] == 3
-    ), "The shape of the input is not compatible with voxel coordinates."
+    if voxels.shape[1] != 3:
+        raise ValueError("Input must contain three-dimensional coordinates.")
 
     if max_dist > 0:
         dist_mat = sm.distance.cdist(start.reshape(1, -1), voxels).flatten()
@@ -1207,15 +1165,20 @@ def cluster_direction(
 
 
 @numbafy(
-    cast_args=["data", "starts"], list_args=["clusts"], keep_torch=True, ref_arg="data"
+    cast_args=["coords", "values", "starts"],
+    list_args=["clusts"],
+    keep_torch=True,
+    ref_arg="coords",
 )
-def get_cluster_dedxs(data, starts, clusts, max_dist=-1.0, anchor=False):
+def get_cluster_dedxs(coords, values, starts, clusts, max_dist=-1.0, anchor=False):
     """Computes the initial local dE/dxs of each cluster.
 
     Parameters
     ----------
-    data : np.ndarray
-        Cluster label data tensor
+    coords : np.ndarray
+        Voxel coordinates.
+    values : np.ndarray
+        Value deposited at each voxel.
     starts : np.ndarray
         (C, 3) Start points w.r.t. which to estimate the local dE/dxs
     clusts : List[np.ndarray]
@@ -1231,11 +1194,11 @@ def get_cluster_dedxs(data, starts, clusts, max_dist=-1.0, anchor=False):
         (C) Local dE/dx values for each cluster
     """
     if len(clusts) == 0:
-        return np.empty(0, dtype=data.dtype)
+        return np.empty(0, dtype=coords.dtype)
 
     return _get_cluster_dedxs(
-        data[:, COORD_COLS_LO:COORD_COLS_HI],
-        data[:, VALUE_COL],
+        coords,
+        values,
         starts,
         clusts,
         max_dist,
@@ -1296,9 +1259,8 @@ def cluster_dedx(
         Local dE/dx value around the start point
     """
     # Sanity check
-    assert (
-        voxels.shape[1] == 3
-    ), "The shape of the input is not compatible with voxel coordinates."
+    if voxels.shape[1] != 3:
+        raise ValueError("Input must contain three-dimensional coordinates.")
 
     start = start.astype(voxels.dtype)
 
@@ -1363,9 +1325,8 @@ def cluster_dedx_dir(
         Number of voxels in the neighborhood around the start poin
     """
     # Sanity check
-    assert (
-        voxels.shape[1] == 3
-    ), "The shape of the input is not compatible with voxel coordinates."
+    if voxels.shape[1] != 3:
+        raise ValueError("Input must contain three-dimensional coordinates.")
 
     start = start.astype(voxels.dtype)
 
@@ -1405,116 +1366,3 @@ def cluster_dedx_dir(
     spread = np.sum(spreads) / len(index)
 
     return dE / dx, dE, dx, spread, len(index)
-
-
-@numbafy(cast_args=["data"], list_args=["clusts"], keep_torch=True, ref_arg="data")
-def get_cluster_start_points(data, clusts):
-    """Estimates the start point of clusters based on their PCA and the
-    local curvature at each of the PCA extrema.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Cluster label data tensor
-    clusts : List[np.ndarray]
-        (C) List of cluster indexes
-
-    Returns
-    -------
-    np.ndarray
-        (C, 3) Cluster start points
-    """
-    if len(clusts) == 0:
-        return np.empty((0, 3), dtype=data.dtype)
-
-    return _get_cluster_start_points(data, clusts)
-
-
-@nb.njit(parallel=True, cache=True)
-def _get_cluster_start_points(
-    data: nb.float64[:, :], clusts: nb.types.List(nb.int64[:])
-) -> nb.float64[:, :]:
-
-    points = np.empty((len(clusts), 3))
-    for k in nb.prange(len(clusts)):
-        vid = cluster_end_points(data[clusts[k]][:, COORD_COLS_LO:COORD_COLS_HI])[-1]
-
-    return points
-
-
-@nb.njit(cache=True)
-def cluster_end_points(voxels: nb.float64[:, :]) -> (nb.float64[:], nb.float64[:]):
-    """Estimates the end points of a clusters using PCA and curvature.
-
-    It proceeds in the following fashion:
-    1. Find the principal axis a of the point cloud
-    2. Find the coordinate a_i of each point along this axis
-    3. Find the points with minimum and maximum coordinate
-    4. Find the point that has the largest umbrella curvature
-
-    Parameters
-    ----------
-    voxels : np.ndarray
-        (N, 3) Voxel coordinates
-
-    Returns
-    -------
-    int
-        Index of the start voxel
-    int
-        Index of the end voxel
-    """
-    # Get the axis of maximum spread
-    axis = sm.decomposition.principal_components(voxels)[0]
-
-    # Compute coord values along that axis
-    coords = np.empty(len(voxels))
-    for i in range(len(coords)):
-        coords[i] = np.dot(voxels[i], axis)
-
-    # Compute curvature of the extremities
-    ids = [np.argmin(coords), np.argmax(coords)]
-
-    # Sort the voxel IDs by increasing order of curvature order
-    curvs = [umbrella_curv(voxels, ids[0]), umbrella_curv(voxels, ids[1])]
-    curvs = np.array(curvs, dtype=np.int64)
-    ids = np.array(ids, dtype=np.int64)
-    ids[np.argsort(curvs)]
-
-    # Return extrema
-    return voxels[ids[0]], voxels[ids[1]]
-
-
-@nb.njit(cache=True)
-def umbrella_curv(voxels: nb.float64[:, :], vox_id: nb.int64) -> nb.float64:
-    """Computes the umbrella curvature as in equation 9 of "Umbrella Curvature:
-    A New Curvature Estimation Method for Point Clouds" by A.Foorginejad and
-    K.Khalili
-    (https://www.sciencedirect.com/science/article/pii/S2212017313006828)
-
-    Parameters
-    ----------
-    voxels : np.ndarray
-        (N, 3) Voxel coordinates
-    vox_id : int
-        Index of the voxel w.r.t. which to compute the curvature
-
-    Returns
-    -------
-    float
-        Value of the umbrella curvature at `vox_id`
-    """
-    # Find the mean direction from that point
-    refvox = voxels[vox_id]
-    diffs = voxels - refvox
-    axis = sm.mean(voxels - refvox, axis=0)
-    axis /= np.linalg.norm(axis)
-
-    # Compute the dot product of every displacement vector w.r.t. the axis
-    dots = np.zeros(len(diffs), dtype=diffs.dtype)
-    for i, diff in enumerate(diffs):
-        if i != vox_id:
-            dots[i] = np.dot(diff / np.linalg.norm(diff), axis)
-
-    # Find the umbrella curvature (mean angle from the mean direction)
-    return abs(np.mean(dots))

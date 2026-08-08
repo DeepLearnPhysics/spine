@@ -2,7 +2,7 @@ include README.md
 include CONTRIBUTING.md
 recursive-include src *.py
 recursive-include src *.yaml *.table
-recursive-include config *.cfg
+recursive-include config *.cfg *.yaml *.yml
 recursive-exclude test *
 recursive-exclude docs *
 global-exclude __pycache__

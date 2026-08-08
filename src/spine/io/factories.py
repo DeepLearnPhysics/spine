@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 from warnings import warn
 
@@ -163,7 +163,7 @@ def loader_factory(
     # Initialize the collate function
     if collate_fn is not None:
         collate_fn = collate_factory(
-            collate_fn, torch_dataset.data_types, torch_dataset.overlay_methods
+            collate_fn, torch_dataset.data_keys, torch_dataset.overlay_methods
         )
 
     # Initialize the loader
@@ -264,8 +264,15 @@ def sampler_factory(
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is required to use sampler_factory.")
 
-    if distributed and rank is None:
-        raise ValueError("A distributed sampler requires an explicit integer `rank`.")
+    # Resolve a concrete rank before constructing the sampler. The value is
+    # ignored outside distributed operation, where rank zero is conventional.
+    resolved_rank = 0
+    if distributed:
+        if rank is None:
+            raise ValueError(
+                "A distributed sampler requires an explicit integer `rank`."
+            )
+        resolved_rank = rank
 
     from . import sample
 
@@ -291,14 +298,16 @@ def sampler_factory(
 
     # If we are working a distributed environment, wrap the sampler
     if distributed:
-        sampler_obj = sample.DistributedProxySampler(sampler_obj, num_replicas, rank)
+        sampler_obj = sample.DistributedProxySampler(
+            sampler_obj, num_replicas, resolved_rank
+        )
 
     return sampler_obj
 
 
 def collate_factory(
     collate_cfg: Mapping[str, Any] | str,
-    data_types: Mapping[str, str],
+    data_keys: Sequence[str],
     overlay_methods: Mapping[str, str],
 ) -> Any:
     """Instantiate a collate function from configuration.
@@ -307,8 +316,8 @@ def collate_factory(
     ----------
     collate_cfg : Mapping[str, Any] or str
         Collate configuration mapping or short collate function name.
-    data_types : Mapping[str, str]
-        Mapping from parser output keys to their declared data type.
+    data_keys : Sequence[str]
+        Names of products exposed by the dataset.
     overlay_methods : Mapping[str, str]
         Mapping from parser output keys to the overlay method used when
         combining data from multiple sources.
@@ -327,6 +336,6 @@ def collate_factory(
         collate_dict,
         collate_cfg,
         "collate_fn",
-        data_types=data_types,
+        data_keys=data_keys,
         overlay_methods=overlay_methods,
     )

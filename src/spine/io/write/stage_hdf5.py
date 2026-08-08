@@ -117,6 +117,7 @@ class StageHDF5Writer(HDF5Writer):
         choice explicit for inspection tools without implying that staged
         caches can be switched to V2 through writer configuration.
         """
+        # Configure output routing before any source-derived files are opened
         self._handle_pid: int | None = None
         self._handles: dict[str, h5py.File] = {}
 
@@ -137,6 +138,8 @@ class StageHDF5Writer(HDF5Writer):
         self._route_by_source = isinstance(prefix, list) and len(prefix) > 1
         self.directory = directory
         self.suffix = suffix
+
+        # Store the driver-facing stage and inherited serialization options
         self.stage = stage
         self.lite = lite
         self.keep_open = keep_open
@@ -157,6 +160,7 @@ class StageHDF5Writer(HDF5Writer):
         self.type_dict = None
         self.event_dtype = None
 
+        # Track schemas, completion state, and handles independently per file
         self._cfg: dict[str, Any] | None = None
         self._initialized_files: set[str] = set()
         self._stage_states: dict[str, StageHDF5Writer.StageState] = {}
@@ -203,7 +207,7 @@ class StageHDF5Writer(HDF5Writer):
         for handle in self._handles.values():
             try:
                 handle.close()
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 pass
 
         self._handles = {}
@@ -258,6 +262,7 @@ class StageHDF5Writer(HDF5Writer):
         if file_path in self._initialized_files:
             return
 
+        # Create the physical file lazily because routing depends on provenance
         mode = "a" if os.path.exists(file_path) else "w"
         if mode == "w":
             self._ensure_parent_dir(file_path)
@@ -270,6 +275,7 @@ class StageHDF5Writer(HDF5Writer):
             out_file = h5py.File(file_path, mode)
 
         try:
+            # Initialize only the administrative roots shared by all stages
             if "info" not in out_file:
                 out_file.create_group("info")
             out_file["info"].attrs["version"] = __version__
@@ -308,6 +314,7 @@ class StageHDF5Writer(HDF5Writer):
                 f"Missing keys: {missing}."
             )
 
+        # Collapse batch-level provenance after verifying it identifies one file
         values = {}
         for key in required:
             value = data[key]
@@ -346,10 +353,25 @@ class StageHDF5Writer(HDF5Writer):
         This enforces the one-cache-file-per-source-file contract. If a later
         stage attempts to write into an existing cache file with mismatched
         source provenance, the writer raises immediately.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Open staged-cache output file.
+        data : dict
+            Normalized batch containing source provenance.
+        file_path : str
+            Output path used in mismatch diagnostics.
+
+        Raises
+        ------
+        RuntimeError
+            If existing file provenance does not match the input batch.
         """
         source_info = self.get_batch_source_info(data)
         self.source_info = source_info
 
+        # Record provenance on first use, then enforce it on every later stage
         if "source" not in out_file:
             source_group = out_file.create_group("source")
             for key, value in source_info.items():
@@ -376,6 +398,8 @@ class StageHDF5Writer(HDF5Writer):
         uniform list-like representation.
         """
         data = self.with_source_provenance(data)
+
+        # Normalize single entries to the list-like form used by append_region_entry
         if np.isscalar(data["index"]):
             for key in data:
                 data[key] = [data[key]]
@@ -399,7 +423,9 @@ class StageHDF5Writer(HDF5Writer):
         if "source_file_entry_index" in data:
             keys.add("source_file_entry_index")
         keys.difference_update(self._file_source_keys)
-        type_dict, object_dtypes = self.get_data_types(data, keys)
+
+        # Infer and retain one immutable serialization schema per named stage
+        type_dict, object_dtypes = self.get_data_formats(data, keys)
         state = self.StageState(
             keys=keys, type_dict=type_dict, object_dtypes=object_dtypes
         )
@@ -419,6 +445,11 @@ class StageHDF5Writer(HDF5Writer):
             If `True`, derive one output path from the source file basename.
             Otherwise reuse ``self.file_name`` directly unless this writer is
             already in source-routed mode.
+
+        Returns
+        -------
+        str
+            Destination path for the source-specific staged cache.
         """
         if not (self._route_by_source or multiple_sources):
             if self.directory is None:
@@ -438,12 +469,22 @@ class StageHDF5Writer(HDF5Writer):
     ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
         """Split one normalized batch into one subset per source file.
 
+        Parameters
+        ----------
+        data : dict
+            Normalized batch containing per-event source provenance.
+
         Returns
         -------
         list[tuple[str, dict, dict]]
             One tuple per source file containing the resolved output file path,
             the batch subset that belongs to that source file, and the
             file-level source provenance dictionary.
+
+        Raises
+        ------
+        KeyError
+            If required source-file provenance is absent from the batch.
         """
         required = ("source_file_name", "source_file_size", "source_file_mtime_ns")
         for key in required:
@@ -453,6 +494,7 @@ class StageHDF5Writer(HDF5Writer):
                     f"Missing key: {key}."
                 )
 
+        # Group event positions by their complete source-file identity
         batch_size = len(data["index"])
         groups: dict[tuple[Any, Any, Any], list[int]] = defaultdict(list)
         for batch_id in range(batch_size):
@@ -466,6 +508,8 @@ class StageHDF5Writer(HDF5Writer):
 
         multiple_sources = len(groups) > 1
         self._route_by_source = self._route_by_source or multiple_sources
+
+        # Materialize one independently writable batch subset per source file
         result = []
         for (file_name, file_size, file_mtime_ns), batch_ids in groups.items():
             source_info = {
@@ -534,6 +578,7 @@ class StageHDF5Writer(HDF5Writer):
             self._completed_stages[file_path].discard(stage)
 
         if stage not in stages:
+            # A new stage owns its metadata and a complete V1 product schema
             stage_group = stages.create_group(stage)
             info = stage_group.create_group("info")
             info.attrs["complete"] = False
@@ -545,7 +590,7 @@ class StageHDF5Writer(HDF5Writer):
 
             self.type_dict = state.type_dict
             self.event_dtype = state.event_dtype
-            self.initialize_datasets(stage_group, state.type_dict)
+            self.initialize_region_datasets(stage_group, state.type_dict)
             state.event_dtype = self.event_dtype
             return stage_group
 
@@ -561,6 +606,7 @@ class StageHDF5Writer(HDF5Writer):
                 "in this first pass. Pass overwrite_stage=True to rebuild it."
             )
 
+        # Reopened stages may refresh metadata but remain incomplete until finalized
         if "info" in stage_group and attrs is not None:
             for key, value in attrs.items():
                 stage_group["info"].attrs[key] = value
@@ -600,11 +646,13 @@ class StageHDF5Writer(HDF5Writer):
         is partitioned by source provenance and written into one cache file per
         source file automatically.
         """
-        normalized, batch_size = self._prepare_batch(data)
+        # Normalize once and establish the stage schema from its first batch
+        normalized, _ = self._prepare_batch(data)
         state = self._stage_states.get(stage)
         if state is None or overwrite_stage:
             state = self._create_stage_state(stage, normalized)
 
+        # Temporarily project the inherited flat writer onto this stage schema
         original_keys = self.keys
         original_type_dict = self.type_dict
         original_object_dtypes = self.object_dtypes
@@ -629,8 +677,9 @@ class StageHDF5Writer(HDF5Writer):
                     self.object_dtypes = state.object_dtypes
                     self.event_dtype = state.event_dtype
 
+                    # Append only the events routed to this physical cache file
                     for batch_id in range(len(subset["index"])):
-                        self.append_entry(stage_group, subset, batch_id)
+                        self.append_region_entry(stage_group, subset, batch_id)
 
                     state.event_dtype = self.event_dtype
                     if self.flush_frequency is not None:
@@ -642,6 +691,7 @@ class StageHDF5Writer(HDF5Writer):
                     if should_close:
                         out_file.close()
         finally:
+            # Restore the driver-facing writer state after stage-local writes
             self.keys = original_keys
             self.type_dict = original_type_dict
             self.object_dtypes = original_object_dtypes
@@ -664,6 +714,7 @@ class StageHDF5Writer(HDF5Writer):
                 if stage not in stages:
                     continue
 
+                # Completion is committed only after all preceding writes flush
                 stage_group = stages[stage]
                 assert isinstance(stage_group, h5py.Group)
                 info = stage_group["info"]

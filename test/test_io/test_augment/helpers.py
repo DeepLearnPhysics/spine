@@ -5,9 +5,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from spine.data import Meta
+from spine.data import Meta, TensorData
 from spine.geo import GeoManager
-from spine.io.parse.data import ParserTensor
 
 try:
     from spine.io.augment import (
@@ -36,7 +35,7 @@ def make_tensor(coords, meta):
     """Build a sparse parser tensor for augmentation tests."""
     coords = np.asarray(coords, dtype=np.int64)
     features = np.arange(len(coords), dtype=np.float32).reshape(-1, 1)
-    return ParserTensor(coords=coords.copy(), features=features, meta=meta)
+    return TensorData(coords=coords.copy(), features=features, meta=meta)
 
 
 def weighted_stats(coords, weights):
@@ -67,7 +66,7 @@ __all__ = [
     "GeoManager",
     "MaskAugment",
     "RotateAugment",
-    "ParserTensor",
+    "TensorData",
     "make_meta",
     "make_tensor",
     "np",

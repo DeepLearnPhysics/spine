@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from spine.construct import BuildManager
+from spine.data import IndexData, TensorData
 from spine.data.larcv.particle import Particle
 from spine.data.out import RecoFragment, TruthFragment
 
@@ -62,8 +63,50 @@ def test_build_sources_accepts_custom_source_names(points, depositions):
 
     np.testing.assert_array_equal(update["points"], points)
     np.testing.assert_array_equal(update["depositions"], depositions)
+    np.testing.assert_array_equal(update["depositions_q"], depositions)
     np.testing.assert_array_equal(update["points_label"], points)
     np.testing.assert_array_equal(update["depositions_label"], depositions)
+
+
+def test_build_sources_preserves_charge_beside_calibrated_values(points, depositions):
+    """Reco sources should prefer calibrated values and retain adapted charge."""
+    manager = BuildManager(False, False, False, mode="reco", units="px")
+    adapted = TensorData(
+        coords=points,
+        features=np.column_stack((depositions + 10, depositions + 100)),
+    )
+    calibrated = TensorData(
+        coords=points + 1,
+        features=np.column_stack((depositions + 20, depositions + 200)),
+    )
+
+    update = manager.build_sources(
+        {
+            "data": make_sparse_tensor(points, depositions),
+            "data_adapt": adapted,
+            "data_calib": calibrated,
+        }
+    )
+
+    np.testing.assert_array_equal(update["points"], points + 1)
+    np.testing.assert_array_equal(update["depositions"], depositions + 20)
+    np.testing.assert_array_equal(update["depositions_q"], depositions + 10)
+
+
+@pytest.mark.parametrize("adapted", [False, True])
+def test_build_sources_falls_back_without_calibration(points, depositions, adapted):
+    """Without calibration, preferred values and charge should be identical."""
+    manager = BuildManager(False, False, False, mode="reco", units="px")
+    data = {"data": make_sparse_tensor(points, depositions)}
+    expected = depositions
+    if adapted:
+        expected = depositions + 10
+        data["data_adapt"] = make_sparse_tensor(points, expected)
+
+    update = manager.build_sources(data)
+
+    np.testing.assert_array_equal(update["depositions"], expected)
+    np.testing.assert_array_equal(update["depositions_q"], expected)
 
 
 def test_manager_source_overrides_do_not_mutate_defaults(points, depositions):
@@ -200,10 +243,18 @@ def test_build_sources_converts_points_and_truth_objects(points, depositions, me
         "charge_label": make_sparse_tensor(points, depositions + 100),
         "clust_label_adapt": labels,
         "clust_label_g4": labels,
-        "sources": np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int64),
-        "sources_label": np.array([[2, 0], [2, 1], [3, 0], [3, 1]], dtype=np.int64),
-        "orig_index": np.array([10, 11, 12, 13], dtype=np.int64),
-        "orig_index_label": np.array([20, 21, 22, 23], dtype=np.int64),
+        "sources": TensorData(
+            np.array([[0, 0], [0, 1], [1, 0], [1, 1]], dtype=np.int64),
+            feats_only=True,
+        ),
+        "sources_label": TensorData(
+            np.array([[2, 0], [2, 1], [3, 0], [3, 1]], dtype=np.int64),
+            feats_only=True,
+        ),
+        "orig_index": IndexData(np.array([10, 11, 12, 13], dtype=np.int64), span=4),
+        "orig_index_label": IndexData(
+            np.array([20, 21, 22, 23], dtype=np.int64), span=4
+        ),
         "meta": meta_cm,
         "particles": [particle],
         "fragment_start_points": np.array([[1, 1, 1]], dtype=np.float32),

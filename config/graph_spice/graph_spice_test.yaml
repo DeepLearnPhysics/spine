@@ -1,0 +1,90 @@
+# Canonical Graph-SPICE supervised-clustering inference configuration.
+#
+# Set io.loader.dataset.file_keys and model.weight_path for the target run.
+
+base:
+  world_size: 0
+  iterations: 1
+  seed: 0
+  unwrap: false
+  log_dir: logs/graph_spice/test
+  log_step: 1
+  overwrite_log: true
+
+io:
+  loader:
+    minibatch_size: 2
+    shuffle: false
+    num_workers: 0
+    collate_fn: all
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+        clust_label:
+          parser: cluster3d
+          cluster_event: cluster3d_pcluster
+          sparse_semantics_event: sparse3d_pcluster_semantics
+          clean_data: true
+          break_clusters: true
+          particle_info:
+            particle_event: particle_pcluster
+
+model:
+  name: graph_spice
+  weight_path: null
+  network_input:
+    data: data
+    seg_label: seg_label
+  loss_input:
+    seg_label: seg_label
+    clust_label: clust_label
+  modules:
+    graph_spice:
+      shapes: [shower, track, michel, delta]
+      use_raw_features: true
+      invert: true
+      make_clusters: false
+      embedder:
+        spatial_embedding_dim: 3
+        feature_embedding_dim: 16
+        occupancy_mode: softplus
+        covariance_mode: softplus
+        uresnet:
+          num_input: 4
+          filters: 32
+          input_kernel: 5
+          depth: 5
+          reps: 2
+          spatial_size: 768
+          allow_bias: false
+          activation:
+            name: lrelu
+            negative_slope: 0.33
+          norm_layer:
+            name: batch_norm
+            eps: 0.0001
+            momentum: 0.01
+      kernel:
+        name: bilinear
+        num_features: 32
+      constructor:
+        edge_threshold: 0.1
+        min_size: 3
+        graph:
+          name: radius
+          r: 1.9
+        orphan:
+          mode: radius
+          radius: 1.9
+          iterate: true
+          assign_all: true
+    graph_spice_loss:
+      name: edge
+      loss: binary_log_dice_ce

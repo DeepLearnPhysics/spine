@@ -6,28 +6,38 @@ from typing import Any
 
 import numpy as np
 
+from spine.data import EdgeIndexData, IndexData, IndexListData
+
 from ..base import ParserBase
-from ..data import ParserEdgeIndex, ParserIndex, ParserIndexList
 from .utils import resolve_index_span
 
 __all__ = ["HDF5IndexParser", "HDF5IndexListParser", "HDF5EdgeIndexParser"]
 
 
 class HDF5IndexParser(ParserBase):
-    """Build a flat :class:`ParserIndex` from cached HDF5 data."""
+    """Build a flat :class:`IndexData` from cached HDF5 data."""
 
     name = "index"
-    returns = "tensor"
 
     def __init__(self, dtype: str, index_event: str, count_event: str) -> None:
-        """Require both the cached index and its parent-count hint."""
+        """Initialize the cached flat-index parser.
+
+        Parameters
+        ----------
+        dtype : str
+            Floating-point dtype shared with the parser configuration.
+        index_event : str
+            HDF5 product containing the event's flat indexes.
+        count_event : str
+            HDF5 product used to recover the indexed parent span.
+        """
         super().__init__(
             dtype,
             index_event=index_event,
             count_event=count_event,
         )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserIndex:
+    def __call__(self, trees: dict[str, Any]) -> IndexData:
         """Parse one cached entry into a flat index parser tensor.
 
         Parameters
@@ -37,13 +47,13 @@ class HDF5IndexParser(ParserBase):
 
         Returns
         -------
-        ParserIndex
+        IndexData
             Parser index containing one normalized 1D index array and its
             batching metadata.
         """
         return self.process(**self.get_input_data(trees))
 
-    def process(self, index_event: np.ndarray, count_event: np.ndarray) -> ParserIndex:
+    def process(self, index_event: np.ndarray, count_event: np.ndarray) -> IndexData:
         """Normalize one cached flat index for collation into an IndexBatch.
 
         Parameters
@@ -56,30 +66,40 @@ class HDF5IndexParser(ParserBase):
 
         Returns
         -------
-        ParserIndex
+        IndexData
             Parser index containing one normalized 1D index array.
         """
+        # Normalize the physical index and recover its parent namespace size
         index = np.asarray(index_event, dtype=self.itype).reshape(-1)
         span = resolve_index_span(count_event)
 
-        return ParserIndex(features=index, span=span)
+        return IndexData(features=index, span=span)
 
 
 class HDF5IndexListParser(ParserBase):
-    """Build an index-list :class:`ParserIndexList` from cached HDF5 data."""
+    """Build an index-list :class:`IndexListData` from cached HDF5 data."""
 
     name = "index_list"
-    returns = "tensor"
 
     def __init__(self, dtype: str, index_event: str, count_event: str) -> None:
-        """Require both the cached indexes and their parent-count hint."""
+        """Initialize the cached index-list parser.
+
+        Parameters
+        ----------
+        dtype : str
+            Floating-point dtype shared with the parser configuration.
+        index_event : str
+            HDF5 product containing the event's jagged index collection.
+        count_event : str
+            HDF5 product used to recover the indexed parent span.
+        """
         super().__init__(
             dtype,
             index_event=index_event,
             count_event=count_event,
         )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserIndexList:
+    def __call__(self, trees: dict[str, Any]) -> IndexListData:
         """Parse one cached entry into a jagged index-list parser tensor.
 
         Parameters
@@ -89,7 +109,7 @@ class HDF5IndexListParser(ParserBase):
 
         Returns
         -------
-        ParserIndexList
+        IndexListData
             Parser index list containing 1D index arrays and their batching
             metadata.
         """
@@ -97,7 +117,7 @@ class HDF5IndexListParser(ParserBase):
 
     def process(
         self, index_event: np.ndarray, count_event: np.ndarray
-    ) -> ParserIndexList:
+    ) -> IndexListData:
         """Normalize cached index lists for collation into an :class:`IndexBatch`.
 
         Parameters
@@ -110,19 +130,21 @@ class HDF5IndexListParser(ParserBase):
 
         Returns
         -------
-        ParserIndexList
+        IndexListData
             Parser index list containing normalized 1D index arrays.
         """
+        # Normalize each jagged member independently
         index_list = []
         for index in index_event:
             index_list.append(np.asarray(index, dtype=self.itype).reshape(-1))
 
+        # Preserve both member boundaries and the parent namespace size
         single_counts = np.asarray(
             [len(index) for index in index_list], dtype=self.itype
         )
         span = resolve_index_span(count_event)
 
-        return ParserIndexList(
+        return IndexListData(
             features=index_list,
             span=span,
             single_counts=single_counts,
@@ -130,20 +152,29 @@ class HDF5IndexListParser(ParserBase):
 
 
 class HDF5EdgeIndexParser(ParserBase):
-    """Build an edge-index :class:`ParserEdgeIndex` from cached HDF5 data."""
+    """Build an edge-index :class:`EdgeIndexData` from cached HDF5 data."""
 
     name = "edge_index"
-    returns = "tensor"
 
     def __init__(self, dtype: str, index_event: str, count_event: str) -> None:
-        """Require both the cached edge index and its parent-count hint."""
+        """Initialize the cached edge-index parser.
+
+        Parameters
+        ----------
+        dtype : str
+            Floating-point dtype shared with the parser configuration.
+        index_event : str
+            HDF5 product containing the event's edge-index matrix.
+        count_event : str
+            HDF5 product used to recover the indexed node span.
+        """
         super().__init__(
             dtype,
             index_event=index_event,
             count_event=count_event,
         )
 
-    def __call__(self, trees: dict[str, Any]) -> ParserEdgeIndex:
+    def __call__(self, trees: dict[str, Any]) -> EdgeIndexData:
         """Parse one cached entry into an edge-index parser tensor.
 
         Parameters
@@ -153,7 +184,7 @@ class HDF5EdgeIndexParser(ParserBase):
 
         Returns
         -------
-        ParserEdgeIndex
+        EdgeIndexData
             Parser edge index containing a normalized 2D edge array and its
             batching metadata.
         """
@@ -161,7 +192,7 @@ class HDF5EdgeIndexParser(ParserBase):
 
     def process(
         self, index_event: np.ndarray, count_event: np.ndarray
-    ) -> ParserEdgeIndex:
+    ) -> EdgeIndexData:
         """Normalize cached edge indexes for collation into an EdgeIndexBatch.
 
         Parameters
@@ -174,9 +205,10 @@ class HDF5EdgeIndexParser(ParserBase):
 
         Returns
         -------
-        ParserEdgeIndex
+        EdgeIndexData
             Parser edge index containing a normalized ``(2, E)`` array.
         """
+        # Validate the matrix before normalizing its orientation
         index = np.asarray(index_event, dtype=self.itype)
         if index.ndim != 2:
             raise ValueError(
@@ -192,5 +224,7 @@ class HDF5EdgeIndexParser(ParserBase):
                 f"Received {index.shape}."
             )
 
+        # Recover the node namespace required for batched index shifting
         span = resolve_index_span(count_event)
-        return ParserEdgeIndex(features=index, span=span)
+
+        return EdgeIndexData(features=index, span=span)

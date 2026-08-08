@@ -1,78 +1,72 @@
-def model_dict():
-    """Returns dictionary of model classes using name keys (strings).
+"""Factories for top-level machine-learning models."""
 
-    Returns
-    -------
-    dict
-        Dictionary of available models
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+from .registry import ModelSpec
+
+__all__ = ["model_dict", "model_factory", "model_names", "model_spec"]
+
+_MODEL_MODULES: dict[str, str] = {
+    "full_chain": "spine.model.full_chain",
+    "graph_spice": "spine.model.graph_spice",
+    "grappa": "spine.model.grappa",
+    "image": "spine.model.image",
+    "spice": "spine.model.spice",
+    "uresnet": "spine.model.uresnet",
+    "uresnet_bayes": "spine.model.uresnet.bayes",
+    "uresnet_ppn": "spine.model.uresnet.ppn",
+}
+
+
+def model_names() -> tuple[str, ...]:
+    """Return supported model names without importing model implementations."""
+
+    return tuple(_MODEL_MODULES)
+
+
+def model_spec(name: str) -> ModelSpec:
+    """Load the specification for one supported model lazily."""
+
+    if name not in _MODEL_MODULES:
+        valid_names = ", ".join(model_names())
+        raise ValueError(
+            f"Unknown model name `{name}`. Available models: {valid_names}"
+        )
+
+    module = import_module(_MODEL_MODULES[name])
+    try:
+        spec = module.MODEL_SPEC
+    except AttributeError as err:
+        raise RuntimeError(
+            f"Model module `{module.__name__}` does not define `MODEL_SPEC`."
+        ) from err
+
+    if not isinstance(spec, ModelSpec):
+        raise TypeError(f"`{module.__name__}.MODEL_SPEC` must be a ModelSpec.")
+    if spec.name != name:
+        raise ValueError(
+            f"Model specification name `{spec.name}` does not match registry "
+            f"name `{name}`."
+        )
+
+    return spec
+
+
+def model_factory(name: str) -> tuple[type[Any], type[Any] | None]:
+    """Return the network and loss classes associated with a model name."""
+
+    spec = model_spec(name)
+    return spec.network, spec.loss
+
+
+def model_dict() -> dict[str, tuple[type[Any], type[Any] | None]]:
+    """Return all supported model/loss pairs.
+
+    This compatibility helper imports every supported model. Prefer
+    :func:`model_names` when only discovery is required.
     """
 
-    # from . import spice
-    from . import full_chain, graph_spice, grappa, image, uresnet, uresnet_ppn
-
-    # from . import singlep
-    # from . import bayes_uresnet
-    # from . import vertex
-    # Map configuration keys to model/loss tuples
-    models = {
-        # Full reconstruction chain
-        "full_chain": (full_chain.FullChain, full_chain.FullChainLoss),
-        # UResNet
-        "uresnet": (uresnet.UResNetSegmentation, uresnet.SegmentationLoss),
-        # UResNet + PPN
-        "uresnet_ppn": (uresnet_ppn.UResNetPPN, uresnet_ppn.UResNetPPNLoss),
-        # SPICE
-        # "spice": (spice.SPICE, spice.SPICELoss),
-        # Graph SPICE
-        "graph_spice": (graph_spice.GraphSPICE, graph_spice.GraphSPICELoss),
-        # Graph neural network Particle Aggregation (GrapPA)
-        "grappa": (grappa.GrapPA, grappa.GrapPALoss),
-        # Single Particle Classifier
-        "image_class": (image.ImageClassifier, image.ImageClassLoss),
-        # Multi Particle Classifier
-        # "multip": (singlep.MultiParticleImageClassifier,
-        #        singlep.MultiParticleTypeLoss),
-        # Bayesian Classifier
-        # "bayes_singlep": (singlep.BayesianParticleClassifier,
-        #        singlep.ImageClassLoss),
-        # Bayesian UResNet
-        # "bayesian_uresnet": (bayes_uresnet.BayesianUResNet,
-        #        bayes_uresnet.SegmentationLoss),
-        # DUQ UResNet
-        # "duq_uresnet": (bayes_uresnet.DUQUResNet,
-        #        bayes_uresnet.DUQSegmentationLoss),
-        # Evidential Classifier
-        #'evidential_singlep': (singlep.EvidentialParticleClassifier,
-        #        singlep.EvidentialLearningLoss),
-        # Evidential Classifier with Dropout
-        #'evidential_dropout_singlep': (singlep.BayesianParticleClassifier,
-        #        singlep.EvidentialLearningLoss),
-        # Deep Single Pass Uncertainty Quantification
-        #'duq_singlep': (singlep.DUQParticleClassifier,
-        #        singlep.MultiLabelCrossEntropy),
-        # Vertex PPN
-        #'vertex_ppn': (vertex.VertexPPNChain, vertex.UResNetVertexLoss),
-        # Vertex Pointnet
-        #'vertex_pointnet': (vertex.VertexPointNet, vertex.VertexPointNetLoss),
-    }
-    return models
-
-
-def model_factory(name):
-    """
-    Returns an instance of a model class based on its name key (string).
-
-    Parameters
-    ----------
-    name: str
-        Key for the model. See source code for list of available models.
-
-    Returns
-    -------
-    object
-    """
-    models = model_dict()
-    if name not in models:
-        raise ValueError("Unknown model name provided: %s" % name)
-
-    return models[name]
+    return {name: model_factory(name) for name in model_names()}

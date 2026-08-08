@@ -62,7 +62,7 @@ def test_dataset_factory_mixed(monkeypatch):
             return dict(self.samples[idx])
 
         @property
-        def data_types(self):
+        def data_keys(self):
             return {
                 "index": "scalar",
                 "file_index": "scalar",
@@ -117,7 +117,7 @@ def test_dataset_factory_joint():
     """The generic dataset factory should instantiate the joint dataset."""
 
     class DummyDataset:
-        data_types = {"index": "scalar"}
+        data_keys = {"index": "scalar"}
         overlay_methods = {"index": "cat"}
 
         def __init__(self, indexes):
@@ -191,7 +191,7 @@ def test_collate_factory():
     """The collate factory should build the generic collate function."""
     collate_fn = collate_factory(
         {"name": "all"},
-        data_types={"value": "scalar"},
+        data_keys={"value": "scalar"},
         overlay_methods={"value": "cat"},
     )
 
@@ -232,7 +232,7 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
     """Loader factory should honor minibatch inputs and helper factories."""
 
     class DummyDataset:
-        data_types = {"value": "scalar"}
+        data_keys = {"value": "scalar"}
         overlay_methods = {"value": "cat"}
 
     captured = {}
@@ -278,13 +278,20 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
     assert captured["collate_fn"] == "collate"
     assert captured["pin_memory"] is True
 
+    factories_module.loader_factory(
+        dataset={"name": "dummy"},
+        dtype="float32",
+        batch_size=4,
+    )
+    assert captured["batch_size"] == 4
+
 
 def test_loader_factory_requires_sampler_for_joint_dataset(monkeypatch):
     """Joint datasets should fail early when no joint sampler is configured."""
 
     class DummyDataset:
         joint = True
-        data_types = {"value": "scalar"}
+        data_keys = {"value": "scalar"}
         overlay_methods = {"value": "cat"}
 
     class DummyDataLoader:
@@ -319,7 +326,7 @@ def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):
     """Distributed loader setup should reject an unspecified process rank."""
 
     class DummyDataset:
-        data_types = {"value": "scalar"}
+        data_keys = {"value": "scalar"}
         overlay_methods = {"value": "cat"}
 
     class DummyDataLoader:
@@ -535,22 +542,15 @@ def test_sampler_factory_rejects_missing_torch(monkeypatch):
         factories_module.sampler_factory({}, dataset=[], minibatch_size=1)
 
 
-@pytest.mark.parametrize("cfg_file", ["test_loader.cfg"])
 @pytest.mark.skipif(
     not TORCH_AVAILABLE, reason="PyTorch is required for loader factory tests."
 )
-def test_loader(cfg_file, larcv_data, quiet=True, csv=False):
+def test_loader(larcv_data, quiet=True, csv=False):
     """Tests the loading of data using a full IO configuration."""
     # Fetch the configuration
-    cfg_path = Path(cfg_file)
+    cfg_path = Path(__file__).resolve().parents[2] / "config" / "io" / "io_test.yaml"
     if not cfg_path.is_file():
-        for parent in Path(__file__).resolve().parents:
-            candidate = parent / "config" / cfg_file
-            if candidate.is_file():
-                cfg_path = candidate
-                break
-    if not cfg_path.is_file():
-        raise ValueError(f"Configuration file not found: {cfg_file}")
+        raise ValueError(f"Configuration file not found: {cfg_path}")
 
     # If requested, intialize a CSV output
     if csv:

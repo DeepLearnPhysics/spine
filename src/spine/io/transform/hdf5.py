@@ -49,6 +49,8 @@ def _require_v2(in_file: h5py.File, path: str) -> None:
             "Structural litification requires HDF5 format version 2; "
             f"'{path}' uses version {version}."
         )
+    if "products" not in in_file or not isinstance(in_file["products"], h5py.Group):
+        raise ValueError(f"'{path}' has no V2 logical-product group.")
 
 
 def _lite_skip_fields(class_name: str) -> set[str]:
@@ -118,6 +120,7 @@ def _copy_object_group(
     block_size: int,
 ) -> None:
     """Copy one object product while omitting selected variable attributes."""
+    # Validate the source object schema before creating reduced datasets
     _copy_attrs(source.attrs, target.attrs)
     class_name = source.attrs.get("class_name")
     if isinstance(class_name, bytes):
@@ -135,6 +138,7 @@ def _copy_object_group(
     if not isinstance(source_variables, h5py.Group):
         raise TypeError(f"Object product '{source.name}' has no variable group.")
 
+    # Resolve the fields removed by the selected reduction policy
     drop_fields = (
         set().union(*(_decode_fields(pool) for pool in source_variables.values()))
         if mode == "fixed_only" and len(source_variables)
@@ -149,6 +153,7 @@ def _copy_object_group(
         (name, source_fixed.dtype.fields[name][0]) for name in ordinary_names
     ]
 
+    # Rebuild retained variable pools and their corresponding fixed-table helpers
     target_variables = target.create_group("variables")
     pool_specs: list[
         tuple[h5py.Group, h5py.Group, str, str, tuple[int, ...], tuple[str, ...]]
@@ -201,6 +206,7 @@ def _copy_object_group(
             )
         )
 
+    # Allocate the reduced fixed table once its complete dtype is known
     target_fixed = target.create_dataset(
         "fixed",
         source_fixed.shape,
@@ -211,6 +217,7 @@ def _copy_object_group(
     _copy_attrs(source_fixed.attrs, target_fixed.attrs)
     source.copy(source_offsets, target, name="event_offsets")
 
+    # Stream rows in bounded blocks while compacting each variable-value pool
     num_rows = len(source_fixed)
     for first in range(0, num_rows, block_size):
         last = min(first + block_size, num_rows)
@@ -261,6 +268,12 @@ def _copy_object_group(
 
         target_fixed[first:last] = target_rows
 
+    # Preserve any product-owned auxiliaries alongside the reduced object payload
+    payload_names = {"fixed", "event_offsets", "variables"}
+    for name in source:
+        if name not in payload_names:
+            source.copy(name, target)
+
 
 def litify_hdf5(
     source_path: str,
@@ -295,6 +308,7 @@ def litify_hdf5(
     if block_size <= 0:
         raise ValueError("`block_size` must be positive.")
 
+    # Resolve and validate both endpoints before allocating a temporary output
     source_path = os.path.abspath(os.path.expanduser(source_path))
     target_path = os.path.abspath(os.path.expanduser(target_path))
     if source_path == target_path:
@@ -304,6 +318,7 @@ def litify_hdf5(
     if os.path.exists(target_path) and not overwrite:
         raise FileExistsError(f"Output already exists: {target_path}")
 
+    # Build beside the destination so the final replacement remains atomic
     target_dir = os.path.dirname(target_path)
     os.makedirs(target_dir, exist_ok=True)
     descriptor, temporary_path = tempfile.mkstemp(
@@ -318,33 +333,37 @@ def litify_hdf5(
             h5py.File(source_path, "r") as source,
             h5py.File(temporary_path, "w") as target,
         ):
+            # Copy the structural roots while marking the new file incomplete
             _require_v2(source, source_path)
             _copy_attrs(source.attrs, target.attrs)
             source.copy("events", target)
             source.copy("info", target)
+            source_products = source["products"]
+            assert isinstance(source_products, h5py.Group)
+            target_products = target.create_group("products")
             info = target["info"]
             assert isinstance(info, h5py.Group)
             info.attrs["complete"] = False
 
+            # Preserve requested physics products plus available provenance keys
             requested = tuple(dict.fromkeys(keys))
-            missing = [key for key in requested if key not in source]
+            missing = [key for key in requested if key not in source_products]
             if missing:
                 raise KeyError(f"Requested products are missing: {missing}.")
 
             selected = list(requested)
             for key in _ADMINISTRATIVE_KEYS:
-                if key in source and key not in selected:
+                if key in source_products and key not in selected:
                     selected.append(key)
-            if "source" in source and "source" not in selected:
-                selected.append("source")
 
+            # Structurally reduce object products and copy all other products intact
             for key in selected:
-                product = source[key]
+                product = source_products[key]
                 if (
                     isinstance(product, h5py.Group)
                     and product.attrs.get("kind") == "objects"
                 ):
-                    target_product = target.create_group(key)
+                    target_product = target_products.create_group(key)
                     _copy_object_group(
                         product,
                         target_product,
@@ -352,7 +371,11 @@ def litify_hdf5(
                         block_size=block_size,
                     )
                 else:
-                    source.copy(key, target)
+                    source_products.copy(key, target_products)
+
+            # File-level source provenance is administrative, not an event product
+            if "source" in source:
+                source.copy("source", target)
 
             info.attrs["litified"] = True
             info.attrs["litify_mode"] = mode
@@ -360,9 +383,11 @@ def litify_hdf5(
             info.attrs["complete"] = True
             target.flush()
 
+        # Publish only a fully written file, retaining the source permissions
         os.chmod(temporary_path, os.stat(source_path).st_mode & 0o666)
         os.replace(temporary_path, target_path)
     except Exception:
+        # Never leave a partial destination behind after a failed transformation
         if os.path.exists(temporary_path):
             os.unlink(temporary_path)
         raise

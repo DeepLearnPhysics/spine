@@ -79,8 +79,8 @@ def test_structural_lite_matches_event_writer(tmp_path):
     reader.close()
 
     with h5py.File(structural, "r") as direct, h5py.File(event_lite, "r") as rebuilt:
-        direct_group = direct["particles"]
-        rebuilt_group = rebuilt["particles"]
+        direct_group = direct["products"]["particles"]
+        rebuilt_group = rebuilt["products"]["particles"]
         assert direct_group["fixed"].dtype == rebuilt_group["fixed"].dtype
         _assert_compound_equal(
             direct_group["fixed"][:],
@@ -122,7 +122,7 @@ def test_structural_fixed_only_removes_variable_pools(tmp_path):
     )
 
     with h5py.File(target, "r") as out_file:
-        group = out_file["particles"]
+        group = out_file["products"]["particles"]
         assert len(group["variables"]) == 0
         assert not any(
             name.startswith("_var_offsets_") for name in group["fixed"].dtype.names
@@ -174,6 +174,14 @@ def test_structural_lite_validates_options_and_metadata(tmp_path):
     with pytest.raises(ValueError, match="complete SPINE"):
         litify_hdf5(str(incomplete), str(target), keys=())
 
+    no_products = tmp_path / "no_products.h5"
+    with h5py.File(no_products, "w") as out_file:
+        out_file.create_dataset("events", data=np.arange(1))
+        info = out_file.create_group("info")
+        info.attrs["format_version"] = 2
+    with pytest.raises(ValueError, match="logical-product group"):
+        litify_hdf5(str(no_products), str(target), keys=())
+
 
 def test_structural_lite_handles_encoded_metadata_and_source(tmp_path):
     """Byte metadata and top-level source provenance should be preserved."""
@@ -181,7 +189,7 @@ def test_structural_lite_handles_encoded_metadata_and_source(tmp_path):
     target = tmp_path / "target.h5"
     _write_source(source)
     with h5py.File(source, "a") as out_file:
-        group = out_file["particles"]
+        group = out_file["products"]["particles"]
         group.attrs["class_name"] = np.bytes_("RecoParticle")
         for pool in group["variables"].values():
             fields = pool.attrs["fields"]
@@ -194,6 +202,24 @@ def test_structural_lite_handles_encoded_metadata_and_source(tmp_path):
 
     with h5py.File(target, "r") as out_file:
         assert out_file["source"].attrs["file_name"] == "original.root"
+
+
+def test_structural_lite_preserves_product_owned_auxiliaries(tmp_path):
+    """Unrecognized object children should be copied with their owner."""
+    source = tmp_path / "source.h5"
+    target = tmp_path / "target.h5"
+    _write_source(source)
+    with h5py.File(source, "a") as out_file:
+        out_file["products"]["particles"].create_dataset(
+            "diagnostic", data=np.asarray([3, 4], dtype=np.int64)
+        )
+
+    litify_hdf5(str(source), str(target), keys=("particles",))
+
+    with h5py.File(target, "r") as out_file:
+        np.testing.assert_array_equal(
+            out_file["products"]["particles"]["diagnostic"][:], [3, 4]
+        )
 
 
 @pytest.mark.parametrize(
@@ -209,7 +235,7 @@ def test_structural_lite_rejects_invalid_pool_fields(tmp_path, field_value, mess
     target = tmp_path / "target.h5"
     _write_source(source)
     with h5py.File(source, "a") as out_file:
-        pool = next(iter(out_file["particles"]["variables"].values()))
+        pool = next(iter(out_file["products"]["particles"]["variables"].values()))
         del pool.attrs["fields"]
         pool.attrs["fields"] = field_value
 
@@ -223,7 +249,7 @@ def test_structural_lite_rejects_unknown_object_class(tmp_path):
     target = tmp_path / "target.h5"
     _write_source(source)
     with h5py.File(source, "a") as out_file:
-        out_file["particles"].attrs["class_name"] = "UnknownObject"
+        out_file["products"]["particles"].attrs["class_name"] = "UnknownObject"
 
     with pytest.raises(ValueError, match="Cannot resolve"):
         litify_hdf5(str(source), str(target), keys=("particles",))
@@ -279,7 +305,7 @@ def test_structural_lite_rejects_corrupt_object_layout(tmp_path, corruption, mes
     target = tmp_path / f"target_{corruption}.h5"
     _write_source(source)
     with h5py.File(source, "a") as out_file:
-        group = out_file["particles"]
+        group = out_file["products"]["particles"]
         if corruption == "class_name":
             del group.attrs["class_name"]
             group.attrs["class_name"] = 4

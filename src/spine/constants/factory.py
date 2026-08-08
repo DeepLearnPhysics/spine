@@ -7,7 +7,6 @@ parsing helpers that translate user/config strings into those enum values.
 
 from typing import overload
 
-from .columns import ClusterLabelCol
 from .enums import NuInteractionScheme, ParticlePID, ParticleShape
 
 __all__ = ["enum_factory"]
@@ -36,8 +35,7 @@ def enum_factory(
     ----------
     enum : str
         Name of the supported enum group to parse. Supported groups are
-        ``"cluster"``, ``"shape"``, ``"pid"``, and
-        ``"interaction_scheme"``.
+        ``"shape"``, ``"pid"``, and ``"interaction_scheme"``.
     value : Union[str, Sequence[str]]
         One enum-member name or a sequence of enum-member names. Member names
         are matched case-insensitively through their uppercase representation.
@@ -56,7 +54,6 @@ def enum_factory(
         If one of the provided member names does not exist on the target enum.
     """
     enum_dict = {
-        "cluster": ClusterLabelCol,
         "shape": ParticleShape,
         "pid": ParticlePID,
         "interaction_scheme": NuInteractionScheme,

@@ -1,11 +1,10 @@
-"""Tests for manager-local stopwatch reset behavior."""
+"""Tests for non-model manager-local stopwatch reset behavior."""
 
 from __future__ import annotations
 
 from collections import OrderedDict
 
 from spine.ana.manager import AnaManager
-from spine.model.manager import ModelManager
 from spine.post.manager import PostManager
 
 
@@ -60,28 +59,6 @@ class FakeAnaModule:
 
     def close_writers(self):
         """No-op close hook for AnaManager cleanup."""
-
-
-def test_model_manager_resets_stale_watch_before_call():
-    """ModelManager should clear stale watch state before forwarding."""
-    manager = object.__new__(ModelManager)
-    manager.train = False
-    manager.to_numpy = False
-    manager.watch = FakeWatchManager()
-    manager.watch.initialize("forward")
-    manager.watch.start("forward")
-    manager.forward = lambda data, iteration: {"value": data["index"] + iteration}
-
-    result = manager({"index": 2}, iteration=3)
-
-    assert result == {"value": 5}
-    assert manager.watch.calls[:4] == [
-        ("initialize", "forward"),
-        ("start", "forward"),
-        ("reset", None),
-        ("start", "forward"),
-    ]
-    assert manager.watch.calls[-1] == ("stop", "forward")
 
 
 def test_post_manager_resets_stale_watch_before_call():

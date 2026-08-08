@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from spine.ana.metric.cluster import ClusterAna
-from spine.constants import CLUST_COL, GROUP_COL, SHAPE_COL
+from spine.data import ClusterLabelData
 from spine.data.out import (
     RecoFragment,
     RecoInteraction,
@@ -87,6 +87,13 @@ def test_cluster_ana_validates_configuration(monkeypatch):
     with pytest.raises(ValueError, match="lower bound"):
         ClusterAna(obj_type="particle", time_window=(1.0, 0.0))
 
+    with pytest.raises(ValueError, match="standalone mode"):
+        ClusterAna(
+            per_object=False,
+            label_col="unsupported",
+            time_window=(0.0, 1.0),
+        )
+
 
 def test_cluster_ana_raw_per_object_mode(monkeypatch):
     rows = []
@@ -94,9 +101,18 @@ def test_cluster_ana_raw_per_object_mode(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append((name, kwargs))
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, CLUST_COL] = [0, 0, 1, 1]
-    labels[:, SHAPE_COL] = [0, 0, 1, 1]
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"shape": np.asarray([0, 1])},
+    )
     ana = ClusterAna(
         obj_type="fragment",
         use_objects=False,
@@ -127,9 +143,19 @@ def test_cluster_ana_time_filters_raw_per_object_labels(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, GROUP_COL] = [0, 0, 1, 1]
-    labels_before = labels.copy()
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"group": np.asarray([0, 1])},
+    )
+    labels_before = labels.data.copy()
     ana = ClusterAna(
         obj_type="particle",
         use_objects=False,
@@ -161,7 +187,7 @@ def test_cluster_ana_time_filters_raw_per_object_labels(monkeypatch):
     )
 
     assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
-    np.testing.assert_array_equal(labels, labels_before)
+    np.testing.assert_array_equal(labels.data, labels_before)
 
 
 def test_cluster_ana_standalone_mode(monkeypatch):
@@ -170,8 +196,18 @@ def test_cluster_ana_standalone_mode(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append((name, kwargs))
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, GROUP_COL] = [0, 0, 1, 1]
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"group": np.asarray([0, 1])},
+    )
     ana = ClusterAna(
         per_object=False,
         per_shape=False,
@@ -209,8 +245,18 @@ def test_cluster_ana_time_filters_standalone_labels(monkeypatch):
     monkeypatch.setattr(
         ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
     )
-    labels = np.zeros((4, 10), dtype=np.float32)
-    labels[:, GROUP_COL] = [0, 0, 1, 1]
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"group": np.asarray([0, 1])},
+    )
     ana = ClusterAna(
         per_object=False,
         per_shape=False,

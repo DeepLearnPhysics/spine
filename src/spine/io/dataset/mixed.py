@@ -114,6 +114,7 @@ class MixedDataset(BaseDataset):
             Merged sample dictionary containing primary LArCV products plus
             non-metadata HDF5 cache products.
         """
+        # Load the aligned pair and validate its identity before merging products
         primary = self.primary[idx]
         cache = self.cache[idx]
         self.validate_alignment(idx, primary, cache)
@@ -167,12 +168,14 @@ class MixedDataset(BaseDataset):
         if "source_file_name" not in cache:
             return
 
+        # Resolve the primary file identity from the live LArCV reader
         file_idx = primary.get("file_index")
         assert isinstance(file_idx, int), "Primary file index should be an integer."
         source_path = self.primary.reader.file_paths[file_idx]
         source_stat = os.stat(source_path)
         source_name = os.path.basename(source_path)
 
+        # Compare every provenance component advertised by the cache
         expected = {
             "source_file_name": source_name,
             "source_file_size": int(source_stat.st_size),
@@ -222,9 +225,11 @@ class MixedDataset(BaseDataset):
             HDF5 cache sample to merge into ``merged``.
         """
         for key, value in cache.items():
+            # Administrative identity remains authoritative on the primary side
             if key in self._index_keys or key in self._source_keys:
                 continue
 
+            # Apply public renames and reject accidental product replacement
             target_key = self.hdf5_key_map.get(key, key)
             if target_key in merged and not self.allow_overwrite:
                 raise ValueError(
@@ -233,31 +238,6 @@ class MixedDataset(BaseDataset):
                 )
 
             merged[target_key] = value
-
-    @property
-    def data_types(self) -> dict[str, str]:
-        """Return the collate type for each merged product.
-
-        Returns
-        -------
-        dict[str, str]
-            Mapping from merged output key to collate type.
-        """
-        data_types = dict(self.primary.data_types)
-        for key, value in self.cache.data_types.items():
-            if key in self._index_keys or key in self._source_keys:
-                continue
-
-            target_key = self.hdf5_key_map.get(key, key)
-            if target_key in data_types and data_types[target_key] != value:
-                raise ValueError(
-                    f"MixedDataset data type collision for '{target_key}': "
-                    f"{data_types[target_key]!r} vs {value!r}."
-                )
-
-            data_types[target_key] = value
-
-        return data_types
 
     @property
     def overlay_methods(self) -> dict[str, str]:
@@ -293,4 +273,11 @@ class MixedDataset(BaseDataset):
         tuple[str, ...]
             Ordered tuple of keys exposed by the merged dataset.
         """
-        return tuple(self.data_types.keys())
+        keys = list(self.primary.data_keys)
+        for key in self.cache.data_keys:
+            if key in self._index_keys or key in self._source_keys:
+                continue
+            target_key = self.hdf5_key_map.get(key, key)
+            if target_key not in keys:
+                keys.append(target_key)
+        return tuple(keys)

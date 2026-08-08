@@ -58,6 +58,9 @@ _DUPLICATE_REDUCTIONS = {
 def module(operation: str) -> type:
     """Resolve a semantic SPINE operation to its native module class.
 
+    These classes are the reference implementations for the canonical
+    constructor signatures exposed by :mod:`spine.model.sparse.modules`.
+
     Parameters
     ----------
     operation : str

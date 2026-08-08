@@ -13,7 +13,7 @@ import numba as nb
 import numba.typed as nbt
 import numpy as np
 
-from spine.constants import SHAPE_COL, SHAPE_PREC
+from spine.constants import SHAPE_PREC
 
 
 @overload
@@ -23,7 +23,7 @@ def clean_sparse_data(
     sparse_voxels: np.ndarray | None = None,
     sum_cols: np.ndarray | None = None,
     avg_cols: np.ndarray | None = None,
-    prec_col: int | None = SHAPE_COL,
+    prec_col: int | None = -1,
     precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
     *,
     return_index: Literal[False] = False,
@@ -37,7 +37,7 @@ def clean_sparse_data(
     sparse_voxels: np.ndarray | None = None,
     sum_cols: np.ndarray | None = None,
     avg_cols: np.ndarray | None = None,
-    prec_col: int | None = SHAPE_COL,
+    prec_col: int | None = -1,
     precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
     *,
     return_index: Literal[True],
@@ -50,7 +50,7 @@ def clean_sparse_data(
     sparse_voxels: np.ndarray | None = None,
     sum_cols: np.ndarray | None = None,
     avg_cols: np.ndarray | None = None,
-    prec_col: int | None = SHAPE_COL,
+    prec_col: int | None = -1,
     precedence: np.ndarray | list[int] | tuple[int, ...] | None = SHAPE_PREC,
     *,
     return_index: bool = False,
@@ -79,7 +79,7 @@ def clean_sparse_data(
         List of feature columns to sum when removing duplicates
     avg_cols : np.ndarray, optional
         List of feature columns to average when removing duplicates
-    prec_col : int, default SHAPE_COL
+    prec_col : int, default -1
         Column in the input feature tensor to use as a precdence source
     precedence : np.ndarray or list[int], default SHAPE_PREC
         (C) Array of classes in the reference array, ordered by precedence
@@ -303,7 +303,22 @@ def filter_voxels_ref(data: np.ndarray, reference: np.ndarray) -> np.ndarray:
 def aggregate_features(
     data: np.ndarray, groups: dict[int, np.ndarray], cols: np.ndarray
 ) -> np.ndarray:
-    """Aggregate features by summing the requested columns over groups."""
+    """Aggregate features by summing the requested columns over groups.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Matrix of voxel features to aggregate in place.
+    groups : dict[int, np.ndarray]
+        Mapping from retained voxel indexes to coincident source rows.
+    cols : np.ndarray
+        Feature columns to sum.
+
+    Returns
+    -------
+    np.ndarray
+        Input feature matrix with selected columns aggregated.
+    """
     return aggregate_sum_features(data, groups, cols)
 
 
@@ -338,7 +353,22 @@ def aggregate_sum_features(
 def aggregate_mean_features(
     data: np.ndarray, groups: dict[int, np.ndarray], cols: np.ndarray
 ) -> np.ndarray:
-    """Average the information in pre-defined voxel groups."""
+    """Average the information in pre-defined voxel groups.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Matrix of voxel features to aggregate in place.
+    groups : dict[int, np.ndarray]
+        Mapping from retained voxel indexes to coincident source rows.
+    cols : np.ndarray
+        Feature columns to average.
+
+    Returns
+    -------
+    np.ndarray
+        Input feature matrix with selected columns averaged.
+    """
     for col in cols:
         for idx, group in groups.items():
             data[idx, col] = np.mean(data[group, col])
