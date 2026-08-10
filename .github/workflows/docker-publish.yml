@@ -13,7 +13,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: deeplearnphysics/spine
   CACHE_IMAGE: ghcr.io/deeplearnphysics/spine-buildcache:buildcache
 
 jobs:
