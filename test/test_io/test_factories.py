@@ -286,8 +286,8 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
     assert captured["batch_size"] == 4
 
 
-def test_loader_factory_requires_sampler_for_joint_dataset(monkeypatch):
-    """Joint datasets should fail early when no joint sampler is configured."""
+def test_loader_factory_defaults_joint_dataset_to_sequential(monkeypatch):
+    """Joint datasets should receive a tuple-producing sequential sampler."""
 
     class DummyDataset:
         joint = True
@@ -310,16 +310,32 @@ def test_loader_factory_requires_sampler_for_joint_dataset(monkeypatch):
     monkeypatch.setattr(
         factories_module, "dataset_factory", lambda *args, **kwargs: DummyDataset()
     )
+    monkeypatch.setattr(
+        factories_module,
+        "sampler_factory",
+        lambda sampler, *_args, **_kwargs: sampler,
+    )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "torch.utils", fake_utils)
     monkeypatch.setitem(sys.modules, "torch.utils.data", fake_data)
 
-    with pytest.raises(ValueError, match="explicit joint sampler"):
-        factories_module.loader_factory(
-            dataset={"name": "joint"},
-            dtype="float32",
-            minibatch_size=2,
-        )
+    loader = factories_module.loader_factory(
+        dataset={"name": "joint"},
+        dtype="float32",
+        minibatch_size=2,
+    )
+
+    assert loader.kwargs["sampler"] == "joint_sequential"
+    assert loader.kwargs["shuffle"] is False
+
+    loader = factories_module.loader_factory(
+        dataset={"name": "joint"},
+        dtype="float32",
+        minibatch_size=2,
+        shuffle=True,
+    )
+    assert loader.kwargs["sampler"] == "joint_random_sequence"
+    assert loader.kwargs["shuffle"] is False
 
 
 def test_loader_factory_distributed_requires_explicit_rank(monkeypatch):

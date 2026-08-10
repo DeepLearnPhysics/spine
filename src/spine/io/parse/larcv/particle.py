@@ -43,7 +43,6 @@ from spine.utils.particles import (
 from spine.utils.ppn import (
     get_ppn_labels,
     get_vertex_labels,
-    image_coordinates,
 )
 
 from ..base import ParserBase

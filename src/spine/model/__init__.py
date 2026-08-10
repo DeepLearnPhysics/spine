@@ -39,3 +39,6 @@ visualization, and post-processing workflows.
 """
 
 from .manager import ModelManager
+from .validation import ValidationManager
+
+__all__ = ["ModelManager", "ValidationManager"]

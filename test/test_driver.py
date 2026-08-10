@@ -156,11 +156,13 @@ def test_process_config_normalizes_and_logs(monkeypatch):
 
     input_base = {"verbosity": "debug", "seed": -1, "gpus": [0, 1]}
     input_io = {"loader": {"sampler": "random"}}
-    base, io, geo, model, build, post, ana = drv.process_config(
+    base, io, geo, model, train, validation, build, post, ana = drv.process_config(
         io=input_io,
         base=input_base,
         geo={"detector": "icarus"},
         model={"name": "model"},
+        train={"optimizer": {}},
+        validation={"file_keys": "val.root"},
         build={"mode": "reco"},
         post={"module": {}},
         ana={"script": {}},
@@ -178,6 +180,8 @@ def test_process_config_normalizes_and_logs(monkeypatch):
         "io": io,
         "geo": geo,
         "model": model,
+        "train": train,
+        "validation": validation,
         "build": build,
         "post": post,
         "ana": ana,
@@ -246,7 +250,7 @@ def test_initialize_base_sets_runtime_state(monkeypatch):
         driver_mod.runtime, "manual_seed", lambda seed: seeds.append(("torch", seed))
     )
 
-    train = drv.initialize_base(
+    result = drv.initialize_base(
         seed=7,
         world_size=2,
         rank=1,
@@ -258,10 +262,9 @@ def test_initialize_base_sets_runtime_state(monkeypatch):
         iterations=5,
         unwrap=True,
         split_output=True,
-        train={"optimizer": {}},
     )
 
-    assert train == {"optimizer": {}}
+    assert result is None
     assert seeds == [("py", 7), ("np", 7), ("nb", 7), ("torch", 7)]
     assert drv.rank == 1
     assert drv.main_process is False
@@ -311,8 +314,8 @@ def test_extract_driver_base_config_filters_runtime_keys():
     }
 
 
-def test_initialize_base_allows_non_ddp_distributed_inference_only():
-    """Independent distributed models are valid for inference, not training."""
+def test_initialize_base_allows_non_ddp_distributed_execution():
+    """The base layer should allow independent distributed model execution."""
     drv = bare_driver()
     drv.initialize_base(seed=1, world_size=2, rank=0, distributed=True, ddp=False)
     assert drv.distributed is True
@@ -325,16 +328,6 @@ def test_initialize_base_allows_non_ddp_distributed_inference_only():
             rank=0,
             distributed=False,
             ddp=True,
-        )
-
-    with pytest.raises(ValueError, match="Distributed training requires"):
-        drv.initialize_base(
-            seed=1,
-            world_size=2,
-            rank=0,
-            distributed=True,
-            ddp=False,
-            train={"optimizer": {}},
         )
 
 
@@ -547,6 +540,8 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
             {},
             {"detector": "dummy"},
             {"model": "cfg"},
+            {"train": "cfg"},
+            None,
             {"build": "cfg"},
             {"post": "cfg"},
             {"ana": "cfg"},
@@ -659,16 +654,21 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
         monkeypatch.setattr(Driver, "initialize_base", initialize_base)
         monkeypatch.setattr(Driver, "initialize_io", initialize_io)
 
-    configure(({}, {}, None, None, None, None, None), initialize_base_return={})
+    configure(({}, {}, None, None, {}, None, None, None, None))
     with pytest.raises(ValueError, match="no model"):
-        Driver({})
+        Driver({"train": {}})
 
-    configure(({}, {}, None, {"model": "cfg"}, None, None, None), loader=None)
+    configure(
+        ({}, {}, None, {"model": "cfg"}, None, None, None, None, None), loader=None
+    )
     with pytest.raises(ValueError, match="loader"):
         Driver({})
 
     monkeypatch.setattr(driver_mod, "TORCH_AVAILABLE", False)
-    configure(({}, {}, None, {"model": "cfg"}, None, None, None), loader=object())
+    configure(
+        ({}, {}, None, {"model": "cfg"}, None, None, None, None, None),
+        loader=object(),
+    )
     with pytest.raises(ImportError, match="model functionality"):
         Driver({})
 
@@ -687,14 +687,35 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
     monkeypatch.setattr(driver_mod, "TORCH_AVAILABLE", True)
     monkeypatch.setattr(driver_mod, "ModelManager", NumpyModel)
     configure(
-        ({}, {}, None, {"model": "cfg"}, {"build": "cfg"}, None, None), loader=object()
+        (
+            {},
+            {},
+            None,
+            {"model": "cfg"},
+            None,
+            None,
+            {"build": "cfg"},
+            None,
+            None,
+        ),
+        loader=object(),
     )
     with pytest.raises(ValueError, match="build representations"):
         Driver({})
 
     monkeypatch.setattr(driver_mod, "ModelManager", TensorModel)
     configure(
-        ({}, {}, None, {"model": "cfg"}, {"build": "cfg"}, None, None),
+        (
+            {},
+            {},
+            None,
+            {"model": "cfg"},
+            None,
+            None,
+            {"build": "cfg"},
+            None,
+            None,
+        ),
         loader=object(),
         unwrap=True,
     )
@@ -703,16 +724,62 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
 
     monkeypatch.setattr(driver_mod, "ModelManager", NumpyModel)
     configure(
-        ({}, {}, None, {"model": "cfg"}, None, {"post": "cfg"}, None), loader=object()
+        (
+            {},
+            {},
+            None,
+            {"model": "cfg"},
+            None,
+            None,
+            None,
+            {"post": "cfg"},
+            None,
+        ),
+        loader=object(),
     )
     with pytest.raises(ValueError, match="post-processors"):
         Driver({})
 
     configure(
-        ({}, {}, None, {"model": "cfg"}, None, None, {"ana": "cfg"}), loader=object()
+        (
+            {},
+            {},
+            None,
+            {"model": "cfg"},
+            None,
+            None,
+            None,
+            None,
+            {"ana": "cfg"},
+        ),
+        loader=object(),
     )
     with pytest.raises(ValueError, match="analysis scripts"):
         Driver({})
+
+
+def test_driver_rejects_distributed_training_without_ddp(monkeypatch):
+    """Direct driver construction should enforce DDP for distributed training."""
+    monkeypatch.setattr(driver_mod, "StopwatchManager", FakeWatchManager)
+    monkeypatch.setattr(
+        Driver,
+        "process_config",
+        lambda self, **kwargs: ({}, {}, None, None, {}, None, None, None, None),
+    )
+    monkeypatch.setattr(
+        Driver,
+        "extract_driver_base_config",
+        lambda cls, base: {},
+    )
+
+    def initialize_base(self, **kwargs):
+        self.distributed = True
+        self.ddp = False
+
+    monkeypatch.setattr(Driver, "initialize_base", initialize_base)
+
+    with pytest.raises(ValueError, match="Distributed training requires"):
+        Driver({"train": {}})
 
 
 def test_optional_initializers_accept_absent_configs():
@@ -724,6 +791,46 @@ def test_optional_initializers_accept_absent_configs():
 
     assert drv.model is None
     assert drv.ana is None
+
+
+def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
+    """Validation should require a scheduled loader-backed training process."""
+    drv = bare_driver()
+    drv.model = None
+    with pytest.raises(ValueError, match="training model"):
+        drv.initialize_validation({"file_keys": "val.root"}, {"loader": {}})
+
+    drv.model = SimpleNamespace(train=True, save_step=None)
+    with pytest.raises(ValueError, match="save_step"):
+        drv.initialize_validation({"file_keys": "val.root"}, {"loader": {}})
+
+    drv.model.save_step = 1
+    with pytest.raises(ValueError, match="io.loader"):
+        drv.initialize_validation({"file_keys": "val.root"}, {"reader": {}})
+
+    captured = {}
+    drv.rank = 0
+    drv.dtype = "float32"
+    drv.world_size = 2
+    drv.distributed = True
+    drv.seed = 7
+    monkeypatch.setattr(
+        driver_mod,
+        "ValidationManager",
+        lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs)
+        or "validation",
+    )
+
+    drv.initialize_validation({"file_keys": "val.root"}, {"loader": {"dataset": {}}})
+
+    assert drv.validation == "validation"
+    assert captured["kwargs"] == {
+        "rank": 0,
+        "dtype": "float32",
+        "world_size": 2,
+        "distributed": True,
+        "seed": 7,
+    }
 
 
 def test_initialize_ana_columnar_guards_and_projection(monkeypatch):
@@ -928,7 +1035,12 @@ def test_run_loop_resets_loader_logs_and_closes():
     """run should iterate requested entries and close output resources."""
     drv = bare_driver()
     drv.iterations = 3
-    drv.model = SimpleNamespace(train=True, start_iteration=1)
+    drv.model = SimpleNamespace(
+        train=True,
+        start_iteration=1,
+        should_save=lambda iteration: False,
+    )
+    drv.validation = None
     drv.distributed = True
     drv.ana = SimpleNamespace(close=lambda: calls.append("ana_close"))
     drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
@@ -1000,6 +1112,72 @@ def test_run_loop_cleans_up_on_processing_failure():
         "log_close",
         "io_close",
     ]
+
+
+def test_run_validates_before_checkpoint_and_stops_early():
+    """Checkpoint boundaries should validate, serialize state, then stop."""
+    drv = bare_driver()
+    calls: list[object] = []
+
+    class FakeModel:
+        train = True
+        start_iteration = 0
+        watch = FakeWatchManager()
+
+        @staticmethod
+        def should_save(iteration):
+            return True
+
+        @staticmethod
+        def save_state(iteration, epoch, validation):
+            calls.append(("save", iteration, epoch, validation))
+
+    class FakeValidation:
+        @staticmethod
+        def run(iteration):
+            calls.append(("validate", iteration))
+            return {"loss": 2.0}
+
+        @staticmethod
+        def update_early_stopping(metrics):
+            calls.append(("stop", metrics))
+            return True
+
+        @staticmethod
+        def checkpoint_state(metrics):
+            return {"metrics": dict(metrics), "early_stopping": {"bad_checks": 2}}
+
+        @staticmethod
+        def close():
+            calls.append("validation_close")
+
+    FakeModel.watch.initialize("save")
+    drv.iterations = 3
+    drv.model = FakeModel()
+    drv.validation = FakeValidation()
+    drv.main_process = True
+    drv.distributed = False
+    drv.ana = None
+    drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=1,
+        prepare_iteration=lambda iteration: None,
+        close=lambda: calls.append("io_close"),
+    )
+    drv.initialize_log = lambda: None
+    drv.process = lambda **kwargs: {"loss": 1.0}
+    drv.log = lambda data, *_args: calls.append(("log", dict(data)))
+
+    drv.run()
+
+    assert calls[0] == ("validate", 0)
+    assert calls[2][0] == "save"
+    assert calls[2][3]["metrics"] == {"loss": 2.0}
+    assert calls[3] == ("log", {"loss": 1.0, "val_loss": 2.0})
+    assert calls[-3:] == ["log_close", "validation_close", "io_close"]
+    assert ("start", "save") in FakeModel.watch.calls
+    assert ("stop", "save") in FakeModel.watch.calls
 
 
 def test_apply_filter_resets_loader_iterator():

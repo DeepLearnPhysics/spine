@@ -90,7 +90,7 @@ def test_prototype_training_schedule_is_epoch_based(case_name):
 
     cfg = load_config_file(str(MODEL_CONFIGS[case_name]), download=False)
     base_cfg = cfg["base"]
-    train_cfg = base_cfg["train"]
+    train_cfg = cfg["train"]
 
     assert "epochs" in base_cfg
     assert "iterations" not in base_cfg
@@ -123,7 +123,7 @@ def test_full_chain_train_and_test_config_contract():
         download=False,
     )
 
-    assert set(train_cfg) == {"base", "io", "model"}
+    assert set(train_cfg) == {"base", "io", "model", "train"}
     assert set(test_cfg) == {"base", "io", "model"}
     assert train_cfg["model"] == test_cfg["model"]
     assert train_cfg["io"]["loader"]["minibatch_size"] == 2

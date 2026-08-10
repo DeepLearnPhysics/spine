@@ -9,6 +9,7 @@ runs the configured training, inference or analysis workflow.
 import os
 from typing import Optional, Tuple
 
+from .config import normalize_config
 from .driver import Driver
 from .utils.conditional import TORCH_AVAILABLE, torch
 from .utils.logger import configure_rank_logging, logger
@@ -34,6 +35,9 @@ def run(cfg: dict) -> None:
         If the configuration does not contain a ``base`` block or requests an
         invalid execution world.
     """
+    # Normalize legacy block locations once before launching worker processes.
+    cfg = normalize_config(cfg)
+
     # Process the configuration to set up the driver world
     if "base" not in cfg:
         raise ValueError("Configuration must contain a 'base' section.")
@@ -96,8 +100,11 @@ def run_single(
     ValueError
         If distributed training explicitly disables DDP.
     """
+    # Normalize direct worker calls as well as launcher-managed calls.
+    cfg = normalize_config(cfg)
+
     # Determine the execution mode from the presence of a training block
-    train = "train" in cfg["base"]
+    train = "train" in cfg
 
     # Validate requirements shared by training and distributed inference
     if (train or distributed) and not TORCH_AVAILABLE:

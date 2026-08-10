@@ -486,10 +486,51 @@ def test_save_state_writes_checkpoint_and_requires_prefix(tmp_path):
         manager.save_state(1, 0.5)
 
     manager.weight_prefix = str(tmp_path / "snapshot")
-    manager.save_state(3, 1.5)
+    manager.save_state(3, 1.5, {"metrics": {"loss": 0.25}})
     checkpoint = torch.load(tmp_path / "snapshot-3.ckpt", weights_only=True)
     assert checkpoint["global_step"] == 3
     assert checkpoint["global_epoch"] == 1.5
+    assert checkpoint["validation"] == {"metrics": {"loss": 0.25}}
+
+
+def test_evaluate_restores_training_state_without_gradients():
+    """Validation calls should reuse and restore the live training modules."""
+
+    class Network(torch.nn.Module):
+        def forward(self, data):
+            return {"prediction": data * 2.0}
+
+    class Loss(torch.nn.Module):
+        def forward(self, target, prediction):
+            return {"loss": torch.mean((prediction - target) ** 2)}
+
+    manager = make_bare_manager(
+        train=True,
+        net=Network(),
+        loss_fn=Loss(),
+        input_dict={"data": "data"},
+        loss_dict={"target": "target"},
+        time_dependent=False,
+        to_numpy=False,
+    )
+    manager.net.train()
+    manager.loss_fn.train()
+
+    result = manager.evaluate(
+        {"data": torch.tensor([2.0]), "target": torch.tensor([3.0])}
+    )
+
+    assert result["loss"].item() == 1.0
+    assert not result["loss"].requires_grad
+    assert manager.train
+    assert manager.net.training
+    assert manager.loss_fn.training
+
+    manager.to_numpy = True
+    result = manager.evaluate(
+        {"data": torch.tensor([2.0]), "target": torch.tensor([3.0])}
+    )
+    assert result["loss"] == 1.0
 
 
 def test_manager_reports_missing_torch(monkeypatch):
@@ -649,26 +690,24 @@ def test_freeze_weights_handles_nested_modules_and_missing_parameters():
         manager.freeze_weights()
 
 
-def test_manager_saves_on_configured_step():
-    """Training calls invoke checkpointing at the configured main-process cadence."""
+def test_manager_exposes_configured_checkpoint_boundaries():
+    """Checkpoint scheduling should be exposed to driver orchestration."""
     manager = make_bare_manager(
         train=True,
         to_numpy=False,
         optimizer=SimpleNamespace(zero_grad=lambda **_kwargs: None),
         watch=FakeWatchManager(),
-        save_step=1,
+        save_step=3,
         main_process=True,
     )
     for key in ("forward", "backward", "save"):
         manager.watch.initialize(key)
     manager.forward = lambda *_args: {"loss": torch.tensor(0.0)}
     manager.backward = lambda _loss: None
-    saved = []
-    manager.save_state = lambda iteration, epoch: saved.append((iteration, epoch))
-
     manager({}, iteration=2, epoch=0.5)
 
-    assert saved == [(2, 0.5)]
+    assert manager.should_save(2)
+    assert not manager.should_save(1)
 
 
 def test_module_weight_path_must_exist(tmp_path):
@@ -693,6 +732,7 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
         "state_dict": net.state_dict(),
         "optimizer": {"state": "restored"},
         "global_step": 6,
+        "validation": {"metrics": {"loss": 0.5}},
     }
     calls = []
 
@@ -724,6 +764,7 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
     assert len(calls) == 3
     assert calls[-1] == {"optimizer": checkpoint["optimizer"]}
     assert manager.start_iteration == 7
+    assert manager.checkpoint_validation == checkpoint["validation"]
 
 
 def test_load_weights_targets_unwrapped_ddp_network(tmp_path):

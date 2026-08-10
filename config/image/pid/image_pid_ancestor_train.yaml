@@ -11,12 +11,13 @@ base:
   unwrap: false
   log_dir: logs/image/pid_ancestor/train
   log_step: 1
-  train:
-    weight_prefix: weights/image/pid_ancestor/snapshot
-    save_epoch: 1.0
-    optimizer:
-      name: Adam
-      lr: 0.001
+
+train:
+  weight_prefix: weights/image/pid_ancestor/snapshot
+  save_epoch: 1.0
+  optimizer:
+    name: Adam
+    lr: 0.001
 
 io:
   loader:

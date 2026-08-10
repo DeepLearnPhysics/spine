@@ -37,12 +37,12 @@ def test_run_dispatches_external_rank(monkeypatch):
         main,
         "run_single",
         lambda rank, cfg, distributed, world_size, torch_sharing: calls.append(
-            (rank, distributed, world_size, torch_sharing, "train" in cfg["base"])
+            (rank, distributed, world_size, torch_sharing, "train" in cfg)
         ),
     )
     monkeypatch.setenv("RANK", "2")
 
-    main.run({"base": {"train": {}}})
+    main.run({"base": {}, "train": {}})
 
     main.run({"base": {}})
 
@@ -66,13 +66,14 @@ def test_run_distributed_spawn(monkeypatch):
     monkeypatch.setattr(main, "torch", torch_runtime)
     monkeypatch.delenv("RANK", raising=False)
 
-    cfg = {"base": {"train": {}}}
+    cfg = {"base": {}, "train": {}}
     main.run(cfg)
     infer_cfg = {"base": {}}
     main.run(infer_cfg)
 
+    normalized_cfg = {"base": {}, "train": {}}
     assert spawn_calls == [
-        (main.run_single, (cfg, True, 3, None), 3),
+        (main.run_single, (normalized_cfg, True, 3, None), 3),
         (main.run_single, (infer_cfg, True, 3, None), 3),
     ]
 
@@ -82,7 +83,7 @@ def test_run_single_training_requires_torch(monkeypatch):
     monkeypatch.setattr(main, "TORCH_AVAILABLE", False)
 
     with pytest.raises(ImportError, match="PyTorch is required"):
-        main.run_single(rank=None, cfg={"base": {"train": {}}})
+        main.run_single(rank=None, cfg={"base": {}, "train": {}})
 
 
 def test_run_single_distributed_training_requires_ddp(monkeypatch):
@@ -92,7 +93,7 @@ def test_run_single_distributed_training_requires_ddp(monkeypatch):
     with pytest.raises(ValueError, match="Distributed training requires"):
         main.run_single(
             rank=0,
-            cfg={"base": {"train": {}, "ddp": False}},
+            cfg={"base": {"ddp": False}, "train": {}},
             distributed=True,
             world_size=2,
         )
@@ -128,7 +129,7 @@ def test_run_single_distributed_training_flow(monkeypatch):
 
     main.run_single(
         rank=1,
-        cfg={"base": {"train": {}}},
+        cfg={"base": {}, "train": {}},
         distributed=True,
         world_size=4,
         torch_sharing="file_system",

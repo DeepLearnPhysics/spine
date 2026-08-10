@@ -48,7 +48,7 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
     cfg["model"]["weight_path"] = None
 
-    train_cfg = cfg["base"].get("train")
+    train_cfg = cfg.get("train")
     if train_cfg is not None:
         train_cfg["weight_prefix"] = str(tmp_path / case_name / "snapshot")
         train_cfg["save_step"] = None

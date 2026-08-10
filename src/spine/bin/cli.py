@@ -150,12 +150,12 @@ def main(
         cfg["base"]["log_dir"] = log_dir
 
     if weight_prefix is not None:
-        if not "train" in cfg["base"]:
+        train_cfg = cfg.get("train", cfg["base"].get("train"))
+        if train_cfg is None:
             raise KeyError(
-                "--weight_prefix flag provided: must specify "
-                "`train` in the `base` block."
+                "--weight_prefix flag provided: must specify a `train` block."
             )
-        cfg["base"]["train"]["weight_prefix"] = weight_prefix
+        train_cfg["weight_prefix"] = weight_prefix
 
     # Override the weight loading path if provided
     if weight_path is not None:

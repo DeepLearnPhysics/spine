@@ -277,6 +277,50 @@ Key configuration parameters you may want to modify:
 * `train` - training instruction block
 * `gpus` - GPU IDs to use (leave empty '' for CPU)
 
+Training instructions live in a top-level `train` block. Configurations using
+the historical `base.train` location remain supported with a migration warning.
+Validation is optional and runs at every configured checkpoint boundary, before
+the checkpoint is written:
+
+```yaml
+base:
+  epochs: 25.0
+
+train:
+  weight_prefix: weights/snapshot
+  save_epoch: 1.0
+  optimizer:
+    name: Adam
+    lr: 0.001
+
+validation:
+  file_keys: /path/to/validation/*.root
+  fraction: 1.0
+  early_stopping:
+    monitor: loss
+    mode: min
+    patience: 5
+    min_delta: 0.0
+```
+
+Validation inherits the training loader's schema, batching, collation and
+worker settings while disabling augmentation and random sampling. Joint and
+mixed datasets provide both of their validation sources explicitly:
+
+```yaml
+validation:
+  sources:
+    primary:
+      file_keys: /path/to/primary_validation/*.root
+    secondary:
+      file_keys: /path/to/overlay_validation/*.root
+```
+
+Use source names `larcv` and `hdf5` instead for a mixed dataset. Joint
+validation retains the overlay distribution but uses repeatable sequential
+primary/secondary pairing. Validation scalar outputs are logged with a
+`val_` prefix and stored in the checkpoint with early-stopping state.
+
 ### Running A Configuration File
 
 Basic usage with the `spine` command:

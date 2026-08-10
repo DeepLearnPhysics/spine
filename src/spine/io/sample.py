@@ -267,6 +267,7 @@ class AbstractJointBatchSampler(Sampler):
         self.num_samples = len(self.primary_sampler)
         self.pair_probability = pair_probability
         rng_seed = int(time.time()) if seed is None else seed + 2
+        self._random_seed = rng_seed
         self._random = np.random.RandomState(seed=rng_seed)  # pylint: disable=E1101
 
     def __len__(self) -> int:
@@ -307,6 +308,26 @@ class JointSequentialBatchSampler(AbstractJointBatchSampler):
 
     name = "joint_sequential"
     sampler_cls = SequentialBatchSampler
+
+    def __iter__(self) -> Iterator[tuple[int, int | None]]:
+        """Return a repeatable sequential pairing for every pass.
+
+        The base joint sampler owns a stateful random generator for stochastic
+        sampling policies. Sequential sampling instead restores that state so
+        a fractional ``pair_probability`` selects the same primary entries on
+        every pass through the dataset.
+
+        Returns
+        -------
+        iterator of tuple[int, int or None]
+            Repeatable primary and optional secondary index pairs.
+        """
+        state = self._random.get_state()
+        self._random.seed(self._random_seed)
+        try:
+            return super().__iter__()
+        finally:
+            self._random.set_state(state)
 
 
 class JointRandomSequenceBatchSampler(AbstractJointBatchSampler):

@@ -173,6 +173,19 @@ def test_joint_sequential_sampler_pairs_primary_and_secondary():
     assert list(sampler) == [(0, 0), (1, 1), (2, 0), (3, 1)]
 
 
+def test_joint_sequential_sampler_repeats_probability_mask():
+    """Sequential joint validation should pair identically on every pass."""
+    sampler = JointSequentialBatchSampler(
+        DummyJointDataset(size=6, secondary_size=2),
+        batch_size=2,
+        seed=4,
+        pair_probability=0.5,
+    )
+
+    first = list(sampler)
+    assert list(sampler) == first
+
+
 def test_joint_random_sequence_sampler_pairs_are_bounded():
     """Joint random-sequence sampling should keep secondary indexes in range."""
     dataset = DummyJointDataset(size=12, secondary_size=3)

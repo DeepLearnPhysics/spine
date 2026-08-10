@@ -85,7 +85,7 @@ def loader_factory(
     dtype: str,
     batch_size: int | None = None,
     minibatch_size: int | None = None,
-    shuffle: bool = True,
+    shuffle: bool = False,
     sampler: Mapping[str, Any] | str | None = None,
     num_workers: int = 0,
     collate_fn: Mapping[str, Any] | str | None = None,
@@ -107,7 +107,7 @@ def loader_factory(
         Global batch size. Mutually exclusive with ``minibatch_size``.
     minibatch_size : int, optional
         Per-process batch size. Mutually exclusive with ``batch_size``.
-    shuffle : bool, default True
+    shuffle : bool, default False
         Whether to shuffle batches in the underlying loader.
     sampler : mapping or str, optional
         Sampler configuration mapping or short sampler name.
@@ -152,13 +152,16 @@ def loader_factory(
     # Initialize the dataset
     torch_dataset = dataset_factory(dataset, entry_list, dtype)
 
-    # Initialize the sampler
+    # Initialize the sampler. Joint datasets require tuple indexes, so mirror
+    # the ordinary loader defaults with the corresponding joint sampler.
     if sampler is None and getattr(torch_dataset, "joint", False):
-        raise ValueError("JointDataset requires an explicit joint sampler.")
+        sampler = "joint_random_sequence" if shuffle else "joint_sequential"
+
     if sampler is not None:
         sampler = sampler_factory(
             sampler, torch_dataset, batch_size, distributed, world_size, rank
         )
+        shuffle = False
     elif distributed:
         if rank is None:
             raise ValueError(

@@ -10,12 +10,13 @@ base:
   unwrap: false
   log_dir: logs/spice/train
   log_step: 1
-  train:
-    weight_prefix: weights/spice/snapshot
-    save_epoch: 1.0
-    optimizer:
-      name: Adam
-      lr: 0.001
+
+train:
+  weight_prefix: weights/spice/snapshot
+  save_epoch: 1.0
+  optimizer:
+    name: Adam
+    lr: 0.001
 
 io:
   loader:

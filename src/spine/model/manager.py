@@ -115,6 +115,7 @@ class ModelManager:
         self.distributed = distributed
         self.rank = rank  # Global rank (process ID in distributed group)
         self.main_process = rank is None or rank == 0
+        self.checkpoint_validation: dict[str, Any] | None = None
 
         # Determine device: use current_device() which setup_ddp() already configured
         if self.rank is None:
@@ -295,8 +296,12 @@ class ModelManager:
         # Reset active stopwatches
         self.watch.reset_if_active()
 
-        # Reset the gradient accumulation, free memory
+        # Validate training-owned inputs before changing optimizer state
         if self.train:
+            if iteration is None:
+                raise ValueError(
+                    "Must provide iteration information when training a model."
+                )
             self.optimizer.zero_grad(set_to_none=True)
 
         # Run the model forward
@@ -304,7 +309,7 @@ class ModelManager:
         result = self.forward(data, iteration)
         self.watch.stop("forward")
 
-        # If traning run the backward pass and update the weigths
+        # If training, run the backward pass and update the weights
         if self.train:
             if "loss" not in result:
                 raise RuntimeError("Every trainable model must return a `loss` value.")
@@ -312,23 +317,80 @@ class ModelManager:
             self.backward(result["loss"])
             self.watch.stop("backward")
 
-        # If training and at an appropriate iteration, save model state
-        if self.train:
-            self.watch.start("save")
-            if iteration is None:
-                raise ValueError(
-                    "Must provide iteration information when training a model."
-                )
-            if self.save_step is not None and self.main_process:
-                if ((iteration + 1) % self.save_step) == 0:
-                    self.save_state(iteration, epoch)
-            self.watch.stop("save")
+        # The driver owns checkpoint boundaries so it can validate these
+        # weights before timing and serializing the associated checkpoint.
 
         # If requested, cast the result dictionary to numpy
         if self.to_numpy:
             self.cast_to_numpy(result)
 
         return result
+
+    def evaluate(
+        self,
+        data: Mapping[str, Any],
+        iteration: int | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate one batch without gradients or parameter updates.
+
+        The manager temporarily switches the network and loss to evaluation
+        mode, then restores their training state before returning. This allows
+        validation to reuse the exact in-memory model, including its DDP
+        wrapper, without constructing or reloading a second model.
+
+        Parameters
+        ----------
+        data : mapping
+            Validation batch containing the configured network and loss inputs.
+        iteration : int, optional
+            Current training iteration, forwarded to time-dependent losses.
+
+        Returns
+        -------
+        dict
+            Model and loss outputs for the validation batch.
+        """
+        # Record manager/module modes before temporarily entering evaluation
+        was_training = self.train
+        net_training = self.net.training
+        loss_training = self.loss_fn.training if self.loss_fn is not None else None
+
+        # Disable training behavior in the manager, network and loss module
+        self.train = False
+        self.net.eval()
+        if self.loss_fn is not None:
+            self.loss_fn.eval()
+
+        # Run without gradients, restoring every mode even if forwarding fails
+        try:
+            with torch.no_grad():
+                result = self.forward(data, iteration)
+        finally:
+            self.train = was_training
+            self.net.train(net_training)
+            if self.loss_fn is not None and loss_training is not None:
+                self.loss_fn.train(loss_training)
+
+        # Apply the ordinary output conversion after leaving evaluation mode
+        if self.to_numpy:
+            self.cast_to_numpy(result)
+
+        return result
+
+    def should_save(self, iteration: int) -> bool:
+        """Return whether an iteration is a configured checkpoint boundary.
+
+        Parameters
+        ----------
+        iteration : int
+            Zero-based training iteration.
+
+        Returns
+        -------
+        bool
+            Whether the iteration completes one configured save period.
+        """
+        return self.save_step is not None and ((iteration + 1) % self.save_step) == 0
 
     @classmethod
     def clean_config(cls, config: Any) -> Any:
@@ -555,6 +617,9 @@ class ModelManager:
                 # Get the latest iteration from the main weight file only
                 if module == self.model_name:
                     self.start_iteration = checkpoint["global_step"] + 1
+                    validation = checkpoint.get("validation")
+                    if validation is not None:
+                        self.checkpoint_validation = deepcopy(validation)
 
             logger.info("Done.")
 
@@ -736,19 +801,30 @@ class ModelManager:
                 dtype = type(value)
                 raise ValueError(f"Cannot cast output {key} of type {dtype} to numpy.")
 
-    def save_state(self, iteration: int, epoch: float | None) -> None:
+    def save_state(
+        self,
+        iteration: int,
+        epoch: float | None,
+        validation: Mapping[str, Any] | None = None,
+    ) -> None:
         """Save the model state.
 
-        Save three things from the model:
+        Save the training state associated with this checkpoint:
         - global_step (iteration)
         - global_epoch (epoch progress)
         - state_dict (model parameter values)
         - optimizer (optimizer parameter values)
+        - validation (optional metrics and early-stopping progress)
 
         Parameters
         ----------
         iteration : int
             Iteration step index
+        epoch : float, optional
+            Epoch progress associated with the checkpoint.
+        validation : mapping, optional
+            Validation metrics and early-stopping state associated with these
+            exact weights.
         """
         # Make sure that the weight prefix is valid
         if not self.weight_prefix:
@@ -756,12 +832,13 @@ class ModelManager:
 
         filename = f"{self.weight_prefix}-{iteration:d}.ckpt"
         model = self.net if not self.distributed else self.net.module
-        torch.save(
-            {
-                "global_step": iteration,
-                "global_epoch": epoch,
-                "state_dict": model.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-            },
-            filename,
-        )
+        checkpoint = {
+            "global_step": iteration,
+            "global_epoch": epoch,
+            "state_dict": model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+        }
+        if validation is not None:
+            checkpoint["validation"] = dict(validation)
+
+        torch.save(checkpoint, filename)

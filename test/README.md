@@ -13,7 +13,7 @@ model-specific directory, with `<model>_train.yaml` and `<model>_test.yaml`
 representing training and inference respectively. UResNet is the initial
 prototype for this convention. Canonical training configurations express the
 run duration with `base.epochs` and checkpoint cadence with
-`base.train.save_epoch`, keeping both independent of dataset size.
+`train.save_epoch`, keeping both independent of dataset size.
 
 Model testing has three levels:
 

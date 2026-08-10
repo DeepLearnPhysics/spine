@@ -24,11 +24,12 @@ import numpy as np
 import yaml
 
 from .ana import AnaManager
+from .config import normalize_config
 from .construct import BuildManager
 from .geo import GeoManager
 from .io import IOManager
 from .math import seed as numba_seed
-from .model import ModelManager
+from .model import ModelManager, ValidationManager
 from .post import PostManager
 from .utils.conditional import TORCH_AVAILABLE
 from .utils.log import LogManager
@@ -65,6 +66,10 @@ class Driver:
           <Input/output configuration>
         model:
           <Model architecture>
+        train:
+          <Training regimen and checkpoint schedule>
+        validation:
+          <Checkpoint-bound validation and early stopping>
         build:
           <Rules as to how to build reconstructed object representations>
         post:
@@ -93,8 +98,21 @@ class Driver:
             indicates a single-process run or a launcher-managed rank that has
             not yet been assigned at driver construction time.
         """
+        # Normalize legacy block locations before dispatching top-level config.
+        cfg = normalize_config(cfg)
+
         # Process the full configuration dictionary and store it
-        base, io, geo, model, build, post, ana = self.process_config(**cfg, rank=rank)
+        (
+            base,
+            io,
+            geo,
+            model,
+            train,
+            validation,
+            build,
+            post,
+            ana,
+        ) = self.process_config(**cfg, rank=rank)
         driver_base = self.extract_driver_base_config(base)
 
         # Initialize the timers and the configuration dictionary
@@ -102,7 +120,9 @@ class Driver:
         self.watch.initialize("iteration")
 
         # Initialize the base driver configuration parameters
-        train = self.initialize_base(**driver_base, rank=rank)
+        self.initialize_base(**driver_base, rank=rank)
+        if train is not None and self.distributed and not self.ddp:
+            raise ValueError("Distributed training requires `ddp: true`.")
 
         # Initialize the detector geometry singleton once and for all modules
         self.initialize_geo(geo)
@@ -112,6 +132,9 @@ class Driver:
 
         # Initialize the ML model
         self.initialize_model(model, train)
+
+        # Initialize checkpoint-bound validation against the training model
+        self.initialize_validation(validation, io)
 
         # Initialize the data representation builder
         self.initialize_builder(build)
@@ -134,6 +157,8 @@ class Driver:
         base: dict[str, Any] | None = None,
         geo: dict[str, Any] | None = None,
         model: dict[str, Any] | None = None,
+        train: dict[str, Any] | None = None,
+        validation: dict[str, Any] | None = None,
         build: dict[str, Any] | None = None,
         post: dict[str, Any] | None = None,
         ana: dict[str, Any] | None = None,
@@ -141,6 +166,8 @@ class Driver:
     ) -> tuple[
         dict[str, Any],
         dict[str, Any],
+        dict[str, Any] | None,
+        dict[str, Any] | None,
         dict[str, Any] | None,
         dict[str, Any] | None,
         dict[str, Any] | None,
@@ -159,6 +186,10 @@ class Driver:
             Geometry configuration dictionary.
         model : dict[str, Any] | None, optional
             Model configuration dictionary.
+        train : dict[str, Any] | None, optional
+            Top-level training regimen configuration.
+        validation : dict[str, Any] | None, optional
+            Checkpoint-bound validation configuration.
         build : dict[str, Any] | None, optional
             Representation-building configuration dictionary.
         post : dict[str, Any] | None, optional
@@ -172,8 +203,8 @@ class Driver:
         -------
         tuple
             Tuple containing the normalized ``base``, ``io``, ``geo``,
-            ``model``, ``build``, ``post``, and ``ana`` configuration
-            dictionaries in that order.
+            ``model``, ``train``, ``validation``, ``build``, ``post``, and
+            ``ana`` configuration dictionaries in that order.
         """
         # Copy user-provided configuration blocks before normalizing them. The
         # driver stores the resolved configuration, but should not mutate the
@@ -185,6 +216,8 @@ class Driver:
         io = deepcopy(io)
         geo = deepcopy(geo)
         model = deepcopy(model)
+        train = deepcopy(train)
+        validation = deepcopy(validation)
         build = deepcopy(build)
         post = deepcopy(post)
         ana = deepcopy(ana)
@@ -210,6 +243,10 @@ class Driver:
             self.cfg["geo"] = geo
         if model is not None:
             self.cfg["model"] = model
+        if train is not None:
+            self.cfg["train"] = train
+        if validation is not None:
+            self.cfg["validation"] = validation
         if build is not None:
             self.cfg["build"] = build
         if post is not None:
@@ -230,7 +267,7 @@ class Driver:
         logger.info(yaml.dump(self.cfg, default_flow_style=None, sort_keys=False))
 
         # Return updated configuration
-        return base, io, geo, model, build, post, ana
+        return base, io, geo, model, train, validation, build, post, ana
 
     def normalize_seed_config(self, base: dict[str, Any], io: dict[str, Any]) -> None:
         """Normalize driver and sampler seed configuration in place.
@@ -318,9 +355,8 @@ class Driver:
         distributed: bool = False,
         ddp: bool | None = None,
         split_output: bool = False,
-        train: dict[str, Any] | None = None,
         tensorboard: bool | Mapping[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> None:
         """Initialize the driver state derived from the ``base`` block.
 
         Parameters
@@ -364,19 +400,11 @@ class Driver:
             retaining rank-based data sharding.
         split_output : bool, default False
             If ``True``, write one output file per input file.
-        train : dict[str, Any] | None, optional
-            Training configuration dictionary. This method does not interpret
-            the content; it returns it so the model manager can do so.
         tensorboard : bool | Mapping[str, Any] | None, optional
             TensorBoard logging configuration. ``False`` or ``None`` disable
             TensorBoard logging, ``True`` uses default settings, and a mapping
             overrides defaults such as output directory and flush interval.
 
-        Returns
-        -------
-        dict[str, Any] | None
-            Training configuration dictionary to forward into the model
-            manager, if any.
         """
         # Set up the seed
         random.seed(seed)
@@ -409,9 +437,6 @@ class Driver:
         self.ddp = self.distributed if ddp is None else ddp
         if self.ddp and not self.distributed:
             raise ValueError("`ddp` requires distributed execution.")
-        if train is not None and self.distributed and not self.ddp:
-            raise ValueError("Distributed training requires `ddp: true`.")
-
         # Store general parameters
         self.dtype = dtype
         self.log_dir = log_dir
@@ -426,8 +451,6 @@ class Driver:
         self.log_step = log_step
         self.split_output = split_output
         self.tensorboard_cfg = tensorboard
-
-        return train
 
     def initialize_io(self, io: Mapping[str, Any]) -> None:
         """Initialize the input/output manager.
@@ -479,7 +502,7 @@ class Driver:
         model : Mapping[str, Any] | None, optional
             Model configuration mapping.
         train : Mapping[str, Any] | None, optional
-            Training configuration mapping extracted from the base block.
+            Top-level training configuration mapping.
 
         Notes
         -----
@@ -514,6 +537,57 @@ class Driver:
             rank=self.rank,
             distributed=getattr(self, "ddp", getattr(self, "distributed", False)),
             iter_per_epoch=self.io.iter_per_epoch,
+        )
+
+    def initialize_validation(
+        self,
+        validation: Mapping[str, Any] | None,
+        io: Mapping[str, Any],
+    ) -> None:
+        """Initialize checkpoint-bound validation, if configured.
+
+        Validation inherits the training loader schema and runtime settings,
+        replacing only its dataset sources and stochastic sampling behavior.
+        It reuses the live model so distributed training and validation share
+        the same ranks, devices and DDP process group.
+
+        Parameters
+        ----------
+        validation : mapping, optional
+            Validation source, fraction and early-stopping configuration.
+        io : mapping
+            Training I/O configuration from which to derive the loader.
+
+        Raises
+        ------
+        ValueError
+            If validation is requested outside training, without a checkpoint
+            cadence, or without a loader-backed input pipeline.
+        """
+        self.validation = None
+        if validation is None:
+            return
+        if self.model is None or not self.model.train:
+            raise ValueError("On-the-fly validation requires a training model.")
+        if self.model.save_step is None:
+            raise ValueError(
+                "On-the-fly validation requires `train.save_step` or "
+                "`train.save_epoch`."
+            )
+
+        loader = io.get("loader")
+        if not isinstance(loader, Mapping):
+            raise ValueError("On-the-fly validation requires `io.loader`.")
+
+        self.validation = ValidationManager(
+            validation,
+            loader,
+            self.model,
+            rank=self.rank,
+            dtype=self.dtype,
+            world_size=self.world_size,
+            distributed=self.distributed,
+            seed=self.seed,
         )
 
     def initialize_builder(self, build: Mapping[str, Any] | None = None) -> None:
@@ -741,11 +815,42 @@ class Driver:
                 entry = None if self.io.has_loader else iteration
                 data = self.process(entry=entry, iteration=iteration, epoch=epoch)
 
+                # Checkpoint boundaries are driver-owned so all ranks can
+                # validate before rank zero serializes the live weights.
+                stop_training = False
+                if (
+                    self.model is not None
+                    and self.model.train
+                    and self.model.should_save(iteration)
+                ):
+                    validation_state = None
+                    if self.validation is not None:
+                        metrics = self.validation.run(iteration)
+                        data.update(
+                            {f"val_{key}": value for key, value in metrics.items()}
+                        )
+                        stop_training = self.validation.update_early_stopping(metrics)
+                        validation_state = self.validation.checkpoint_state(metrics)
+
+                    if self.main_process:
+                        # Retain model-owned save timing around serialization
+                        self.model.watch.start("save")
+                        self.model.save_state(iteration, epoch, validation_state)
+                        self.model.watch.stop("save")
+                        self.watch.update(self.model.watch, "model")
+
                 # Log the output
                 self.log(data, tstamp, iteration, epoch)
 
                 # Release the memory for the next iteration
                 data = None
+                if stop_training:
+                    logger.info(
+                        "Early stopping triggered at iteration %d (epoch %.4f).",
+                        iteration,
+                        epoch,
+                    )
+                    break
         finally:
             self.cleanup()
 
@@ -755,6 +860,8 @@ class Driver:
             self.ana.close()
         if self.log_manager is not None:
             self.log_manager.close()
+        if getattr(self, "validation", None) is not None:
+            self.validation.close()
         if hasattr(self, "io"):
             self.io.close()
 

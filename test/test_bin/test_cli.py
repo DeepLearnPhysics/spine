@@ -22,7 +22,8 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
         cli_module,
         "load_config_file",
         lambda cfg_path: {
-            "base": {"train": {}},
+            "base": {},
+            "train": {},
             "io": {"reader": {"file_list": "stale.txt"}, "writer": {}},
             "model": {},
         },
@@ -63,7 +64,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["base"]["log_dir"] == "logs"
     assert cfg["base"]["distributed"] is True
     assert cfg["base"]["world_size"] == 4
-    assert cfg["base"]["train"]["weight_prefix"] == "weights"
+    assert cfg["train"]["weight_prefix"] == "weights"
     assert cfg["io"]["reader"]["file_keys"] == ["a.root"]
     assert cfg["io"]["reader"]["file_list"] is None
     assert cfg["io"]["reader"]["n_entry"] == 12

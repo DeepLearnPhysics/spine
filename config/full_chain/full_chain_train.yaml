@@ -22,12 +22,13 @@ base:
   log_dir: logs/full_chain/train
   prefix_log: true
   split_output: false
-  train:
-    weight_prefix: weights/full_chain/snapshot
-    save_epoch: 1.0
-    optimizer:
-      name: Adam
-      lr: 0.001
+
+train:
+  weight_prefix: weights/full_chain/snapshot
+  save_epoch: 1.0
+  optimizer:
+    name: Adam
+    lr: 0.001
 
 io:
   loader:

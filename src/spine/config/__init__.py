@@ -26,12 +26,14 @@ from .errors import (
     ConfigValidationError,
 )
 from .load import load_config, load_config_file
+from .normalize import normalize_config
 
 __version__ = API_VERSION
 
 __all__ = [
     "load_config",
     "load_config_file",
+    "normalize_config",
     "download_from_url",
     "get_cache_dir",
     "ConfigError",

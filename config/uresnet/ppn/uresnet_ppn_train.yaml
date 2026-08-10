@@ -10,12 +10,13 @@ base:
   unwrap: false
   log_dir: logs/uresnet_ppn/train
   log_step: 1
-  train:
-    weight_prefix: weights/uresnet_ppn/snapshot
-    save_epoch: 1.0
-    optimizer:
-      name: Adam
-      lr: 0.001
+
+train:
+  weight_prefix: weights/uresnet_ppn/snapshot
+  save_epoch: 1.0
+  optimizer:
+    name: Adam
+    lr: 0.001
 
 io:
   loader:

@@ -46,9 +46,11 @@ def get_inference_cfg(
         cfg = open(cfg, "r", encoding="utf-8")
         cfg = yaml.safe_load(cfg)
 
-    # Turn train to False
-    if "train" in cfg["base"]:
-        del cfg["base"]["train"]
+    # Remove training and checkpoint-bound validation configuration. Accept
+    # the legacy nested location when converting older configurations.
+    cfg.pop("train", None)
+    cfg.pop("validation", None)
+    cfg["base"].pop("train", None)
 
     # Turn on unwrapper
     cfg["base"]["unwrap"] = True
