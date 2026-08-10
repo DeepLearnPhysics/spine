@@ -528,6 +528,10 @@ def test_initialize_tensorboard_logger(monkeypatch, tmp_path):
         os.path.join(drv.log_dir, "tensorboard"),
     )
 
+    drv.main_process = False
+    drv.initialize_log()
+    assert created[-1][1] is None
+
 
 def test_driver_constructor_initializes_optional_managers(monkeypatch):
     """__init__ should connect optional geometry/model/build/post/ana managers."""
@@ -800,6 +804,10 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
     with pytest.raises(ValueError, match="training model"):
         drv.initialize_validation({"file_keys": "val.root"}, {"loader": {}})
 
+    drv.model = SimpleNamespace(lr_scheduler_monitor="loss")
+    with pytest.raises(ValueError, match="requires a `validation` block"):
+        drv.initialize_validation(None, {"loader": {}})
+
     drv.model = SimpleNamespace(train=True, save_step=None)
     with pytest.raises(ValueError, match="save_step"):
         drv.initialize_validation({"file_keys": "val.root"}, {"loader": {}})
@@ -831,6 +839,95 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
         "distributed": True,
         "seed": 7,
     }
+
+
+def test_restore_training_runtime_selects_process_rank(monkeypatch):
+    """Resume should restore only the current rank's RNG and loader cursor."""
+    drv = bare_driver()
+    drv.rank = 1
+    drv.world_size = 2
+    drv.model = SimpleNamespace(
+        resume_training=True,
+        start_iteration=4,
+        checkpoint_runtime_state={
+            "world_size": 2,
+            "ranks": [
+                {"rank": 0, "rng": {"rank": 0}, "io": {"cursor": 0}},
+                {
+                    "rank": 1,
+                    "rng": {"rank": 1},
+                    "io": {"next_iteration": 4, "cursor": 3},
+                },
+            ],
+        },
+    )
+    restored = []
+    drv.io = SimpleNamespace(
+        restore_checkpoint_state=lambda state: restored.append(("io", state))
+    )
+    monkeypatch.setattr(
+        driver_mod.runtime,
+        "restore_rng_state",
+        lambda state: restored.append(("rng", state)),
+    )
+
+    drv.restore_training_runtime()
+
+    assert restored == [
+        ("rng", {"rank": 1}),
+        ("io", {"next_iteration": 4, "cursor": 3}),
+    ]
+
+
+def test_restore_training_runtime_rejects_changed_world_size(monkeypatch):
+    """Rank-local state should not be applied to a different process world."""
+    drv = bare_driver()
+    drv.rank = 0
+    drv.world_size = 4
+    drv.model = SimpleNamespace(
+        resume_training=True,
+        checkpoint_runtime_state={"world_size": 2, "ranks": []},
+    )
+    drv.io = SimpleNamespace()
+    monkeypatch.setattr(
+        driver_mod.runtime,
+        "restore_rng_state",
+        lambda _state: pytest.fail("RNG state should not be restored"),
+    )
+
+    with pytest.warns(RuntimeWarning, match="world size"):
+        drv.restore_training_runtime()
+
+
+def test_restore_training_runtime_handles_missing_or_inconsistent_rank_state():
+    """Resume should expose absent rank state and reject mismatched cursors."""
+    drv = bare_driver()
+    drv.rank = 0
+    drv.world_size = 1
+    drv.io = SimpleNamespace()
+    drv.model = SimpleNamespace(
+        resume_training=True,
+        start_iteration=3,
+        checkpoint_runtime_state=None,
+    )
+    drv.restore_training_runtime()
+
+    drv.model.checkpoint_runtime_state = {"world_size": 1, "ranks": []}
+    with pytest.warns(RuntimeWarning, match="rank 0"):
+        drv.restore_training_runtime()
+
+    drv.model.checkpoint_runtime_state = {
+        "world_size": 1,
+        "ranks": [
+            {
+                "rank": 0,
+                "rng": {},
+                "io": {"next_iteration": 2},
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="global step"):
+        drv.restore_training_runtime()
 
 
 def test_initialize_ana_columnar_guards_and_projection(monkeypatch):
@@ -1079,6 +1176,44 @@ def test_run_loop_resets_loader_logs_and_closes():
         drv.run()
 
 
+def test_run_resumes_epoch_progress_across_batch_size_change():
+    """Saved epochs should not be reinterpreted through the new loader length."""
+    drv = bare_driver()
+    calls: list[object] = []
+    epochs: list[float] = []
+    drv.iterations = 220
+    drv.epochs = 22.0
+    drv.epoch_based = True
+    drv.model = SimpleNamespace(
+        train=True,
+        start_iteration=200,
+        start_epoch=20.0,
+        should_save=lambda iteration: False,
+    )
+    drv.validation = None
+    drv.ana = None
+    drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=10,
+        set_resume_progress=lambda iteration, epoch: calls.append(
+            ("resume", iteration, epoch)
+        ),
+        prepare_iteration=lambda iteration: None,
+        close=lambda: calls.append("io_close"),
+    )
+    drv.initialize_log = lambda: None
+    drv.process = lambda **kwargs: epochs.append(kwargs["epoch"]) or {}
+    drv.log = lambda *_args: None
+
+    drv.run()
+
+    assert calls[0] == ("resume", 200, 20.0)
+    assert len(epochs) == 20
+    assert epochs[0] == pytest.approx(20.1)
+    assert epochs[-1] == pytest.approx(22.0)
+
+
 def test_run_loop_cleans_up_on_processing_failure():
     """run should close resources even if processing raises."""
     drv = bare_driver()
@@ -1122,6 +1257,7 @@ def test_run_validates_before_checkpoint_and_stops_early():
     class FakeModel:
         train = True
         start_iteration = 0
+        device = "cpu"
         watch = FakeWatchManager()
 
         @staticmethod
@@ -1129,10 +1265,22 @@ def test_run_validates_before_checkpoint_and_stops_early():
             return True
 
         @staticmethod
-        def save_state(iteration, epoch, validation):
-            calls.append(("save", iteration, epoch, validation))
+        def save_state(iteration, epoch, validation, **kwargs):
+            calls.append(("save", iteration, epoch, validation, kwargs))
+            return "snapshot-0.ckpt"
+
+        @staticmethod
+        def save_best_state(checkpoint_path, path):
+            calls.append(("best", checkpoint_path, path))
+
+        @staticmethod
+        def step_checkpoint_scheduler(metrics):
+            calls.append(("scheduler", metrics))
 
     class FakeValidation:
+        io = SimpleNamespace(dataset_provenance=lambda: {"files": ["validation.root"]})
+        best_checkpoint = SimpleNamespace(path="best.ckpt")
+
         @staticmethod
         def run(iteration):
             calls.append(("validate", iteration))
@@ -1141,6 +1289,11 @@ def test_run_validates_before_checkpoint_and_stops_early():
         @staticmethod
         def update_early_stopping(metrics):
             calls.append(("stop", metrics))
+            return True
+
+        @staticmethod
+        def update_best_checkpoint(metrics):
+            calls.append(("select_best", metrics))
             return True
 
         @staticmethod
@@ -1157,12 +1310,17 @@ def test_run_validates_before_checkpoint_and_stops_early():
     drv.validation = FakeValidation()
     drv.main_process = True
     drv.distributed = False
+    drv.rank = None
+    drv.world_size = 0
+    drv.cfg = {"base": {}, "train": {}}
     drv.ana = None
     drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
     drv.io = SimpleNamespace(
         has_loader=True,
         iter_per_epoch=1,
         prepare_iteration=lambda iteration: None,
+        checkpoint_state=lambda next_iteration: {"next_iteration": next_iteration},
+        dataset_provenance=lambda: {"files": ["train.root"]},
         close=lambda: calls.append("io_close"),
     )
     drv.initialize_log = lambda: None
@@ -1172,9 +1330,14 @@ def test_run_validates_before_checkpoint_and_stops_early():
     drv.run()
 
     assert calls[0] == ("validate", 0)
-    assert calls[2][0] == "save"
-    assert calls[2][3]["metrics"] == {"loss": 2.0}
-    assert calls[3] == ("log", {"loss": 1.0, "val_loss": 2.0})
+    assert calls[1] == ("select_best", {"loss": 2.0})
+    assert calls[3] == ("scheduler", {"loss": 2.0})
+    assert calls[4][0] == "save"
+    assert calls[4][3]["metrics"] == {"loss": 2.0}
+    assert calls[4][4]["config"] == drv.cfg
+    assert calls[4][4]["runtime_state"]["ranks"][0]["rank"] == 0
+    assert calls[5] == ("best", "snapshot-0.ckpt", "best.ckpt")
+    assert calls[6] == ("log", {"loss": 1.0, "val_loss": 2.0})
     assert calls[-3:] == ["log_close", "validation_close", "io_close"]
     assert ("start", "save") in FakeModel.watch.calls
     assert ("stop", "save") in FakeModel.watch.calls
@@ -1244,6 +1407,41 @@ def test_log_collects_scalars_memory_and_stdout(monkeypatch):
     drv.model = None
     drv.log({"index": 9}, "2026-01-01 00:00:01", iteration=1, epoch=1.0)
     assert rows[-1]["gpu_mem"] == 2.0
+
+
+@pytest.mark.skipif(not driver_mod.TORCH_AVAILABLE, reason="PyTorch is required.")
+def test_reduce_training_metrics_averages_distributed_scalars(monkeypatch):
+    """DDP logs should contain global means while structured data stays local."""
+    drv = bare_driver()
+    drv.distributed = True
+    drv.model = SimpleNamespace(train=True, device="cpu")
+    data = {
+        "loss": driver_mod.torch.tensor(2.0),
+        "accuracy": 0.5,
+        "prediction": [1, 2],
+        "converged": True,
+    }
+
+    monkeypatch.setattr(driver_mod.torch.distributed, "is_initialized", lambda: True)
+    monkeypatch.setattr(driver_mod.torch.distributed, "get_world_size", lambda: 2)
+    monkeypatch.setattr(
+        driver_mod.torch.distributed,
+        "all_reduce",
+        lambda values: values.add_(
+            driver_mod.torch.tensor([4.0, 1.5], dtype=values.dtype)
+        ),
+    )
+
+    drv.reduce_training_metrics(data)
+
+    assert data["loss"] == pytest.approx(3.0)
+    assert data["accuracy"] == pytest.approx(1.0)
+    assert data["prediction"] == [1, 2]
+    assert data["converged"] is True
+
+    structured = {"prediction": [1, 2]}
+    drv.reduce_training_metrics(structured)
+    assert structured == {"prediction": [1, 2]}
 
 
 def test_log_requires_initialized_log_manager():

@@ -12,10 +12,25 @@ import numpy as np
 
 from spine.io import IOManager
 from spine.utils.conditional import torch
+from spine.utils.torch import runtime
 
 from .manager import ModelManager
 
 __all__ = ["ValidationManager"]
+
+
+def _metric_improved(
+    value: float,
+    best: float | None,
+    mode: str,
+    min_delta: float,
+) -> bool:
+    """Return whether ``value`` improves on a monitored best value."""
+    if best is None:
+        return True
+    if mode == "min":
+        return value < best - min_delta
+    return value > best + min_delta
 
 
 class EarlyStopping:
@@ -134,11 +149,7 @@ class EarlyStopping:
             )
 
         value = float(metrics[self.monitor])
-        improved = self.best is None
-        if self.best is not None and self.mode == "min":
-            improved = value < self.best - self.min_delta
-        elif self.best is not None:
-            improved = value > self.best + self.min_delta
+        improved = _metric_improved(value, self.best, self.mode, self.min_delta)
 
         if improved:
             self.best = value
@@ -166,6 +177,138 @@ class EarlyStopping:
         }
 
 
+class BestCheckpoint:
+    """Track which checkpoint produced the best validation metric.
+
+    Parameters
+    ----------
+    monitor : str
+        Validation scalar used to select the best checkpoint.
+    mode : {'min', 'max'}
+        Direction in which the monitored metric improves.
+    min_delta : float
+        Minimum absolute change required to replace the best checkpoint.
+    path : str or None
+        Optional stable checkpoint destination. When omitted, the model weight
+        prefix is suffixed with ``-best.ckpt``.
+    best : float or None
+        Best monitored value observed so far.
+    """
+
+    def __init__(
+        self,
+        monitor: str = "loss",
+        mode: str = "min",
+        min_delta: float = 0.0,
+        path: str | None = None,
+        state: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Initialize the best-checkpoint selection policy.
+
+        Parameters
+        ----------
+        monitor : str, default 'loss'
+            Validation scalar used to select the best checkpoint.
+        mode : {'min', 'max'}, default 'min'
+            Direction in which the monitored metric improves.
+        min_delta : float, default 0.0
+            Minimum absolute change required to replace the best checkpoint.
+        path : str, optional
+            Stable destination for the promoted checkpoint.
+        state : mapping, optional
+            Previously checkpointed best-metric progress.
+
+        Raises
+        ------
+        ValueError
+            If the mode or minimum delta is invalid.
+        TypeError
+            If the destination path is not a string.
+        """
+        if mode not in {"min", "max"}:
+            raise ValueError("Best-checkpoint `mode` must be 'min' or 'max'.")
+        if min_delta < 0.0:
+            raise ValueError("Best-checkpoint `min_delta` must be non-negative.")
+        if path is not None and not isinstance(path, str):
+            raise TypeError("Best-checkpoint `path` must be a string.")
+
+        self.monitor = monitor
+        self.mode = mode
+        self.min_delta = float(min_delta)
+        self.path = path
+        self.best: float | None = None
+
+        if state is not None:
+            self.restore(state)
+
+    def restore(self, state: Mapping[str, Any]) -> None:
+        """Restore compatible best-metric progress from a checkpoint.
+
+        Parameters
+        ----------
+        state : mapping
+            Serialized best-checkpoint state.
+
+        Raises
+        ------
+        ValueError
+            If the checkpoint monitors a different metric or direction.
+        """
+        if state.get("monitor") != self.monitor or state.get("mode") != self.mode:
+            raise ValueError(
+                "Checkpoint best-checkpoint policy does not match the current "
+                "`monitor` and `mode`."
+            )
+        best = state.get("best")
+        self.best = None if best is None else float(best)
+
+    def update(self, metrics: Mapping[str, float]) -> bool:
+        """Update the best metric and select checkpoint promotion.
+
+        Parameters
+        ----------
+        metrics : mapping[str, float]
+            Globally reduced validation metrics.
+
+        Returns
+        -------
+        bool
+            Whether the current checkpoint should replace the saved best.
+
+        Raises
+        ------
+        KeyError
+            If the monitored metric is absent.
+        """
+        if self.monitor not in metrics:
+            available = ", ".join(sorted(metrics))
+            raise KeyError(
+                f"Best-checkpoint metric `{self.monitor}` was not produced. "
+                f"Available scalar metrics: {available}."
+            )
+
+        value = float(metrics[self.monitor])
+        improved = _metric_improved(value, self.best, self.mode, self.min_delta)
+        if improved:
+            self.best = value
+        return improved
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return serializable best-checkpoint progress.
+
+        Returns
+        -------
+        dict
+            Policy parameters and best monitored value.
+        """
+        return {
+            "monitor": self.monitor,
+            "mode": self.mode,
+            "min_delta": self.min_delta,
+            "best": self.best,
+        }
+
+
 class ValidationManager:
     """Run deterministic validation against the live training model.
 
@@ -186,6 +329,8 @@ class ValidationManager:
         Number of validation batches processed per checkpoint.
     early_stopping : EarlyStopping or None
         Optional early-stopping policy.
+    best_checkpoint : BestCheckpoint or None
+        Optional best-checkpoint selection policy.
     """
 
     SOURCE_KEYS = frozenset({"file_keys", "file_list"})
@@ -212,11 +357,12 @@ class ValidationManager:
         distributed: bool,
         seed: int,
     ) -> None:
-        """Build a validation loader and optional early-stopping policy.
+        """Build a validation loader and optional validation policies.
 
         ``cfg`` only describes validation sources, the fraction of the loader
-        to visit, and early stopping. The training loader supplies the dataset
-        schema, batching, collation and worker configuration.
+        to visit, early stopping and best-checkpoint selection. The training
+        loader supplies the dataset schema, batching, collation and worker
+        configuration.
 
         Parameters
         ----------
@@ -242,13 +388,17 @@ class ValidationManager:
         ValueError
             If ``fraction`` is outside ``(0, 1]``.
         TypeError
-            If the early-stopping configuration is not a mapping.
+            If a validation policy has an invalid configuration type.
         """
         # Parse validation-owned scheduling options
         cfg = deepcopy(dict(cfg))
         fraction = cfg.pop("fraction", 1.0)
         early_cfg = cfg.pop("early_stopping", None)
-        if not isinstance(fraction, Real) or not 0.0 < fraction <= 1.0:
+        best_cfg = cfg.pop("best_checkpoint", None)
+        if not isinstance(fraction, Real):
+            raise TypeError("Validation `fraction` must be a real number.")
+        fraction = float(fraction)
+        if not 0.0 < fraction <= 1.0:
             raise ValueError("Validation `fraction` must be in the interval (0, 1].")
 
         # Derive and initialize the validation input pipeline
@@ -262,16 +412,28 @@ class ValidationManager:
         )
         self.model = model
         self.distributed = distributed
-        self.num_iterations = max(1, math.ceil(float(fraction) * len(self.io.loader)))
+        assert self.io.loader is not None
+        self.num_iterations = max(1, math.ceil(fraction * len(self.io.loader)))
 
-        # Restore optional early-stopping progress from the loaded checkpoint
+        # Restore optional validation policies from the loaded checkpoint.
+        restored = model.checkpoint_validation or {}
         self.early_stopping = None
         if early_cfg is not None:
             if not isinstance(early_cfg, Mapping):
                 raise TypeError("`validation.early_stopping` must be a mapping.")
-            restored = model.checkpoint_validation or {}
             state = restored.get("early_stopping")
             self.early_stopping = EarlyStopping(**early_cfg, state=state)
+
+        self.best_checkpoint = None
+        if best_cfg is not None and best_cfg is not False:
+            if best_cfg is True:
+                best_cfg = {}
+            elif not isinstance(best_cfg, Mapping):
+                raise TypeError(
+                    "`validation.best_checkpoint` must be a boolean or mapping."
+                )
+            state = restored.get("best_checkpoint")
+            self.best_checkpoint = BestCheckpoint(**best_cfg, state=state)
 
     @classmethod
     def build_loader_config(
@@ -537,6 +699,7 @@ class ValidationManager:
             If the model does not produce any scalar validation outputs.
         """
         # Reset deterministic sampler and loader state for this pass
+        assert self.io.loader is not None
         sampler = self.io.loader.sampler
         if self.distributed and hasattr(sampler, "set_epoch"):
             sampler.set_epoch(0)
@@ -567,7 +730,7 @@ class ValidationManager:
                 torch.distributed.all_reduce(reduced)
                 totals[key], counts[key] = reduced.tolist()
 
-        return {key: totals[key] / counts[key] for key in totals}
+        return {key: total / counts[key] for key, total in totals.items()}
 
     def update_early_stopping(self, metrics: Mapping[str, float]) -> bool:
         """Update early stopping after a validation pass.
@@ -587,6 +750,23 @@ class ValidationManager:
             return False
         return self.early_stopping.update(metrics)
 
+    def update_best_checkpoint(self, metrics: Mapping[str, float]) -> bool:
+        """Update and select the best checkpoint observed so far.
+
+        Parameters
+        ----------
+        metrics : mapping[str, float]
+            Globally reduced validation metrics.
+
+        Returns
+        -------
+        bool
+            Whether the current checkpoint should replace the saved best.
+        """
+        if self.best_checkpoint is None:
+            return False
+        return self.best_checkpoint.update(metrics)
+
     def checkpoint_state(self, metrics: Mapping[str, float]) -> dict[str, Any]:
         """Build validation state to store alongside checkpoint weights.
 
@@ -603,6 +783,8 @@ class ValidationManager:
         state: dict[str, Any] = {"metrics": dict(metrics)}
         if self.early_stopping is not None:
             state["early_stopping"] = self.early_stopping.state_dict()
+        if self.best_checkpoint is not None:
+            state["best_checkpoint"] = self.best_checkpoint.state_dict()
         return state
 
     @staticmethod
@@ -623,7 +805,7 @@ class ValidationManager:
             return float(value)
         if isinstance(value, np.ndarray) and value.size == 1:
             return float(value.item())
-        if isinstance(value, torch.Tensor) and value.numel() == 1:
+        if runtime.is_tensor(value) and value.numel() == 1:
             return float(value.detach().item())
         return None
 

@@ -122,6 +122,81 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+@pytest.mark.parametrize("resume", [True, False])
+def test_main_applies_resume_override(monkeypatch, tmp_path, resume):
+    """Dedicated resume flags should override the training configuration."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {},
+            "io": {"reader": {}},
+            "model": {},
+            "train": {"resume": not resume},
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        resume=resume,
+    )
+
+    assert captured["cfg"]["train"]["resume"] is resume
+
+
+def test_main_rejects_resume_without_training(monkeypatch, tmp_path):
+    """Resume CLI flags require a training configuration."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {"io": {"reader": {}}, "model": {}},
+    )
+
+    with pytest.raises(KeyError, match="requires a `train` block"):
+        cli_module.main(
+            config=str(config_path),
+            source=None,
+            source_list=None,
+            output=None,
+            output_dir=None,
+            output_suffix=None,
+            n=None,
+            nskip=None,
+            entry_list=None,
+            skip_entry_list=None,
+            log_dir=None,
+            weight_prefix=None,
+            weight_path=None,
+            weight_list=None,
+            config_overrides=None,
+            resume=True,
+        )
+
+
 def test_main_warns_when_output_options_have_no_writer(monkeypatch, tmp_path):
     """Output options should warn and be ignored when no writer is configured."""
     config_path = tmp_path / "config.yaml"
@@ -316,6 +391,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 weight_path="weights.ckpt",
                 weight_list="weights.txt",
                 config_overrides=["a=1"],
+                resume=None,
             )
 
         def add_argument(self, *args, **kwargs):

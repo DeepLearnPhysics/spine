@@ -22,7 +22,7 @@ Key features:
 - Modular configuration-driven model assembly.
 - Support for sparse and dense convolutions.
 - Graph neural network components.
-- Mixed precision and distributed training support.
+- Distributed training support.
 
 Example
 -------
@@ -38,7 +38,24 @@ The module integrates with the broader SPINE ecosystem for data I/O,
 visualization, and post-processing workflows.
 """
 
+from .checkpoint import (
+    CHECKPOINT_FORMAT_VERSION,
+    CheckpointManifest,
+    checkpoint_sha256,
+    inspect_checkpoint,
+    promote_checkpoint,
+    verify_checkpoint,
+)
 from .manager import ModelManager
 from .validation import ValidationManager
 
-__all__ = ["ModelManager", "ValidationManager"]
+__all__ = [
+    "CHECKPOINT_FORMAT_VERSION",
+    "CheckpointManifest",
+    "ModelManager",
+    "ValidationManager",
+    "checkpoint_sha256",
+    "inspect_checkpoint",
+    "promote_checkpoint",
+    "verify_checkpoint",
+]

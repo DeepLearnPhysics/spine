@@ -302,3 +302,102 @@ def test_distributed_proxy_sampler_pads_with_prefix_copy():
     dist_sampler = DistributedProxySampler(sampler, num_replicas=4, rank=0)
 
     assert list(dist_sampler) == [0, 4]
+
+
+def test_random_sampler_state_resumes_cached_epoch_and_rng():
+    """Sampler state should resume the remaining indexes and following epoch."""
+    sampler = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=8)
+    epoch = list(sampler)
+    state = sampler.state_dict()
+    following_epoch = list(sampler)
+
+    restored = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=99)
+    restored.load_state_dict(state, offset=4)
+
+    assert list(restored) == epoch[4:]
+    assert list(restored) == following_epoch
+
+    partial_state = sampler.state_dict(offset=4)
+    partial = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=1)
+    partial.load_state_dict(partial_state, offset=4)
+    assert list(partial) == sampler._last_indices[4:]
+
+    boundary_state = sampler.state_dict(offset=0)
+    boundary = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=1)
+    boundary.load_state_dict(boundary_state)
+    assert boundary._resume_indices is None
+
+
+def test_joint_sampler_state_resumes_pair_stream():
+    """Joint sampler state should retain the exact remaining overlay pairs."""
+    dataset = DummyJointDataset(size=12, secondary_size=3)
+    sampler = JointRandomSequenceBatchSampler(
+        dataset,
+        batch_size=4,
+        seed=5,
+        pair_probability=0.5,
+    )
+    epoch = list(sampler)
+    state = sampler.state_dict()
+
+    restored = JointRandomSequenceBatchSampler(
+        dataset,
+        batch_size=4,
+        seed=99,
+        pair_probability=0.5,
+    )
+    restored.load_state_dict(state, offset=8)
+
+    assert list(restored) == epoch[8:]
+
+    partial_state = sampler.state_dict(offset=8)
+    partial = JointRandomSequenceBatchSampler(
+        dataset,
+        batch_size=4,
+        seed=1,
+        pair_probability=0.5,
+    )
+    partial.load_state_dict(partial_state, offset=8)
+    assert list(partial) == epoch[8:]
+
+
+def test_distributed_sampler_state_resumes_rank_local_stream():
+    """Distributed sampler state should cache the process-local index order."""
+    base = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=6)
+    sampler = DistributedProxySampler(base, num_replicas=2, rank=1)
+    epoch = list(sampler)
+    state = sampler.state_dict()
+
+    restored_base = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=99)
+    restored = DistributedProxySampler(restored_base, num_replicas=2, rank=1)
+    restored.load_state_dict(state, offset=2)
+
+    assert list(restored) == epoch[2:]
+
+    partial_state = sampler.state_dict(offset=2)
+    partial_base = RandomSequenceBatchSampler(DummyDataset(12), batch_size=4, seed=1)
+    partial = DistributedProxySampler(partial_base, num_replicas=2, rank=1)
+    partial.load_state_dict(partial_state, offset=2)
+    assert list(partial) == epoch[2:]
+
+
+def test_sequential_bootstrap_and_joint_sequential_resume_branches():
+    """Every SPINE sampler family should consume restored partial indexes."""
+    sequential = SequentialBatchSampler(DummyDataset(4), batch_size=2, seed=1)
+    list(sequential)
+    sequential.load_state_dict(sequential.state_dict(offset=2))
+    assert list(sequential) == [2, 3]
+
+    bootstrap = BootstrapBatchSampler(DummyDataset(6), batch_size=2, seed=1)
+    epoch = list(bootstrap)
+    bootstrap.load_state_dict(bootstrap.state_dict(offset=2))
+    assert list(bootstrap) == epoch[2:]
+
+    joint = JointSequentialBatchSampler(
+        DummyJointDataset(size=4, secondary_size=2),
+        batch_size=2,
+        seed=1,
+    )
+    epoch = list(joint)
+    joint.load_state_dict(joint.state_dict(offset=2))
+    assert list(joint) == epoch[2:]

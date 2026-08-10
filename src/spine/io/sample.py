@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterator, Sized
+from collections.abc import Iterator, Mapping, Sized
 from typing import Any
 
 import numpy as np
@@ -39,6 +39,38 @@ __all__ = [
     "JointRandomSequenceBatchSampler",
     "JointBootstrapBatchSampler",
 ]
+
+
+def _serialize_random_state(state: tuple) -> dict[str, Any]:
+    """Convert a NumPy ``RandomState`` tuple to checkpoint-safe values."""
+    name, keys, position, has_gaussian, cached_gaussian = state
+    return {
+        "name": name,
+        "keys": keys.tolist(),
+        "position": int(position),
+        "has_gaussian": int(has_gaussian),
+        "cached_gaussian": float(cached_gaussian),
+    }
+
+
+def _deserialize_random_state(state: Mapping[str, Any]) -> tuple:
+    """Reconstruct a NumPy ``RandomState`` tuple from checkpoint values."""
+    return (
+        state["name"],
+        np.asarray(state["keys"], dtype=np.uint32),
+        int(state["position"]),
+        int(state["has_gaussian"]),
+        float(state["cached_gaussian"]),
+    )
+
+
+def _normalize_index(index: Any) -> Any:
+    """Cast NumPy scalar indexes recursively to Python primitives."""
+    if isinstance(index, np.generic):
+        return index.item()
+    if isinstance(index, tuple):
+        return tuple(_normalize_index(value) for value in index)
+    return index
 
 
 class AbstractBatchSampler(Sampler):
@@ -88,6 +120,8 @@ class AbstractBatchSampler(Sampler):
             ), f"The sampler seed must be an integer, got: {seed}."
 
         self._random = np.random.RandomState(seed=seed)  # pylint: disable=E1101
+        self._last_indices: list[Any] | None = None
+        self._resume_indices: list[Any] | None = None
 
         # Check that the batch_size is a sensible value
         self.batch_size = batch_size
@@ -126,6 +160,61 @@ class AbstractBatchSampler(Sampler):
         """Placeholder to be overridden by children classes."""
         raise NotImplementedError
 
+    def _resume(self) -> Iterator[Any] | None:
+        """Return and consume a restored partial-epoch index stream."""
+        if self._resume_indices is None:
+            return None
+        indices = self._resume_indices
+        self._resume_indices = None
+        return iter(indices)
+
+    def _record(self, indices: Any) -> Iterator[Any]:
+        """Cache one generated epoch order and return its iterator."""
+        self._last_indices = [_normalize_index(index) for index in indices]
+        return iter(self._last_indices)
+
+    def state_dict(self, offset: int | None = None) -> dict[str, Any]:
+        """Return sampler RNG and optional remaining epoch order.
+
+        ``offset=None`` retains the full cached order for direct callers.
+        Checkpoint code supplies an integer cursor, allowing epoch-boundary
+        checkpoints to omit indexes and mid-epoch checkpoints to store only
+        the unconsumed suffix.
+        """
+        indices = self._last_indices
+        partial_epoch = offset is not None and offset > 0
+        if offset is not None:
+            indices = None if offset == 0 or indices is None else indices[offset:]
+        return {
+            "random": _serialize_random_state(self._random.get_state()),
+            "indices": indices,
+            "partial_epoch": partial_epoch,
+        }
+
+    def load_state_dict(
+        self,
+        state: Mapping[str, Any],
+        offset: int = 0,
+    ) -> None:
+        """Restore sampler state and resume a cached epoch from ``offset``.
+
+        Parameters
+        ----------
+        state : mapping
+            State produced by :meth:`state_dict`.
+        offset : int, default 0
+            Number of process-local samples already consumed in the cached
+            epoch. Zero starts a new epoch from the restored RNG state.
+        """
+        self._random.set_state(_deserialize_random_state(state["random"]))
+        indices = state.get("indices")
+        self._last_indices = None if indices is None else list(indices)
+        self._resume_indices = None
+        if state.get("partial_epoch") and self._last_indices is not None:
+            self._resume_indices = self._last_indices
+        elif offset and self._last_indices is not None:
+            self._resume_indices = self._last_indices[offset:]
+
 
 class SequentialBatchSampler(AbstractBatchSampler):
     """Samples batches sequentially within the dataset."""
@@ -134,8 +223,11 @@ class SequentialBatchSampler(AbstractBatchSampler):
 
     def __iter__(self) -> Iterator[int]:
         """Iterates over sequential batches of data."""
+        resumed = self._resume()
+        if resumed is not None:
+            return resumed
         order = np.arange(self.num_samples, dtype=int)
-        return iter(order)
+        return self._record(order)
 
 
 class RandomSequenceBatchSampler(AbstractBatchSampler):
@@ -147,6 +239,10 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
         """Iterates over sequential batches of data randomly located
         in the dataset.
         """
+        resumed = self._resume()
+        if resumed is not None:
+            return resumed
+
         # Pick a general offset and produce sequence starts with respect to it.
         # Introducing this random offset ensures that the data is not
         # systematically batched in the same way
@@ -167,7 +263,7 @@ class RandomSequenceBatchSampler(AbstractBatchSampler):
         # Wrap indexes around if the offset is non-zero
         indices = indices % self.num_samples
 
-        return iter(indices)
+        return self._record(indices)
 
 
 class BootstrapBatchSampler(AbstractBatchSampler):
@@ -183,9 +279,13 @@ class BootstrapBatchSampler(AbstractBatchSampler):
         """Iterates over bootstrapped batches of data randomly picked
         from the dataset.
         """
+        resumed = self._resume()
+        if resumed is not None:
+            return resumed
+
         max_id = self.num_samples + 1 - self.batch_size
         starts = np.arange(0, max_id, self.batch_size, dtype=int)
-        bootstrap_indices = np.random.choice(
+        bootstrap_indices = self._random.choice(
             np.arange(self.num_samples), self.num_samples
         )
         batches = [
@@ -193,7 +293,7 @@ class BootstrapBatchSampler(AbstractBatchSampler):
             for start in starts
         ]
 
-        return iter(np.concatenate(batches))
+        return self._record(np.concatenate(batches))
 
 
 class _Sized:
@@ -269,6 +369,8 @@ class AbstractJointBatchSampler(Sampler):
         rng_seed = int(time.time()) if seed is None else seed + 2
         self._random_seed = rng_seed
         self._random = np.random.RandomState(seed=rng_seed)  # pylint: disable=E1101
+        self._last_indices: list[tuple[int, int | None]] | None = None
+        self._resume_indices: list[tuple[int, int | None]] | None = None
 
     def __len__(self) -> int:
         """Return the number of primary samples produced per epoch."""
@@ -283,6 +385,11 @@ class AbstractJointBatchSampler(Sampler):
             Primary indexes and independently sampled optional secondary
             indexes.
         """
+        if self._resume_indices is not None:
+            indices = self._resume_indices
+            self._resume_indices = None
+            return iter(indices)
+
         primary_indices = list(self.primary_sampler)
         pair_mask = self._random.random_sample(len(primary_indices))
         pair_mask = pair_mask < self.pair_probability
@@ -300,7 +407,41 @@ class AbstractJointBatchSampler(Sampler):
             else:
                 secondary_indices.append(None)
 
-        return iter(zip(primary_indices, secondary_indices))
+        self._last_indices = [
+            _normalize_index(index) for index in zip(primary_indices, secondary_indices)
+        ]
+        return iter(self._last_indices)
+
+    def state_dict(self, offset: int | None = None) -> dict[str, Any]:
+        """Return paired sampler RNG and optional remaining epoch order."""
+        indices = self._last_indices
+        partial_epoch = offset is not None and offset > 0
+        if offset is not None:
+            indices = None if offset == 0 or indices is None else indices[offset:]
+        return {
+            "random": _serialize_random_state(self._random.get_state()),
+            "primary": self.primary_sampler.state_dict(offset=0),
+            "secondary": self.secondary_sampler.state_dict(offset=0),
+            "indices": indices,
+            "partial_epoch": partial_epoch,
+        }
+
+    def load_state_dict(
+        self,
+        state: Mapping[str, Any],
+        offset: int = 0,
+    ) -> None:
+        """Restore paired sampler state and an optional partial epoch."""
+        self._random.set_state(_deserialize_random_state(state["random"]))
+        self.primary_sampler.load_state_dict(state["primary"])
+        self.secondary_sampler.load_state_dict(state["secondary"])
+        indices = state.get("indices")
+        self._last_indices = None if indices is None else list(indices)
+        self._resume_indices = None
+        if state.get("partial_epoch") and self._last_indices is not None:
+            self._resume_indices = self._last_indices
+        elif offset and self._last_indices is not None:
+            self._resume_indices = self._last_indices[offset:]
 
 
 class JointSequentialBatchSampler(AbstractJointBatchSampler):
@@ -322,6 +463,11 @@ class JointSequentialBatchSampler(AbstractJointBatchSampler):
         iterator of tuple[int, int or None]
             Repeatable primary and optional secondary index pairs.
         """
+        if self._resume_indices is not None:
+            indices = self._resume_indices
+            self._resume_indices = None
+            return iter(indices)
+
         state = self._random.get_state()
         self._random.seed(self._random_seed)
         try:
@@ -390,11 +536,18 @@ class DistributedProxySampler(DistributedSampler):
         # Store the underlying sampler and its parameters
         self.sampler = sampler
         self.batch_size = sampler.batch_size
+        self._last_indices: list[Any] | None = None
+        self._resume_indices: list[Any] | None = None
 
     def __iter__(self) -> Iterator[int]:
         """Overrides the basic iterator with one that takes into account
         the number of replicas and the rank of the sampler.
         """
+        if self._resume_indices is not None:
+            indices = self._resume_indices
+            self._resume_indices = None
+            return iter(indices)
+
         # Fetch the list of non-distributed indices
         indices = list(self.sampler)
 
@@ -419,4 +572,34 @@ class DistributedProxySampler(DistributedSampler):
         indices = [indices[i] for i in np.where(ranks == self.rank)[0]]
         assert len(indices) == self.num_samples
 
-        return iter(indices)
+        self._last_indices = list(indices)
+        return iter(self._last_indices)
+
+    def state_dict(self, offset: int | None = None) -> dict[str, Any]:
+        """Return distributed and underlying sampler state."""
+        indices = self._last_indices
+        partial_epoch = offset is not None and offset > 0
+        if offset is not None:
+            indices = None if offset == 0 or indices is None else indices[offset:]
+        return {
+            "epoch": int(self.epoch),
+            "sampler": self.sampler.state_dict(offset=0),
+            "indices": indices,
+            "partial_epoch": partial_epoch,
+        }
+
+    def load_state_dict(
+        self,
+        state: Mapping[str, Any],
+        offset: int = 0,
+    ) -> None:
+        """Restore distributed sampler state and an optional partial epoch."""
+        self.epoch = int(state.get("epoch", 0))
+        self.sampler.load_state_dict(state["sampler"])
+        indices = state.get("indices")
+        self._last_indices = None if indices is None else list(indices)
+        self._resume_indices = None
+        if state.get("partial_epoch") and self._last_indices is not None:
+            self._resume_indices = self._last_indices
+        elif offset and self._last_indices is not None:
+            self._resume_indices = self._last_indices[offset:]

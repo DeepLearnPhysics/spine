@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Mapping
 from typing import Any
 
@@ -139,6 +140,10 @@ class IOManager:
         self.reader = None
         self.writer = None
         self.columnar = False
+        self._resume_skip_batches = 0
+        self._iteration_origin = 0
+        self._epoch_origin = 0
+        self._epoch_batch_offset = 0
         self.iterations = iterations
         self.epochs = epochs
         self.distributed = distributed
@@ -521,6 +526,149 @@ class IOManager:
         if self.loader is not None:
             self.loader_iter = iter(self.loader)
 
+            # Generic samplers cannot expose their generated epoch order. In
+            # that case, replay batches up to the checkpoint cursor.
+            for _ in range(self._resume_skip_batches):
+                next(self.loader_iter)
+            self._resume_skip_batches = 0
+
+    def checkpoint_state(self, next_iteration: int) -> dict[str, Any] | None:
+        """Return loader state needed to continue at ``next_iteration``.
+
+        Parameters
+        ----------
+        next_iteration : int
+            First global iteration which will run after the checkpoint.
+
+        Returns
+        -------
+        dict or None
+            Loader cursor and optional checkpointable sampler state. Reader
+            mode has no training iterator and returns ``None``.
+        """
+        if self.loader is None:
+            return None
+
+        batch_offset = next_iteration % self.iter_per_epoch
+        sampler = self.loader.sampler
+        sampler_state = None
+        if hasattr(sampler, "state_dict"):
+            sample_offset = batch_offset * int(self.loader.batch_size)
+            try:
+                sampler_state = sampler.state_dict(offset=sample_offset)
+            except TypeError:
+                sampler_state = sampler.state_dict()
+
+        return {
+            "next_iteration": int(next_iteration),
+            "batch_offset": int(batch_offset),
+            "batch_size": int(self.loader.batch_size),
+            "sampler": sampler_state,
+            "num_workers": int(self.loader.num_workers),
+        }
+
+    def restore_checkpoint_state(self, state: Mapping[str, Any]) -> None:
+        """Restore a loader cursor and checkpointable sampler state.
+
+        Parameters
+        ----------
+        state : mapping
+            Loader state produced by :meth:`checkpoint_state`.
+
+        Notes
+        -----
+        Worker-process RNG and prefetch queues cannot be serialized by a
+        PyTorch DataLoader. Runs with workers replay the same sample indexes,
+        but stochastic worker-side augmentation may not be bit-for-bit exact.
+        """
+        if self.loader is None:
+            raise ValueError("Cannot restore loader state without a loader.")
+
+        checkpoint_batch_size = int(state.get("batch_size", self.loader.batch_size))
+        if checkpoint_batch_size != int(self.loader.batch_size):
+            warnings.warn(
+                "Training batch size changed from "
+                f"{checkpoint_batch_size} to {self.loader.batch_size}; sample "
+                "order is retained, but resumed batch boundaries will differ.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+        # Interpret the saved cursor using the batch size that produced it.
+        batch_offset = int(state.get("batch_offset", 0))
+        sampler_state = state.get("sampler")
+        sampler = self.loader.sampler
+        if sampler_state is not None and hasattr(sampler, "load_state_dict"):
+            sample_offset = batch_offset * checkpoint_batch_size
+            sampler.load_state_dict(sampler_state, offset=sample_offset)
+        elif batch_offset:
+            self._resume_skip_batches = batch_offset
+            warnings.warn(
+                "The checkpoint loader used a sampler without resumable state; "
+                "replaying batches to the saved cursor.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+        if int(state.get("num_workers", 0)) > 0:
+            warnings.warn(
+                "DataLoader worker RNG and prefetch queues cannot be restored; "
+                "sample order is preserved but stochastic worker transforms may "
+                "not resume bit-for-bit.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        self.loader_iter = None
+
+    def set_resume_progress(self, iteration: int, epoch: float) -> None:
+        """Anchor loader epoch boundaries to restored checkpoint progress.
+
+        Parameters
+        ----------
+        iteration : int
+            First global iteration to execute in the resumed process.
+        epoch : float
+            Completed epoch progress stored in the checkpoint.
+        """
+        self._iteration_origin = int(iteration)
+        self._epoch_origin = int(epoch)
+
+        # Preserve a fractional checkpoint position in the new loader cadence.
+        fraction = epoch - self._epoch_origin
+        self._epoch_batch_offset = int(round(fraction * self.iter_per_epoch))
+
+    def dataset_provenance(self) -> dict[str, Any] | None:
+        """Describe resolved dataset sources owned by this manager."""
+        if self.loader is None:
+            if self.reader is None:
+                return None
+            return {
+                "type": type(self.reader).__name__,
+                "files": list(self.reader.file_paths),
+            }
+        return self._dataset_provenance(self.loader.dataset)
+
+    @classmethod
+    def _dataset_provenance(cls, dataset: Any) -> dict[str, Any]:
+        """Recursively describe ordinary, joint and mixed dataset sources."""
+        result: dict[str, Any] = {
+            "type": getattr(dataset, "name", type(dataset).__name__),
+            "entries": len(dataset),
+        }
+        if getattr(dataset, "joint", False):
+            result["sources"] = {
+                "primary": cls._dataset_provenance(dataset.primary),
+                "secondary": cls._dataset_provenance(dataset.secondary),
+            }
+        elif hasattr(dataset, "primary") and hasattr(dataset, "cache"):
+            result["sources"] = {
+                "larcv": cls._dataset_provenance(dataset.primary),
+                "hdf5": cls._dataset_provenance(dataset.cache),
+            }
+        elif getattr(dataset, "reader", None) is not None:
+            result["files"] = list(dataset.reader.file_paths)
+        return result
+
     def prepare_iteration(self, iteration: int) -> None:
         """Prepare loader state for a driver iteration.
 
@@ -534,9 +682,12 @@ class IOManager:
         if self.loader is None:
             return
 
-        if self.loader_iter is None or iteration % self.iter_per_epoch == 0:
+        # Work in checkpoint-relative coordinates when batch size has changed.
+        relative_iteration = iteration - self._iteration_origin
+        epoch_iteration = self._epoch_batch_offset + relative_iteration
+        if self.loader_iter is None or epoch_iteration % self.iter_per_epoch == 0:
             if self.distributed:
-                epoch_cnt = iteration // self.iter_per_epoch
+                epoch_cnt = self._epoch_origin + epoch_iteration // self.iter_per_epoch
                 self.loader.sampler.set_epoch(epoch_cnt)
             self.reset_loader()
 
