@@ -292,6 +292,12 @@ train:
   optimizer:
     name: Adam
     lr: 0.001
+  lr_scheduler:
+    name: ReduceLROnPlateau
+    interval: checkpoint
+    monitor: loss
+    mode: min
+    patience: 2
 
 validation:
   file_keys: /path/to/validation/*.root
@@ -300,6 +306,10 @@ validation:
     monitor: loss
     mode: min
     patience: 5
+    min_delta: 0.0
+  best_checkpoint:
+    monitor: loss
+    mode: min
     min_delta: 0.0
 ```
 
@@ -319,7 +329,88 @@ validation:
 Use source names `larcv` and `hdf5` instead for a mixed dataset. Joint
 validation retains the overlay distribution but uses repeatable sequential
 primary/secondary pairing. Validation scalar outputs are logged with a
-`val_` prefix and stored in the checkpoint with early-stopping state.
+`val_` prefix and stored in the checkpoint with early-stopping and
+best-checkpoint state. When `best_checkpoint` is enabled, an improving
+snapshot is atomically copied to `<weight_prefix>-best.ckpt` with its own
+checksum. Set `best_checkpoint.path` to choose another stable destination.
+
+Learning-rate schedulers default to `interval: step`, preserving the
+historical update after every optimizer step. `interval: checkpoint` advances
+the scheduler after each checkpoint-bound validation and before serializing
+its state. An optional `monitor` passes the named validation scalar to metric-
+aware schedulers such as `ReduceLROnPlateau`; monitored schedulers therefore
+require a validation block.
+
+During distributed training, scalar model/loss outputs are averaged across
+ranks before CSV and stdout logging. Rank-specific timings and memory metrics
+remain local, while TensorBoard events are emitted by rank zero only.
+
+SPINE checkpoints use a versioned, backward-compatible format. In addition to
+model weights and progress, new checkpoints record optimizer and optional
+learning-rate-scheduler state, per-rank RNG and loader continuation state, the
+complete normalized configuration, resolved training/validation dataset
+sources, and a runtime manifest containing the SPINE/Python/PyTorch versions,
+creation time, distributed world size and source revision when discoverable.
+Every checkpoint is written atomically with an adjacent SHA-256 checksum:
+
+```text
+snapshot-1000.ckpt
+snapshot-1000.ckpt.sha256
+```
+
+When training is configured with one top-level `model.weight_path`, SPINE
+automatically restores all available training state. Use `resume: true` to
+make complete restoration strict: a checkpoint without optimizer state is
+then rejected. The historical `restore_optimizer: true` option remains
+supported and has the same strict behavior:
+
+```yaml
+model:
+  weight_path: weights/snapshot-1000.ckpt
+
+train:
+  resume: true
+  optimizer:
+    name: Adam
+    lr: 0.001
+```
+
+Set `resume: false` explicitly to use `weight_path` only as parameter
+initialization and start a new training process at iteration zero. The same
+choices are available as `--resume` and `--no-resume` command-line overrides.
+Training accepts exactly one checkpoint; `weight_list` remains an
+inference-only facility. During automatic resume, a legacy checkpoint without
+optimizer state retains its saved progress, restarts the optimizer and emits
+a warning.
+
+Epoch progress is restored independently from the global iteration number.
+Changing the batch size while resuming therefore continues from the saved
+epoch and recomputes the remaining epoch-based run length using the new
+number of batches per epoch. The global step remains monotonic. A batch-size
+change preserves the saved sample order when sampler state is available, but
+necessarily changes subsequent batch boundaries and emits a warning.
+
+Legacy checkpoints without scheduler, RNG or loader state still load. SPINE
+warns when a requested resume must restart missing state. Exact stochastic
+continuation requires the same distributed world size. DataLoader worker RNG
+and prefetch queues cannot be serialized, so configurations with worker-side
+stochastic transforms may reproduce the same sample order without being
+bit-for-bit identical. Exact mid-epoch sample order also requires a
+checkpointable SPINE sampler; generic third-party samplers are replayed to the
+saved cursor on a best-effort basis. Numba and external-library RNG state is
+not generally introspectable and is not included.
+
+Checkpoint provenance can be queried without constructing the model:
+
+```python
+from spine.model import inspect_checkpoint, verify_checkpoint
+
+assert verify_checkpoint("snapshot-1000.ckpt")
+info = inspect_checkpoint("snapshot-1000.ckpt", verify=True)
+print(info["manifest"])
+print(info["config"])
+print(info["datasets"])
+```
 
 ### Running A Configuration File
 

@@ -252,23 +252,116 @@ def test_initialize_train_validates_save_cadence(monkeypatch, tmp_path):
             optimizer={"name": "Adam"},
             save_epoch=1.0,
         )
+    with pytest.raises(TypeError, match="resume.*boolean"):
+        manager.initialize_train(optimizer={"name": "Adam"}, resume="yes")
+    with pytest.raises(ValueError, match="restore_optimizer"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            restore_optimizer=True,
+            resume=False,
+        )
 
     scheduler = object()
+    scheduler_cfg = []
     monkeypatch.setattr("spine.model.manager.optim_factory", lambda *_args: object())
     monkeypatch.setattr(
         "spine.model.manager.lr_sched_factory",
-        lambda *_args: scheduler,
+        lambda cfg, _optimizer: scheduler_cfg.append(cfg) or scheduler,
     )
     manager.initialize_train(
         optimizer={"name": "Adam"},
         weight_prefix=str(tmp_path / "weights" / "snapshot"),
         save_epoch=0.5,
         iter_per_epoch=10,
-        lr_scheduler={"name": "StepLR"},
+        lr_scheduler={
+            "name": "ReduceLROnPlateau",
+            "interval": "checkpoint",
+            "monitor": "loss",
+        },
     )
     assert manager.save_step == 5
     assert manager.lr_scheduler is scheduler
+    assert manager.lr_scheduler_interval == "checkpoint"
+    assert manager.lr_scheduler_monitor == "loss"
+    assert scheduler_cfg == [{"name": "ReduceLROnPlateau"}]
+    assert not manager.resume_training
     assert (tmp_path / "weights").is_dir()
+
+
+def test_initialize_train_selects_resume_mode_from_weight_path():
+    """A single training checkpoint should enable non-strict automatic resume."""
+    manager = make_bare_manager(
+        net=torch.nn.Linear(1, 1),
+        configured_weight_path="snapshot.ckpt",
+    )
+
+    manager.initialize_train(optimizer={"name": "Adam"})
+
+    assert manager.resume_training
+    assert manager.restore_optimizer
+    assert not manager.strict_resume
+    assert manager.load_training_progress
+
+
+def test_initialize_train_requires_checkpoint_for_explicit_resume():
+    """Strict resume should require one global checkpoint path."""
+    manager = make_bare_manager(
+        net=torch.nn.Linear(1, 1),
+        configured_weight_path=None,
+    )
+
+    with pytest.raises(ValueError, match="requires a global `weight_path`"):
+        manager.initialize_train(optimizer={"name": "Adam"}, resume=True)
+
+
+@pytest.mark.parametrize(
+    ("scheduler", "error", "message"),
+    [
+        ("StepLR", TypeError, "must be a mapping"),
+        ({"name": "StepLR", "interval": "epoch"}, ValueError, "interval"),
+        (
+            {"name": "StepLR", "monitor": "loss"},
+            ValueError,
+            "interval: checkpoint",
+        ),
+    ],
+)
+def test_initialize_train_validates_scheduler_policy(
+    monkeypatch, scheduler, error, message
+):
+    """Manager-owned scheduler trigger options should fail during setup."""
+    manager = make_bare_manager(net=torch.nn.Linear(1, 1))
+    monkeypatch.setattr("spine.model.manager.optim_factory", lambda *_args: object())
+
+    with pytest.raises(error, match=message):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            lr_scheduler=scheduler,
+        )
+
+
+def test_training_rejects_weight_list(monkeypatch, tmp_path):
+    """Checkpoint collections have no defined training-resume semantics."""
+
+    class Network(torch.nn.Module):
+        pass
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory",
+        lambda _name: (Network, Network),
+    )
+    weight_list = tmp_path / "weights.txt"
+    weight_list.write_text("snapshot.ckpt\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="only supported for inference"):
+        ModelManager(
+            name="test",
+            modules={},
+            network_input={},
+            loss_input={"target": "target"},
+            weight_list=str(weight_list),
+            train={"optimizer": {"name": "Adam"}},
+        )
 
 
 def test_prepare_data_converts_batches_and_validates_required_keys():
@@ -358,6 +451,36 @@ def test_backward_steps_optimizer_scheduler_and_model_buffers():
 
     assert scheduler.steps == 1
     assert net.buffer_updates == 1
+
+
+def test_checkpoint_scheduler_steps_with_optional_validation_metric():
+    """Checkpoint schedulers should support ordinary and monitored policies."""
+
+    class Scheduler:
+        def __init__(self):
+            self.values = []
+
+        def step(self, *values):
+            self.values.append(values)
+
+    scheduler = Scheduler()
+    manager = make_bare_manager(
+        lr_scheduler=scheduler,
+        lr_scheduler_interval="checkpoint",
+        lr_scheduler_monitor=None,
+    )
+    manager.step_checkpoint_scheduler()
+    assert scheduler.values == [()]
+
+    manager.lr_scheduler_monitor = "loss"
+    manager.step_checkpoint_scheduler({"loss": 0.25})
+    assert scheduler.values[-1] == (0.25,)
+    with pytest.raises(KeyError, match="metric `loss`"):
+        manager.step_checkpoint_scheduler({"accuracy": 1.0})
+
+    manager.lr_scheduler_interval = "step"
+    manager.step_checkpoint_scheduler({"loss": 0.1})
+    assert len(scheduler.values) == 2
 
 
 def test_training_rejects_fully_frozen_network():
@@ -472,13 +595,19 @@ def test_cast_to_numpy_handles_structured_cluster_labels():
     assert result["label"].is_numpy
 
 
-def test_save_state_writes_checkpoint_and_requires_prefix(tmp_path):
-    """Checkpoint serialization records model, optimizer, step, and epoch."""
+def test_save_state_writes_rich_checkpoint_and_requires_prefix(tmp_path, monkeypatch):
+    """Checkpoint serialization should record state, provenance and checksum."""
     net = torch.nn.Linear(1, 1)
     optimizer = torch.optim.SGD(net.parameters(), lr=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2)
+    monkeypatch.setattr(
+        "spine.model.checkpoint._discover_git_state",
+        lambda: ("abc123", False),
+    )
     manager = make_bare_manager(
         net=net,
         optimizer=optimizer,
+        lr_scheduler=scheduler,
         distributed=False,
         weight_prefix=None,
     )
@@ -486,11 +615,31 @@ def test_save_state_writes_checkpoint_and_requires_prefix(tmp_path):
         manager.save_state(1, 0.5)
 
     manager.weight_prefix = str(tmp_path / "snapshot")
-    manager.save_state(3, 1.5, {"metrics": {"loss": 0.25}})
+    checkpoint_path = manager.save_state(
+        3,
+        1.5,
+        {"metrics": {"loss": 0.25}},
+        config={"model": {"name": "test"}},
+        datasets={"train": {"files": ["train.root"]}},
+        runtime_state={"world_size": 1, "ranks": []},
+    )
     checkpoint = torch.load(tmp_path / "snapshot-3.ckpt", weights_only=True)
+    assert checkpoint["format_version"] == 2
+    assert checkpoint["manifest"]["git_revision"] == "abc123"
+    assert "runtime_state" in checkpoint["manifest"]["contents"]
+    assert checkpoint["config"]["model"]["name"] == "test"
+    assert checkpoint["datasets"]["train"]["files"] == ["train.root"]
     assert checkpoint["global_step"] == 3
     assert checkpoint["global_epoch"] == 1.5
+    assert checkpoint["lr_scheduler"] == scheduler.state_dict()
+    assert checkpoint["runtime_state"] == {"world_size": 1, "ranks": []}
     assert checkpoint["validation"] == {"metrics": {"loss": 0.25}}
+    assert (tmp_path / "snapshot-3.ckpt.sha256").exists()
+    assert checkpoint_path == str(tmp_path / "snapshot-3.ckpt")
+
+    best_path = manager.save_best_state(checkpoint_path)
+    assert best_path == str(tmp_path / "snapshot-best.ckpt")
+    assert (tmp_path / "snapshot-best.ckpt.sha256").exists()
 
 
 def test_evaluate_restores_training_state_without_gradients():
@@ -709,6 +858,10 @@ def test_manager_exposes_configured_checkpoint_boundaries():
     assert manager.should_save(2)
     assert not manager.should_save(1)
 
+    manager.start_iteration = 10
+    assert manager.should_save(12)
+    assert not manager.should_save(11)
+
 
 def test_module_weight_path_must_exist(tmp_path):
     """Nested pretrained-module paths are validated before deserialization."""
@@ -759,12 +912,158 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
         optimizer=optimizer,
     )
     monkeypatch.setattr(torch, "load", load)
-    manager.load_weights(None)
+    with pytest.warns(RuntimeWarning) as records:
+        manager.load_weights(None)
 
     assert len(calls) == 3
     assert calls[-1] == {"optimizer": checkpoint["optimizer"]}
+    assert len(records) == 2
+    assert "global epoch" in str(records[0].message)
+    assert "RNG" in str(records[1].message)
     assert manager.start_iteration == 7
     assert manager.checkpoint_validation == checkpoint["validation"]
+
+
+def test_load_weights_restores_complete_available_training_state(monkeypatch, tmp_path):
+    """Resume mode should restore scheduler and expose runtime provenance."""
+    path = tmp_path / "resume.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {
+        "format_version": 2,
+        "manifest": {"spine_version": "test"},
+        "config": {"train": {"resume": True}},
+        "datasets": {"train": {"files": ["train.root"]}},
+        "state_dict": net.state_dict(),
+        "optimizer": {"state": "optimizer"},
+        "lr_scheduler": {"state": "scheduler"},
+        "runtime_state": {"world_size": 1, "ranks": []},
+        "global_step": 6,
+        "global_epoch": 3.5,
+    }
+    calls = []
+    optimizer = SimpleNamespace(
+        load_state_dict=lambda state: calls.append(("optimizer", state))
+    )
+    scheduler = SimpleNamespace(
+        load_state_dict=lambda state: calls.append(("scheduler", state))
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=net,
+        train=True,
+        restore_optimizer=True,
+        resume_training=True,
+        optimizer=optimizer,
+        lr_scheduler=scheduler,
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    manager.load_weights(None)
+
+    assert calls == [
+        ("optimizer", checkpoint["optimizer"]),
+        ("scheduler", checkpoint["lr_scheduler"]),
+    ]
+    assert manager.start_iteration == 7
+    assert manager.start_epoch == 3.5
+    assert manager.checkpoint_manifest == checkpoint["manifest"]
+    assert manager.checkpoint_config == checkpoint["config"]
+    assert manager.checkpoint_datasets == checkpoint["datasets"]
+    assert manager.checkpoint_runtime_state == checkpoint["runtime_state"]
+
+
+def test_resume_legacy_checkpoint_reports_missing_training_state(monkeypatch, tmp_path):
+    """Resume should reject missing optimizer state and warn for later additions."""
+    path = tmp_path / "legacy.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {"state_dict": net.state_dict(), "global_step": 2}
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=net,
+        train=True,
+        restore_optimizer=True,
+        resume_training=True,
+        optimizer=SimpleNamespace(load_state_dict=lambda _state: None),
+        lr_scheduler=SimpleNamespace(load_state_dict=lambda _state: None),
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    with pytest.raises(KeyError, match="optimizer state"):
+        manager.load_weights(None)
+
+    checkpoint["optimizer"] = {}
+    with pytest.warns(RuntimeWarning) as records:
+        manager.load_weights(None)
+
+    assert len(records) == 3
+    assert "scheduler" in str(records[0].message)
+    assert "global epoch" in str(records[1].message)
+    assert "RNG" in str(records[2].message)
+
+
+def test_automatic_resume_allows_legacy_checkpoint_without_optimizer(
+    monkeypatch, tmp_path
+):
+    """Automatic resume should preserve legacy progress and restart its optimizer."""
+    path = tmp_path / "legacy.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {"state_dict": net.state_dict(), "global_step": 2}
+    optimizer_calls = []
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=net,
+        train=True,
+        restore_optimizer=True,
+        resume_training=True,
+        strict_resume=False,
+        load_training_progress=True,
+        optimizer=SimpleNamespace(
+            load_state_dict=lambda state: optimizer_calls.append(state)
+        ),
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    with pytest.warns(RuntimeWarning) as records:
+        manager.load_weights(None)
+
+    assert manager.start_iteration == 3
+    assert not optimizer_calls
+    assert any("optimizer state" in str(record.message) for record in records)
+
+
+def test_explicit_non_resume_loads_weights_without_progress(monkeypatch, tmp_path):
+    """Explicit ``resume: false`` should begin new training from loaded weights."""
+    path = tmp_path / "pretrained.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {
+        "state_dict": net.state_dict(),
+        "global_step": 9,
+        "validation": {"metrics": {"loss": 0.5}},
+        "manifest": {"spine_version": "test"},
+    }
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=net,
+        train=True,
+        restore_optimizer=False,
+        resume_training=False,
+        load_training_progress=False,
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    manager.load_weights(None)
+
+    assert manager.start_iteration == 0
+    assert manager.checkpoint_validation is None
+    assert manager.checkpoint_manifest == checkpoint["manifest"]
 
 
 def test_load_weights_targets_unwrapped_ddp_network(tmp_path):

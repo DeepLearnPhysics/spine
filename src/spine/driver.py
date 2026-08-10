@@ -15,9 +15,11 @@ import os
 import random
 import subprocess as sc
 import time
+import warnings
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
+from numbers import Real
 from typing import Any
 
 import numpy as np
@@ -31,7 +33,7 @@ from .io import IOManager
 from .math import seed as numba_seed
 from .model import ModelManager, ValidationManager
 from .post import PostManager
-from .utils.conditional import TORCH_AVAILABLE
+from .utils.conditional import TORCH_AVAILABLE, torch
 from .utils.log import LogManager
 from .utils.logger import configure_rank_logging, logger
 from .utils.stopwatch import StopwatchManager
@@ -144,6 +146,10 @@ class Driver:
 
         # Initialize the analysis scripts
         self.initialize_ana(ana)
+
+        # Restore stochastic and loader state after every configured module is
+        # constructed, so initialization cannot advance the resumed streams.
+        self.restore_training_runtime()
 
         # Place-holder for the structured log manager, initialized in run()
         self.log_manager = None
@@ -446,6 +452,7 @@ class Driver:
         self.parent_path = parent_path
         self.iterations = iterations
         self.epochs = epochs
+        self.epoch_based = epochs is not None
         self.unwrap = unwrap
         self.seed = seed
         self.log_step = log_step
@@ -539,6 +546,61 @@ class Driver:
             iter_per_epoch=self.io.iter_per_epoch,
         )
 
+    def restore_training_runtime(self) -> None:
+        """Restore this rank's RNG and loader state from a resume checkpoint.
+
+        A runtime snapshot is meaningful only for the same distributed world
+        size that produced it. Model, optimizer and scheduler state remain
+        usable when the world changes, but rank-local stochastic streams and
+        data shards cannot be mapped exactly and are intentionally skipped.
+        """
+        if self.model is None or not getattr(self.model, "resume_training", False):
+            return
+        state = getattr(self.model, "checkpoint_runtime_state", None)
+        if state is None:
+            return
+
+        world_size = max(1, self.world_size)
+        checkpoint_world_size = int(state.get("world_size", 1))
+        if checkpoint_world_size != world_size:
+            warnings.warn(
+                "Checkpoint runtime state was recorded with world size "
+                f"{checkpoint_world_size}, but this run uses {world_size}; RNG "
+                "and loader state will not be restored exactly.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return
+
+        rank = 0 if self.rank is None else self.rank
+        rank_states = state.get("ranks", [])
+        local_state = next(
+            (item for item in rank_states if int(item.get("rank", -1)) == rank),
+            None,
+        )
+        if local_state is None:
+            warnings.warn(
+                f"Checkpoint has no runtime state for rank {rank}; continuation "
+                "will not be bit-for-bit exact.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return
+
+        io_state = local_state.get("io")
+        if io_state is not None:
+            next_iteration = int(io_state.get("next_iteration", -1))
+            if next_iteration != self.model.start_iteration:
+                raise ValueError(
+                    "Checkpoint loader cursor does not match its global step: "
+                    f"expected iteration {self.model.start_iteration}, got "
+                    f"{next_iteration}."
+                )
+
+        runtime.restore_rng_state(local_state["rng"])
+        if io_state is not None:
+            self.io.restore_checkpoint_state(io_state)
+
     def initialize_validation(
         self,
         validation: Mapping[str, Any] | None,
@@ -566,6 +628,13 @@ class Driver:
         """
         self.validation = None
         if validation is None:
+            if (
+                self.model is not None
+                and getattr(self.model, "lr_scheduler_monitor", None) is not None
+            ):
+                raise ValueError(
+                    "A monitored checkpoint scheduler requires a `validation` block."
+                )
             return
         if self.model is None or not self.model.train:
             raise ValueError("On-the-fly validation requires a training model.")
@@ -738,7 +807,9 @@ class Driver:
             log_path,
             overwrite=self.overwrite_log,
             buffer_size=self.csv_buffer_size,
-            tensorboard=self.tensorboard_cfg,
+            tensorboard=(
+                self.tensorboard_cfg if getattr(self, "main_process", True) else None
+            ),
             tensorboard_dir=tb_dir,
         )
 
@@ -799,21 +870,45 @@ class Driver:
         try:
             # Get the iteration start (if model exists)
             start_iteration = 0
+            start_epoch = 0.0
             if self.model is not None and self.model.train:
                 start_iteration = self.model.start_iteration
+                start_epoch = getattr(self.model, "start_epoch", None)
+
+            # Anchor loader epochs to checkpoint progress rather than the old
+            # global iteration-to-batch-size relationship.
+            if start_epoch is not None and hasattr(self.io, "set_resume_progress"):
+                self.io.set_resume_progress(start_iteration, start_epoch)
+
+            # Epoch limits describe total training progress. Re-express the
+            # remaining epochs using the current loader's batch size.
+            stop_iteration = self.iterations
+            epochs = getattr(self, "epochs", None)
+            if epochs is not None and start_epoch is not None:
+                remaining_epochs = max(0.0, epochs - start_epoch)
+                stop_iteration = start_iteration + int(
+                    remaining_epochs * self.io.iter_per_epoch
+                )
 
             # Loop and process each iteration
-            for iteration in range(start_iteration, self.iterations):
+            for iteration in range(start_iteration, stop_iteration):
                 # Let I/O prepare loader state, if using a loader.
                 self.io.prepare_iteration(iteration)
 
                 # Update the epoch counter, record the execution date/time
-                epoch = (iteration + 1) / self.io.iter_per_epoch
+                if start_epoch is None:
+                    epoch = (iteration + 1) / self.io.iter_per_epoch
+                else:
+                    relative_iteration = iteration - start_iteration + 1
+                    epoch = start_epoch + relative_iteration / self.io.iter_per_epoch
                 tstamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 # Process one batch/entry of data
                 entry = None if self.io.has_loader else iteration
                 data = self.process(entry=entry, iteration=iteration, epoch=epoch)
+
+                # Report globally representative training scalars under DDP.
+                self.reduce_training_metrics(data)
 
                 # Checkpoint boundaries are driver-owned so all ranks can
                 # validate before rank zero serializes the live weights.
@@ -824,18 +919,66 @@ class Driver:
                     and self.model.should_save(iteration)
                 ):
                     validation_state = None
+                    validation_metrics = None
+                    promote_best = False
                     if self.validation is not None:
-                        metrics = self.validation.run(iteration)
+                        validation_metrics = self.validation.run(iteration)
                         data.update(
-                            {f"val_{key}": value for key, value in metrics.items()}
+                            {
+                                f"val_{key}": value
+                                for key, value in validation_metrics.items()
+                            }
                         )
-                        stop_training = self.validation.update_early_stopping(metrics)
-                        validation_state = self.validation.checkpoint_state(metrics)
+                        promote_best = self.validation.update_best_checkpoint(
+                            validation_metrics
+                        )
+                        stop_training = self.validation.update_early_stopping(
+                            validation_metrics
+                        )
+                        validation_state = self.validation.checkpoint_state(
+                            validation_metrics
+                        )
+
+                    # Checkpoint-bound schedulers advance before their state is saved.
+                    self.model.step_checkpoint_scheduler(validation_metrics)
+
+                    # Every rank contributes its stochastic and loader cursor
+                    # state before rank zero writes the shared checkpoint.
+                    local_runtime_state = {
+                        "rank": 0 if self.rank is None else self.rank,
+                        "rng": runtime.capture_rng_state(),
+                        "io": self.io.checkpoint_state(iteration + 1),
+                    }
+                    rank_states = runtime.distributed_all_gather_object(
+                        local_runtime_state
+                    )
+                    checkpoint_runtime = {
+                        "world_size": max(1, self.world_size),
+                        "ranks": rank_states,
+                    }
 
                     if self.main_process:
                         # Retain model-owned save timing around serialization
                         self.model.watch.start("save")
-                        self.model.save_state(iteration, epoch, validation_state)
+                        datasets = {"train": self.io.dataset_provenance()}
+                        if self.validation is not None:
+                            datasets["validation"] = (
+                                self.validation.io.dataset_provenance()
+                            )
+                        checkpoint_path = self.model.save_state(
+                            iteration,
+                            epoch,
+                            validation_state,
+                            config=self.cfg,
+                            datasets=datasets,
+                            runtime_state=checkpoint_runtime,
+                            world_size=max(1, self.world_size),
+                        )
+                        if promote_best:
+                            assert self.validation is not None
+                            assert self.validation.best_checkpoint is not None
+                            best_path = self.validation.best_checkpoint.path
+                            self.model.save_best_state(checkpoint_path, best_path)
                         self.model.watch.stop("save")
                         self.watch.update(self.model.watch, "model")
 
@@ -860,10 +1003,55 @@ class Driver:
             self.ana.close()
         if self.log_manager is not None:
             self.log_manager.close()
-        if getattr(self, "validation", None) is not None:
-            self.validation.close()
+        validation = getattr(self, "validation", None)
+        if validation is not None:
+            validation.close()
         if hasattr(self, "io"):
             self.io.close()
+
+    def reduce_training_metrics(self, data: dict[str, Any]) -> None:
+        """Average scalar training outputs across distributed ranks in place.
+
+        Structured outputs, timings and memory statistics remain rank-local.
+        Validation scalars are reduced by :class:`ValidationManager` and are
+        appended only after this method runs.
+
+        Parameters
+        ----------
+        data : dict
+            Current processed batch containing model and loss outputs.
+        """
+        if (
+            not TORCH_AVAILABLE
+            or not getattr(self, "distributed", False)
+            or self.model is None
+            or not self.model.train
+            or not torch.distributed.is_initialized()
+        ):
+            return
+
+        scalar_keys = []
+        scalar_values = []
+        for key, value in data.items():
+            if isinstance(value, Real) and not isinstance(value, bool):
+                scalar_keys.append(key)
+                scalar_values.append(float(value))
+            elif torch.is_tensor(value) and value.dim() == 0:
+                scalar_keys.append(key)
+                scalar_values.append(float(value.item()))
+
+        if not scalar_keys:
+            return
+
+        reduced = torch.tensor(
+            scalar_values,
+            dtype=torch.float64,
+            device=self.model.device,
+        )
+        torch.distributed.all_reduce(reduced)
+        reduced /= torch.distributed.get_world_size()
+        for key, value in zip(scalar_keys, reduced.tolist()):
+            data[key] = value
 
     def process(
         self,

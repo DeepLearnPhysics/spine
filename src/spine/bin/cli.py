@@ -42,6 +42,7 @@ def main(
     weight_path: str | None,
     weight_list: str | None,
     config_overrides: list[str] | None,
+    resume: bool | None = None,
 ) -> None:
     """Main driver for training/validation/inference/analysis.
 
@@ -83,6 +84,9 @@ def main(
         the model weights
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
+    resume : bool, optional
+        Command-line override for complete training-state restoration. ``None``
+        leaves resume selection to the configuration and automatic defaults.
     """
     # Print the banner before configuration loading starts, since loading may
     # trigger download/cache messages and warnings.
@@ -162,6 +166,13 @@ def main(
         cfg["model"]["weight_path"] = weight_path
     if weight_list is not None:
         cfg["model"]["weight_list"] = weight_list
+
+    # Apply an explicit resume override to either supported train location.
+    if resume is not None:
+        train_cfg = cfg.get("train", cfg["base"].get("train"))
+        if train_cfg is None:
+            raise KeyError("--resume/--no-resume requires a `train` block.")
+        train_cfg["resume"] = resume
 
     # Apply any generic config overrides from --set arguments
     if config_overrides:
@@ -293,6 +304,14 @@ For ML training/inference functionality, ensure PyTorch is installed:
         help="Path to a text file containing a list of weight file paths",
     )
 
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Resume all available training state from the configured checkpoint; "
+        "use --no-resume for weights-only initialization",
+    )
+
     # Add option to dynamically override any config parameter using dot notation
     # (e.g., --set io.loader.batch_size=8)
     parser.add_argument(
@@ -337,6 +356,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         weight_path=args.weight_path,
         weight_list=args.weight_list,
         config_overrides=args.config_overrides,
+        resume=args.resume,
     )
 
 

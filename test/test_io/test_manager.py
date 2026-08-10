@@ -98,6 +98,8 @@ class FakeLoader:
     def __init__(self) -> None:
         self.dataset = SimpleNamespace(reader=FakeReader())
         self.batches = iter([{"index": [0, 1]}, {"index": [2, 3]}])
+        self.batch_size = 2
+        self.num_workers = 0
         self.sampler = SimpleNamespace(epochs=[])
         self.sampler.set_epoch = lambda epoch: self.sampler.epochs.append(epoch)
 
@@ -406,6 +408,13 @@ def test_io_manager_iteration_unwrap_write_and_close(monkeypatch):
     manager.prepare_iteration(2)
     assert manager.loader.sampler.epochs == [0, 1]
 
+    manager.loader.sampler.epochs.clear()
+    manager.loader_iter = None
+    manager.set_resume_progress(iteration=5, epoch=2.5)
+    manager.prepare_iteration(5)
+    manager.prepare_iteration(6)
+    assert manager.loader.sampler.epochs == [2, 3]
+
     assert manager.unwrap({"index": [0]}) == {"index": [[0]]}
     assert ("start", "unwrap") in manager.watch.calls
     assert ("stop", "unwrap") in manager.watch.calls
@@ -450,3 +459,185 @@ def test_io_manager_apply_filter(monkeypatch):
     manager.reader = None
     with pytest.raises(RuntimeError, match="reader"):
         manager.apply_filter()
+
+
+def test_io_manager_checkpoints_and_restores_sampler_cursor():
+    """Loader state should preserve the next batch and sampler epoch order."""
+
+    class Sampler:
+        def __init__(self):
+            self.loaded = None
+
+        @staticmethod
+        def state_dict():
+            return {"indices": [4, 5, 0, 1, 2, 3]}
+
+        def load_state_dict(self, state, offset=0):
+            self.loaded = (state, offset)
+
+    manager = object.__new__(IOManager)
+    manager.loader = SimpleNamespace(
+        sampler=Sampler(),
+        batch_size=2,
+        num_workers=0,
+    )
+    manager.loader_iter = object()
+    manager.iter_per_epoch = 3
+    manager._resume_skip_batches = 0
+
+    state = manager.checkpoint_state(next_iteration=5)
+    manager.restore_checkpoint_state(state)
+
+    assert state["batch_offset"] == 2
+    assert manager.loader.sampler.loaded == (state["sampler"], 4)
+    assert manager.loader_iter is None
+
+    manager.loader = None
+    assert manager.checkpoint_state(6) is None
+    with pytest.raises(ValueError, match="without a loader"):
+        manager.restore_checkpoint_state(state)
+
+
+def test_io_manager_checkpoint_supports_parameterless_sampler_state():
+    """Third-party sampler state methods need not accept SPINE's cursor."""
+
+    class Sampler:
+        @staticmethod
+        def state_dict():
+            return {"third_party": True}
+
+    manager = object.__new__(IOManager)
+    manager.loader = SimpleNamespace(
+        sampler=Sampler(),
+        batch_size=2,
+        num_workers=0,
+    )
+    manager.iter_per_epoch = 3
+
+    assert manager.checkpoint_state(1)["sampler"] == {"third_party": True}
+
+
+def test_io_manager_replays_generic_sampler_cursor():
+    """A generic loader should consume restored batches before yielding."""
+
+    class Loader:
+        def __iter__(self):
+            return iter([0, 1, 2])
+
+    manager = object.__new__(IOManager)
+    manager.loader = Loader()
+    manager.loader_iter = None
+    manager._resume_skip_batches = 2
+
+    manager.reset_loader()
+
+    assert next(manager.loader_iter) == 2
+    assert manager._resume_skip_batches == 0
+
+
+def test_io_manager_warns_when_resume_must_replay_or_restart_workers():
+    """Generic samplers and worker RNG should expose exact-resume limits."""
+    manager = object.__new__(IOManager)
+    manager.loader = SimpleNamespace(
+        sampler=object(),
+        batch_size=2,
+        num_workers=2,
+    )
+    manager.loader_iter = None
+    manager._resume_skip_batches = 0
+
+    with pytest.warns(RuntimeWarning) as records:
+        manager.restore_checkpoint_state(
+            {"batch_offset": 2, "sampler": None, "num_workers": 2}
+        )
+
+    assert len(records) == 2
+    assert manager._resume_skip_batches == 2
+
+
+def test_io_manager_warns_when_resume_changes_batch_size():
+    """Restored sample order cannot preserve old batch boundaries after resizing."""
+
+    class Sampler:
+        def __init__(self):
+            self.offset = None
+
+        def load_state_dict(self, _state, offset=0):
+            self.offset = offset
+
+    sampler = Sampler()
+    manager = object.__new__(IOManager)
+    manager.loader = SimpleNamespace(
+        sampler=sampler,
+        batch_size=4,
+        num_workers=0,
+    )
+    manager.loader_iter = object()
+    manager._resume_skip_batches = 0
+
+    with pytest.warns(RuntimeWarning, match="batch size changed"):
+        manager.restore_checkpoint_state(
+            {
+                "batch_offset": 1,
+                "batch_size": 2,
+                "sampler": {"indices": [4, 5]},
+                "num_workers": 0,
+            }
+        )
+
+    assert sampler.offset == 2
+
+
+def test_io_manager_reports_composite_dataset_provenance():
+    """Resolved provenance should preserve joint and mixed source topology."""
+
+    class Dataset:
+        name = "larcv"
+
+        def __init__(self, files):
+            self.reader = SimpleNamespace(file_paths=files)
+
+        def __len__(self):
+            return 2
+
+    class Joint:
+        name = "joint"
+        joint = True
+
+        def __init__(self):
+            self.primary = Dataset(["primary.root"])
+            self.secondary = Dataset(["secondary.root"])
+
+        def __len__(self):
+            return 2
+
+    joint = Joint()
+    manager = object.__new__(IOManager)
+    manager.loader = SimpleNamespace(dataset=joint)
+    manager.reader = joint.primary.reader
+
+    provenance = manager.dataset_provenance()
+
+    assert provenance["type"] == "joint"
+    assert provenance["sources"]["primary"]["files"] == ["primary.root"]
+    assert provenance["sources"]["secondary"]["files"] == ["secondary.root"]
+
+    class Mixed:
+        name = "mixed"
+
+        def __init__(self):
+            self.primary = Dataset(["primary.root"])
+            self.cache = Dataset(["cache.h5"])
+
+        def __len__(self):
+            return 2
+
+    mixed = IOManager._dataset_provenance(Mixed())
+    assert mixed["sources"]["larcv"]["files"] == ["primary.root"]
+    assert mixed["sources"]["hdf5"]["files"] == ["cache.h5"]
+
+    manager.loader = None
+    manager.reader = FakeReader()
+    assert manager.dataset_provenance()["files"] == FakeReader.file_paths
+    manager.reader = None
+    assert manager.dataset_provenance() is None

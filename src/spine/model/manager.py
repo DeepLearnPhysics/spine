@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+import warnings
 from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
@@ -22,6 +23,12 @@ from spine.utils.logger import logger
 from spine.utils.stopwatch import StopwatchManager
 from spine.utils.torch.training import lr_sched_factory, optim_factory
 
+from .checkpoint import (
+    CHECKPOINT_FORMAT_VERSION,
+    CheckpointManifest,
+    promote_checkpoint,
+    save_checkpoint,
+)
 from .factories import model_factory
 
 
@@ -103,6 +110,8 @@ class ModelManager:
             )
         if train is not None and not loss_input:
             raise ValueError("Training requires a non-empty `loss_input` mapping.")
+        if train is not None and weight_list is not None:
+            raise ValueError("`weight_list` is only supported for inference.")
 
         # Save parameters
         self.train: bool = train is not None
@@ -116,6 +125,15 @@ class ModelManager:
         self.rank = rank  # Global rank (process ID in distributed group)
         self.main_process = rank is None or rank == 0
         self.checkpoint_validation: dict[str, Any] | None = None
+        self.checkpoint_manifest: dict[str, Any] | None = None
+        self.checkpoint_config: dict[str, Any] | None = None
+        self.checkpoint_datasets: dict[str, Any] | None = None
+        self.checkpoint_runtime_state: dict[str, Any] | None = None
+        self.resume_training = False
+        self.strict_resume = False
+        self.load_training_progress = True
+        self.configured_weight_path = weight_path
+        self.start_epoch: float | None = 0.0
 
         # Determine device: use current_device() which setup_ddp() already configured
         if self.rank is None:
@@ -214,6 +232,7 @@ class ModelManager:
         optimizer: Mapping[str, Any],
         weight_prefix: str = "snapshot",
         restore_optimizer: bool = False,
+        resume: bool | None = None,
         save_step: int | None = None,
         save_epoch: float | None = None,
         lr_scheduler: Mapping[str, Any] | None = None,
@@ -232,9 +251,18 @@ class ModelManager:
         save_epoch : float, optional
             Fraction of epoch to train on before recording the model weights
         restore_optimizer : bool, default False
-            Whether to load the  opimizer state from the torch checkpoint
+            Whether to resume the complete available training state from a
+            checkpoint. Retained as a backward-compatible spelling of
+            ``resume=True``.
+        resume : bool, optional
+            Whether to restore optimizer, scheduler, RNG, loader and progress
+            state. Explicit ``False`` loads parameters only and starts a new
+            training process. When omitted, a configured global weight path
+            enables automatic resume.
         lr_scheduler : dict, optional
-            Configuration of the learning rate scheduler
+            Learning-rate scheduler configuration. Manager-owned ``interval``
+            and optional ``monitor`` keys select step- or checkpoint-bound
+            updates.
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
         """
@@ -244,7 +272,30 @@ class ModelManager:
 
         # Store parameters
         self.weight_prefix = weight_prefix
-        self.restore_optimizer = restore_optimizer
+        if resume is not None and not isinstance(resume, bool):
+            raise TypeError("Training `resume` must be a boolean.")
+        if resume is False and restore_optimizer:
+            raise ValueError("Cannot combine `resume: false` with `restore_optimizer`.")
+
+        # Omitted resume policy continues a configured global checkpoint.
+        auto_resume = (
+            resume is None and getattr(self, "configured_weight_path", None) is not None
+        )
+        if resume is None:
+            self.resume_training = restore_optimizer or auto_resume
+        else:
+            self.resume_training = resume
+
+        # Explicit resume remains strict; automatic legacy recovery may degrade.
+        self.strict_resume = restore_optimizer or resume is True
+        if (
+            self.strict_resume
+            and hasattr(self, "configured_weight_path")
+            and self.configured_weight_path is None
+        ):
+            raise ValueError("Explicit resume requires a global `weight_path`.")
+        self.restore_optimizer = self.resume_training
+        self.load_training_progress = resume is not False
 
         # Store the saving parameters
         if save_step is not None and save_epoch is not None:
@@ -265,10 +316,30 @@ class ModelManager:
         # Initiliaze the optimizer
         self.optimizer = optim_factory(optimizer, self.net.parameters())
 
-        # Initialize the learning rate scheduler
+        # Initialize the learning-rate scheduler and its trigger policy.
         self.lr_scheduler = None
+        self.lr_scheduler_interval = "step"
+        self.lr_scheduler_monitor = None
         if lr_scheduler is not None:
-            self.lr_scheduler = lr_sched_factory(lr_scheduler, self.optimizer)
+            if not isinstance(lr_scheduler, Mapping):
+                raise TypeError("`lr_scheduler` must be a mapping.")
+            scheduler_cfg = deepcopy(dict(lr_scheduler))
+            self.lr_scheduler_interval = scheduler_cfg.pop("interval", "step")
+            self.lr_scheduler_monitor = scheduler_cfg.pop("monitor", None)
+            if self.lr_scheduler_interval not in {"step", "checkpoint"}:
+                raise ValueError(
+                    "Learning-rate scheduler `interval` must be 'step' or "
+                    "'checkpoint'."
+                )
+            if (
+                self.lr_scheduler_monitor is not None
+                and self.lr_scheduler_interval != "checkpoint"
+            ):
+                raise ValueError(
+                    "A monitored learning-rate scheduler requires "
+                    "`interval: checkpoint`."
+                )
+            self.lr_scheduler = lr_sched_factory(scheduler_cfg, self.optimizer)
 
     def __call__(
         self,
@@ -383,14 +454,20 @@ class ModelManager:
         Parameters
         ----------
         iteration : int
-            Zero-based training iteration.
+            Global zero-based training iteration.
 
         Returns
         -------
         bool
-            Whether the iteration completes one configured save period.
+            Whether the iteration completes one configured save period since
+            the current training segment began.
         """
-        return self.save_step is not None and ((iteration + 1) % self.save_step) == 0
+        start_iteration = getattr(self, "start_iteration", 0)
+        relative_iteration = iteration - start_iteration
+        return (
+            self.save_step is not None
+            and ((relative_iteration + 1) % self.save_step) == 0
+        )
 
     @classmethod
     def clean_config(cls, config: Any) -> Any:
@@ -535,6 +612,12 @@ class ModelManager:
 
         # If no pre-trained weights are requested, nothing to do here
         self.start_iteration = 0
+        self.start_epoch = 0.0
+        self.checkpoint_manifest = None
+        self.checkpoint_config = None
+        self.checkpoint_datasets = None
+        self.checkpoint_runtime_state = None
+        self.checkpoint_validation = None
         if not weight_paths:
             return
 
@@ -612,14 +695,84 @@ class ModelManager:
 
                 # Load the optimizer state from the main weight file only
                 if self.train and module == self.model_name and self.restore_optimizer:
-                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    if "optimizer" not in checkpoint:
+                        strict_resume = getattr(
+                            self, "strict_resume", self.restore_optimizer
+                        )
+                        if strict_resume:
+                            raise KeyError(
+                                "Cannot resume training: checkpoint has no "
+                                "optimizer state."
+                            )
+                        warnings.warn(
+                            "Checkpoint has no optimizer state; automatic resume "
+                            "will retain saved progress but restart the optimizer.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                    else:
+                        self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                # Get the latest iteration from the main weight file only
+                        lr_scheduler = getattr(self, "lr_scheduler", None)
+                        if lr_scheduler is not None:
+                            scheduler = checkpoint.get("lr_scheduler")
+                            if scheduler is None:
+                                warnings.warn(
+                                    "Checkpoint has no learning-rate-scheduler "
+                                    "state; the configured scheduler will restart.",
+                                    RuntimeWarning,
+                                    stacklevel=2,
+                                )
+                            else:
+                                lr_scheduler.load_state_dict(scheduler)
+
+                # Restore progress and provenance from the main checkpoint only.
                 if module == self.model_name:
-                    self.start_iteration = checkpoint["global_step"] + 1
-                    validation = checkpoint.get("validation")
-                    if validation is not None:
-                        self.checkpoint_validation = deepcopy(validation)
+                    load_progress = not self.train or getattr(
+                        self, "load_training_progress", True
+                    )
+                    if load_progress:
+                        self.start_iteration = checkpoint["global_step"] + 1
+                        global_epoch = checkpoint.get("global_epoch")
+                        self.start_epoch = (
+                            None if global_epoch is None else float(global_epoch)
+                        )
+                        if self.train and self.start_epoch is None:
+                            warnings.warn(
+                                "Checkpoint has no global epoch; resumed epoch "
+                                "progress must be inferred from the current batch "
+                                "size.",
+                                RuntimeWarning,
+                                stacklevel=2,
+                            )
+                    manifest = checkpoint.get("manifest")
+                    if manifest is not None:
+                        self.checkpoint_manifest = deepcopy(manifest)
+                    config = checkpoint.get("config")
+                    if config is not None:
+                        self.checkpoint_config = deepcopy(config)
+                    datasets = checkpoint.get("datasets")
+                    if datasets is not None:
+                        self.checkpoint_datasets = deepcopy(datasets)
+                    if load_progress:
+                        validation = checkpoint.get("validation")
+                        if validation is not None:
+                            self.checkpoint_validation = deepcopy(validation)
+                    if getattr(
+                        self,
+                        "resume_training",
+                        getattr(self, "restore_optimizer", False),
+                    ):
+                        runtime_state = checkpoint.get("runtime_state")
+                        if runtime_state is None:
+                            warnings.warn(
+                                "Checkpoint has no RNG or loader runtime state; "
+                                "continuation will not be bit-for-bit exact.",
+                                RuntimeWarning,
+                                stacklevel=2,
+                            )
+                        else:
+                            self.checkpoint_runtime_state = deepcopy(runtime_state)
 
             logger.info("Done.")
 
@@ -743,8 +896,11 @@ class ModelManager:
         # Step the optimizer
         self.optimizer.step()
 
-        # Step the learning rate scheduler
-        if self.lr_scheduler is not None:
+        # Step iteration-bound schedulers after the optimizer update.
+        if (
+            self.lr_scheduler is not None
+            and getattr(self, "lr_scheduler_interval", "step") == "step"
+        ):
             self.lr_scheduler.step()
 
         # If the model has a buffer that needs to be updated, do it after
@@ -801,12 +957,44 @@ class ModelManager:
                 dtype = type(value)
                 raise ValueError(f"Cannot cast output {key} of type {dtype} to numpy.")
 
+    def step_checkpoint_scheduler(
+        self,
+        metrics: Mapping[str, float] | None = None,
+    ) -> None:
+        """Step a checkpoint-bound learning-rate scheduler.
+
+        Parameters
+        ----------
+        metrics : mapping[str, float], optional
+            Validation scalars associated with the checkpoint. Required when
+            the scheduler configuration specifies ``monitor``.
+        """
+        if self.lr_scheduler is None or self.lr_scheduler_interval != "checkpoint":
+            return
+
+        if self.lr_scheduler_monitor is None:
+            self.lr_scheduler.step()
+            return
+        if metrics is None or self.lr_scheduler_monitor not in metrics:
+            available = "" if metrics is None else ", ".join(sorted(metrics))
+            raise KeyError(
+                "Learning-rate scheduler metric "
+                f"`{self.lr_scheduler_monitor}` was not produced. Available "
+                f"scalar metrics: {available or 'none'}."
+            )
+        self.lr_scheduler.step(float(metrics[self.lr_scheduler_monitor]))
+
     def save_state(
         self,
         iteration: int,
         epoch: float | None,
         validation: Mapping[str, Any] | None = None,
-    ) -> None:
+        *,
+        config: Mapping[str, Any] | None = None,
+        datasets: Mapping[str, Any] | None = None,
+        runtime_state: Mapping[str, Any] | None = None,
+        world_size: int = 1,
+    ) -> str:
         """Save the model state.
 
         Save the training state associated with this checkpoint:
@@ -814,6 +1002,9 @@ class ModelManager:
         - global_epoch (epoch progress)
         - state_dict (model parameter values)
         - optimizer (optimizer parameter values)
+        - lr_scheduler (optional scheduler parameter values)
+        - runtime_state (per-rank RNG and loader continuation state)
+        - manifest/config/datasets (artifact provenance)
         - validation (optional metrics and early-stopping progress)
 
         Parameters
@@ -825,6 +1016,19 @@ class ModelManager:
         validation : mapping, optional
             Validation metrics and early-stopping state associated with these
             exact weights.
+        config : mapping, optional
+            Complete normalized driver configuration.
+        datasets : mapping, optional
+            Resolved training and validation dataset provenance.
+        runtime_state : mapping, optional
+            Per-rank RNG and loader continuation state.
+        world_size : int, default 1
+            Number of training processes represented by the checkpoint.
+
+        Returns
+        -------
+        str
+            Path to the serialized checkpoint artifact.
         """
         # Make sure that the weight prefix is valid
         if not self.weight_prefix:
@@ -833,12 +1037,50 @@ class ModelManager:
         filename = f"{self.weight_prefix}-{iteration:d}.ckpt"
         model = self.net if not self.distributed else self.net.module
         checkpoint = {
+            "format_version": CHECKPOINT_FORMAT_VERSION,
+            "config": deepcopy(dict(config or {})),
+            "datasets": deepcopy(dict(datasets or {})),
             "global_step": iteration,
             "global_epoch": epoch,
             "state_dict": model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }
+        scheduler = getattr(self, "lr_scheduler", None)
+        if scheduler is not None:
+            checkpoint["lr_scheduler"] = scheduler.state_dict()
+        if runtime_state is not None:
+            checkpoint["runtime_state"] = deepcopy(dict(runtime_state))
         if validation is not None:
             checkpoint["validation"] = dict(validation)
 
-        torch.save(checkpoint, filename)
+        checkpoint["manifest"] = CheckpointManifest.create(
+            world_size,
+            contents=tuple(sorted(checkpoint)),
+        ).to_dict()
+
+        save_checkpoint(checkpoint, filename)
+        return filename
+
+    def save_best_state(
+        self,
+        checkpoint_path: str,
+        path: str | None = None,
+    ) -> str:
+        """Promote an existing snapshot to the stable best-checkpoint path.
+
+        Parameters
+        ----------
+        checkpoint_path : str
+            Snapshot produced for the current validation boundary.
+        path : str, optional
+            Explicit best-checkpoint destination. Defaults to
+            ``<weight_prefix>-best.ckpt``.
+
+        Returns
+        -------
+        str
+            Path to the promoted checkpoint artifact.
+        """
+        best_path = path or f"{self.weight_prefix}-best.ckpt"
+        promote_checkpoint(checkpoint_path, best_path)
+        return best_path

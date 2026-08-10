@@ -9,7 +9,7 @@ import pytest
 
 import spine.model.validation as validation_mod
 from spine.model import ValidationManager
-from spine.model.validation import EarlyStopping
+from spine.model.validation import BestCheckpoint, EarlyStopping
 from spine.utils.conditional import TORCH_AVAILABLE
 
 
@@ -186,6 +186,42 @@ def test_early_stopping_validates_policy(kwargs, message):
         stopping.restore(state)
 
 
+def test_best_checkpoint_tracks_and_restores_progress():
+    """Best-checkpoint selection should promote only meaningful improvements."""
+    policy = BestCheckpoint(
+        monitor="accuracy",
+        mode="max",
+        min_delta=0.05,
+        path="weights/best.ckpt",
+    )
+
+    assert policy.update({"accuracy": 0.5})
+    assert not policy.update({"accuracy": 0.54})
+    assert policy.update({"accuracy": 0.6})
+    assert policy.path == "weights/best.ckpt"
+
+    restored = BestCheckpoint(
+        monitor="accuracy",
+        mode="max",
+        state=policy.state_dict(),
+    )
+    assert restored.best == pytest.approx(0.6)
+
+    incompatible = policy.state_dict()
+    incompatible["mode"] = "min"
+    with pytest.raises(ValueError, match="does not match"):
+        restored.restore(incompatible)
+    with pytest.raises(KeyError, match="accuracy"):
+        restored.update({"loss": 1.0})
+
+    with pytest.raises(ValueError, match="mode"):
+        BestCheckpoint(mode="sideways")
+    with pytest.raises(ValueError, match="min_delta"):
+        BestCheckpoint(min_delta=-1.0)
+    with pytest.raises(TypeError, match="path"):
+        BestCheckpoint(path=1)
+
+
 def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
     """Validation should average scalar outputs over the deterministic fraction."""
 
@@ -227,6 +263,7 @@ def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
             "file_keys": "validation.root",
             "fraction": 0.5,
             "early_stopping": {"monitor": "loss", "patience": 1},
+            "best_checkpoint": True,
         },
         ordinary_loader(),
         FakeModel(),
@@ -239,8 +276,12 @@ def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
 
     metrics = manager.run(iteration=2)
     assert metrics == {"loss": 4.0}
+    assert manager.update_best_checkpoint(metrics)
+    assert not manager.update_best_checkpoint(metrics)
     assert not manager.update_early_stopping(metrics)
-    assert manager.checkpoint_state(metrics)["metrics"] == metrics
+    state = manager.checkpoint_state(metrics)
+    assert state["metrics"] == metrics
+    assert state["best_checkpoint"]["best"] == 4.0
     manager.close()
     assert manager.io.closed
 
@@ -268,11 +309,17 @@ def test_validation_manager_validates_runtime_options(monkeypatch):
         "seed": 1,
     }
 
+    with pytest.raises(TypeError, match="fraction"):
+        ValidationManager({"file_keys": "val.root", "fraction": "half"}, **kwargs)
     with pytest.raises(ValueError, match="fraction"):
         ValidationManager({"file_keys": "val.root", "fraction": 0.0}, **kwargs)
     with pytest.raises(TypeError, match="early_stopping"):
         ValidationManager(
             {"file_keys": "val.root", "early_stopping": "invalid"}, **kwargs
+        )
+    with pytest.raises(TypeError, match="best_checkpoint"):
+        ValidationManager(
+            {"file_keys": "val.root", "best_checkpoint": "invalid"}, **kwargs
         )
 
 
@@ -368,5 +415,7 @@ def test_validation_run_reduces_distributed_scalar_metrics(monkeypatch):
         manager.run(3)
 
     manager.early_stopping = None
+    manager.best_checkpoint = None
     assert not manager.update_early_stopping({"loss": 1.0})
+    assert not manager.update_best_checkpoint({"loss": 1.0})
     assert manager.checkpoint_state({"loss": 1.0}) == {"metrics": {"loss": 1.0}}
