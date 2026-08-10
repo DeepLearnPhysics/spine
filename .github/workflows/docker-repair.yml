@@ -24,6 +24,7 @@ env:
   IMAGE_REPOSITORY: ghcr.io/deeplearnphysics/spine
   PACKAGE_NAME: spine
   CACHE_IMAGE: ghcr.io/deeplearnphysics/spine-buildcache:buildcache
+  REPAIR_CACHE_IMAGE: ghcr.io/deeplearnphysics/spine-buildcache:repair
 
 concurrency:
   group: docker-repair
@@ -177,8 +178,8 @@ jobs:
           pull: true
           cache-from: |
             type=registry,ref=${{ env.CACHE_IMAGE }}
-            type=gha,scope=spine-repair
-          cache-to: type=gha,scope=spine-repair,mode=max
+            type=registry,ref=${{ env.REPAIR_CACHE_IMAGE }}
+          cache-to: type=registry,ref=${{ env.REPAIR_CACHE_IMAGE }},mode=max
 
       - name: Verify repaired image
         if: steps.preflight.outputs.needs_repair == 'true' && inputs.publish_rebuilds
