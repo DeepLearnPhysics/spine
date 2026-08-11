@@ -102,17 +102,29 @@ when the total point count is unchanged. Object boundaries remain available in
 ``PointLayer.object_ids`` and ``PointLayer.object_offsets`` so WebGL backends
 can provide per-object picking and legends without creating separate buffers.
 
-External applications may register another backend without importing Plotly
-into their scene model:
+Browser applications can consume the neutral arrays without adding a browser
+renderer to SPINE itself:
 
 ```python
-vis.register_backend("webgl", WebGLBackend)
-payload = scene.render("webgl")
+layer = scene.views[0].layers[0]
+positions = layer.positions
+object_ids = layer.object_ids
+attributes = layer.attributes
 ```
+
+SPINE currently provides only the Python-side Plotly backend. Applications
+such as Spinal Tap own their JavaScript renderer, transport and interactive
+filter state. A reusable browser renderer can be extracted later if another
+consumer, such as a Jupyter widget, needs the same implementation.
 
 The first scene implementation covers the dominant object and raw point-cloud
 path. Detector geometry and auxiliary optical/CRT glyphs continue to use the
 established Plotly drawer while neutral line and mesh layers are developed.
+For that reason, `Drawer.get` continues to use the complete legacy Plotly path
+instead of delegating to `Drawer.get_scene`. Once the neutral model represents
+detector geometry and every auxiliary layer, `get` can become the compatibility
+façade for `get_scene(...).render("plotly")` without losing existing notebook
+functionality.
 
 Stored optical hypotheses can be overlaid with measured flashes in an output
 event display:
