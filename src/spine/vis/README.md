@@ -2,7 +2,8 @@
 
 `spine.vis` provides visualization helpers used to build Plotly traces,
 assemble domain-aware drawers, share plotting layouts, and render metric
-figures such as confusion matrices and annotated heatmaps.
+figures such as confusion matrices and annotated heatmaps. It also provides a
+renderer-neutral scene representation for high-volume 3D event displays.
 
 The implementation lives in:
 
@@ -11,6 +12,7 @@ src/spine/vis/trace/
 src/spine/vis/drawer/
 src/spine/vis/layout/
 src/spine/vis/metric/
+src/spine/vis/scene/
 ```
 
 The top-level `spine.vis` namespace re-exports the intended public API, while
@@ -38,6 +40,12 @@ the subpackages keep the implementation split by responsibility.
   - Metric-specific plotting helpers
   - Confusion matrices, heatmaps, and related annotation helpers
 
+- `scene/`
+  - Renderer-neutral, contiguous point-cloud layers
+  - Object membership and numeric attributes are retained without requiring
+    one render object per SPINE object
+  - Configurable backends; Plotly is the built-in backend
+
 ## Design rule
 
 Use the following boundary when deciding where new code belongs:
@@ -46,6 +54,8 @@ Use the following boundary when deciding where new code belongs:
   Plotly traces.
 - Put code in `drawer/` when it decides *what* to draw from SPINE objects or
   domain-aware structures, and then delegates to `trace/`.
+- Put code in `scene/` when it describes *what is present in a 3D scene*
+  independently of a plotting library, or converts that scene to a backend.
 
 Examples:
 
@@ -68,6 +78,41 @@ import spine.vis as vis
 traces = vis.scatter_points_3d(points, color=values)
 drawer = vis.GeoDrawer()
 ```
+
+For large interactive point clouds, build a renderer-neutral scene first:
+
+```python
+scene = vis.Drawer(data, draw_mode="reco").get_scene(
+    "particles",
+    attr=["pid"],
+    color_attr="pid",
+)
+
+# Existing notebook-friendly output
+figure = scene.render("plotly")
+
+# Optional legacy-style object splitting. The scene itself stays combined.
+figure = scene.render("plotly", split_objects=True)
+```
+
+Prefer the combined form for large events. Plotly validates and copies every
+nested trace independently, and its browser runtime maintains per-trace state.
+Splitting hundreds of objects therefore adds substantial fixed overhead even
+when the total point count is unchanged. Object boundaries remain available in
+``PointLayer.object_ids`` and ``PointLayer.object_offsets`` so WebGL backends
+can provide per-object picking and legends without creating separate buffers.
+
+External applications may register another backend without importing Plotly
+into their scene model:
+
+```python
+vis.register_backend("webgl", WebGLBackend)
+payload = scene.render("webgl")
+```
+
+The first scene implementation covers the dominant object and raw point-cloud
+path. Detector geometry and auxiliary optical/CRT glyphs continue to use the
+established Plotly drawer while neutral line and mesh layers are developed.
 
 Stored optical hypotheses can be overlaid with measured flashes in an output
 event display:

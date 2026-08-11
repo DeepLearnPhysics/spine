@@ -11,6 +11,7 @@ import spine.data.out
 from spine.geo import GeoManager
 
 from ...layout import dual_figure3d, layout3d
+from ...scene import PointLayer, PointStyle, Scene, SceneView
 from ...trace.cluster import scatter_clusters
 from ..geo import GeoDrawer
 from ..lite import scatter_lite
@@ -207,6 +208,115 @@ class Drawer:
             return obj.index
         return getattr(obj, self.truth_index_mode)
 
+    def get_scene(
+        self,
+        obj_type: str,
+        attr: str | list[str] | None = None,
+        color_attr: str | None = None,
+        draw_raw: bool = False,
+    ) -> Scene:
+        """Build a renderer-neutral scene for the dominant point-cloud path.
+
+        Unlike :meth:`get`, this method does not instantiate Plotly objects.
+        It preserves object boundaries and per-point attributes in contiguous
+        arrays so a backend may upload one buffer or choose to split objects.
+
+        Parameters
+        ----------
+        obj_type : str
+            Object family to draw.
+        attr : Union[str, List[str]], optional
+            Object attributes included in hover labels and numeric layer data.
+        color_attr : str, optional
+            Attribute used to define point colors.
+        draw_raw : bool, default False
+            If ``True``, include the raw deposition cloud as its own layer.
+
+        Returns
+        -------
+        Scene
+            Renderer-neutral scene with one view or split reco/truth views.
+
+        Notes
+        -----
+        Geometry, optical, CRT, and auxiliary glyphs remain on the established
+        Plotly path for now. They can be added as new neutral layer types
+        without changing this API.
+        """
+        if self.lite:
+            raise NotImplementedError(
+                "Renderer-neutral lite-object scenes are not implemented yet."
+            )
+        attrs = self._validate_request(obj_type, attr)
+        layers = {}
+        for prefix in self.prefixes:
+            obj_name = f"{prefix}_{obj_type}"
+            if obj_name not in self.data:
+                raise ValueError(
+                    f"Must provide `{obj_name}` in the data products to draw them."
+                )
+            object_layer = self._object_layer(
+                obj_name, attrs[prefix], color_attr=color_attr
+            )
+            layers[prefix] = [object_layer]
+            if draw_raw:
+                layers[prefix].insert(0, self._raw_layer(prefix))
+
+        if len(self.prefixes) > 1 and self.split_scene:
+            views = [
+                SceneView(
+                    name=f"{prefix.capitalize()} {obj_type}",
+                    layers=layers[prefix],
+                    metadata={"prefix": prefix},
+                )
+                for prefix in self.prefixes
+            ]
+        else:
+            views = [
+                SceneView(
+                    name=obj_type.capitalize(),
+                    layers=[
+                        layer for prefix in self.prefixes for layer in layers[prefix]
+                    ],
+                )
+            ]
+        return Scene(
+            views=views,
+            metadata={
+                "object_type": obj_type,
+                "split_scene": self.split_scene,
+                "detector_coords": self.detector_coords,
+            },
+        )
+
+    def _validate_request(
+        self, obj_type: str, attr: str | list[str] | None
+    ) -> dict[str, list[str]]:
+        """Validate an object request and normalize attributes per prefix."""
+        if obj_type not in self._obj_types:
+            raise ValueError(
+                f"Object type not recognized: {obj_type}. Must be one of "
+                f"{self._obj_types}."
+            )
+        req_attrs = [attr] if isinstance(attr, str) else attr
+        req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
+        req_attr_set = set(req_attrs)
+        found_attrs = set()
+        attrs = {prefix: [] for prefix in self.prefixes}
+        for prefix in self.prefixes:
+            class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
+            class_obj = getattr(spine.data.out, class_name)()
+            valid_attrs = set(class_obj.attr_names())
+            attrs[prefix] = [name for name in req_attrs if name in valid_attrs]
+            found_attrs.update(attrs[prefix])
+        if req_attr_set != found_attrs:
+            missing_attrs = req_attr_set.difference(found_attrs)
+            raise ValueError(
+                "The following requested attributes are not available for "
+                f"any of the drawn objects: {missing_attrs}."
+            )
+        return attrs
+
     def get(
         self,
         obj_type: str,
@@ -274,33 +384,7 @@ class Drawer:
         go.Figure
             Plotly figure containing all requested object and detector traces.
         """
-        # Validate the requested object type and hover attributes
-        if obj_type not in self._obj_types:
-            raise ValueError(
-                f"Object type not recognized: {obj_type}. Must be one of {self._obj_types}."
-            )
-
-        # Build a list of valid hover attributes for each requested declination
-        # because truth and reconstruction objects expose slightly different
-        # attribute sets.
-        req_attrs = [attr] if isinstance(attr, str) else attr
-        req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
-        req_attr_set = set(req_attrs)
-        found_attrs = set()
-        attrs = {prefix: [] for prefix in self.prefixes}
-        for prefix in self.prefixes:
-            class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
-            class_obj = getattr(spine.data.out, class_name)()
-            valid_attrs = set(class_obj.attr_names())
-            attrs[prefix] = [attr for attr in req_attrs if attr in valid_attrs]
-            found_attrs.update(attrs[prefix])
-
-        if req_attr_set != found_attrs:
-            missing_attrs = req_attr_set.difference(found_attrs)
-            raise ValueError(
-                "The following requested attributes are not available for "
-                f"any of the drawn objects: {missing_attrs}."
-            )
+        attrs = self._validate_request(obj_type, attr)
 
         traces: dict[str, list] = {}
         for prefix in self.prefixes:
@@ -504,6 +588,147 @@ class Drawer:
         for trace_group in traces.values():
             all_traces += trace_group
         return go.Figure(all_traces, layout=layout)
+
+    def _object_layer(
+        self,
+        obj_name: str,
+        attrs: list[str],
+        color_attr: str | None,
+    ) -> PointLayer:
+        """Build one contiguous renderer-neutral object point layer."""
+        point_key = self.truth_point_key if "truth" in obj_name else "points"
+        if point_key not in self.data:
+            raise ValueError(
+                f"The `{point_key}` attribute must be provided if the full "
+                f"version of the `{obj_name}` objects is to be drawn."
+            )
+
+        objects = self.data[obj_name]
+        points = self.data[point_key]
+        indices = [np.asarray(self.get_index(obj), dtype=np.int64) for obj in objects]
+        counts = np.asarray([len(index) for index in indices], dtype=np.int64)
+        offsets = np.concatenate(([0], np.cumsum(counts)))
+        positions = (
+            np.concatenate([points[index] for index in indices if len(index)], axis=0)
+            if np.sum(counts)
+            else np.empty((0, 3), dtype=np.float32)
+        )
+        object_ids = (
+            np.concatenate(
+                [
+                    np.full(len(index), int(obj.id), dtype=np.int32)
+                    for obj, index in zip(objects, indices)
+                ]
+            )
+            if np.sum(counts)
+            else np.empty(0, dtype=np.int32)
+        )
+
+        color_dict = build_object_colors(
+            data=self.data,
+            obj_name=obj_name,
+            attrs=attrs,
+            color_attr=color_attr,
+            split_traces=False,
+            geo=self.geo,
+            lite=False,
+            truth_point_key=self.truth_point_key,
+            truth_point_mode=self.truth_point_mode,
+            dep_modes=self.dep_modes,
+        )
+        values = self._expand_object_values(color_dict["color"], indices, len(points))
+        hovertext = self._expand_object_values(
+            color_dict["hovertext"], indices, len(points), dtype=object
+        )
+
+        layer_attrs = {"object_id": object_ids}
+        for name in dict.fromkeys([*attrs, color_attr]):
+            if name is None or name == "id":
+                continue
+            raw_values = [getattr(obj, name) for obj in objects]
+            try:
+                expanded = self._expand_object_values(raw_values, indices, len(points))
+            except (TypeError, ValueError):
+                continue
+            if expanded is not None and np.asarray(expanded).dtype.kind in "biuf":
+                layer_attrs[name] = expanded
+
+        return PointLayer(
+            positions=positions,
+            name=color_dict["name"],
+            values=values,
+            hovertext=hovertext,
+            object_ids=object_ids,
+            object_offsets=offsets,
+            attributes=layer_attrs,
+            style=PointStyle(
+                colorscale=color_dict["colorscale"],
+                cmin=color_dict["cmin"],
+                cmax=color_dict["cmax"],
+            ),
+            metadata={"object_name": obj_name},
+        )
+
+    def _raw_layer(self, prefix: str) -> PointLayer:
+        """Build a renderer-neutral raw-deposition layer."""
+        if prefix == "reco":
+            point_key, dep_key = "points", "depositions"
+        else:
+            point_key, dep_key = self.truth_point_key, self.truth_dep_key
+        if point_key not in self.data or dep_key not in self.data:
+            raise ValueError(
+                f"Must provide `{point_key}` and `{dep_key}` to draw raw input."
+            )
+        points = self.data[point_key]
+        deps = np.asarray(self.data[dep_key])
+        cmax = float(2 * np.median(deps)) if len(deps) else 1.0
+        return PointLayer(
+            positions=points,
+            name="Raw input",
+            values=deps,
+            attributes={"depositions": deps},
+            style=PointStyle(colorscale="Inferno", cmin=0.0, cmax=cmax),
+            metadata={"kind": "raw", "prefix": prefix},
+        )
+
+    @staticmethod
+    def _expand_object_values(
+        values: Any,
+        indices: list[np.ndarray],
+        source_count: int,
+        dtype: Any | None = None,
+    ) -> Any:
+        """Expand scalar, per-object, or per-source values to displayed points."""
+        if values is None or np.isscalar(values):
+            return values
+        if len(values) == source_count and len(values) != len(indices):
+            array = np.asarray(values)
+            parts = [array[index] for index in indices if len(index)]
+        elif len(values) == len(indices):
+            parts = []
+            for value, index in zip(values, indices):
+                if not len(index):
+                    continue
+                if np.isscalar(value):
+                    parts.append(np.full(len(index), value, dtype=dtype))
+                    continue
+                array = np.asarray(value)
+                if len(array) < len(index):
+                    raise ValueError(
+                        "Per-object values are shorter than object points."
+                    )
+                parts.append(array[: len(index)])
+        else:
+            raise ValueError(
+                "Values must be scalar, per source point, or per displayed object."
+            )
+        if not parts:
+            return np.empty(0, dtype=dtype or np.float32)
+        return (
+            np.concatenate(parts).astype(dtype, copy=False)
+            if dtype
+            else np.concatenate(parts)
+        )
 
     def _object_traces(
         self,

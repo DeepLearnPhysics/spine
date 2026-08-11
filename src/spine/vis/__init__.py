@@ -7,9 +7,11 @@ API while the implementation is organized internally into:
 - :mod:`spine.vis.drawer` for higher-level object and detector drawers
 - :mod:`spine.vis.layout` for shared Plotly and Matplotlib styling
 - :mod:`spine.vis.metric` for metric-specific plotting helpers
+- :mod:`spine.vis.scene` for renderer-neutral 3D scenes and backends
 """
 
 from .drawer import *
 from .layout import *
 from .metric import *
+from .scene import *
 from .trace import *
