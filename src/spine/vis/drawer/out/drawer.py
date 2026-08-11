@@ -47,7 +47,7 @@ class Drawer:
     # Supported draw modes
     _draw_modes = ("reco", "truth", "both", "all")
 
-    # Supported truth point, deposition and source modes and their corresponding backing data keys
+    # Supported truth point, deposition and source modes and their backing keys
     _point_modes = (
         ("points", "points_label"),
         ("points_adapt", "points"),
@@ -105,10 +105,11 @@ class Drawer:
         # Store the data products to be visualized for use by the trace builders
         self.data = data
 
-        # Validate the requested draw mode and determine which object families to draw
+        # Validate the requested draw mode
         if draw_mode not in self._draw_modes:
             raise ValueError(
-                f"`mode` not recognized: {draw_mode}. Must be one of {self._draw_modes}."
+                f"`mode` not recognized: {draw_mode}. Must be one of "
+                f"{self._draw_modes}."
             )
 
         # Determine which object families to draw based on the requested draw mode
@@ -148,7 +149,7 @@ class Drawer:
             self.geo_drawer = GeoDrawer(geo=self.geo, detector_coords=detector_coords)
             self.geo = self.geo_drawer.geo
 
-        # Store the remaining configuration options for use by the trace builders and layout
+        # Store the remaining trace-builder and layout configuration
         self.lite = lite
         self.split_scene = split_scene
         self.detector_coords = detector_coords
@@ -237,17 +238,29 @@ class Drawer:
         Scene
             Renderer-neutral scene with one view or split reco/truth views.
 
+        Raises
+        ------
+        NotImplementedError
+            If the drawer is configured for lite objects.
+        ValueError
+            If the requested object collection or backing point data is absent.
+
         Notes
         -----
         Geometry, optical, CRT, and auxiliary glyphs remain on the established
         Plotly path for now. They can be added as new neutral layer types
         without changing this API.
         """
+        # The initial neutral representation targets full point-cloud objects
         if self.lite:
             raise NotImplementedError(
                 "Renderer-neutral lite-object scenes are not implemented yet."
             )
+
+        # Normalize the request using the same validation as the Plotly path
         attrs = self._validate_request(obj_type, attr)
+
+        # Build one compact object layer, plus optional raw input, per prefix
         layers = {}
         for prefix in self.prefixes:
             obj_name = f"{prefix}_{obj_type}"
@@ -262,6 +275,7 @@ class Drawer:
             if draw_raw:
                 layers[prefix].insert(0, self._raw_layer(prefix))
 
+        # Preserve independent truth and reconstruction views when requested
         if len(self.prefixes) > 1 and self.split_scene:
             views = [
                 SceneView(
@@ -272,6 +286,7 @@ class Drawer:
                 for prefix in self.prefixes
             ]
         else:
+            # Merge layer groups into one view without merging their buffers
             views = [
                 SceneView(
                     name=obj_type.capitalize(),
@@ -280,6 +295,8 @@ class Drawer:
                     ],
                 )
             ]
+
+        # Attach domain context without introducing backend-specific objects
         return Scene(
             views=views,
             metadata={
@@ -292,23 +309,48 @@ class Drawer:
     def _validate_request(
         self, obj_type: str, attr: str | list[str] | None
     ) -> dict[str, list[str]]:
-        """Validate an object request and normalize attributes per prefix."""
+        """Validate an object request and normalize attributes per prefix.
+
+        Parameters
+        ----------
+        obj_type : str
+            Object family to validate.
+        attr : str or list[str], optional
+            Requested hover or point attributes.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            Valid attributes grouped by truth/reconstruction prefix.
+
+        Raises
+        ------
+        ValueError
+            If the object family or any requested attribute is unsupported.
+        """
+        # Validate the supported domain-object family
         if obj_type not in self._obj_types:
             raise ValueError(
                 f"Object type not recognized: {obj_type}. Must be one of "
                 f"{self._obj_types}."
             )
+
+        # Normalize scalar and repeated attributes while preserving order
         req_attrs = [attr] if isinstance(attr, str) else attr
         req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
         req_attr_set = set(req_attrs)
         found_attrs = set()
         attrs = {prefix: [] for prefix in self.prefixes}
+
+        # Keep only attributes exposed by each truth/reconstruction class
         for prefix in self.prefixes:
             class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
             class_obj = getattr(spine.data.out, class_name)()
             valid_attrs = set(class_obj.attr_names())
             attrs[prefix] = [name for name in req_attrs if name in valid_attrs]
             found_attrs.update(attrs[prefix])
+
+        # Reject attributes unsupported by every requested object declination
         if req_attr_set != found_attrs:
             missing_attrs = req_attr_set.difference(found_attrs)
             raise ValueError(
@@ -552,8 +594,7 @@ class Drawer:
             else:
                 traces[self.prefixes[-1]] += self.geo_drawer.tpc_traces(meta=self.meta)
 
-        # Build the layout with or without separate scenes based on the configuration and
-        # assemble the final figure with all requested traces and the geometry overlay
+        # Build the layout and assemble the requested traces and geometry overlay
         layout = layout3d(
             geo=self.geo,
             use_geo=self.geo is not None,
@@ -595,7 +636,29 @@ class Drawer:
         attrs: list[str],
         color_attr: str | None,
     ) -> PointLayer:
-        """Build one contiguous renderer-neutral object point layer."""
+        """Build one contiguous renderer-neutral object point layer.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the truth or reconstruction object collection.
+        attrs : list[str]
+            Requested hover and numeric point attributes.
+        color_attr : str, optional
+            Attribute used to define point colors.
+
+        Returns
+        -------
+        PointLayer
+            Contiguous point layer retaining domain-object boundaries.
+
+        Raises
+        ------
+        ValueError
+            If the backing point cloud is absent or attribute values cannot be
+            aligned with the selected points.
+        """
+        # Select the point cloud appropriate for truth or reconstruction
         point_key = self.truth_point_key if "truth" in obj_name else "points"
         if point_key not in self.data:
             raise ValueError(
@@ -603,16 +666,21 @@ class Drawer:
                 f"version of the `{obj_name}` objects is to be drawn."
             )
 
+        # Resolve object indices and encode their boundaries as prefix offsets
         objects = self.data[obj_name]
         points = self.data[point_key]
         indices = [np.asarray(self.get_index(obj), dtype=np.int64) for obj in objects]
         counts = np.asarray([len(index) for index in indices], dtype=np.int64)
         offsets = np.concatenate(([0], np.cumsum(counts)))
+
+        # Gather domain-object points into one contiguous renderer buffer
         positions = (
             np.concatenate([points[index] for index in indices if len(index)], axis=0)
             if np.sum(counts)
             else np.empty((0, 3), dtype=np.float32)
         )
+
+        # Repeat stable domain IDs for client-side picking and highlighting
         object_ids = (
             np.concatenate(
                 [
@@ -624,6 +692,7 @@ class Drawer:
             else np.empty(0, dtype=np.int32)
         )
 
+        # Reuse the established color and hover semantics from the Plotly drawer
         color_dict = build_object_colors(
             data=self.data,
             obj_name=obj_name,
@@ -641,6 +710,7 @@ class Drawer:
             color_dict["hovertext"], indices, len(points), dtype=object
         )
 
+        # Preserve requested numeric dimensions for client-side filtering
         layer_attrs = {"object_id": object_ids}
         for name in dict.fromkeys([*attrs, color_attr]):
             if name is None or name == "id":
@@ -653,6 +723,7 @@ class Drawer:
             if expanded is not None and np.asarray(expanded).dtype.kind in "biuf":
                 layer_attrs[name] = expanded
 
+        # Package arrays and common display hints without constructing Plotly objects
         return PointLayer(
             positions=positions,
             name=color_dict["name"],
@@ -670,7 +741,24 @@ class Drawer:
         )
 
     def _raw_layer(self, prefix: str) -> PointLayer:
-        """Build a renderer-neutral raw-deposition layer."""
+        """Build a renderer-neutral raw-deposition layer.
+
+        Parameters
+        ----------
+        prefix : str
+            Object declination, one of ``"reco"`` or ``"truth"``.
+
+        Returns
+        -------
+        PointLayer
+            Raw input points colored by deposition value.
+
+        Raises
+        ------
+        ValueError
+            If the required point or deposition arrays are absent.
+        """
+        # Select reconstruction or truth input arrays consistently with Drawer
         if prefix == "reco":
             point_key, dep_key = "points", "depositions"
         else:
@@ -679,6 +767,8 @@ class Drawer:
             raise ValueError(
                 f"Must provide `{point_key}` and `{dep_key}` to draw raw input."
             )
+
+        # Match the legacy Plotly color range for raw depositions
         points = self.data[point_key]
         deps = np.asarray(self.data[dep_key])
         cmax = float(2 * np.median(deps)) if len(deps) else 1.0
@@ -698,13 +788,39 @@ class Drawer:
         source_count: int,
         dtype: Any | None = None,
     ) -> Any:
-        """Expand scalar, per-object, or per-source values to displayed points."""
+        """Expand scalar, per-object, or per-source values to displayed points.
+
+        Parameters
+        ----------
+        values : Any
+            Shared scalar, source-aligned sequence or per-object values.
+        indices : list[np.ndarray]
+            Source indices selected by each domain object.
+        source_count : int
+            Number of points in the source point cloud.
+        dtype : data-type, optional
+            Output data type used when concatenating values.
+
+        Returns
+        -------
+        Any
+            Shared scalar or one contiguous value array per displayed point.
+
+        Raises
+        ------
+        ValueError
+            If values cannot be aligned with the selected object points.
+        """
+        # Shared values require no point-wise expansion
         if values is None or np.isscalar(values):
             return values
+
+        # Gather arrays already aligned with the source point cloud
         if len(values) == source_count and len(values) != len(indices):
             array = np.asarray(values)
             parts = [array[index] for index in indices if len(index)]
         elif len(values) == len(indices):
+            # Expand scalar or point-wise values supplied per domain object
             parts = []
             for value, index in zip(values, indices):
                 if not len(index):
@@ -719,11 +835,16 @@ class Drawer:
                     )
                 parts.append(array[: len(index)])
         else:
+            # Ambiguous lengths cannot be mapped to the selected point buffer
             raise ValueError(
                 "Values must be scalar, per source point, or per displayed object."
             )
+
+        # Preserve a well-defined dtype for empty scenes and requested text arrays
         if not parts:
             return np.empty(0, dtype=dtype or np.float32)
+
+        # Concatenate once after all object-level slices have been collected
         return (
             np.concatenate(parts).astype(dtype, copy=False)
             if dtype
@@ -755,8 +876,7 @@ class Drawer:
         list
             Trace list representing the requested objects.
         """
-        # Build the color mapping for the object collection based on the requested
-        # color attribute and the semantics of its name if it is not explicitly requested.
+        # Build the color mapping from the requested or inferred color attribute
         color_dict = build_object_colors(
             data=self.data,
             obj_name=obj_name,
