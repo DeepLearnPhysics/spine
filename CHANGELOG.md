@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.17.0] - 2026-08-10
+
+### Added
+- **Typed data products**: Introduce the self-describing `spine.data.product` hierarchy for event and batch tensors, indexes, edge indexes, objects, and cluster labels, with product-owned schemas, coordinate groups, named fields, spans, index shifts, duplicate policies, and NumPy/Torch conversion.
+- **Structured cluster labels**: Store compact voxel association data separately from per-particle information, expose named particle, group, interaction, semantic, kinematic, and vertex accessors, and avoid expanding repeated particle quantities until requested.
+- **Product-oriented HDF5 I/O**: Add a self-describing `/products` layout with product metadata, schemas, event offsets, primary values, and owned child products; split the reader and writer into focused product, schema, region, and orchestration modules while retaining legacy HDF5 compatibility.
+- **Provider-based full chain**: Replace the monolithic full-chain implementation with an ordered provider pipeline built around `ChainState`, `StageResult`, provider specifications, dependency validation, and explicit product ownership. Segmentation, deghosting, calibration, fragmentation, aggregation, and particle-image tasks are now independently composable stages.
+- **Rehabilitated model packages**: Establish maintained package-level implementations and train/test configurations for UResNet, PPN, Bayesian UResNet, SPICE, Graph-SPICE, GrapPA shower/track/interaction aggregation, image PID, primary classification, and energy regression.
+- **Modular image tasks**: Add reusable object selection, image encoding, prediction heads, task losses, and ancestor-tree supervision for whole-image and object-level classification or regression.
+- **On-the-fly validation**: Run deterministic validation at checkpoint boundaries against the live training weights, including distributed metric reduction, configurable validation fractions, restored validation state, and dedicated validation data sources derived from the training loader schema.
+- **Early stopping and best checkpoints**: Add validation-metric early stopping and stable best-checkpoint promotion with configurable monitor, direction, minimum improvement, patience, and output path.
+- **Checkpoint-bound schedulers**: Let learning-rate schedulers advance per optimization step or per checkpoint and optionally consume a monitored validation metric.
+- **Rich checkpoint manifests**: Store a versioned manifest, creation time, SPINE/Python/PyTorch versions, Git revision and dirty state, normalized configuration, dataset provenance, distributed world size, artifact contents, scheduler state, validation state, and per-rank runtime state in each checkpoint.
+- **Checkpoint integrity tools**: Write checkpoints atomically, record SHA-256 checksums, verify artifacts on load, inspect checkpoint metadata without constructing a model, and promote an existing snapshot to a best-checkpoint path without reserializing training state.
+- **Exact continuation state**: Capture and restore Python, NumPy, PyTorch, CUDA, sampler, loader, and scheduler state for compatible distributed runs, with explicit diagnostics when older checkpoints cannot provide exact continuation.
+- **Resume controls**: Add configuration and `--resume`/`--no-resume` CLI controls, automatic continuation when training is supplied a single checkpoint, strict explicit-resume validation, and parameter-only loading for intentional fine-tuning.
+- **Distributed inference parity**: Support launcher-driven and internally spawned multi-GPU inference through the same worker path used by training, including externally supplied `RANK`, `LOCAL_RANK`, and `WORLD_SIZE` for multi-node execution.
+- **Model configuration contracts**: Add construction and execution checks for every maintained model configuration, deterministic UResNet and full-chain regressions, default model-test collection, and complete `spine.model` statement coverage in CI.
+- **Container recovery tooling**: Add recursive OCI-manifest verification and a manually dispatched GHCR recovery workflow that restores recoverable manifests, rebuilds only unhealthy historical releases, and repairs minor-version and `latest` aliases.
+
+### Changed
+- **Model package ownership**: Move CNN, sparse, GrapPA, Graph-SPICE, UResNet/PPN, image, full-chain, and common components out of the legacy `spine.model.layer` and top-level monoliths into the packages that own them, with clearer factories, typing, validation, and output contracts.
+- **Training configuration**: Normalize training instructions into a canonical top-level `train` block while continuing to accept and relocate the historical `base.train` block with a deprecation warning. Validation configuration lives in a sibling top-level block.
+- **Training progress accounting**: Persist epoch progress independently of global iteration so resumed runs retain the correct epoch when minibatch size or loader length changes.
+- **Distributed training reporting**: Average scalar training outputs across ranks, gather checkpoint runtime state from every rank, and restrict TensorBoard ownership to rank zero while keeping validation and checkpoint decisions synchronized.
+- **Joint dataset sampling**: Default joint datasets to deterministic sequential pairing when no sampler is configured, and derive validation samplers sequentially without removing configured overlay composition.
+- **Sparse model contract**: Standardize sparse-network construction, tensor conversion, feature replacement, coordinate queries, duplicate restoration, pooling, empty inputs, and backend-neutral feature access around the public sparse interface.
+- **Configuration library**: Reorganize maintained examples by model, pair train and inference configurations, standardize minibatch/epoch/checkpoint settings, and add dedicated full-chain provider documentation and regression configurations.
+- **Construction and analysis consumers**: Replace raw numeric column slicing with typed product accessors throughout reconstruction, metrics, post-processing, model inputs, collation, overlay, augmentation, sampling, and unwrapping.
+- **Container publishing**: Preserve OCI child manifests instead of deleting apparently untagged GHCR package versions, serialize release builds, verify every published child manifest, and use durable, isolated registry-backed caches for normal releases and historical repairs.
+
+### Fixed
+- **PPN supervision and feature alignment**: Pool coarse target masks onto each decoder layer's actual sparse coordinate map and align concatenated sparse features by coordinates rather than backend union order.
+- **Model edge cases**: Harden empty clusters, graphs, batches, frozen networks, detached losses, ghost masks, endpoint classification, Graph-SPICE ownership, Delaunay fallback, and degenerate geometric encodings.
+- **Vertex and metadata handling**: Use each batch entry's own metadata for vertex coordinate conversion, report mean per-node Euclidean vertex error, and tolerate expected float32 image-bound roundoff without hiding genuine metadata mismatches.
+- **Cluster-label correctness**: Preserve feature dtypes, semantic precedence, aligned primary values, multi-volume scalar tensors, overlay charge, interaction IDs, and structured cluster metadata through parsing, collation, overlay, HDF5, construction, and model execution.
+- **Distributed device handling**: Correct CUDA batch-ID construction and keep train, validation, and inference rank/device selection consistent under single-node and external multi-node launchers.
+- **Checkpoint compatibility**: Load legacy weight files without requiring new metadata, provide actionable warnings for unavailable optimizer, scheduler, epoch, RNG, or loader state, and reject ambiguous training weight lists.
+- **GHCR release integrity**: Stop deleting OCI children referenced by tagged indexes, normalize repository names for direct Buildx operations, and retain repair caches across historical rebuild jobs.
+
+### Removed
+- **Obsolete model implementations**: Remove the unmaintained experimental model tree, legacy transformer paths, duplicated top-level model modules, and superseded `spine.model.layer` implementations now owned by maintained packages.
+- **Ambiguous dense cluster labels**: Remove runtime support for raw dense cluster-label tensors in favor of the structured cluster-label product contract.
+
+### Migration notes
+- Imports from `spine.model.layer.*` and superseded top-level model modules must move to their new owning packages.
+- New full-chain configurations should use the ordered `chain.stages` provider plan; historical mode-matrix configurations remain translated for compatibility.
+- Cluster parser legacy options remain accepted, but parsers now return structured cluster-label products. Consumers should use named accessors instead of hard-coded columns.
+- Legacy HDF5 layouts and checkpoints remain readable. Newly written files and checkpoints carry richer product, provenance, validation, and continuation metadata.
+- Existing `base.train` blocks continue to work for this release but are normalized to top-level `train` with a deprecation warning.
+
 ## [0.16.3] - 2026-08-06
 
 ### Added
