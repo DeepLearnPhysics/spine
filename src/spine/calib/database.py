@@ -32,6 +32,8 @@ class CalibrationDatabase:
         num_tpcs: int,
         db_type: str = "value",
         value_key: str = "scale",
+        value_keys: list[str] | tuple[str, ...] | None = None,
+        value_scale: float = 1.0,
     ) -> None:
         """Given a path to a calibration data base, load the
         information into a dictionary.
@@ -46,6 +48,13 @@ class CalibrationDatabase:
             Type of database (One 'value' or one 'map' per TPC)
         value_key : str, default 'scale'
             Name of the quantity to load for each bin when using 'map' db_type
+        value_keys : sequence[str], optional
+            Ordered columns containing one value per TPC in each row when using
+            ``'value'`` db_type. If omitted, values are loaded from one row per
+            channel using the quantity inferred from the database filename.
+        value_scale : float, default 1.0
+            Multiplicative scale applied to values loaded from a ``'value'``
+            database, for example 1000 to convert milliseconds to microseconds.
 
         Returns
         -------
@@ -62,6 +71,10 @@ class CalibrationDatabase:
             raise ValueError(
                 f"Type of database not recognized: {db_type}. "
                 f"Must be one of {self._db_types}."
+            )
+        if value_keys is not None and len(value_keys) != num_tpcs:
+            raise ValueError(
+                "Must provide exactly one database value key per TPC " f"({num_tpcs})."
             )
 
         # Load the database into a pandas dataframe
@@ -83,14 +96,22 @@ class CalibrationDatabase:
             df_run = cast(pd.DataFrame, df[df.begin_time == run])
             run_id = run - int(1e9)
             if db_type == "value":
-                self.dict[run_id] = self.load_values(df_run, quantity)
+                self.dict[run_id] = self.load_values(
+                    df_run, quantity, value_keys, value_scale
+                )
             else:
                 self.dict[run_id] = self.load_tables(df_run, value_key)
 
         # Create a list of boundary runs
         self.runs = np.sort(list(self.dict.keys()))
 
-    def load_values(self, df_run: pd.DataFrame, quantity: str) -> FloatArray:
+    def load_values(
+        self,
+        df_run: pd.DataFrame,
+        quantity: str,
+        value_keys: list[str] | tuple[str, ...] | None = None,
+        value_scale: float = 1.0,
+    ) -> FloatArray:
         """Loads one value per TPC.
 
         Parameters
@@ -99,12 +120,27 @@ class CalibrationDatabase:
             Dataframe which corresponds to the run being loaded
         quantity : str
             Name of the quantity to load
+        value_keys : sequence[str], optional
+            Ordered columns containing one value per TPC in a single row.
+        value_scale : float, default 1.0
+            Multiplicative scale applied to the loaded values.
 
         Returns
         -------
         np.ndarray
             (N_tpc) Array of calibration values
         """
+        # Load one TPC value from each requested column of a single payload row
+        if value_keys is not None:
+            if len(df_run) != 1:
+                raise ValueError(
+                    "Column-mapped value databases must provide one row per IOV."
+                )
+
+            return (
+                np.asarray(df_run.iloc[0][list(value_keys)], dtype=float) * value_scale
+            )
+
         # Check that there is exactly one value per tpc
         if len(df_run) != self.num_tpcs:
             raise ValueError("There should be one quantity specified per TPC")
@@ -114,7 +150,7 @@ class CalibrationDatabase:
         for i in range(len(df_run)):
             channel = int(df_run.iloc[i].channel)
             value = df_run.iloc[i][quantity]
-            array[channel] = value
+            array[channel] = value * value_scale
 
         return array
 

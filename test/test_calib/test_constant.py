@@ -21,6 +21,17 @@ def test_constant_accepts_dict_database():
     assert constant.get(1, run_id=100) == 3.0
 
 
+def test_constant_scales_database_values():
+    constant = CalibrationConstant(
+        num_tpcs=2,
+        database={100: [0.010, 0.020]},
+        database_value_scale=1000.0,
+    )
+
+    assert constant.get(0, run_id=100) == 10.0
+    assert constant.get(1, run_id=100) == 20.0
+
+
 def test_constant_validates_source_and_shape():
     with pytest.raises(ValueError, match="either a value or a database"):
         CalibrationConstant(num_tpcs=2)
@@ -30,6 +41,13 @@ def test_constant_validates_source_and_shape():
 
     with pytest.raises(ValueError, match="per TPC"):
         CalibrationConstant(num_tpcs=2, value=[1.0, 2.0, 3.0])
+
+    with pytest.raises(ValueError, match="SQLite path"):
+        CalibrationConstant(
+            num_tpcs=2,
+            database={100: [1.0, 2.0]},
+            database_value_keys=("east", "west"),
+        )
 
     scalar = CalibrationConstant(num_tpcs=2, value=1.0)
     with pytest.raises(ValueError, match="list of length"):

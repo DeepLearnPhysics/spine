@@ -27,6 +27,28 @@ def test_value_database_requires_one_value_per_tpc(value_db):
         db.load_values(bad_run, "gain")
 
 
+def test_value_database_loads_per_tpc_columns_with_scale(column_value_db):
+    db = CalibrationDatabase(
+        str(column_value_db),
+        num_tpcs=2,
+        value_keys=("east", "west"),
+        value_scale=1000.0,
+    )
+
+    assert np.allclose(db[100], [10.0, 20.0])
+    assert np.allclose(db[250], [30.0, 40.0])
+
+
+def test_value_database_validates_column_mapping(value_db):
+    with pytest.raises(ValueError, match="one database value key per TPC"):
+        CalibrationDatabase(str(value_db), num_tpcs=2, value_keys=("gain",))
+
+    db = CalibrationDatabase(str(value_db), num_tpcs=2)
+    rows = pd.DataFrame({"east": [1.0, 2.0], "west": [3.0, 4.0]})
+    with pytest.raises(ValueError, match="one row per IOV"):
+        db.load_values(rows, "", value_keys=("east", "west"))
+
+
 def test_map_database_loads_luts(transparency_db):
     db = CalibrationDatabase(str(transparency_db), num_tpcs=4, db_type="map")
 

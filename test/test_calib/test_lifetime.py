@@ -29,3 +29,23 @@ def test_lifetime_calibrator_uses_database(fake_geo):
     )
 
     assert np.allclose(corrected, [2.0 * np.exp(4.0 / 80.0)])
+
+
+def test_lifetime_calibrator_loads_scaled_per_tpc_columns(fake_geo, column_value_db):
+    calibrator = LifetimeCalibrator(
+        num_tpcs=2,
+        lifetime_db=str(column_value_db),
+        lifetime_db_value_keys=("east", "west"),
+        lifetime_db_value_scale=1000.0,
+        driftv=2.0,
+    )
+
+    corrected = calibrator.process(
+        np.array([[6.0, 0.0, 0.0]]),
+        np.array([2.0]),
+        fake_geo,
+        tpc_id=1,
+        run_id=100,
+    )
+
+    assert np.allclose(corrected, [2.0 * np.exp(4.0 / 40.0)])
