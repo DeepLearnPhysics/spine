@@ -16,7 +16,7 @@ from spine.constants import (
 )
 from spine.data import IndexBatch, TensorBatch
 from spine.math.cluster import DBSCAN as spine_dbscan
-from spine.utils.point_break_clustering import PointBreakClusterer
+from spine.model.common.point_break import PointBreakClusterer
 from spine.utils.ppn import PPNPredictor
 
 T = TypeVar("T")

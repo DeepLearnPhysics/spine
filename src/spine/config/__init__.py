@@ -25,6 +25,7 @@ from .errors import (
     ConfigTypeError,
     ConfigValidationError,
 )
+from .inference import get_inference_cfg, to_inference_config
 from .load import load_config, load_config_file
 from .normalize import normalize_config
 
@@ -34,6 +35,8 @@ __all__ = [
     "load_config",
     "load_config_file",
     "normalize_config",
+    "get_inference_cfg",
+    "to_inference_config",
     "download_from_url",
     "get_cache_dir",
     "ConfigError",

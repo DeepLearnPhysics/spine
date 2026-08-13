@@ -122,6 +122,56 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+def test_main_converts_to_inference_before_cli_overrides(monkeypatch, tmp_path):
+    """The inference transform should run before authoritative CLI inputs."""
+    config_path = tmp_path / "train.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {},
+            "train": {},
+            "io": {"reader": {"file_keys": ["training.root"]}},
+            "model": {},
+        },
+    )
+
+    def convert(config):
+        assert config["io"]["reader"]["file_keys"] == ["training.root"]
+        converted = dict(config)
+        converted.pop("train")
+        return converted
+
+    monkeypatch.setattr(cli_module, "to_inference_config", convert)
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=["inference.root"],
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        inference=True,
+    )
+
+    assert "train" not in captured["cfg"]
+    assert captured["cfg"]["io"]["reader"]["file_keys"] == ["inference.root"]
+
+
 @pytest.mark.parametrize("resume", [True, False])
 def test_main_applies_resume_override(monkeypatch, tmp_path, resume):
     """Dedicated resume flags should override the training configuration."""
@@ -392,6 +442,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 weight_list="weights.txt",
                 config_overrides=["a=1"],
                 resume=None,
+                inference=False,
             )
 
         def add_argument(self, *args, **kwargs):

@@ -8,8 +8,8 @@ from typing import Any
 import numpy as np
 
 from spine.constants import TRACK_SHP
+from spine.physics.pid import TemplateParticleIdentifier
 from spine.post.base import PostBase
-from spine.utils.pid import TemplateParticleIdentifier
 
 __all__ = ["PIDTemplateProcessor"]
 

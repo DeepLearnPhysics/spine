@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from spine.config.factory import instantiate, module_dict
+from spine.logging import logger
 from spine.utils.conditional import TORCH_AVAILABLE
-from spine.utils.factory import instantiate, module_dict
-from spine.utils.logger import logger
 
 from ..parse import hdf5 as parse_hdf5
 from ..read import HDF5Reader, StageHDF5Reader

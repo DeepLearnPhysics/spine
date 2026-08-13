@@ -9,7 +9,7 @@ import torch
 
 from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.utils.cluster.graph import ClusterGraphConstructor
+from spine.model.graph_spice.constructor import ClusterGraphConstructor
 
 from ..registry import ModelSpec
 from .embedder import GraphSPICEEmbedder

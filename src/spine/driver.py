@@ -30,12 +30,11 @@ from .config import normalize_config
 from .construct import BuildManager
 from .geo import GeoManager
 from .io import IOManager
+from .logging import LogManager, configure_rank_logging, logger
 from .math import seed as numba_seed
 from .model import ModelManager, ValidationManager
 from .post import PostManager
 from .utils.conditional import TORCH_AVAILABLE, torch
-from .utils.log import LogManager
-from .utils.logger import configure_rank_logging, logger
 from .utils.stopwatch import StopwatchManager
 from .utils.torch import runtime
 from .utils.torch.devices import set_visible_devices

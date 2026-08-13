@@ -5,8 +5,8 @@ from typing import Any
 import numba as nb
 import numpy as np
 
+from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, IndexBatch
-from spine.utils.gnn.cluster import get_cluster_label_batch
 
 from .base import GraphBase
 

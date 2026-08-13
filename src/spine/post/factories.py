@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from spine.utils.factory import instantiate, module_dict
+from spine.config.factory import instantiate, module_dict
 
 from . import crt, optical, reco, trigger, truth
 

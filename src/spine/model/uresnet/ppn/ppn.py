@@ -11,14 +11,14 @@ from spine.constants import (
     TRACK_SHP,
 )
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
+from spine.logging import logger
 from spine.model import sparse
 from spine.model.cnn.act_norm import act_factory
 from spine.model.cnn.blocks import ResNetBlock
 from spine.model.cnn.configuration import setup_cnn_configuration
-from spine.utils.logger import logger
+from spine.model.common.weighting import get_class_weights
 from spine.utils.ppn import ppn_raw_schema
-from spine.utils.torch.scripts import cdist_fast
-from spine.utils.weighting import get_class_weights
+from spine.utils.torch.runtime import cdist_fast
 
 PPNOutput: TypeAlias = dict[str, TensorBatch | list[TensorBatch]]
 PPNLossOutput: TypeAlias = dict[

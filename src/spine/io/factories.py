@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from warnings import warn
 
+from spine.config.factory import instantiate, module_dict
 from spine.utils.conditional import TORCH_AVAILABLE
-from spine.utils.factory import instantiate, module_dict
 
 from . import read, write
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from spine.utils.factory import instantiate, module_dict
+from spine.config.factory import instantiate, module_dict
 
 from . import field, gain, lifetime, recombination, response, transparency
 

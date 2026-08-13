@@ -6,7 +6,7 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from spine.utils.factory import parse_module_config
+from spine.config.factory import parse_module_config
 from spine.utils.manager import ModuleManager
 from spine.utils.stopwatch import StopwatchManager
 

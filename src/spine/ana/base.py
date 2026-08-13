@@ -7,7 +7,7 @@ from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 from warnings import warn
 
-from spine.io.write.csv import CSVWriter
+from spine.logging import CSVLogger
 
 
 class AnaBase(ABC):
@@ -215,7 +215,7 @@ class AnaBase(ABC):
         self.log_dir = log_dir
         self.output_prefix = prefix
         self.buffer_size = buffer_size
-        self.writers: dict[str, CSVWriter] = {}
+        self.writers: dict[str, CSVLogger] = {}
 
     def __del__(self) -> None:
         """Destructor to ensure CSV files are closed.
@@ -261,7 +261,7 @@ class AnaBase(ABC):
             file_name = f"{self.log_dir}/{file_name}"
 
         # Initialize the writer
-        self.writers[name] = CSVWriter(
+        self.writers[name] = CSVLogger(
             file_name,
             append=self.append_file,
             overwrite=self.overwrite_file,

@@ -18,6 +18,7 @@ from spine.model.full_chain import (
     process_chain_config,
 )
 from spine.model.full_chain.config import build_chain_plan
+from spine.model.full_chain.label import ClusterLabelAdapter
 from spine.model.full_chain.ops import AggregationOperations
 from spine.model.full_chain.providers.aggregation import (
     GrapPALossStage,
@@ -29,8 +30,10 @@ from spine.model.full_chain.providers.aggregation import (
     build_particle_aggregation_stage,
 )
 from spine.model.full_chain.providers.fragmentation import (
+    FragmentationLossStage,
     FragmentationStage,
     GraphSPICELossStage,
+    SPICELossStage,
     build_fragmentation_loss,
     build_fragmentation_stage,
 )
@@ -53,7 +56,6 @@ from spine.model.full_chain.registry import (
 )
 from spine.model.full_chain.stage import ChainStage
 from spine.model.full_chain.state import ChainState, StageResult
-from spine.utils.cluster.label import ClusterLabelAdapter
 
 
 class ExternalStage(ChainStage):
@@ -638,7 +640,7 @@ def test_segmentation_builders_register_standalone_modules(monkeypatch) -> None:
 
 def test_label_fragmentation_uses_structured_shape_field() -> None:
     """Truth fragmentation reads shape through ClusterLabelBatch aliases."""
-    stage = FragmentationStage("fragments", "label", None, None)
+    stage = FragmentationStage("fragments", "label", None, None, None)
     state = ChainState(
         data=make_data(),
         seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
@@ -660,8 +662,8 @@ def test_label_fragmentation_uses_structured_shape_field() -> None:
 def test_fragmentation_stage_validates_mode_and_label_truth() -> None:
     """Fragmentation rejects unknown implementations and absent label truth."""
     with pytest.raises(ValueError, match="Unknown fragmentation mode"):
-        FragmentationStage("fragments", "bad", None, None)
-    stage = FragmentationStage("fragments", "label", None, None)
+        FragmentationStage("fragments", "bad", None, None, None)
+    stage = FragmentationStage("fragments", "label", None, None, None)
     with pytest.raises(ValueError, match="requires `clust_label`"):
         stage(
             ChainState(
@@ -695,11 +697,64 @@ def test_graph_spice_loss_adapter_validates_and_denamespaces() -> None:
     assert result["seg_label"].shape == (4, 1)
 
 
+def test_spice_loss_adapter_validates_and_denamespaces() -> None:
+    """The SPICE adapter should select truth and remove its public namespace."""
+
+    class Loss:
+        def __call__(self, **inputs):
+            return inputs
+
+    stage = SPICELossStage("fragments", Loss())
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage({})
+    result = stage(
+        {
+            "clust_label": make_cluster_label(),
+            "spice_embeddings": "embedding",
+        }
+    )
+    assert result["embeddings"] == "embedding"
+
+
+def test_combined_fragmentation_loss_aggregates_native_objectives() -> None:
+    """Joint learned fragmenters retain separate diagnostics and one summary."""
+
+    class LossStage:
+        def __init__(self, result):
+            self.result = result
+
+        def __call__(self, _data):
+            return self.result
+
+    stage = FragmentationLossStage(
+        "fragments",
+        {
+            "spice": LossStage({"loss": 2.0, "accuracy": 0.5, "width": 1.0}),
+            "graph_spice": LossStage(
+                {"loss": 3.0, "accuracy": 1.0, "num_losses": 2, "edge": 4.0}
+            ),
+        },
+    )
+    result = stage({})
+    assert result["loss"] == 5.0
+    assert result["accuracy"] == pytest.approx(5.0 / 6.0)
+    assert result["num_losses"] == 3
+    assert result["spice_width"] == 1.0
+    assert result["graph_spice_edge"] == 4.0
+
+    empty = FragmentationLossStage(
+        "fragments", {"spice": LossStage({"loss": 0.0, "num_losses": 0})}
+    )
+    with pytest.raises(ValueError, match="reported no objectives"):
+        empty({})
+
+
 @pytest.mark.parametrize(
     ("config", "message"),
     [
         ({}, "string `mode`"),
         ({"mode": "dbscan"}, "requires a `dbscan` block"),
+        ({"mode": "spice"}, "requires a `spice` block"),
         ({"mode": "graph_spice"}, "requires a `graph_spice` block"),
     ],
 )
@@ -710,16 +765,66 @@ def test_fragmentation_builder_validates_required_blocks(config, message):
 
 
 def test_fragmentation_loss_builder_validates_blocks() -> None:
-    """Graph-SPICE supervision is optional but mapping-typed when enabled."""
+    """Learned fragmentation supervision is optional and mapping-typed."""
     owner = torch.nn.Module()
     assert build_fragmentation_loss("fragments", {}, owner) is None
     assert build_fragmentation_loss("fragments", {"graph_spice": {}}, owner) is None
+    assert build_fragmentation_loss("fragments", {"loss": {}}, owner) is None
     with pytest.raises(TypeError, match="must be mappings"):
         build_fragmentation_loss(
             "fragments",
             {"graph_spice": [], "loss": {}},
             owner,
         )
+    with pytest.raises(TypeError, match="loss blocks must be mappings"):
+        build_fragmentation_loss("fragments", {"loss": []}, owner)
+    with pytest.raises(TypeError, match="SPICE model configuration"):
+        build_fragmentation_loss("fragments", {"spice": [], "loss": {}}, owner)
+    with pytest.raises(TypeError, match="SPICE loss configuration"):
+        build_fragmentation_loss(
+            "fragments",
+            {"spice": {}, "loss": {"spice": []}},
+            owner,
+        )
+    with pytest.raises(TypeError, match="Graph-SPICE loss configuration"):
+        build_fragmentation_loss(
+            "fragments",
+            {"graph_spice": {}, "loss": {"graph_spice": []}},
+            owner,
+        )
+
+
+def test_fragmentation_loss_builder_combines_native_objectives(monkeypatch) -> None:
+    """Both learned fragmenters should register their native loss modules."""
+
+    class FakeLoss(torch.nn.Module):
+        def __init__(self, model_config, loss_config):
+            super().__init__()
+            self.configs = (model_config, loss_config)
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.fragmentation.SPICELoss", FakeLoss
+    )
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.fragmentation.GraphSPICELoss", FakeLoss
+    )
+    owner = torch.nn.Module()
+    stage = build_fragmentation_loss(
+        "fragments",
+        {
+            "spice": {"model": "spice"},
+            "graph_spice": {"model": "graph"},
+            "loss": {
+                "spice": {"objective": "embedding"},
+                "graph_spice": {"objective": "edge"},
+            },
+        },
+        owner,
+    )
+
+    assert isinstance(stage, FragmentationLossStage)
+    assert owner.spice_loss.configs[1] == {"objective": "embedding"}
+    assert owner.graph_spice_loss.configs[1] == {"objective": "edge"}
 
 
 def test_dbscan_fragmentation_executes_and_builds(monkeypatch) -> None:
@@ -752,6 +857,44 @@ def test_dbscan_fragmentation_executes_and_builds(monkeypatch) -> None:
 
     assert owner.dbscan is stage.dbscan
     assert len(result.products["fragment_clusts"].index_list) == 2
+
+
+def test_spice_fragmentation_executes_and_restores_indexes(monkeypatch) -> None:
+    """SPICE native outputs should become canonical full-chain fragments."""
+
+    class FakeSPICE(torch.nn.Module):
+        shapes = [0, 1, 2, 3]
+
+        def __init__(self, config):
+            super().__init__()
+            assert config["make_clusters"] is True
+
+        def forward(self, data, seg_label):
+            clusts, shapes = make_clusters()
+            return {
+                "embeddings": TensorBatch(torch.zeros((4, 3)), [4]),
+                "filter_index": IndexBatch(torch.arange(4), [4], [4]),
+                "clusts": clusts,
+                "clust_shapes": shapes,
+            }
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.fragmentation.SPICE", FakeSPICE
+    )
+    owner = torch.nn.Module()
+    stage = build_fragmentation_stage(
+        "fragments", {"mode": "spice", "spice": {}}, owner
+    )
+    result = stage(
+        ChainState(
+            data=make_data(),
+            seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+        )
+    )
+
+    assert owner.spice is stage.spice
+    assert len(result.products["fragment_clusts"].index_list) == 2
+    assert "spice_embeddings" in result.outputs
 
 
 def test_fragmentation_builder_rejects_incomplete_shape_ownership(monkeypatch) -> None:

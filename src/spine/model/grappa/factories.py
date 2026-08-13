@@ -7,7 +7,7 @@ from typing import cast
 
 import torch
 
-from spine.utils.factory import Config, instantiate, module_dict
+from spine.config.factory import Config, instantiate, module_dict
 
 from . import encode, graph, loss, message_passing
 from .graph.base import GraphBase

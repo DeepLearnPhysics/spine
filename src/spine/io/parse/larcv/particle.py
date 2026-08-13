@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from spine.cluster.topology import filter_invalid_nodes
 from spine.constants import (
     INVAL_ID,
     INVAL_IDX,
@@ -34,18 +35,14 @@ from spine.data import (
     TensorData,
 )
 from spine.utils.conditional import larcv
-from spine.utils.gnn.network import filter_invalid_nodes
-from spine.utils.particles import (
+
+from ..base import ParserBase
+from .utils.particle import (
     get_interaction_ids,
     get_invalid_index,
     process_particles,
 )
-from spine.utils.ppn import (
-    get_ppn_labels,
-    get_vertex_labels,
-)
-
-from ..base import ParserBase
+from .utils.point import get_ppn_labels, get_vertex_labels
 
 __all__ = [
     "LArCVParticleParser",

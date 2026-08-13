@@ -6,10 +6,10 @@ from typing import cast
 
 import torch
 
+from spine.config.factory import Config
 from spine.data import ClusterLabelBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory, metric_fn_factory
-from spine.utils.factory import Config
-from spine.utils.weighting import get_class_weights
+from spine.model.common.weighting import get_class_weights
 
 __all__ = ["EdgeLoss"]
 

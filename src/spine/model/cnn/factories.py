@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from spine.utils.factory import Config, instantiate
+from spine.config.factory import Config, instantiate
 
 from .encoder import SparseResidualEncoder
 

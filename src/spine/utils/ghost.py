@@ -73,10 +73,15 @@ class ChargeRescaler:
         # Define operations on the basis of the input type
         if torch.is_tensor(data):
             unique, where = torch.unique, torch.where
-            sum = lambda x: torch.sum(x, dim=1)
+
+            def sum_rows(values):
+                return torch.sum(values, dim=1)
+
         else:
             unique, where = np.unique, np.where
-            sum = lambda x: np.sum(x, axis=1)
+
+            def sum_rows(values):
+                return np.sum(values, axis=1)
 
         # Count how many times each wire hit is used to form a space point
         hit_ids = data[:, -3:]
@@ -88,7 +93,7 @@ class ChargeRescaler:
         if not self.collection_only:
             # Take the average of the charge estimates from each active plane
             pmask = hit_ids > -1
-            charges = sum((hit_charges * pmask) / mult) / sum(pmask)
+            charges = sum_rows((hit_charges * pmask) / mult) / sum_rows(pmask)
         else:
             # Only use the collection plane measurement, when available
             charges = hit_charges[:, self.collection_id] / mult[:, self.collection_id]
@@ -97,8 +102,8 @@ class ChargeRescaler:
             bad_index = where(hit_ids[:, self.collection_id] < 0)[0]
             if len(bad_index) > 0:
                 pmask = hit_ids[bad_index] > -1
-                charges[bad_index] = sum(
+                charges[bad_index] = sum_rows(
                     (hit_charges[bad_index] * pmask) / mult[bad_index]
-                ) / sum(pmask)
+                ) / sum_rows(pmask)
 
         return charges

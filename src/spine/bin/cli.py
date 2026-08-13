@@ -10,7 +10,7 @@ from importlib.metadata import version as package_version
 from warnings import warn
 
 from spine.banner import ascii_logo
-from spine.config import load_config_file
+from spine.config import load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
 
@@ -43,6 +43,7 @@ def main(
     weight_list: str | None,
     config_overrides: list[str] | None,
     resume: bool | None = None,
+    inference: bool = False,
 ) -> None:
     """Main driver for training/validation/inference/analysis.
 
@@ -87,6 +88,9 @@ def main(
     resume : bool, optional
         Command-line override for complete training-state restoration. ``None``
         leaves resume selection to the configuration and automatic defaults.
+    inference : bool, default False
+        Convert a training configuration to deterministic inference before
+        applying command-line overrides.
     """
     # Print the banner before configuration loading starts, since loading may
     # trigger download/cache messages and warnings.
@@ -105,6 +109,11 @@ def main(
     # Propagate the configuration parent directory to enable relative paths
     parent_path = str(pathlib.Path(cfg_file).parent)
     cfg["base"]["parent_path"] = parent_path
+
+    # Convert the loaded training configuration before applying explicit CLI
+    # overrides, so command-line arguments remain authoritative.
+    if inference:
+        cfg = to_inference_config(cfg)
 
     # The configuration must minimally contain an IO block
     if "io" not in cfg:
@@ -312,6 +321,12 @@ For ML training/inference functionality, ensure PyTorch is installed:
         "use --no-resume for weights-only initialization",
     )
 
+    parser.add_argument(
+        "--inference",
+        action="store_true",
+        help="Convert a training configuration to inference before running it",
+    )
+
     # Add option to dynamically override any config parameter using dot notation
     # (e.g., --set io.loader.batch_size=8)
     parser.add_argument(
@@ -357,6 +372,7 @@ For ML training/inference functionality, ensure PyTorch is installed:
         weight_list=args.weight_list,
         config_overrides=args.config_overrides,
         resume=args.resume,
+        inference=args.inference,
     )
 
 

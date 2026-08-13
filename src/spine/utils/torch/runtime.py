@@ -15,6 +15,7 @@ import numpy as np
 from ..conditional import TORCH_AVAILABLE, torch
 
 __all__ = [
+    "cdist_fast",
     "manual_seed",
     "cuda_is_available",
     "cuda_mem_info",
@@ -29,20 +30,52 @@ __all__ = [
 ]
 
 
+def cdist_fast(v1: Any, v2: Any, metric: str = "euclidean") -> Any:
+    """Compute pairwise distances without relying on ``torch.cdist``.
+
+    PyTorch's matrix-multiplication implementation can lose substantial
+    precision for nearby points, while its direct implementation is often
+    slower than broadcasting for the small point sets used throughout SPINE.
+
+    Parameters
+    ----------
+    v1, v2 : torch.Tensor
+        ``(N, D)`` and ``(M, D)`` tensors of coordinates.
+    metric : str, default "euclidean"
+        One of ``"euclidean"``, ``"cityblock"`` or ``"chebyshev"``.
+
+    Returns
+    -------
+    torch.Tensor
+        ``(N, M)`` pairwise distance matrix.
+    """
+    require_torch("pairwise tensor distance calculation")
+
+    differences = v1[:, None, :] - v2[None, :, :]
+    if metric == "euclidean":
+        return torch.sqrt(torch.sum(differences**2, dim=2))
+    if metric == "cityblock":
+        return torch.sum(torch.abs(differences), dim=2)
+    if metric == "chebyshev":
+        return torch.amax(torch.abs(differences), dim=2)
+
+    raise ValueError(f"Unsupported distance metric: `{metric}`.")
+
+
 class _TensorLike(Protocol):
     """Tensor interface required by scalar-output conversion."""
 
     def numel(self) -> int:
         """Return the number of tensor elements."""
-        ...
+        ...  # pragma: no cover - typing protocol
 
     def detach(self) -> _TensorLike:
         """Return a tensor detached from its computation graph."""
-        ...
+        ...  # pragma: no cover - typing protocol
 
     def item(self) -> Any:
         """Return the contained Python scalar."""
-        ...
+        ...  # pragma: no cover - typing protocol
 
 
 def _serialize_numpy_state(state):

@@ -7,14 +7,14 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.common.factories import loss_fn_factory
-from spine.utils.gnn.cluster import (
+from spine.cluster.label import (
     get_cluster_closest_primary_label_batch,
     get_cluster_label_batch,
 )
-from spine.utils.gnn.evaluation import node_purity_mask_batch
-from spine.utils.weighting import get_class_weights
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.common.factories import loss_fn_factory
+from spine.model.common.weighting import get_class_weights
+from spine.model.grappa.evaluation import node_purity_mask_batch
 
 __all__ = ["NodeShowerPrimaryLoss"]
 

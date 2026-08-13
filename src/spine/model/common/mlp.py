@@ -7,7 +7,7 @@ from typing import TypedDict
 
 import torch
 
-from spine.utils.factory import Config
+from spine.config.factory import Config
 
 from .act_norm import act_factory, norm_factory
 

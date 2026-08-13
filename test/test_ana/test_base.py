@@ -68,7 +68,7 @@ def test_ana_base_validates_configuration():
 
 
 def test_ana_base_filters_entry_and_manages_writers(monkeypatch):
-    monkeypatch.setattr(base_mod, "CSVWriter", DummyWriter)
+    monkeypatch.setattr(base_mod, "CSVLogger", DummyWriter)
     ana = DummyAna(log_dir="logs", prefix="prefix", append=True, overwrite=True)
     ana.update_keys({"value": True})
     ana.initialize_writer("out")

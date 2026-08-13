@@ -4,26 +4,23 @@ It contains functions to produce PPN labels and functions to process the
 PPN predictions into something human-readable.
 """
 
-from warnings import warn
+from collections.abc import Sequence
 
 import numba as nb
 import numpy as np
-from numpy.typing import DTypeLike
 
 import spine.math as sm
 from spine.constants import (
     DELTA_SHP,
-    LOWES_SHP,
     MICHL_SHP,
     SHOWR_SHP,
     TRACK_SHP,
-    UNKWN_SHP,
 )
 from spine.data import IndexBatch, TensorBatch, TensorData, TensorSchema
 
 from .conditional import torch
 from .jit import numbafy
-from .torch.scripts import cdist_fast
+from .torch.runtime import cdist_fast
 
 
 def ppn_raw_schema() -> TensorSchema:
@@ -59,15 +56,15 @@ class PPNPredictor:
 
     def __init__(
         self,
-        score_threshold=0.5,
-        type_score_threshold=0.5,
-        type_dist_threshold=1.999,
-        pool_score_fn="max",
-        pool_dist=1.999,
-        enforce_type=True,
-        classes=[SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-        apply_deghosting=False,
-    ):
+        score_threshold: float = 0.5,
+        type_score_threshold: float = 0.5,
+        type_dist_threshold: float = 1.999,
+        pool_score_fn: str = "max",
+        pool_dist: float = 1.999,
+        enforce_type: bool = True,
+        classes: Sequence[int] = (SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP),
+        apply_deghosting: bool = False,
+    ) -> None:
         """Initialize the PPN post-processor.
 
         Parameters
@@ -95,7 +92,7 @@ class PPNPredictor:
         self.type_score_threshold = type_score_threshold
         self.type_dist_threshold = type_dist_threshold
         self.enforce_type = enforce_type
-        self.classes = classes
+        self.classes = tuple(classes)
         self.apply_deghosting = apply_deghosting
 
         # Store the score pooling function
@@ -265,8 +262,13 @@ class PPNPredictor:
             cat, unique, argmax = torch.cat, torch.unique, torch.argmax
             where, mean, softmax = torch.where, torch.mean, torch.softmax
             cdist = cdist_fast
-            empty = lambda x: torch.empty(x, dtype=dtype, device=device)
-            zeros_bool = lambda x: torch.zeros(x, dtype=torch.bool, device=device)
+
+            def empty(size):
+                return torch.empty(size, dtype=dtype, device=device)
+
+            def zeros_bool(size):
+                return torch.zeros(size, dtype=torch.bool, device=device)
+
             pool_fn = getattr(torch, self.pool_score_fn)
             if self.pool_score_fn == "max":
                 pool_fn = torch.amax
@@ -275,8 +277,13 @@ class PPNPredictor:
             cat, unique, argmax = np.concatenate, np.unique, np.argmax
             where, mean = np.where, np.mean
             softmax, cdist = sm.softmax, sm.distance.cdist
-            empty = lambda x: np.empty(x, dtype=raw_features.dtype)
-            zeros_bool = lambda x: np.zeros(x, dtype=bool)
+
+            def empty(size):
+                return np.empty(size, dtype=raw_features.dtype)
+
+            def zeros_bool(size):
+                return np.zeros(size, dtype=bool)
+
             pool_fn = getattr(np, self.pool_score_fn)
 
         # Fetch the segmentation tensor, if needed
@@ -370,6 +377,8 @@ class PPNPredictor:
             point_features[i, fields["scores"]] = pool_fn(scores[c], 0)
             point_features[i, fields["occupancy"]] = len(c)
             point_features[i, fields["class_scores"]] = pool_fn(type_scores[c], 0)
+            if torch.is_tensor(type_c):
+                type_c = type_c.to(dtype=dtype)
             point_features[i, fields["shape"]] = type_c
             if end_scores is not None:
                 point_features[i, fields["endpoint_scores"]] = pool_fn(end_scores[c], 0)
@@ -412,12 +421,12 @@ class ParticlePointPredictor:
 
     def __init__(
         self,
-        use_numpy=True,
-        contained_first=True,
-        anchor_points=True,
-        enhance_track_points=False,
-        approx_farthest_points=True,
-    ):
+        use_numpy: bool = True,
+        contained_first: bool = True,
+        anchor_points: bool = True,
+        enhance_track_points: bool = False,
+        approx_farthest_points: bool = True,
+    ) -> None:
         """Initialize the particle point predictor.
 
         Parameters
@@ -694,339 +703,3 @@ class ParticlePointPredictor:
                 end_points[k] = np.concatenate((start_point, start_point))
 
         return end_points
-
-
-def check_track_orientation_ppn(
-    start_point: np.ndarray,
-    end_point: np.ndarray,
-    ppn_candidates: TensorData,
-) -> bool:
-    """Use PPN end point predictions to predict track orientation.
-
-    Use the PPN point assignments as a basis to orient a track. Match
-    the end points of a track to the closest PPN candidate and pick the
-    candidate with the highest start score as the start point
-
-    Parameters
-    ----------
-    start_point : np.ndarray
-        (3) Start point of the track
-    end_point : np.ndarray
-        (3) End point of the track
-    ppn_candidates : TensorData
-        Named PPN point candidates and their associated endpoint scores.
-
-    Returns
-    -------
-    bool
-       Returns `True` if the start point provided is correct, `False`
-       if the end point is more likely to be the start point.
-    """
-    # If there's no PPN candidates, nothing to do here
-    if not len(ppn_candidates):
-        return True
-
-    # Get the candidate coordinates and end point classification predictions
-    ppn_points = ppn_candidates.coords
-    end_scores = ppn_candidates.feature("endpoint_scores")
-
-    # Compute the distance between the track end points and the PPN candidates
-    end_points = np.vstack([start_point, end_point])
-    dist_mat = sm.distance.cdist(end_points, ppn_points)
-
-    # If both track end points are closest to the same PPN point, the start
-    # point must be closest to it if the score is high, farthest otherwise
-    argmins = np.argmin(dist_mat, axis=1)
-    if argmins[0] == argmins[1]:
-        label = np.argmax(end_scores[argmins[0]])
-        dists = dist_mat[[0, 1], argmins]
-        return (label == 0 and dists[0] < dists[1]) or (
-            label == 1 and dists[1] < dists[0]
-        )
-
-    # In all other cases, check that the start point is associated with the PPN
-    # point with the lowest end score
-    end_scores = end_scores[argmins, -1]
-    return end_scores[0] < end_scores[1]
-
-
-def get_ppn_labels(
-    particle_v,
-    meta,
-    dtype,
-    dim=3,
-    min_voxel_count=1,
-    min_energy_deposit=0,
-    include_point_tagging=True,
-):
-    """Gets particle point coordinates and informations for running PPN.
-
-    We skip some particles under specific conditions (e.g. low energy deposit,
-    low voxel count, nucleus track, etc.)
-
-    Parameters
-    ----------
-    particle_v : List[larcv.Particle]
-        List of LArCV particle objects in the image
-    meta : larcv::Voxel3DMeta or larcv::ImageMeta
-        Metadata information
-    dtype : str
-        Typing of the output PPN labels
-    dim : int, default 3
-        Number of dimensions of the image
-    min_voxel_count : int, default 5
-        Minimum number of voxels associated with a particle to be included
-    min_energy_deposit : float, default 0
-        Minimum energy deposition associated with a particle to be included
-    include_point_tagging : bool, default True
-        If True, include an a label of 0 for start points and 1 for end points
-
-    Returns
-    -------
-    np.array
-        Array of points of shape (N, 5/6) where 5/6 = x,y,z + point type
-        + particle index [+ start (0) or end (1) point tagging]
-    """
-    # Check on dimension
-    if dim not in [2, 3]:
-        raise ValueError(
-            "The image dimension must be either 2 or 3, " f"got {dim} instead."
-        )
-
-    # Loop over true particles
-    part_info = []
-    for part_index, particle in enumerate(particle_v):
-        # Check that the particle has the expected index
-        if part_index != particle.id():
-            warn("Particle list index does not match its `id` attribute.")
-
-        # If the particle does not meet minimum energy/size requirements, skip
-        if (
-            particle.energy_deposit() < min_energy_deposit
-            or particle.num_voxels() < min_voxel_count
-        ):
-            continue
-
-        # If the particle is a nucleus, skip.
-        # TODO: check if it's useful
-        pdg_code = abs(particle.pdg_code())
-        if pdg_code > 1000000000:
-            continue
-
-        # If a shower has its first step outside of detector boundaries, skip
-        # TODO: check if it's useful
-        if pdg_code == 11 or pdg_code == 22:
-            if not image_contains(meta, particle.first_step(), dim):
-                continue
-
-        # Skip low energy scatters and unknown shapes
-        shape = particle.shape()
-        if particle.shape() in [LOWES_SHP, UNKWN_SHP]:
-            continue
-
-        # Append the start point with the rest of the particle information
-        first_step = image_coordinates(meta, particle.first_step(), dim)
-        part_extra = (
-            [shape, part_index, 0] if include_point_tagging else [shape, part_index]
-        )
-        part_info.append(first_step + part_extra)
-
-        # Append the end point as well, for tracks only
-        if shape == TRACK_SHP:
-            last_step = image_coordinates(meta, particle.last_step(), dim)
-            part_extra = (
-                [shape, part_index, 1] if include_point_tagging else [shape, part_index]
-            )
-            part_info.append(last_step + part_extra)
-
-    if not len(part_info):
-        return np.empty((0, 5 + include_point_tagging), dtype=dtype)
-
-    return np.array(part_info, dtype=dtype)
-
-
-def get_vertex_labels(particle_v, neutrino_v, meta, dtype):
-    """Gets particle vertex coordinates.
-
-    It provides the coordinates of points where multiple particles originate:
-
-    - If `neutrino_v` is provided, it uses the neutrino interaction points.
-    - If `particle_v` is provided instead, it looks for ancestor positions
-      shared by at least two primary particles.
-
-    Parameters
-    ----------
-    particle_v : List[larcv.Particle]
-        List of LArCV particle objects in the image
-    neutrino_v : List[larcv.Neutrino]
-        List of LArCV neutrino objects in the image
-    meta : larcv::Voxel3DMeta or larcv::ImageMeta
-        Metadata information
-    dtype : str
-        Typing of the output PPN labels
-
-    Returns
-    -------
-    np.array
-        Array of points of shape (N, 4) where 4 = x, y, z, vertex_id
-    """
-    # If the particles are provided, find unique ancestors
-    vertexes = []
-    if particle_v is not None:
-        # Fetch all ancestor positions of primary particles
-        anc_positions = []
-        for i, p in enumerate(particle_v):
-            if p.parent_id() == p.id() or p.ancestor_pdg_code() == 111:
-                if image_contains(meta, p.ancestor_position()):
-                    anc_pos = image_coordinates(meta, p.ancestor_position())
-                    anc_positions.append(anc_pos)
-
-        # If there is no primary, nothing to do
-        if not len(anc_positions):
-            return np.empty((0, 4), dtype=dtype)
-
-        # Find those that appear > once
-        anc_positions = np.vstack(anc_positions)
-        unique_positions, counts = np.unique(anc_positions, return_counts=True, axis=0)
-        for i, idx in enumerate(np.where(counts > 1)[0]):
-            vertexes.append([*unique_positions[idx], i])
-
-    # If the neutrinos are provided, straightforward
-    if neutrino_v is not None:
-        for i, n in enumerate(neutrino_v):
-            if image_contains(meta, n.position()):
-                nu_pos = image_coordinates(meta, n.position())
-                vertexes.append([*nu_pos, i])
-
-    # If there are no vertex, nothing to do
-    if not len(vertexes):
-        return np.empty((0, 4), dtype=dtype)
-
-    return np.vstack(vertexes).astype(dtype)
-
-
-def image_contains(meta, point, dim=3):
-    """Checks whether a point is contained in the image box defined by meta.
-
-    Parameters
-    ----------
-    meta : larcv::Voxel3DMeta or larcv::ImageMeta
-        Metadata information
-    point : larcv::Point3D or larcv::Point2D
-        Point to check on
-    dim: int, default 3
-         Number of dimensions of the image
-
-    Returns
-    -------
-    bool
-        True if the point is contained in the image box
-    """
-    if dim == 3:
-        return (
-            point.x() >= meta.min_x()
-            and point.y() >= meta.min_y()
-            and point.z() >= meta.min_z()
-            and point.x() <= meta.max_x()
-            and point.y() <= meta.max_y()
-            and point.z() <= meta.max_z()
-        )
-    else:
-        return (
-            point.x() >= meta.min_x()
-            and point.x() <= meta.max_x()
-            and point.y() >= meta.min_y()
-            and point.y() <= meta.max_y()
-        )
-
-
-def image_coordinates(meta, point, dim=3):
-    """Returns the coordinates of a point in units of pixels with an image.
-
-    Parameters
-    ----------
-    meta : larcv::Voxel3DMeta or larcv::ImageMeta
-        Metadata information
-    point : larcv::Point3D or larcv::Point2D
-        Point to convert the units of
-    dim: int, default 3
-         Number of dimensions of the image
-
-    Returns
-    -------
-    bool
-        True if the point is contained in the image box
-    """
-    x, y, z = point.x(), point.y(), point.z()
-    if dim == 3:
-        x = (x - meta.min_x()) / meta.size_voxel_x()
-        y = (y - meta.min_y()) / meta.size_voxel_y()
-        z = (z - meta.min_z()) / meta.size_voxel_z()
-        return [x, y, z]
-    else:
-        x = (x - meta.min_x()) / meta.size_voxel_x()
-        y = (y - meta.min_y()) / meta.size_voxel_y()
-        return [x, y]
-
-
-def image_coordinates_batch(
-    meta,
-    objects,
-    dim=3,
-    dtype: DTypeLike = np.float32,
-    position_attr=None,
-):
-    """Convert a sequence of physical positions to image coordinates.
-
-    Unlike :func:`image_coordinates`, this function fetches the image origin
-    and voxel sizes only once. This matters for LArCV objects because each
-    metadata or point accessor crosses the Python/C++ boundary.
-
-    Parameters
-    ----------
-    meta : larcv.Voxel3DMeta or larcv.ImageMeta
-        Image metadata used for the coordinate conversion.
-    objects : iterable
-        Sequence of LArCV point objects, or objects which provide the position
-        accessor specified by ``position_attr``.
-    dim : int, default 3
-        Number of spatial dimensions.
-    dtype : numpy dtype, default numpy.float32
-        Output coordinate dtype.
-    position_attr : str, optional
-        Name of the position getter to call on each input object, e.g.
-        ``"ancestor_position"`` for a sequence of LArCV particles. Leaving
-        this unset treats each input object as a position directly.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``(N, dim)`` array of coordinates in voxel units.
-    """
-    if not hasattr(objects, "__len__"):
-        objects = list(objects)
-    coords = np.empty((len(objects), dim), dtype=dtype)
-
-    min_x, min_y = meta.min_x(), meta.min_y()
-    size_x, size_y = meta.size_voxel_x(), meta.size_voxel_y()
-    if dim == 3:
-        min_z, size_z = meta.min_z(), meta.size_voxel_z()
-
-    if position_attr is not None and len(objects):
-        # Resolve bound C++ method dispatch once instead of using getattr for
-        # every particle. PyROOT exposes its methods on the proxy type.
-        position_getter = getattr(type(objects[0]), position_attr)
-        for i, obj in enumerate(objects):
-            point = position_getter(obj)
-            coords[i, 0] = (point.x() - min_x) / size_x
-            coords[i, 1] = (point.y() - min_y) / size_y
-            if dim == 3:
-                coords[i, 2] = (point.z() - min_z) / size_z
-    else:
-        for i, point in enumerate(objects):
-            coords[i, 0] = (point.x() - min_x) / size_x
-            coords[i, 1] = (point.y() - min_y) / size_y
-            if dim == 3:
-                coords[i, 2] = (point.z() - min_z) / size_z
-
-    return coords

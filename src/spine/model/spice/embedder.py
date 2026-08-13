@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, TypedDict
+from warnings import warn
 
 import torch
 
@@ -13,7 +14,7 @@ from spine.model import sparse
 from spine.model.cnn.act_norm import norm_factory
 from spine.model.cnn.uresnet_layers import UResNetDecoder, UResNetEncoder
 
-__all__ = ["SPICEEmbedder", "SPICEOutput"]
+__all__ = ["SPICEClusterOutput", "SPICEEmbedder", "SPICEOutput"]
 
 
 class SPICEOutput(TypedDict):
@@ -23,6 +24,13 @@ class SPICEOutput(TypedDict):
     margins: TensorBatch
     seediness: TensorBatch
     filter_index: IndexBatch
+
+
+class SPICEClusterOutput(SPICEOutput, total=False):
+    """SPICE outputs augmented with optional inference-time clusters."""
+
+    clusts: IndexBatch
+    clust_shapes: TensorBatch
 
 
 class SPICEEmbedder(torch.nn.Module):
@@ -37,7 +45,8 @@ class SPICEEmbedder(torch.nn.Module):
     def __init__(
         self,
         uresnet: dict[str, Any],
-        skip_classes: Sequence[int | str] = (2, 3, 4),
+        skip_classes: Sequence[int | str] | None = None,
+        shapes: Sequence[int | str] | None = None,
         coord_conv: bool = True,
         margin_dim: int = 1,
         seediness_dim: int = 1,
@@ -49,8 +58,12 @@ class SPICEEmbedder(torch.nn.Module):
         ----------
         uresnet : dict
             Shared UResNet encoder and decoder configuration.
-        skip_classes : sequence of int or str, default (2, 3, 4)
-            Semantic classes excluded before embedding.
+        skip_classes : sequence of int or str, optional
+            Legacy list of semantic classes excluded before embedding. Prefer
+            the positive ``shapes`` ownership list in new configurations.
+        shapes : sequence of int or str, optional
+            Semantic shapes embedded and clustered by SPICE. Defaults to
+            shower and track, preserving the historical exclusion defaults.
         coord_conv : bool, default True
             Append normalized coordinates to the input charge feature.
         margin_dim : int, default 1
@@ -85,7 +98,23 @@ class SPICEEmbedder(torch.nn.Module):
         self.margin_dim = margin_dim
         self.seediness_dim = seediness_dim
         self.seed_freeze = seed_freeze
-        self.skip_classes = self._parse_shapes(skip_classes)
+        if shapes is not None and skip_classes is not None:
+            raise ValueError("Configure either `shapes` or legacy `skip_classes`.")
+        if shapes is None and skip_classes is not None:
+            warn(
+                "`spice.skip_classes` is deprecated; configure positive `shapes`.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            skipped = set(self._parse_shapes(skip_classes))
+            shapes = tuple(shape for shape in range(4) if shape not in skipped)
+        elif shapes is None:
+            shapes = (0, 1)
+        self.shapes = self._parse_shapes(shapes)
+        if not self.shapes:
+            raise ValueError("SPICE must own at least one semantic shape.")
+        if len(set(self.shapes)) != len(self.shapes):
+            raise ValueError("SPICE semantic shapes must be unique.")
 
         # Check that the UResNet input width matches the frontend features
         expected_inputs = 1 + (self.dimension if coord_conv else 0)
@@ -163,15 +192,13 @@ class SPICEEmbedder(torch.nn.Module):
                 f"{len(data_tensor)} and {len(label_tensor)}."
             )
 
-        # Build the semantic-class selection mask
-        mask = torch.ones(len(label_tensor), dtype=torch.bool, device=data.device)
-        if self.skip_classes:
-            excluded = torch.tensor(
-                self.skip_classes,
-                dtype=label_tensor.dtype,
-                device=label_tensor.device,
-            )
-            mask = ~torch.isin(label_tensor, excluded)
+        # Select only the semantic shapes explicitly owned by this model.
+        included = torch.tensor(
+            self.shapes,
+            dtype=label_tensor.dtype,
+            device=label_tensor.device,
+        )
+        mask = torch.isin(label_tensor, included)
 
         # Narrow the input while preserving event counts and source indexes
         index = torch.where(mask)[0]

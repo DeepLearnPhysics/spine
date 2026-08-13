@@ -11,8 +11,8 @@ from typing import Optional, Tuple
 
 from .config import normalize_config
 from .driver import Driver
+from .logging import configure_rank_logging, logger
 from .utils.conditional import TORCH_AVAILABLE, torch
-from .utils.logger import configure_rank_logging, logger
 from .utils.torch.devices import set_visible_devices
 
 

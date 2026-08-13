@@ -14,7 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from spine.ana.base import AnaBase
-from spine.utils.gnn.network import inter_cluster_distance
+from spine.cluster.graph import inter_cluster_distance
 
 __all__ = ["GraphEdgeLengthAna"]
 

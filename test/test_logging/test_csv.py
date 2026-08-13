@@ -1,0 +1,152 @@
+"""Tests for the CSV writer."""
+
+import pytest
+
+from spine.logging import CSVLogger
+
+
+def test_csv_writer_context_manager_and_flush(tmp_path):
+    """CSVLogger should open, flush, and close cleanly through the context manager."""
+    path = tmp_path / "output.csv"
+
+    with CSVLogger(path, buffer_size=1) as writer:
+        writer.append({"a": 1, "b": 2})
+        writer.flush()
+        assert writer.file_handle is not None
+
+    assert writer.file_handle is None
+    assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2"]
+
+
+def test_csv_writer_rejects_existing_file_without_overwrite(tmp_path):
+    """CSVLogger should protect existing files by default."""
+    path = tmp_path / "output.csv"
+    path.write_text("a,b\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        CSVLogger(path)
+
+
+def test_csv_writer_append_mode_requires_existing_file(tmp_path):
+    """CSVLogger append mode should require a file with a header."""
+    path = tmp_path / "missing.csv"
+    with pytest.raises(FileNotFoundError, match="must exist"):
+        CSVLogger(path, append=True)
+
+
+def test_csv_writer_append_mode_reads_existing_header(tmp_path):
+    """CSVLogger append mode should preserve the original header order."""
+    path = tmp_path / "output.csv"
+    path.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    writer = CSVLogger(path, append=True)
+    writer.append({"a": 3, "b": 4})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2", "3,4"]
+
+
+def test_csv_writer_rejects_excess_keys(tmp_path):
+    """CSVLogger should reject rows with unexpected keys."""
+    path = tmp_path / "output.csv"
+    writer = CSVLogger(path)
+    writer.append({"a": 1})
+
+    with pytest.raises(AssertionError, match="New keys"):
+        writer.append({"a": 2, "b": 3})
+
+    writer.close()
+
+
+def test_csv_writer_handles_missing_keys_when_allowed(tmp_path):
+    """CSVLogger should backfill missing values when configured to allow them."""
+    path = tmp_path / "output.csv"
+    writer = CSVLogger(path, accept_missing=True)
+    writer.append({"a": 1, "b": 2})
+    writer.append({"a": 3})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2", "3,-1"]
+
+
+def test_csv_writer_rejects_missing_keys_by_default(tmp_path):
+    """CSVLogger should reject missing keys unless explicitly allowed."""
+    path = tmp_path / "output.csv"
+    writer = CSVLogger(path)
+    writer.append({"a": 1, "b": 2})
+
+    with pytest.raises(AssertionError, match="Missing keys"):
+        writer.append({"a": 3})
+
+    writer.close()
+
+
+def test_csv_writer_accepts_reordered_keys(tmp_path):
+    """CSVLogger should use header order when rows provide the same keys."""
+    path = tmp_path / "output.csv"
+    writer = CSVLogger(path)
+    writer.append({"a": 1, "b": 2})
+    writer.append({"b": 4, "a": 3})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2", "3,4"]
+
+
+def test_csv_writer_array_diff():
+    """CSVLogger.array_diff should return elements missing from the second array."""
+    diff = CSVLogger.array_diff(["a", "b", "c"], ["b"])
+    assert set(diff) == {"a", "c"}
+
+
+def test_csv_writer_directory_relocates_output(tmp_path):
+    """CSVLogger should create and write under an explicit output directory."""
+    out_dir = tmp_path / "missing" / "logs"
+    writer = CSVLogger("output.csv", directory=str(out_dir), overwrite=True)
+    assert writer.file_name == str(out_dir / "output.csv")
+    writer.append({"a": 1})
+    writer.close()
+
+    assert (out_dir / "output.csv").read_text(encoding="utf-8").splitlines() == [
+        "a",
+        "1",
+    ]
+
+
+def test_csv_writer_appends_columns(tmp_path):
+    """Columnar writes should share headers and avoid row dictionaries."""
+    path = tmp_path / "columns.csv"
+    writer = CSVLogger(path)
+    writer.append_columns({"a": [1, 2], "b": [3, 4]})
+    writer.append_columns({"a": [5], "b": [6]})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        "a,b",
+        "1,3",
+        "2,4",
+        "5,6",
+    ]
+
+
+def test_csv_writer_reopens_for_columnar_append(tmp_path):
+    """A closed initialized writer should reopen before writing more columns."""
+    path = tmp_path / "columns.csv"
+    writer = CSVLogger(path)
+    writer.append_columns({"a": [1]})
+    writer.close()
+    writer.append_columns({"a": [2]})
+    writer.close()
+
+    assert path.read_text(encoding="utf-8").splitlines() == ["a", "1", "2"]
+
+
+def test_csv_writer_validates_columnar_shape_and_header(tmp_path):
+    path = tmp_path / "columns.csv"
+    writer = CSVLogger(path)
+    with pytest.raises(ValueError, match="same length"):
+        writer.append_columns({"a": [1], "b": [2, 3]})
+
+    writer.append_columns({"a": [1], "b": [2]})
+    with pytest.raises(AssertionError, match="match"):
+        writer.append_columns({"b": [3], "a": [4]})
+    writer.close()

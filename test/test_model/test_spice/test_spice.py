@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.spice import SPICEEmbedder, SPICELoss
+from spine.model.spice import SPICE, SPICEClusterer, SPICEEmbedder, SPICELoss
 
 
 def spice_config():
@@ -22,7 +22,7 @@ def spice_config():
             "norm_layer": "none",
             "spatial_size": 4,
         },
-        "skip_classes": ["michel"],
+        "shapes": ["shower", "track", "delta"],
         "coord_conv": True,
     }
 
@@ -81,6 +81,93 @@ def test_spice_embedder_filters_and_predicts_current_contract():
     assert torch.all((result["seediness"].torch_tensor() <= 1.0))
 
 
+def test_spice_clusterer_builds_shape_aware_fragments_and_assigns_remainder():
+    """Embedding masks should form clusters and absorb low-probability tails."""
+    embeddings = TensorBatch(
+        torch.tensor(
+            [[0.0, 0.0], [0.1, 0.0], [0.5, 0.0], [3.0, 0.0], [3.1, 0.0]],
+            dtype=torch.float32,
+        ),
+        counts=[5],
+    )
+    margins = TensorBatch(torch.full((5, 1), 0.2), counts=[5])
+    seediness = TensorBatch(
+        torch.tensor([[0.9], [0.6], [0.1], [0.95], [0.7]]),
+        counts=[5],
+    )
+    shapes = TensorBatch(torch.zeros(5, dtype=torch.long), counts=[5])
+    clusterer = SPICEClusterer(
+        ["shower"],
+        seed_threshold={"shower": 0.5},
+        probability_threshold=[0.5],
+        min_size=2,
+        assign_all=True,
+    )
+
+    clusts, clust_shapes = clusterer(embeddings, margins, seediness, shapes)
+
+    assert clusts.counts.tolist() == [2]
+    assert sorted(clusts.single_counts.tolist()) == [2, 3]
+    assert sorted(torch.cat(clusts.index_list).tolist()) == list(range(5))
+    assert clust_shapes.torch_tensor().tolist() == [0, 0]
+
+
+def test_spice_clusterer_handles_empty_predictions_and_validates_configuration():
+    """High thresholds may yield no clusters while malformed settings fail early."""
+    values = TensorBatch(torch.zeros((2, 2)), counts=[2])
+    scalars = TensorBatch(torch.full((2, 1), 0.1), counts=[2])
+    shapes = TensorBatch(torch.zeros(2, dtype=torch.long), counts=[2])
+    clusts, clust_shapes = SPICEClusterer([0], seed_threshold=0.9, min_size=1)(
+        values, scalars, scalars, shapes
+    )
+    assert clusts.counts.tolist() == [0]
+    assert len(clust_shapes.torch_tensor()) == 0
+
+    with pytest.raises(ValueError, match="unique"):
+        SPICEClusterer([0, 0])
+    with pytest.raises(ValueError, match="one value"):
+        SPICEClusterer([0, 1], seed_threshold=[0.1])
+    with pytest.raises(ValueError, match="exactly match"):
+        SPICEClusterer([0], probability_threshold={1: 0.5})
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        SPICEClusterer([0], seed_threshold=2.0)
+    with pytest.raises(ValueError, match="Probability thresholds"):
+        SPICEClusterer([0], probability_threshold=-0.1)
+    with pytest.raises(ValueError, match="min_size"):
+        SPICEClusterer([0], min_size=0)
+    with pytest.raises(ValueError, match="eps"):
+        SPICEClusterer([0], eps=0.0)
+
+    mismatched = TensorBatch(torch.zeros((2, 1)), counts=[1, 1])
+    with pytest.raises(ValueError, match="share batch counts"):
+        SPICEClusterer([0])(values, scalars, scalars, mismatched)
+
+    # A configured shape with too few rows is ignored without disturbing the
+    # valid shape in the same event.
+    sparse_shapes = TensorBatch(torch.tensor([0, 0, 1]), counts=[3])
+    sparse_values = TensorBatch(torch.zeros((3, 2)), counts=[3])
+    sparse_scalars = TensorBatch(torch.ones((3, 1)), counts=[3])
+    clusts, _ = SPICEClusterer([0, 1], min_size=2)(
+        sparse_values,
+        sparse_scalars,
+        sparse_scalars,
+        sparse_shapes,
+    )
+    assert clusts.counts.tolist() == [1]
+
+    # Seeds whose Gaussian masks never reach the minimum size are retired.
+    separated = TensorBatch(torch.tensor([[0.0, 0.0], [10.0, 0.0]]), counts=[2])
+    narrow = TensorBatch(torch.full((2, 1), 0.1), counts=[2])
+    eager = TensorBatch(torch.ones((2, 1)), counts=[2])
+    rejected, _ = SPICEClusterer([0], min_size=2)(
+        separated,
+        narrow,
+        eager,
+        TensorBatch(torch.zeros(2, dtype=torch.long), counts=[2]),
+    )
+    assert rejected.counts.tolist() == [0]
+
+
 def test_spice_loss_is_finite_and_differentiable():
     """The current model and objective must support a complete backward pass."""
     data, semantics, labels = spice_batch()
@@ -131,6 +218,53 @@ def test_spice_validates_coordinate_convolution_input_width():
 
     with pytest.raises(ValueError, match="expected `num_input=4`"):
         SPICEEmbedder(**config)
+
+
+def test_spice_prefers_positive_shape_ownership_configuration():
+    """Legacy exclusions remain available but cannot conflict with shapes."""
+    config = spice_config()
+    config.pop("shapes")
+    config["skip_classes"] = ["michel"]
+    with pytest.deprecated_call(match="positive `shapes`"):
+        embedder = SPICEEmbedder(**config)
+    assert embedder.shapes == (0, 1, 3)
+
+    config["shapes"] = ["shower"]
+    with pytest.raises(ValueError, match="either `shapes`"):
+        SPICEEmbedder(**config)
+
+
+def test_spice_validates_shape_ownership():
+    """Default, empty, and duplicate ownership declarations are unambiguous."""
+    config = spice_config()
+    config.pop("shapes")
+    assert SPICEEmbedder(**config).shapes == (0, 1)
+
+    config["shapes"] = []
+    with pytest.raises(ValueError, match="at least one"):
+        SPICEEmbedder(**config)
+    config["shapes"] = ["shower", "shower"]
+    with pytest.raises(ValueError, match="unique"):
+        SPICEEmbedder(**config)
+
+
+def test_spice_model_optionally_produces_fragments():
+    """The registered model should expose clusters only when requested."""
+    data, semantics, _ = spice_batch()
+    plain = SPICE(spice_config())(data, semantics)
+    assert "clusts" not in plain
+
+    config = spice_config()
+    config["make_clusters"] = True
+    model = SPICE(config)
+    model.clusterer.seed_thresholds = dict.fromkeys(model.shapes, 1.0)
+    clustered = model(data, semantics)
+    assert clustered["clusts"].counts.tolist() == [0]
+    assert clustered["clust_shapes"].shape == (0,)
+
+    config["clusterer"] = []
+    with pytest.raises(TypeError, match="clusterer.*mapping"):
+        SPICE(config)
 
 
 @pytest.mark.parametrize(

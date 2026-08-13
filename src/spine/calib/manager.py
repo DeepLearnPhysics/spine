@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from numpy.typing import NDArray
 
+from spine.config.factory import parse_module_config
 from spine.geo import GeoManager
-from spine.utils.factory import parse_module_config
 from spine.utils.stopwatch import StopwatchManager
 
 from .factories import calibrator_factory

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import torch
 
-from spine.utils.factory import Config, Registry, instantiate
+from spine.config.factory import Config, Registry, instantiate
 
 from .kernel import BilinearKernel, DefaultKernel, MLPKernel
 from .loss import EdgeLoss

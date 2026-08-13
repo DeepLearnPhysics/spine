@@ -15,9 +15,9 @@ from spine.constants import (
     PROT_PID,
     TRACK_SHP,
 )
+from spine.physics.mcs import ANGLE_METHODS, mcs_angles, mcs_fit
+from spine.physics.tracking import get_track_segments
 from spine.post.base import PostBase
-from spine.utils.mcs import ANGLE_METHODS, mcs_angles, mcs_fit
-from spine.utils.tracking import get_track_segments
 
 __all__ = ["MCSEnergyProcessor"]
 

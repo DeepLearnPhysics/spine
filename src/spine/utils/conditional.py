@@ -163,7 +163,7 @@ def _module_available(module_name: str) -> bool:
 ROOT_AVAILABLE = _module_available("ROOT")
 LARCV_AVAILABLE = _module_available("larcv")
 TORCH_AVAILABLE = _module_available("torch")
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover - static type-checker-only imports
     import ROOT
     import torch
     from larcv import larcv
@@ -175,5 +175,5 @@ else:
 
     if TORCH_AVAILABLE:
         torch = _LazyModule("torch", "torch", "PyTorch is required.")
-    else:
+    else:  # pragma: no cover - exercised in core-only CI without PyTorch
         torch = _MissingTorch("torch", "torch", "PyTorch is required.")

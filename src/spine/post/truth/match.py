@@ -10,7 +10,7 @@ import numba as nb
 import numpy as np
 from numba import typed
 
-import spine.utils.match
+import spine.math.match
 from spine.post.base import PostBase
 
 __all__ = ["MatchProcessor"]
@@ -131,7 +131,7 @@ class MatchProcessor(PostBase):
 
             # Initialize the match overlap function
             prefix = "overlap" if not self.weight_overlap else "overlap_weighted"
-            self.fn = getattr(spine.utils.match, f"{prefix}_{self.overlap_mode}")
+            self.fn = getattr(spine.math.match, f"{prefix}_{self.overlap_mode}")
 
     def process(self, data: Mapping[str, Any]) -> dict[str, Any]:
         """Match all the requested objects in one entry.
