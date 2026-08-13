@@ -3,7 +3,7 @@
 This module provides the primary entry points for loading SPINE configurations:
 - load_config(): Load from a YAML string
 - load_config_file(): Load from a file path
-- _load_config_recursive(): Internal recursive loader with include support
+- load_config_recursive(): Recursive loader shared with YAML tag handling
 """
 
 import os
@@ -22,10 +22,15 @@ from .api import (
 )
 from .errors import ConfigCycleError, ConfigIncludeError
 from .loader import ConfigLoader, resolve_config_path
-from .meta import check_compatibility, extract_metadata
+from .meta import (
+    check_compatibility,
+    check_modifier_conflicts,
+    extract_metadata,
+    extract_modifier,
+)
 from .operations import (
-    _apply_overrides_and_removals,
     apply_collection_operation,
+    apply_overrides_and_removals,
     deep_merge,
     expand_env_vars,
     extract_includes_and_overrides,
@@ -36,7 +41,7 @@ from .operations import (
 __all__ = ["load_config", "load_config_file"]
 
 
-def _load_config_recursive(
+def load_config_recursive(
     cfg_path: Optional[str] = None,
     config_string: Optional[str] = None,
     root_dir: Optional[str] = None,
@@ -108,6 +113,8 @@ def _load_config_recursive(
 
     # Create a custom loader class with the specified root_dir
     class CustomConfigLoader(ConfigLoader):
+        """Config loader bound to this recursive call's root directory."""
+
         def __init__(self, stream) -> None:
             super().__init__(stream, root_dir, download=download)
 
@@ -130,6 +137,8 @@ def _load_config_recursive(
 
     # Extract metadata
     metadata = extract_metadata(main_config, cfg_path if cfg_path else "<string>")
+    modifier = extract_modifier(metadata)
+    metadata["_modifiers"] = [modifier] if modifier else []
     strict = metadata[META_STRICT]
     list_append_mode = metadata[META_LIST_APPEND]
 
@@ -155,7 +164,7 @@ def _load_config_recursive(
             included_overrides,
             included_removals,
             included_meta,
-        ) = _load_config_recursive(
+        ) = load_config_recursive(
             cfg_path=include_path,
             root_dir=None,
             include_stack=include_stack,
@@ -182,6 +191,12 @@ def _load_config_recursive(
         # Defer compatibility check until all includes loaded
         compatibility_checks.append((metadata, included_meta, include_path))
 
+        # Retain modifier identity and provenance across nested includes. Check
+        # both declaration directions before adding the included subtree.
+        included_modifiers = included_meta.get("_modifiers", [])
+        check_modifier_conflicts(metadata["_modifiers"], included_modifiers)
+        metadata["_modifiers"].extend(included_modifiers)
+
         # Merge included config
         config = deep_merge(config, included_config)
 
@@ -192,9 +207,10 @@ def _load_config_recursive(
                 metadata["components"] = {}
             metadata["components"].update(included_meta["components"])
         elif included_kind != "fragment" and META_VERSION in included_meta:
-            # If included file has version but no components, infer component name from file path
-            # e.g., base/base_240719.yaml -> component "base" with version "240719"
-            # This allows configs without explicit components to still participate in version checking
+            # If included file has version but no components, infer component name from file
+            # path, e.g., base/base_240719.yaml -> component "base" with version "240719"
+            # This allows configs without explicit components to still participate in version
+            # checking
             include_dir = os.path.basename(os.path.dirname(include_path))
             if include_dir and include_dir not in ("", "."):
                 if "components" not in metadata:
@@ -205,7 +221,7 @@ def _load_config_recursive(
         included_strict = included_meta.get(META_STRICT, strict)
         included_list_append = included_meta.get(META_LIST_APPEND, list_append_mode)
 
-        config, unapplied = _apply_overrides_and_removals(
+        config, unapplied = apply_overrides_and_removals(
             config,
             included_overrides,
             included_removals,
@@ -306,7 +322,7 @@ def load_config(
     """
     # Load recursively, accumulating compatibility checks
     compatibility_checks = []
-    config, overrides, removals, metadata = _load_config_recursive(
+    config, overrides, removals, metadata = load_config_recursive(
         config_string=config_str,
         root_dir=root_dir,
         compatibility_checks=compatibility_checks,
@@ -399,7 +415,7 @@ def load_config_file(cfg_path: str, download: bool = True) -> Dict[str, Any]:
     cfg_path = os.path.abspath(cfg_path)
     root_dir = os.path.dirname(cfg_path)
 
-    config, overrides, removals, metadata = _load_config_recursive(
+    config, overrides, removals, metadata = load_config_recursive(
         cfg_path=cfg_path,
         root_dir=root_dir,
         compatibility_checks=compatibility_checks,
