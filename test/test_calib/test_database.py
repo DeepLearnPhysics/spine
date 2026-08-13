@@ -40,7 +40,7 @@ def test_lut_clips_points_and_replaces_dummy_values():
     lut = CalibrationLUT(
         dims=[1, 2],
         bins=[2, 2],
-        range=[[0.0, 2.0], [0.0, 2.0]],
+        ranges=[[0.0, 2.0], [0.0, 2.0]],
         values=np.array([[1.0, -999.0], [3.0, 4.0]]),
     )
 
@@ -54,7 +54,7 @@ def test_lut_validates_dimensions_and_values():
         CalibrationLUT(
             dims=[1, 2],
             bins=[2],
-            range=[[0.0, 2.0], [0.0, 2.0]],
+            ranges=[[0.0, 2.0], [0.0, 2.0]],
             values=np.ones((2, 2)),
         )
 
@@ -62,6 +62,96 @@ def test_lut_validates_dimensions_and_values():
         CalibrationLUT(
             dims=[1, 2],
             bins=[2, 2],
-            range=[[0.0, 2.0], [0.0, 2.0]],
+            ranges=[[0.0, 2.0], [0.0, 2.0]],
             values=np.ones((2, 3)),
         )
+
+
+def test_lut_builds_from_dataframe_independent_of_row_order():
+    dataframe = pd.DataFrame(
+        {
+            "ybin": [1, 0, 1, 0],
+            "zbin": [1, 1, 0, 0],
+            "ylow": [1.0, 0.0, 1.0, 0.0],
+            "yhigh": [2.0, 1.0, 2.0, 1.0],
+            "zlow": [1.0, 1.0, 0.0, 0.0],
+            "zhigh": [2.0, 2.0, 1.0, 1.0],
+            "scale": [4.0, 2.0, 3.0, 1.0],
+        }
+    )
+
+    lut = CalibrationLUT.from_dataframe(dataframe, "scale")
+
+    assert np.allclose(lut.values, [[1.0, 2.0], [3.0, 4.0]])
+
+
+@pytest.mark.parametrize(
+    ("dataframe", "match"),
+    [
+        (pd.DataFrame(), "empty table"),
+        (pd.DataFrame({"ybin": [-1], "zbin": [0]}), "non-negative"),
+        (
+            pd.DataFrame({"ybin": [0, 1], "zbin": [0, 1]}),
+            "exactly one calibration value per bin",
+        ),
+    ],
+)
+def test_lut_rejects_invalid_dataframes(dataframe, match):
+    with pytest.raises(ValueError, match=match):
+        CalibrationLUT.from_dataframe(dataframe, "scale")
+
+
+def test_lut_builds_from_root_histogram_and_transposes_axes():
+    histogram = FakeTH2([[2.0, 0.0], [4.0, np.nan]])
+
+    lut = CalibrationLUT.from_root_histogram(histogram, reciprocal=True)
+
+    assert lut.dims == [1, 2]
+    assert np.all(lut.bins == [2, 2])
+    assert np.allclose(lut.range, [[-1.0, 1.0], [10.0, 14.0]])
+    assert np.allclose(lut.values, [[0.5, 0.25], [1.0, 1.0]])
+
+
+def test_lut_root_histogram_replaces_missing_values_without_reciprocal():
+    histogram = FakeTH2([[2.0, 0.0], [4.0, np.nan]])
+
+    lut = CalibrationLUT.from_root_histogram(histogram)
+
+    assert np.allclose(lut.values, [[2.0, 4.0], [1.0, 1.0]])
+
+
+def test_lut_root_histogram_requires_distinct_axis_dimensions():
+    with pytest.raises(ValueError, match="two distinct"):
+        CalibrationLUT.from_root_histogram(FakeTH2([[1.0]]), axis_dims=(1, 1))
+
+
+class FakeAxis:
+    def __init__(self, low, high):
+        self.low = low
+        self.high = high
+
+    def GetXmin(self):
+        return self.low
+
+    def GetXmax(self):
+        return self.high
+
+
+class FakeTH2:
+    def __init__(self, values):
+        self.values = np.asarray(values)
+
+    def GetXaxis(self):
+        return FakeAxis(10.0, 14.0)
+
+    def GetYaxis(self):
+        return FakeAxis(-1.0, 1.0)
+
+    def GetNbinsX(self):
+        return self.values.shape[0]
+
+    def GetNbinsY(self):
+        return self.values.shape[1]
+
+    def GetBinContent(self, ix, iy):
+        return self.values[ix - 1, iy - 1]

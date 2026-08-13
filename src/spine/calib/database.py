@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3 as sql
 from pathlib import Path
-from typing import TypeAlias, cast
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 import pandas as pd
@@ -138,15 +138,8 @@ class CalibrationDatabase:
         tpc_luts = []
         tpc_keys = ["EE", "EW", "WE", "WW"]
         for tpc_key in tpc_keys:
-            df_tpc = df_run[df_run.tpc == tpc_key]
-            bins_y = np.max(df_tpc.ybin) + 1
-            bins_z = np.max(df_tpc.zbin) + 1
-            range_y = [np.min(df_tpc.ylow), np.max(df_tpc.yhigh)]
-            range_z = [np.min(df_tpc.zlow), np.max(df_tpc.zhigh)]
-            values = np.asarray(df_tpc[quantity]).reshape(bins_y, bins_z)
-
-            lut = CalibrationLUT([1, 2], [bins_y, bins_z], [range_y, range_z], values)
-            tpc_luts.append(lut)
+            df_tpc = cast(pd.DataFrame, df_run[df_run.tpc == tpc_key])
+            tpc_luts.append(CalibrationLUT.from_dataframe(df_tpc, quantity))
 
         return tpc_luts
 
@@ -199,10 +192,10 @@ class CalibrationLUT:
         self,
         dims: list[int],
         bins: list[int],
-        range: list[list[float]],
+        ranges: list[list[float]],
         values: FloatArray,
         dummy: float | None = -999.0,
-    ) -> None:  # pylint: disable=W0622
+    ) -> None:
         """Initialize the calibration map.
 
         Parameters
@@ -211,7 +204,7 @@ class CalibrationLUT:
             List of dimensions (0: x, 1: y, 2: z)
         bins : List[int]
             Number of bins in each dimension
-        range : List[List[float]]
+        ranges : List[List[float]]
             Axis range in each dimension
         values : np.ndarray
             Values in each bin
@@ -219,10 +212,10 @@ class CalibrationLUT:
             Dummy values which should be overwritten with 1. (no information)
         """
         # Store metadata information
-        if len(range) != len(dims) or len(bins) != len(dims):
+        if len(ranges) != len(dims) or len(bins) != len(dims):
             raise ValueError("Must provide a bin count and range per dimension.")
         self.dims = dims
-        self.range = np.array(range)
+        self.range = np.array(ranges)
         self.bins = np.array(bins)
         self.bin_sizes = (self.range[:, 1] - self.range[:, 0]) / self.bins
 
@@ -234,6 +227,149 @@ class CalibrationLUT:
         # Overwrite dummy values to 1.
         if dummy is not None:
             self.values[self.values == dummy] = 1.0
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        dataframe: pd.DataFrame,
+        value_key: str,
+        dims: tuple[int, int] = (1, 2),
+        bin_keys: tuple[str, str] = ("ybin", "zbin"),
+        low_keys: tuple[str, str] = ("ylow", "zlow"),
+        high_keys: tuple[str, str] = ("yhigh", "zhigh"),
+        dummy: float | None = -999.0,
+    ) -> "CalibrationLUT":
+        """Build a two-dimensional LUT from a table of binned values.
+
+        The default column names describe the ICARUS transparency database,
+        while the explicit column arguments keep the conversion independent
+        of database and IOV handling.
+
+        Parameters
+        ----------
+        dataframe : pd.DataFrame
+            Table containing one row per bin, including bin indexes, lower and
+            upper bin edges, and the calibration value.
+        value_key : str
+            Column containing the calibration value for each bin.
+        dims : tuple[int, int], default (1, 2)
+            Coordinate dimensions represented by the two table axes, using
+            0=x, 1=y and 2=z.
+        bin_keys : tuple[str, str], default ('ybin', 'zbin')
+            Columns containing the zero-based bin indexes for each axis.
+        low_keys : tuple[str, str], default ('ylow', 'zlow')
+            Columns containing the lower bin edge for each axis.
+        high_keys : tuple[str, str], default ('yhigh', 'zhigh')
+            Columns containing the upper bin edge for each axis.
+        dummy : float, optional
+            Value interpreted as missing calibration information and replaced
+            with 1. Set to ``None`` to preserve every value.
+
+        Returns
+        -------
+        CalibrationLUT
+            Dense two-dimensional calibration look-up table.
+
+        Raises
+        ------
+        ValueError
+            If the table is empty, contains negative bin indexes, or does not
+            provide exactly one value for every bin in the dense grid.
+        """
+        # Make sure the input table contains calibration information
+        if dataframe.empty:
+            raise ValueError("Cannot build a calibration LUT from an empty table.")
+
+        # Extract and validate the bin indexes
+        bin_ids = np.asarray(dataframe.loc[:, list(bin_keys)], dtype=int)
+        if np.any(bin_ids < 0):
+            raise ValueError("Calibration LUT bin indexes must be non-negative.")
+
+        # Infer the dense map shape and check that every bin appears exactly once
+        bins = (bin_ids.max(axis=0) + 1).tolist()
+        unique_bins = np.unique(bin_ids, axis=0)
+        if len(dataframe) != int(np.prod(bins)) or len(unique_bins) != len(dataframe):
+            raise ValueError("Must provide exactly one calibration value per bin.")
+
+        # Copy the tabular values into their dense bin locations
+        values = np.empty(bins, dtype=float)
+        values[tuple(bin_ids.T)] = np.asarray(dataframe[value_key], dtype=float)
+
+        # Get the full range covered by each table axis
+        ranges = [
+            [float(dataframe[low].min()), float(dataframe[high].max())]
+            for low, high in zip(low_keys, high_keys)
+        ]
+
+        # Initialize the corresponding look-up table
+        return cls(list(dims), bins, ranges, values, dummy=dummy)
+
+    @classmethod
+    def from_root_histogram(
+        cls,
+        histogram: Any,
+        axis_dims: tuple[int, int] = (2, 1),
+        reciprocal: bool = False,
+    ) -> "CalibrationLUT":
+        """Build a two-dimensional LUT from a ROOT ``TH2`` histogram.
+
+        Parameters
+        ----------
+        histogram : ROOT.TH2
+            Histogram to copy. Underflow and overflow bins are not included.
+        axis_dims : tuple[int, int], default (2, 1)
+            Coordinate dimensions represented by the ROOT X and Y axes. The
+            default corresponds to an X=z, Y=y histogram.
+        reciprocal : bool, default False
+            Store the reciprocal of each valid histogram value. Zero and
+            non-finite values are treated as missing information and set to 1.
+
+        Returns
+        -------
+        CalibrationLUT
+            Dense two-dimensional calibration look-up table, reordered by
+            coordinate dimension when the ROOT axes are not in that order.
+
+        Raises
+        ------
+        ValueError
+            If ``axis_dims`` does not identify two distinct dimensions.
+        """
+        # Make sure each histogram axis maps onto a unique coordinate
+        if len(axis_dims) != 2 or len(set(axis_dims)) != 2:
+            raise ValueError("Must provide two distinct ROOT histogram dimensions.")
+
+        # Extract the histogram bin counts and ranges
+        axes = (histogram.GetXaxis(), histogram.GetYaxis())
+        bins = (int(histogram.GetNbinsX()), int(histogram.GetNbinsY()))
+        ranges = [[float(axis.GetXmin()), float(axis.GetXmax())] for axis in axes]
+
+        # Copy the regular bin contents, excluding underflow and overflow bins
+        values = np.empty(bins, dtype=float)
+        for ix in range(bins[0]):
+            for iy in range(bins[1]):
+                values[ix, iy] = histogram.GetBinContent(ix + 1, iy + 1)
+
+        # Keep LUT dimensions in coordinate order. This transposes the SBND
+        # ROOT maps from their native (z, y) storage to (y, z).
+        order = np.argsort(axis_dims)
+        dims = [int(axis_dims[i]) for i in order]
+        ordered_bins = [bins[i] for i in order]
+        ordered_ranges = [ranges[i] for i in order]
+        values = np.transpose(values, axes=order)
+
+        # Replace missing values with the neutral factor and optionally invert
+        valid = np.isfinite(values) & (values != 0.0)
+        if reciprocal:
+            converted = np.ones_like(values)
+            converted[valid] = 1.0 / values[valid]
+            values = converted
+        else:
+            values = values.copy()
+            values[~valid] = 1.0
+
+        # Initialize the corresponding look-up table
+        return cls(dims, ordered_bins, ordered_ranges, values, dummy=None)
 
     @property
     def edges(self) -> list[FloatArray]:
