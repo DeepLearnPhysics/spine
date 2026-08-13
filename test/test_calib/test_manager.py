@@ -102,10 +102,10 @@ def test_manager_applies_response_without_other_calibrators(monkeypatch, fake_ge
 
 def test_manager_applies_smearing_after_response(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
-    monkeypatch.setattr(np.random, "normal", lambda **kwargs: np.array([0.1]))
+    monkeypatch.setattr(np.random, "normal", lambda **kwargs: np.array([1.1]))
     manager = CalibrationManager(
         response={"response_func": "x**2"},
-        smearing={"scale": 0.2},
+        smearing={"scale": 0.2, "mode": "multiplicative", "mean": 1.0},
     )
 
     _, corrected = manager(

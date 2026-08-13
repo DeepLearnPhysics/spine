@@ -17,7 +17,7 @@ class SmearingCalibrator:
         self,
         scale: float,
         distribution: str = "normal",
-        mode: str = "relative",
+        mode: str = "additive",
         mean: float = 0.0,
         clip_min: float | None = None,
     ) -> None:
@@ -29,10 +29,10 @@ class SmearingCalibrator:
             Standard deviation of the sampled values. Must be nonnegative.
         distribution : str, default 'normal'
             Distribution to sample from. Currently only 'normal' is supported.
-        mode : str, default 'relative'
-            How to apply each sample to the corresponding deposition. 'relative'
-            evaluates ``x * (1 + sample)``, while 'additive' evaluates
-            ``x + sample``.
+        mode : str, default 'additive'
+            How to apply each sample to the corresponding deposition. 'additive'
+            evaluates ``x + sample``, while 'multiplicative' evaluates
+            ``x * sample``.
         mean : float, default 0.0
             Mean of the sampled values.
         clip_min : float, optional
@@ -43,10 +43,10 @@ class SmearingCalibrator:
                 f"Smearing distribution not recognized: {distribution}. "
                 "Must be 'normal'."
             )
-        if mode not in ("relative", "additive"):
+        if mode not in ("additive", "multiplicative"):
             raise ValueError(
                 f"Smearing mode not recognized: {mode}. Must be one of "
-                "'relative' or 'additive'."
+                "'additive' or 'multiplicative'."
             )
         if not np.isfinite(scale) or scale < 0.0:
             raise ValueError("Smearing scale must be a finite, nonnegative value.")
@@ -75,10 +75,10 @@ class SmearingCalibrator:
             (N) array of smeared deposition values
         """
         samples = np.random.normal(loc=self.mean, scale=self.scale, size=values.shape)
-        if self.mode == "relative":
-            result = values * (1.0 + samples)
-        else:
+        if self.mode == "additive":
             result = values + samples
+        else:
+            result = values * samples
 
         if self.clip_min is not None:
             result = np.maximum(result, self.clip_min)
