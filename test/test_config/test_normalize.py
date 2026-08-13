@@ -5,6 +5,12 @@ import pytest
 from spine.config import normalize_config
 
 
+@pytest.mark.parametrize("cfg", [{}, {"base": {"seed": 1}}])
+def test_normalize_config_preserves_canonical_config(cfg):
+    """Configurations without legacy training blocks should pass through."""
+    assert normalize_config(cfg) == cfg
+
+
 def test_normalize_config_relocates_legacy_train_block():
     """Legacy training configuration should warn and move without mutation."""
     cfg = {"base": {"seed": 1, "train": {"optimizer": {}}}}
