@@ -10,6 +10,7 @@ from spine.calib.gain import GainCalibrator
 from spine.calib.manager import CalibrationManager
 from spine.calib.recombination import RecombinationCalibrator
 from spine.calib.response import ResponseCalibrator
+from spine.calib.smearing import SmearingCalibrator
 
 
 class FakeMeta:
@@ -97,6 +98,25 @@ def test_manager_applies_response_without_other_calibrators(monkeypatch, fake_ge
     )
 
     assert np.allclose(corrected, [10.0])
+
+
+def test_manager_applies_smearing_after_response(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    monkeypatch.setattr(np.random, "normal", lambda **kwargs: np.array([0.1]))
+    manager = CalibrationManager(
+        response={"response_func": "x**2"},
+        smearing={"scale": 0.2},
+    )
+
+    _, corrected = manager(
+        np.array([[1.0, 0.0, 0.0]]),
+        np.array([3.0]),
+        sources=np.array([[0, 0]]),
+    )
+
+    assert list(manager.modules) == ["response", "smearing"]
+    assert isinstance(manager.modules["smearing"], SmearingCalibrator)
+    assert np.allclose(corrected, [9.9])
 
 
 def test_manager_can_infer_tpc_indexes_without_sources(monkeypatch, fake_geo):

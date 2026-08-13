@@ -70,7 +70,7 @@ class CalibrationManager:
             value = deepcopy(spec["cfg"])
             if name == "recombination":
                 value["drift_dir"] = self.geo.tpc[0][0].drift_dir
-            elif name != "response":
+            elif name not in ("response", "smearing"):
                 value["num_tpcs"] = self.geo.tpc.num_chambers
 
             # Append
@@ -151,7 +151,7 @@ class CalibrationManager:
                     )
                 elif name == "gain":
                     tpc_values = module.process(tpc_values, t, run_id)
-                elif name == "response":
+                elif name in ("response", "smearing"):
                     tpc_values = module.process(tpc_values)
                 elif name == "recombination":
                     tpc_values = module.process(tpc_values, tpc_points, track)
