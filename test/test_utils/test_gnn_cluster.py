@@ -6,6 +6,7 @@ import pytest
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.utils.gnn.cluster import (
     cluster_dedx,
+    cluster_direction,
     form_clusters_batch,
     get_cluster_closest_label_batch,
     get_cluster_directions,
@@ -148,6 +149,27 @@ def test_cluster_directions_preserve_reference_point_dtype():
 
     assert directions.dtype == starts.dtype
     np.testing.assert_allclose(directions, [[1.0, 0.0, 0.0]])
+
+
+def test_cluster_direction_handles_duplicate_coordinates_during_optimization():
+    """Coincident leading points must not divide by zero in PCA optimization."""
+    voxels = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+
+    direction = cluster_direction(
+        voxels,
+        np.zeros(3, dtype=np.float64),
+        optimize=True,
+    )
+
+    np.testing.assert_allclose(direction, [1.0, 0.0, 0.0])
 
 
 def test_cluster_features_base_accepts_indexed_float32_coordinates():

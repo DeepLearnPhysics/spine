@@ -1128,8 +1128,12 @@ def cluster_direction(
             # Get the eigenvalues, compute relative transverse spread
             # TODO: get rid of casting, this is complex LAPACK issue currently
             w = np.linalg.eigvalsh(covk.astype(np.float64)).astype(voxels.dtype)
+            longitudinal = w[2]
+            transverse = w[0] + w[1]
             labels[i] = (
-                np.sqrt(w[2] / (w[0] + w[1])) if (w[0] + w[1]) / w[2] > 1e-6 else 0.0
+                np.sqrt(longitudinal / transverse)
+                if longitudinal > 0.0 and transverse > 1e-6 * longitudinal
+                else 0.0
             )
 
             # If the value is the same as the previous, choose this one
