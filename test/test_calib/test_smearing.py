@@ -26,6 +26,25 @@ def test_smearing_calibrator_applies_additive_smearing(monkeypatch):
     assert np.allclose(result, values + samples)
 
 
+def test_smearing_calibrator_applies_one_sample_to_full_image(monkeypatch):
+    arguments = {}
+
+    def sample_normal(**kwargs):
+        arguments.update(kwargs)
+        return 1.1
+
+    monkeypatch.setattr(np.random, "normal", sample_normal)
+    calibrator = SmearingCalibrator(
+        scale=0.1, mode="multiplicative", mean=1.0, scope="image"
+    )
+    values = np.array([10.0, 20.0])
+
+    result = calibrator.process(values)
+
+    assert arguments == {"loc": 1.0, "scale": 0.1, "size": None}
+    assert np.allclose(result, [11.0, 22.0])
+
+
 def test_smearing_calibrator_configures_distribution(monkeypatch):
     arguments = {}
 
@@ -60,6 +79,7 @@ def test_smearing_calibrator_clips_and_preserves_dtype(monkeypatch):
     [
         ({"distribution": "uniform"}, "distribution not recognized"),
         ({"mode": "relative"}, "mode not recognized"),
+        ({"scope": "event"}, "scope not recognized"),
         ({"scale": -0.1}, "scale must be"),
         ({"scale": np.inf}, "scale must be"),
         ({"mean": np.nan}, "mean must be"),
