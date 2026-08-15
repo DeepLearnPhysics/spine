@@ -1369,4 +1369,6 @@ def cluster_dedx_dir(
     spreads = np.sqrt(np.sum(vectors_to_axis**2, axis=1))
     spread = np.sum(spreads) / len(index)
 
-    return dE / dx, dE, dx, spread, len(index)
+    dedx = dE / dx if dx > 0.0 else 0.0
+
+    return dedx, dE, dx, spread, len(index)

@@ -6,6 +6,7 @@ import pytest
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.utils.gnn.cluster import (
     cluster_dedx,
+    cluster_dedx_dir,
     cluster_direction,
     form_clusters_batch,
     get_cluster_closest_label_batch,
@@ -134,6 +135,27 @@ def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
     dedx = cluster_dedx(voxels, values, start, 5.0, True)
 
     assert dedx == np.float32(3.0)
+
+
+def test_cluster_dedx_dir_handles_duplicate_coordinates():
+    """Coincident points should produce a finite zero-length dE/dx result."""
+    voxels = np.zeros((2, 3), dtype=np.float32)
+    values = np.array([1.0, 2.0], dtype=np.float32)
+    start = np.zeros(3, dtype=np.float32)
+    direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+    dedx, de, dx, spread, count = cluster_dedx_dir(
+        voxels,
+        values,
+        start,
+        direction,
+    )
+
+    assert dedx == 0.0
+    assert de == 3.0
+    assert dx == 0.0
+    assert spread == 0.0
+    assert count == 2
 
 
 def test_cluster_directions_preserve_reference_point_dtype():
