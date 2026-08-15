@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.1] - 2026-08-14
+
+### Added
+- **Charge smearing calibration**: Add configurable Gaussian charge smearing with literal additive and multiplicative modes, mean and scale controls, optional lower clipping, and voxel- or image-scoped random factors shared consistently across TPC partitions.
+- **Calibration map inputs**: Load transparency maps from ROOT histograms and support column-mapped per-TPC scalar calibration payloads with configurable value scaling for lifetime and drift-velocity databases.
+- **Modifier conflict declarations**: Let configuration modifiers declare incompatible peers and reject conflicting combinations across nested includes.
+
+### Fixed
+- **Duplicate-coordinate geometry**: Prevent coincident calibrated voxels from causing divisions by zero in direction optimization and local dE/dx, and handle repeated longitudinal coordinates in spline-based track reconstruction.
+
+### Removed
+- **One-off container recovery workflow**: Remove the temporary manual GHCR repair workflow after the release-publishing path was hardened.
+
 ## [0.17.0] - 2026-08-10
 
 ### Added
