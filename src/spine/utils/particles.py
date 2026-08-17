@@ -461,18 +461,29 @@ def get_group_primary_ids(particles, valid_mask=None, label_le=False):
             primary_ids[group_index] = -1
             continue
 
-        # If a group originates from a Delta or a Michel, it has a primary
+        # Empty particles have no first energy-deposition point and cannot
+        # represent a visible particle group.
+        eligible_index = group_index[
+            np.array([particles[i].num_voxels() > 0 for i in group_index])
+        ]
+
+        # Select the earliest fragment retained by the semantic-label policy.
+        if not label_le:
+            eligible_index = eligible_index[
+                np.array(
+                    [particles[i].shape() < LOWES_SHP for i in eligible_index],
+                    dtype=bool,
+                )
+            ]
+
+        # Delta and Michel group progenitors are primary when they are visible.
         group_p = particles[group_id]
-        if group_p.shape() == MICHL_SHP or group_p.shape() == DELTA_SHP:
+        if (
+            group_p.shape() == MICHL_SHP or group_p.shape() == DELTA_SHP
+        ) and group_id in eligible_index:
             primary_ids[group_id] = 1
             continue
 
-        # Select the earliest eligible fragment in the group.
-        eligible_index = group_index
-        if not label_le:
-            eligible_index = group_index[
-                np.array([particles[i].shape() < LOWES_SHP for i in group_index])
-            ]
         if len(eligible_index):
             clust_times = np.array(
                 [particles[i].first_step().t() for i in eligible_index]

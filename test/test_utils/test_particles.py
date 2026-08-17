@@ -13,10 +13,11 @@ from spine.utils.particles import (
 class DummyParticle:
     """Minimal LArCV particle interface for primary-label tests."""
 
-    def __init__(self, group_id, shape, time):
+    def __init__(self, group_id, shape, time, num_voxels=1):
         self._group_id = group_id
         self._shape = shape
         self._time = time
+        self._num_voxels = num_voxels
 
     def group_id(self):
         return self._group_id
@@ -37,6 +38,9 @@ class DummyParticle:
 
         return Step(self._time)
 
+    def num_voxels(self):
+        return self._num_voxels
+
 
 def test_group_primary_ids_respect_label_le():
     """Low-energy fragments should be primary only when labels are retained."""
@@ -51,6 +55,32 @@ def test_group_primary_ids_respect_label_le():
     )
     np.testing.assert_array_equal(
         get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
+    )
+
+
+def test_group_primary_ids_ignore_empty_fragments():
+    """Empty fragments cannot represent an otherwise-visible group."""
+    particles = [
+        DummyParticle(group_id=0, shape=0, time=0.0, num_voxels=0),
+        DummyParticle(group_id=0, shape=0, time=1.0, num_voxels=10),
+    ]
+    valid_mask = np.ones(len(particles), dtype=bool)
+
+    np.testing.assert_array_equal(
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 1]
+    )
+    np.testing.assert_array_equal(
+        get_group_primary_ids(particles, valid_mask, label_le=True), [0, 1]
+    )
+
+
+def test_group_primary_ids_allow_entirely_empty_groups():
+    """An entirely empty group has no primary and should not raise."""
+    particles = [DummyParticle(group_id=0, shape=0, time=0.0, num_voxels=0)]
+    valid_mask = np.ones(len(particles), dtype=bool)
+
+    np.testing.assert_array_equal(
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0]
     )
 
 
