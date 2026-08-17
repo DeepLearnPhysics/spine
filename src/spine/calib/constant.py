@@ -29,6 +29,8 @@ class CalibrationConstant:
         num_tpcs: int,
         value: CalibValue | None = None,
         database: CalibDatabaseSource | None = None,
+        database_value_keys: list[str] | tuple[str, ...] | None = None,
+        database_value_scale: float = 1.0,
     ) -> None:
         """Initialize a calibration constant.
 
@@ -41,6 +43,10 @@ class CalibrationConstant:
         database : Union[str, Dict[int, Union[float, List[float]]]], optional
             Path to a SQLite db file or dictionary which maps run IDs to calibration
             constants or dictionary which maps run IDs to calibration constants
+        database_value_keys : sequence[str], optional
+            Ordered SQLite columns containing one database value per TPC.
+        database_value_scale : float, default 1.0
+            Multiplicative scale applied to values loaded from a database.
         """
         # Must provide either a value or a database
         if (value is None) == (database is None):
@@ -61,14 +67,25 @@ class CalibrationConstant:
         elif database is not None:
             # If a database path is provided, load it
             if isinstance(database, dict):
+                if database_value_keys is not None:
+                    raise ValueError(
+                        "Database value keys can only be used with a SQLite path."
+                    )
+
                 # If a dictionary is provided, make sure all entries are correct
                 self.database = {
-                    run_id: self.load_value(val, num_tpcs)
+                    run_id: self.load_value(val, num_tpcs) * database_value_scale
                     for run_id, val in database.items()
                 }
             else:
                 self.database = cast(
-                    ValueDatabase, CalibrationDatabase(database, num_tpcs)
+                    ValueDatabase,
+                    CalibrationDatabase(
+                        database,
+                        num_tpcs,
+                        value_keys=database_value_keys,
+                        value_scale=database_value_scale,
+                    ),
                 )
 
     def load_value(self, value: CalibValue, num_tpcs: int) -> NDArray[np.floating]:

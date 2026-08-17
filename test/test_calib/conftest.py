@@ -39,6 +39,33 @@ def value_db(tmp_path):
 
 
 @pytest.fixture
+def column_value_db(tmp_path):
+    """Create a value database with multiple TPC columns per IOV row."""
+    path = tmp_path / "tpc_elifetime.db"
+    stem = path.stem
+    conn = sqlite3.connect(path)
+    conn.execute(
+        f"CREATE TABLE {stem}_iovs "
+        "(iov_id INTEGER, begin_time INTEGER, active INTEGER)"
+    )
+    conn.execute(
+        f"CREATE TABLE {stem}_data "
+        "(__iov_id INTEGER, channel INTEGER, east REAL, west REAL)"
+    )
+    conn.executemany(
+        f"INSERT INTO {stem}_iovs VALUES (?, ?, ?)",
+        [(1, 1000000100, 1), (2, 1000000200, 1), (3, 1000000300, 0)],
+    )
+    conn.executemany(
+        f"INSERT INTO {stem}_data VALUES (?, ?, ?, ?)",
+        [(1, 0, 0.010, 0.020), (2, 0, 0.030, 0.040), (3, 0, 9.0, 9.0)],
+    )
+    conn.commit()
+    conn.close()
+    return path
+
+
+@pytest.fixture
 def transparency_db(tmp_path):
     """Create a minimal ICARUS-style map calibration database."""
     path = tmp_path / "icarus_transparency_v1.db"

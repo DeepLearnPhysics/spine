@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from spine.constants import LOWES_SHP, TRACK_SHP
+from spine.constants import DELTA_SHP, LOWES_SHP, TRACK_SHP
 from spine.construct.particle import ParticleBuilder
 from spine.data import EdgeIndexData
 from spine.data.larcv.particle import Particle
@@ -81,6 +81,7 @@ def test_build_truth_particles_from_groups(points, depositions):
         Particle(
             id=0,
             group_id=0,
+            group_primary=1,
             interaction_id=0,
             parent_id=-1,
             shape=TRACK_SHP,
@@ -140,11 +141,15 @@ def test_build_truth_particles_from_groups(points, depositions):
     np.testing.assert_array_equal(result[1].sources_adapt, [[3, 0], [3, 1]])
 
 
-def test_build_truth_particles_use_first_step_group_fragment(points, depositions):
-    """Truth groups should use the fragment with the earliest first step."""
+def test_build_truth_particles_use_retained_group_primary(points, depositions):
+    """Truth groups should use their retained primary fragment."""
     builder = ParticleBuilder(mode="truth", units="px")
     labels = make_label_tensor(
-        points, depositions, [0, 0, 0, -1], group_ids=[0, 0, 0, -1]
+        points,
+        depositions,
+        [0, 0, 0, -1],
+        group_ids=[0, 0, 0, -1],
+        group_primaries=[0, 0, 1, -1],
     )
     particles = [
         Particle(
@@ -183,9 +188,149 @@ def test_build_truth_particles_use_first_step_group_fragment(points, depositions
         depositions_label=depositions,
     )
 
-    assert result[0].shape == LOWES_SHP
-    np.testing.assert_array_equal(result[0].start_point, [0, 0, 0])
+    assert result[0].shape == 0
+    assert result[0].first_step_t == 1.0
+    np.testing.assert_array_equal(result[0].first_step, [1, 0, 0])
+    np.testing.assert_array_equal(result[0].start_point, [1, 0, 0])
     assert result[0].energy_deposit == 13.5
+
+
+def test_build_truth_particles_ignore_invalid_empty_progenitor(points, depositions):
+    """An empty low-energy progenitor must not supply group geometry."""
+    builder = ParticleBuilder(mode="truth", units="px")
+    labels = make_label_tensor(
+        points,
+        depositions,
+        [0, 0, 0, -1],
+        part_ids=[0, 0, 2, -1],
+        group_ids=[1, 1, 1, -1],
+        group_primaries=[1, 0, 0, -1],
+        particle_indexes=[0, 0, 2, -1],
+    )
+    invalid = np.full(3, -2.0e13, dtype=np.float32)
+    particles = [
+        Particle(
+            id=0,
+            group_id=1,
+            group_primary=1,
+            shape=0,
+            first_step_t=2.0,
+            first_step=np.array([2, 0, 0], dtype=np.float32),
+            energy_deposit=1.0,
+        ),
+        Particle(
+            id=1,
+            group_id=1,
+            group_primary=0,
+            shape=LOWES_SHP,
+            first_step_t=-9.2e12,
+            first_step=invalid,
+        ),
+        Particle(
+            id=2,
+            group_id=1,
+            group_primary=0,
+            shape=0,
+            first_step_t=3.0,
+            first_step=np.array([3, 0, 0], dtype=np.float32),
+            energy_deposit=2.0,
+        ),
+    ]
+
+    result = builder._build_truth(
+        particles=particles,
+        label_tensor=labels,
+        points_label=points,
+        depositions_label=depositions,
+    )
+
+    assert result[0].orig_id == 1
+    assert result[0].shape == 0
+    assert result[0].first_step_t == 2.0
+    np.testing.assert_array_equal(result[0].first_step, [2, 0, 0])
+    np.testing.assert_array_equal(result[0].start_point, [2, 0, 0])
+
+
+def test_build_truth_particles_preserve_delta_group_shape(points, depositions):
+    """Visible daughters supply geometry without replacing delta semantics."""
+    builder = ParticleBuilder(mode="truth", units="px")
+    labels = make_label_tensor(
+        points,
+        depositions,
+        [0, 0, 0, -1],
+        part_ids=[0, 0, 0, -1],
+        group_ids=[1, 1, 1, -1],
+        group_primaries=[0, 1, 0, -1],
+        particle_indexes=[0, 0, 0, -1],
+    )
+    particles = [
+        Particle(
+            id=0,
+            group_id=1,
+            group_primary=0,
+            shape=0,
+            first_step_t=2.0,
+            first_step=np.array([2, 0, 0], dtype=np.float32),
+            energy_deposit=3.0,
+        ),
+        Particle(
+            id=1,
+            group_id=1,
+            group_primary=1,
+            shape=DELTA_SHP,
+            first_step_t=-9.2e12,
+            first_step=np.full(3, -2.0e13, dtype=np.float32),
+        ),
+    ]
+
+    result = builder._build_truth(
+        particles=particles,
+        label_tensor=labels,
+        points_label=points,
+        depositions_label=depositions,
+    )
+
+    assert result[0].shape == DELTA_SHP
+    assert result[0].first_step_t == 2.0
+    np.testing.assert_array_equal(result[0].first_step, [2, 0, 0])
+    np.testing.assert_array_equal(result[0].start_point, [2, 0, 0])
+
+
+def test_build_truth_particles_without_visible_representative(
+    points, depositions, monkeypatch
+):
+    """Groups without a geometry representative are explicitly invalid."""
+    builder = ParticleBuilder(mode="truth", units="px")
+    labels = make_label_tensor(
+        points,
+        depositions,
+        [0, 0, -1, -1],
+        group_ids=[0, 0, -1, -1],
+    )
+    particles = [Particle(id=0, group_id=0)]
+
+    assert (
+        builder._truth_group_representative(
+            particles,
+            np.array([0], dtype=int),
+            None,
+            np.array([1], dtype=int),
+        )
+        is None
+    )
+    monkeypatch.setattr(builder, "_truth_group_representative", lambda *args: None)
+
+    result = builder._build_truth(
+        particles=particles,
+        label_tensor=labels,
+        points_label=points,
+        depositions_label=depositions,
+    )
+
+    assert result[0].is_valid is False
+    assert np.isnan(result[0].first_step_t)
+    assert np.isnan(result[0].first_step).all()
+    assert np.isnan(result[0].start_point).all()
 
 
 def test_build_truth_particles_reject_invalid_group_ids(points, depositions):

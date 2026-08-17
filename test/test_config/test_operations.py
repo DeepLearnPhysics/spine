@@ -4,8 +4,8 @@ import pytest
 
 from spine.config.errors import ConfigOperationError, ConfigPathError, ConfigTypeError
 from spine.config.operations import (
-    _apply_overrides_and_removals,
     apply_collection_operation,
+    apply_overrides_and_removals,
     deep_merge,
     expand_env_vars,
     extract_includes_and_overrides,
@@ -312,7 +312,7 @@ class TestApplyOverridesAndRemovals:
         config = {"io": {"path": "old.root", "old": 1}, "list": ["a"]}
         overrides = {"io.path": "new.root", "missing.value": "1", "list+": "b"}
 
-        updated, unapplied = _apply_overrides_and_removals(
+        updated, unapplied = apply_overrides_and_removals(
             config,
             overrides,
             ["io.old"],
@@ -326,7 +326,7 @@ class TestApplyOverridesAndRemovals:
     def test_apply_overrides_and_removals_propagates_type_errors(self):
         """Test type errors from collection operations are not swallowed."""
         with pytest.raises(ConfigTypeError, match="not a list or dict"):
-            _apply_overrides_and_removals(
+            apply_overrides_and_removals(
                 {"io": {"count": 1}},
                 {"io.count+": "2"},
                 [],
@@ -336,7 +336,7 @@ class TestApplyOverridesAndRemovals:
 
     def test_apply_overrides_and_removals_tracks_unapplied_collection_paths(self):
         """Test collection overrides on missing paths are returned as unapplied."""
-        updated, unapplied = _apply_overrides_and_removals(
+        updated, unapplied = apply_overrides_and_removals(
             {},
             {"io.file_keys+": "a"},
             [],
@@ -349,7 +349,7 @@ class TestApplyOverridesAndRemovals:
 
     def test_apply_overrides_and_removals_tracks_unapplied_regular_paths(self):
         """Test regular overrides on missing parents are returned as unapplied."""
-        updated, unapplied = _apply_overrides_and_removals(
+        updated, unapplied = apply_overrides_and_removals(
             {},
             {"io.path": "file.root"},
             [],
@@ -374,7 +374,7 @@ class TestApplyOverridesAndRemovals:
         )
 
         with pytest.raises(ConfigPathError, match="not a list"):
-            _apply_overrides_and_removals(
+            apply_overrides_and_removals(
                 {},
                 {"io.path+": "value"},
                 [],

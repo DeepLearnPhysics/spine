@@ -16,7 +16,7 @@ from .traces import (
     get_flash_pe,
 )
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .drawer import Drawer
 
 __all__ = ["SceneBuilder"]

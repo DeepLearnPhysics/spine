@@ -19,7 +19,7 @@ from ...scene import (
 from .colors import build_object_colors
 from .formatting import is_long_form
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .drawer import Drawer
 
 __all__ = ["SceneLayerBuilder"]

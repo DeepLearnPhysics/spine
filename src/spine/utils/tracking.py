@@ -552,16 +552,24 @@ def get_track_spline(coordinates, segment_length, s=None):
     perm = np.argsort(pcoords.squeeze())
     u = pcoords[perm]
 
-    # If there is less than four points, cannot fit a 3D spline
-    if len(coordinates) < 4:
+    # Collapse repeated longitudinal coordinates before fitting. Univariate
+    # splines require strictly increasing abscissas when no smoothing is used.
+    fit_u, inverse, counts = np.unique(u, return_inverse=True, return_counts=True)
+    fit_points = np.zeros((len(fit_u), coordinates.shape[1]), dtype=coordinates.dtype)
+    np.add.at(fit_points, inverse, coordinates[perm])
+    fit_points /= counts[:, None]
+
+    # If there are fewer than four distinct projections, cannot fit a cubic
+    # 3D spline. Fall back on the projected displacement estimate.
+    if len(fit_u) < 4:
         # Fall back on displacement to estimate length
         length = np.max(pcoords) - np.min(pcoords)
-        return u.squeeze, None, None, length
+        return u.squeeze(), None, None, length
 
     # Compute the univariate splines along each axis
-    spx = UnivariateSpline(u, coordinates[perm][:, 0], s=s)
-    spy = UnivariateSpline(u, coordinates[perm][:, 1], s=s)
-    spz = UnivariateSpline(u, coordinates[perm][:, 2], s=s)
+    spx = UnivariateSpline(fit_u, fit_points[:, 0], s=s)
+    spy = UnivariateSpline(fit_u, fit_points[:, 1], s=s)
+    spz = UnivariateSpline(fit_u, fit_points[:, 2], s=s)
     sppoints = np.hstack([spx(u), spy(u), spz(u)])
     splines = [spx, spy, spz]
 

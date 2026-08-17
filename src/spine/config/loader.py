@@ -184,13 +184,13 @@ class ConfigLoader(yaml.SafeLoader):
             overrides applied, and __meta__ stripped)
         """
         # Import here to avoid circular dependency
-        from .load import _load_config_recursive
+        from .load import load_config_recursive
 
         filename = self.construct_scalar(cast(yaml.ScalarNode, node))
         resolved_path = resolve_config_path(filename, self._root)
 
-        # Use _load_config_recursive to properly handle nested includes and overrides
-        config, overrides, removals, metadata = _load_config_recursive(
+        # Use the recursive loader to handle nested includes and overrides
+        config, overrides, removals, metadata = load_config_recursive(
             cfg_path=resolved_path,
             root_dir=None,
             compatibility_checks=[],

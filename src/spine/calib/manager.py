@@ -70,7 +70,7 @@ class CalibrationManager:
             value = deepcopy(spec["cfg"])
             if name == "recombination":
                 value["drift_dir"] = self.geo.tpc[0][0].drift_dir
-            elif name != "response":
+            elif name not in ("response", "smearing"):
                 value["num_tpcs"] = self.geo.tpc.num_chambers
 
             # Append
@@ -128,6 +128,13 @@ class CalibrationManager:
         # Create a mask for each TPC volume in the detector
         tpc_indexes = self._get_tpc_indexes(points, sources)
 
+        # Draw image-level smearing samples once so that the same value is
+        # reused across every TPC partition in this image.
+        image_samples = {}
+        for key, module in self.modules.items():
+            if self.module_names[key] == "smearing" and module.scope == "image":
+                image_samples[key] = module.sample()
+
         # Loop over the TPCs, apply the relevant calibration corrections
         new_points = np.copy(points) if self.update_points else orig_points
         new_values = np.copy(values)
@@ -153,6 +160,8 @@ class CalibrationManager:
                     tpc_values = module.process(tpc_values, t, run_id)
                 elif name == "response":
                     tpc_values = module.process(tpc_values)
+                elif name == "smearing":
+                    tpc_values = module.process(tpc_values, image_samples.get(key))
                 elif name == "recombination":
                     tpc_values = module.process(tpc_values, tpc_points, track)
                 else:

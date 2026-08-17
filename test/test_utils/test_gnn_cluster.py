@@ -6,6 +6,8 @@ import pytest
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.utils.gnn.cluster import (
     cluster_dedx,
+    cluster_dedx_dir,
+    cluster_direction,
     form_clusters_batch,
     get_cluster_closest_label_batch,
     get_cluster_directions,
@@ -135,6 +137,27 @@ def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
     assert dedx == np.float32(3.0)
 
 
+def test_cluster_dedx_dir_handles_duplicate_coordinates():
+    """Coincident points should produce a finite zero-length dE/dx result."""
+    voxels = np.zeros((2, 3), dtype=np.float32)
+    values = np.array([1.0, 2.0], dtype=np.float32)
+    start = np.zeros(3, dtype=np.float32)
+    direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+    dedx, de, dx, spread, count = cluster_dedx_dir(
+        voxels,
+        values,
+        start,
+        direction,
+    )
+
+    assert dedx == 0.0
+    assert de == 3.0
+    assert dx == 0.0
+    assert spread == 0.0
+    assert count == 2
+
+
 def test_cluster_directions_preserve_reference_point_dtype():
     """Directions must match the start/end-point dtype, not the voxel dtype."""
     voxels = np.array(
@@ -148,6 +171,27 @@ def test_cluster_directions_preserve_reference_point_dtype():
 
     assert directions.dtype == starts.dtype
     np.testing.assert_allclose(directions, [[1.0, 0.0, 0.0]])
+
+
+def test_cluster_direction_handles_duplicate_coordinates_during_optimization():
+    """Coincident leading points must not divide by zero in PCA optimization."""
+    voxels = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+
+    direction = cluster_direction(
+        voxels,
+        np.zeros(3, dtype=np.float64),
+        optimize=True,
+    )
+
+    np.testing.assert_allclose(direction, [1.0, 0.0, 0.0])
 
 
 def test_cluster_features_base_accepts_indexed_float32_coordinates():

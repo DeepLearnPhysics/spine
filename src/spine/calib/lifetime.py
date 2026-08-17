@@ -31,6 +31,10 @@ class LifetimeCalibrator:
         driftv: CalibValue | None = None,
         lifetime_db: CalibDatabaseSource | None = None,
         driftv_db: CalibDatabaseSource | None = None,
+        lifetime_db_value_keys: list[str] | tuple[str, ...] | None = None,
+        lifetime_db_value_scale: float = 1.0,
+        driftv_db_value_keys: list[str] | tuple[str, ...] | None = None,
+        driftv_db_value_scale: float = 1.0,
     ) -> None:
         """Load the information needed to make a lifetime correction.
 
@@ -52,13 +56,30 @@ class LifetimeCalibrator:
             Path to a SQLite db file which maps [run, cryo, tpc] sets onto
             a specific electron drift velocity value in cm/us, or a dictionary which
             maps run IDs to drift velocity values.
+        lifetime_db_value_keys : sequence[str], optional
+            Ordered SQLite columns containing one lifetime value per TPC.
+        lifetime_db_value_scale : float, default 1.0
+            Multiplicative scale applied to database lifetime values. Use 1000
+            to convert values from milliseconds to microseconds.
+        driftv_db_value_keys : sequence[str], optional
+            Ordered SQLite columns containing one drift velocity per TPC.
+        driftv_db_value_scale : float, default 1.0
+            Multiplicative scale applied to database drift velocity values.
         """
         # Initialize lifetime and drift velocity calibration constants
         self.lifetime = CalibrationConstant(
-            num_tpcs=num_tpcs, value=lifetime, database=lifetime_db
+            num_tpcs=num_tpcs,
+            value=lifetime,
+            database=lifetime_db,
+            database_value_keys=lifetime_db_value_keys,
+            database_value_scale=lifetime_db_value_scale,
         )
         self.driftv = CalibrationConstant(
-            num_tpcs=num_tpcs, value=driftv, database=driftv_db
+            num_tpcs=num_tpcs,
+            value=driftv,
+            database=driftv_db,
+            database_value_keys=driftv_db_value_keys,
+            database_value_scale=driftv_db_value_scale,
         )
 
     def process(

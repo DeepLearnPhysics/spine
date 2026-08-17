@@ -11,6 +11,7 @@ from spine.config.api import (
 from spine.config.errors import ConfigCycleError, ConfigValidationError
 from spine.config.meta import (
     _compare_versions,
+    _conflict_names,
     _parse_version_constraint,
     check_compatibility,
     extract_metadata,
@@ -210,6 +211,11 @@ class TestCheckCompatibility:
 
         with pytest.warns(UserWarning, match="Potential modifier conflict"):
             check_compatibility(parent_meta, included_meta, "/configs/included.yaml")
+
+
+def test_conflict_names_ignores_unsupported_values():
+    """Unsupported conflicts_with values should normalize to an empty set."""
+    assert _conflict_names(None) == set()
 
 
 class TestConfigErrors:
