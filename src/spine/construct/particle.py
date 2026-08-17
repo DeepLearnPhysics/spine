@@ -286,9 +286,10 @@ class ParticleBuilder(BuilderBase):
         # Fetch the group ID of each of the particles
         group_ids = np.array([p.group_id for p in particles], dtype=int)
 
-        # Fetch the fragment-selection labels and the particle IDs which own
-        # retained voxels. The label tensor is authoritative because it carries
-        # the exact low-energy/visibility policy used to build this truth image.
+        # Fetch the physical-primary labels and the particle IDs which own
+        # retained voxels. A physical primary may be invisible, in which case
+        # geometry is delegated to a visible representative below without
+        # promoting it to a primary-training target.
         primary_ids = None
         if label_tensor.particles is not None:
             try:
@@ -645,8 +646,8 @@ class ParticleBuilder(BuilderBase):
         if len(visible_index) == 0:
             return None
 
-        # The preprocessed group-primary label is the source of truth for the
-        # fragment retained by the configured labeling policy.
+        # Prefer the physical primary when it is visible. If it is not, keep
+        # the primary-training label untouched and select geometry separately.
         if primary_ids is not None:
             primary_index = visible_index[primary_ids[visible_index] == 1]
             if len(primary_index):

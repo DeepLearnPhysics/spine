@@ -259,14 +259,14 @@ def test_build_truth_particles_preserve_delta_group_shape(points, depositions):
         [0, 0, 0, -1],
         part_ids=[0, 0, 0, -1],
         group_ids=[1, 1, 1, -1],
-        group_primaries=[1, 0, 0, -1],
+        group_primaries=[0, 1, 0, -1],
         particle_indexes=[0, 0, 0, -1],
     )
     particles = [
         Particle(
             id=0,
             group_id=1,
-            group_primary=1,
+            group_primary=0,
             shape=0,
             first_step_t=2.0,
             first_step=np.array([2, 0, 0], dtype=np.float32),
@@ -275,7 +275,7 @@ def test_build_truth_particles_preserve_delta_group_shape(points, depositions):
         Particle(
             id=1,
             group_id=1,
-            group_primary=0,
+            group_primary=1,
             shape=DELTA_SHP,
             first_step_t=-9.2e12,
             first_step=np.full(3, -2.0e13, dtype=np.float32),

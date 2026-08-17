@@ -58,29 +58,19 @@ def test_group_primary_ids_respect_label_le():
     )
 
 
-def test_group_primary_ids_ignore_empty_fragments():
-    """Empty fragments cannot represent an otherwise-visible group."""
+def test_group_primary_ids_do_not_promote_visible_fragments():
+    """An invisible physical primary must not promote a visible fragment."""
     particles = [
-        DummyParticle(group_id=0, shape=0, time=0.0, num_voxels=0),
+        DummyParticle(group_id=0, shape=0, time=-9.2e12, num_voxels=0),
         DummyParticle(group_id=0, shape=0, time=1.0, num_voxels=10),
     ]
     valid_mask = np.ones(len(particles), dtype=bool)
 
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 1]
+        get_group_primary_ids(particles, valid_mask, label_le=False), [1, 0]
     )
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=True), [0, 1]
-    )
-
-
-def test_group_primary_ids_allow_entirely_empty_groups():
-    """An entirely empty group has no primary and should not raise."""
-    particles = [DummyParticle(group_id=0, shape=0, time=0.0, num_voxels=0)]
-    valid_mask = np.ones(len(particles), dtype=bool)
-
-    np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=False), [0]
+        get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
     )
 
 
