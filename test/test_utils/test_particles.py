@@ -13,10 +13,11 @@ from spine.utils.particles import (
 class DummyParticle:
     """Minimal LArCV particle interface for primary-label tests."""
 
-    def __init__(self, group_id, shape, time):
+    def __init__(self, group_id, shape, time, num_voxels=1):
         self._group_id = group_id
         self._shape = shape
         self._time = time
+        self._num_voxels = num_voxels
 
     def group_id(self):
         return self._group_id
@@ -37,9 +38,12 @@ class DummyParticle:
 
         return Step(self._time)
 
+    def num_voxels(self):
+        return self._num_voxels
+
 
 def test_group_primary_ids_respect_label_le():
-    """Low-energy fragments should be primary only when labels are retained."""
+    """An excluded low-energy progenitor must not promote its daughter."""
     particles = [
         DummyParticle(group_id=0, shape=LOWES_SHP, time=0.0),
         DummyParticle(group_id=0, shape=0, time=1.0),
@@ -47,10 +51,71 @@ def test_group_primary_ids_respect_label_le():
     valid_mask = np.ones(len(particles), dtype=bool)
 
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 1]
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 0]
     )
     np.testing.assert_array_equal(
         get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
+    )
+
+
+def test_group_primary_ids_do_not_promote_visible_fragments():
+    """An invisible physical primary must not promote a visible fragment."""
+    particles = [
+        DummyParticle(group_id=0, shape=0, time=-9.2e12, num_voxels=0),
+        DummyParticle(group_id=0, shape=0, time=1.0, num_voxels=10),
+    ]
+    valid_mask = np.ones(len(particles), dtype=bool)
+
+    np.testing.assert_array_equal(
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 0]
+    )
+    np.testing.assert_array_equal(
+        get_group_primary_ids(particles, valid_mask, label_le=True), [0, 0]
+    )
+
+
+def test_group_primary_ids_require_unique_earliest_progenitor():
+    """Only a uniquely earliest visible progenitor is a clean target."""
+    valid_mask = np.ones(2, dtype=bool)
+
+    clean = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=1.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(clean, valid_mask, label_le=False), [1, 0]
+    )
+
+    earlier_daughter = [
+        DummyParticle(group_id=0, shape=0, time=1.0),
+        DummyParticle(group_id=0, shape=0, time=0.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(earlier_daughter, valid_mask, label_le=False), [0, 0]
+    )
+
+    tied = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=0.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(tied, valid_mask, label_le=False), [0, 0]
+    )
+
+
+def test_group_primary_ids_use_explicit_visibility():
+    """Explicit retained indexes override raw voxel visibility."""
+    particles = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=1.0),
+    ]
+    valid_mask = np.ones(2, dtype=bool)
+
+    np.testing.assert_array_equal(
+        get_group_primary_ids(
+            particles, valid_mask, label_le=False, visible_ids=np.array([1])
+        ),
+        [0, 0],
     )
 
 
