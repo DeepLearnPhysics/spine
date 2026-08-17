@@ -518,7 +518,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
             return float(self.t)
 
         times = [part.time for part in self.particles if np.isfinite(part.time)]
-        return float(min(times)) if len(times) else np.nan
+        return float(min(times)) if len(times) > 0 else np.nan
 
     def attach_neutrino(self, neutrino) -> None:
         """Attach neutrino generator information to this interaction.

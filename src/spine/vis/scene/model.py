@@ -147,7 +147,14 @@ class PointLayer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate and normalize point-layer buffers."""
+        """Validate and normalize point-layer buffers.
+
+        Raises
+        ------
+        ValueError
+            If positions, object IDs, offsets, attributes or color values do
+            not align with the point count.
+        """
         # Normalize coordinates to the compact layout expected by GPU backends
         positions = np.asarray(self.positions, dtype=np.float32)
         if positions.ndim != 2 or positions.shape[1] != 3:
@@ -193,12 +200,24 @@ class PointLayer:
 
     @property
     def point_count(self) -> int:
-        """Return the number of points in this layer."""
+        """Return the number of points in this layer.
+
+        Returns
+        -------
+        int
+            Number of rows in the position buffer.
+        """
         return len(self.positions)
 
     @property
     def object_count(self) -> int:
-        """Return the number of domain objects represented by this layer."""
+        """Return the number of domain objects represented by this layer.
+
+        Returns
+        -------
+        int
+            Number of offset intervals, or zero when offsets are unavailable.
+        """
         if self.object_offsets is None:
             return 0
         return len(self.object_offsets) - 1
@@ -249,7 +268,14 @@ class LineLayer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate and normalize line-segment buffers."""
+        """Validate and normalize line-segment buffers.
+
+        Raises
+        ------
+        ValueError
+            If segment coordinates, object IDs or values have incompatible
+            shapes.
+        """
         segments = np.asarray(self.segments, dtype=np.float32)
         if segments.ndim != 3 or segments.shape[1:] != (2, 3):
             raise ValueError("Line segments must have shape (N, 2, 3).")
@@ -310,7 +336,13 @@ class VectorLayer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate and normalize vector buffers."""
+        """Validate and normalize vector buffers.
+
+        Raises
+        ------
+        ValueError
+            If origins, vectors, object IDs or values have incompatible shapes.
+        """
         origins = np.asarray(self.origins, dtype=np.float32)
         vectors = np.asarray(self.vectors, dtype=np.float32)
         if origins.ndim != 2 or origins.shape[1:] != (3,):
@@ -366,14 +398,21 @@ class MeshLayer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate and normalize indexed mesh buffers."""
+        """Validate and normalize indexed mesh buffers.
+
+        Raises
+        ------
+        ValueError
+            If vertex or face shapes are invalid, face indexes are out of
+            bounds, or values do not align with vertices.
+        """
         vertices = np.asarray(self.vertices, dtype=np.float32)
         faces = np.asarray(self.faces, dtype=np.int32)
         if vertices.ndim != 2 or vertices.shape[1:] != (3,):
             raise ValueError("Mesh vertices must have shape (N, 3).")
         if faces.ndim != 2 or faces.shape[1:] != (3,):
             raise ValueError("Mesh faces must have shape (M, 3).")
-        if len(faces) and (np.min(faces) < 0 or np.max(faces) >= len(vertices)):
+        if len(faces) > 0 and (np.min(faces) < 0 or np.max(faces) >= len(vertices)):
             raise ValueError("Mesh face indices must reference existing vertices.")
         self.vertices = np.ascontiguousarray(vertices)
         self.faces = np.ascontiguousarray(faces)
@@ -425,11 +464,18 @@ class BoxLayer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Validate and normalize box buffers."""
+        """Validate and normalize box buffers.
+
+        Raises
+        ------
+        ValueError
+            If bounds are malformed or object IDs and values do not align with
+            the number of boxes.
+        """
         bounds = np.asarray(self.bounds, dtype=np.float32)
         if bounds.ndim != 3 or bounds.shape[1:] != (2, 3):
             raise ValueError("Box bounds must have shape (N, 2, 3).")
-        if len(bounds) and np.any(bounds[:, 1] < bounds[:, 0]):
+        if len(bounds) > 0 and np.any(bounds[:, 1] < bounds[:, 0]):
             raise ValueError("Box upper bounds must not be below lower bounds.")
         self.bounds = np.ascontiguousarray(bounds)
         if self.object_ids is not None:

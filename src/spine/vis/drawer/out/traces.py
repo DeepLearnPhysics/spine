@@ -82,7 +82,7 @@ def build_raw_trace(
     # Match the legacy raw-input display scaling so the dynamic range remains
     # comparable to the pre-refactor plots.
     cmin = 0.0
-    cmax = 2 * np.median(deps) if len(deps) else 1.0
+    cmax = 2 * np.median(deps) if len(deps) > 0 else 1.0
 
     return scatter_points_3d(
         points,
@@ -414,13 +414,35 @@ def build_direction_trace(
 
 
 def _aggregate_optical_pe(objects: list[Any], geo: Any) -> np.ndarray:
-    """Aggregate per-channel optical responses onto physical detectors."""
+    """Aggregate per-channel optical responses onto physical detectors.
+
+    Parameters
+    ----------
+    objects : list
+        Flash or hypothesis objects containing per-channel PE values.
+    geo : Geometry
+        Geometry which maps optical channels to detector elements.
+
+    Returns
+    -------
+    np.ndarray
+        Total PE accumulated on each optical detector.
+
+    Raises
+    ------
+    RuntimeError
+        If optical detector geometry is unavailable.
+    ValueError
+        If an object's channel count does not match its geometry mapping.
+    """
     if geo is None or geo.optical is None:
         raise RuntimeError("This geometry does not have optical detectors to draw.")
 
     pe = np.zeros(geo.optical.num_detectors, dtype=np.float32)
     for obj in objects:
         pe_per_ch = np.asarray(obj.pe_per_ch, dtype=np.float32)
+
+        # Resolve either a detector-wide mapping or the object's local volume.
         if geo.optical.global_index:
             index = np.arange(geo.optical.num_detectors)
             det_ids = geo.optical.det_ids
@@ -447,7 +469,29 @@ def _aggregate_optical_pe(objects: list[Any], geo: Any) -> np.ndarray:
 def get_flash_pe(
     data: dict[str, Any], obj_name: str, matched_only: bool, geo: Any
 ) -> np.ndarray:
-    """Return observed PE accumulated over the requested flashes."""
+    """Return observed PE accumulated over the requested flashes.
+
+    Parameters
+    ----------
+    data : dict
+        Event dictionary containing interactions and flashes.
+    obj_name : str
+        Interaction collection used to identify matched flashes.
+    matched_only : bool
+        If ``True``, include only flashes matched to those interactions.
+    geo : Geometry
+        Geometry used to aggregate optical channels by detector.
+
+    Returns
+    -------
+    np.ndarray
+        Observed PE accumulated on each optical detector.
+
+    Raises
+    ------
+    ValueError
+        If the event dictionary does not contain flashes.
+    """
     if "flashes" not in data:
         raise ValueError("Must provide the `flashes` objects to draw them.")
 
@@ -466,7 +510,29 @@ def get_flash_pe(
 def get_flash_hypothesis_pe(
     data: dict[str, Any], obj_name: str, hypothesis_key: str, geo: Any
 ) -> np.ndarray:
-    """Return predicted PE accumulated over hypotheses for selected interactions."""
+    """Return predicted PE for hypotheses associated with selected interactions.
+
+    Parameters
+    ----------
+    data : dict
+        Event dictionary containing interactions and optical hypotheses.
+    obj_name : str
+        Interaction collection used to select hypotheses.
+    hypothesis_key : str
+        Event-data key containing hypothesis objects.
+    geo : Geometry
+        Geometry used to aggregate optical channels by detector.
+
+    Returns
+    -------
+    np.ndarray
+        Predicted PE accumulated on each optical detector.
+
+    Raises
+    ------
+    ValueError
+        If the requested hypothesis collection is absent.
+    """
     if hypothesis_key not in data:
         raise ValueError(
             f"Must provide the `{hypothesis_key}` objects to draw hypotheses."
@@ -487,7 +553,24 @@ def get_flash_hypothesis_pe(
 def _optical_size_scale(
     pe: np.ndarray, size_by_pe: bool, pe_max: float | None, base_scale: float
 ) -> float | np.ndarray:
-    """Build bounded detector size scales from PE values."""
+    """Build bounded detector-size scales from PE values.
+
+    Parameters
+    ----------
+    pe : np.ndarray
+        PE values for each detector element.
+    size_by_pe : bool
+        Whether detector glyph size should encode PE.
+    pe_max : float, optional
+        Shared PE normalization maximum. Inferred from ``pe`` when omitted.
+    base_scale : float
+        Maximum glyph scale and fixed scale when sizing is disabled.
+
+    Returns
+    -------
+    float or np.ndarray
+        Fixed scale or one bounded scale per detector element.
+    """
     if not size_by_pe:
         return base_scale
 
@@ -529,6 +612,12 @@ def build_flash_trace(
         Geometry drawer used to build optical detector traces.
     meta : Any, optional
         Metadata used for detector-to-pixel coordinate conversion.
+    size_by_pe : bool, default False
+        Whether detector glyph size should encode observed PE.
+    pe_max : float, optional
+        Shared PE normalization maximum.
+    pe_per_detector : np.ndarray, optional
+        Precomputed observed PE for each detector.
     **kwargs : Any
         Additional keyword arguments forwarded to
         :meth:`spine.vis.drawer.geo.GeoDrawer.optical_traces`.
@@ -575,7 +664,41 @@ def build_flash_hypothesis_trace(
     pe_per_detector: np.ndarray | None = None,
     **kwargs: Any,
 ) -> list:
-    """Draw predicted optical charge for the selected interactions."""
+    """Draw predicted optical charge for selected interactions.
+
+    Parameters
+    ----------
+    data : dict
+        Event dictionary containing interactions and optical hypotheses.
+    obj_name : str
+        Interaction collection used to select hypotheses.
+    hypothesis_key : str
+        Event-data key containing hypothesis objects.
+    geo : Geometry, optional
+        Detector geometry.
+    geo_drawer : GeoDrawer, optional
+        Geometry drawer used to build detector glyphs.
+    meta : ImageMeta3D, optional
+        Metadata used for detector-to-pixel coordinate conversion.
+    size_by_pe : bool, default False
+        Whether detector glyph size should encode predicted PE.
+    pe_max : float, optional
+        Shared PE normalization maximum.
+    pe_per_detector : np.ndarray, optional
+        Precomputed predicted PE for each detector.
+    **kwargs : Any
+        Additional arguments forwarded to ``GeoDrawer.optical_traces``.
+
+    Returns
+    -------
+    list
+        Optical-detector traces colored by predicted PE.
+
+    Raises
+    ------
+    RuntimeError
+        If the required optical geometry or geometry drawer is unavailable.
+    """
     if geo_drawer is None:
         raise RuntimeError(
             "Cannot draw optical detectors without geometry information."

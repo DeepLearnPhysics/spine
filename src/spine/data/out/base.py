@@ -188,13 +188,13 @@ class OutBase(PosDataBase):
     @stored_property(reference="object", reference_space="opposite")
     def best_match_id(self) -> int:
         """ID of the best matched object, or -1 when no match exists."""
-        return int(self.match_ids[0]) if len(self.match_ids) else -1
+        return int(self.match_ids[0]) if len(self.match_ids) > 0 else -1
 
     @property
     @stored_property
     def best_match_overlap(self) -> float:
         """Overlap with the best matched object, or -1 when unmatched."""
-        return float(self.match_overlaps[0]) if len(self.match_overlaps) else -1.0
+        return float(self.match_overlaps[0]) if len(self.match_overlaps) > 0 else -1.0
 
     @property
     @stored_property(dtype=np.int32, reference="module", reference_space="external")

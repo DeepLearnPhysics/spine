@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
@@ -16,7 +17,21 @@ __all__ = ["dual_figure3d", "layout3d"]
 
 
 def _orient_camera_vector(vector: np.ndarray, up_dir: np.ndarray) -> np.ndarray:
-    """Rotate a y-up camera vector into a detector-oriented basis."""
+    """Rotate a y-up camera vector into a detector-oriented basis.
+
+    Parameters
+    ----------
+    vector : np.ndarray
+        Camera vector expressed in Plotly's default y-up basis.
+    up_dir : np.ndarray
+        Physical detector up direction.
+
+    Returns
+    -------
+    np.ndarray
+        Camera vector expressed in detector coordinates.
+    """
+    # Normalize physical up before constructing the orthonormal camera basis.
     up = np.asarray(up_dir, dtype=np.float64)
     up /= np.linalg.norm(up)
 
@@ -249,8 +264,8 @@ def layout3d(
 
 
 def dual_figure3d(
-    traces_left: list[object],
-    traces_right: list[object],
+    traces_left: Sequence[object],
+    traces_right: Sequence[object],
     layout: go.Layout | None = None,
     titles: list[str] | None = None,
     width: int = 1500,
@@ -263,9 +278,9 @@ def dual_figure3d(
 
     Parameters
     ----------
-    traces_left : List[object]
+    traces_left : Sequence[object]
         Plotly traces to draw in the left subplot.
-    traces_right : List[object]
+    traces_right : Sequence[object]
         Plotly traces to draw in the right subplot.
     layout : go.Layout, optional
         Base layout to apply to the figure.
@@ -323,12 +338,30 @@ def dual_figure3d(
         # Guard against infinite ping-pong updates by tracking whether the
         # synchronization callback is already applying a camera change.
         def cam_change_left(_: Any, camera: dict[str, Any]) -> None:
+            """Copy a left-scene camera update to the right scene.
+
+            Parameters
+            ----------
+            _ : Any
+                Unused Plotly callback owner.
+            camera : dict
+                Updated left-scene camera configuration.
+            """
             if not syncing[0]:
                 syncing[0] = True
                 fig.layout.scene2.camera = camera
                 syncing[0] = False
 
         def cam_change_right(_: Any, camera: dict[str, Any]) -> None:
+            """Copy a right-scene camera update to the left scene.
+
+            Parameters
+            ----------
+            _ : Any
+                Unused Plotly callback owner.
+            camera : dict
+                Updated right-scene camera configuration.
+            """
             if not syncing[0]:
                 syncing[0] = True
                 fig.layout.scene1.camera = camera

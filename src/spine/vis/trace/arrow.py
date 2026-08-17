@@ -43,9 +43,9 @@ def scatter_arrows(
         (N, 3) Array of point coordinates
     directions : np.ndarray
         (N, 3) Array of arrow direction vectors
-    length : float, default 5.0
+    length : float, default 10.0
         Length of the arrows
-    tip_ratio : float, defautl 0.05
+    tip_ratio : float, default 0.25
         Relative arrow tip size w.r.t. its full length
     color : Union[str, int, float, Sequence], optional
         Color of the arrows, either as one shared scalar value or one value
@@ -65,6 +65,16 @@ def scatter_arrows(
         Upper bound of the arrow color scale.
     name : name
         Name of the traces
+
+    Returns
+    -------
+    list[go.Scatter3d or go.Cone]
+        Arrow trunk and tip traces.
+
+    Raises
+    ------
+    ValueError
+        If per-arrow colors do not match the number of input points.
     """
     # Process color and hovertext information for the arrows
     color_trunks, hovertext_trunks = color, hovertext

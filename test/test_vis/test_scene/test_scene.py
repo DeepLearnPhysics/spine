@@ -31,7 +31,8 @@ from spine.vis import (
 )
 
 scene_backend = import_module("spine.vis.scene.backend")
-out_drawer = import_module("spine.vis.drawer.out.drawer")
+out_layers = import_module("spine.vis.drawer.out.layers")
+out_scene = import_module("spine.vis.drawer.out.scene")
 
 
 def test_point_layer_normalizes_gpu_arrays():
@@ -655,21 +656,21 @@ def test_drawer_scene_adapts_detector_optical_and_crt(monkeypatch):
             go.Scatter3d(x=[0, 1], y=[0, 1], z=[0, 1], mode="lines")
         ]
     )
-    monkeypatch.setattr(out_drawer, "get_flash_pe", lambda *args, **kwargs: np.ones(2))
+    monkeypatch.setattr(out_scene, "get_flash_pe", lambda *args, **kwargs: np.ones(2))
     monkeypatch.setattr(
-        out_drawer,
+        out_scene,
         "get_flash_hypothesis_pe",
         lambda *args, **kwargs: np.ones(2) * 2,
     )
     monkeypatch.setattr(
-        out_drawer,
+        out_scene,
         "build_flash_trace",
         lambda **kwargs: [
             go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", name="flash")
         ],
     )
     monkeypatch.setattr(
-        out_drawer,
+        out_scene,
         "build_flash_hypothesis_trace",
         lambda **kwargs: [
             go.Mesh3d(
@@ -684,7 +685,7 @@ def test_drawer_scene_adapts_detector_optical_and_crt(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        out_drawer,
+        out_scene,
         "build_crt_trace",
         lambda **kwargs: [
             go.Scatter3d(x=[0, 1], y=[0, 1], z=[1, 1], mode="lines", name="crt")
@@ -805,7 +806,7 @@ def test_drawer_scene_skips_nonportable_color_mappings(monkeypatch):
         "depositions": np.array([1.0, 2.0], dtype=np.float32),
         "reco_particles": [particle],
     }
-    original = out_drawer.build_object_colors
+    original = out_layers.build_object_colors
 
     def build_colors(**kwargs):
         result = original(**kwargs)
@@ -815,7 +816,7 @@ def test_drawer_scene_skips_nonportable_color_mappings(monkeypatch):
             result["color"] = np.asarray(["track", "track"])
         return result
 
-    monkeypatch.setattr(out_drawer, "build_object_colors", build_colors)
+    monkeypatch.setattr(out_layers, "build_object_colors", build_colors)
     scene = Drawer(data, draw_mode="reco").get_scene("particles", attr=["pid", "shape"])
 
     assert "pid" not in scene.views[0].layers[0].metadata["attribute_styles"]
@@ -846,7 +847,7 @@ def test_drawer_scene_identifies_pointwise_hover_attributes():
 
 def test_expand_object_values_covers_alignment_modes():
     """Object values should normalize from every supported alignment mode."""
-    expand = Drawer._expand_object_values
+    expand = out_layers.SceneLayerBuilder.expand_object_values
     indices = [np.array([0, 2]), np.array([], dtype=np.int64), np.array([1])]
 
     assert expand(None, indices, 4) is None

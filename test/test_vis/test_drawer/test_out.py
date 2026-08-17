@@ -49,11 +49,15 @@ def test_drawer_geometry_color_tracks_theme():
     colors = []
     trace = SimpleNamespace(update=lambda **kwargs: colors.append(kwargs["meta"]))
     drawer = Drawer({}, draw_mode="reco", dark=True)
+
+    with pytest.raises(RuntimeError, match="geometry drawer"):
+        drawer.build_geometry_traces()
+
     drawer.geo_drawer = SimpleNamespace(
         tpc_traces=lambda **kwargs: colors.append(kwargs["color"]) or [trace]
     )
 
-    drawer._geometry_traces()
+    drawer.build_geometry_traces()
 
     assert colors == ["rgba(255,255,255,0.400)", {"kind": "geometry"}]
 

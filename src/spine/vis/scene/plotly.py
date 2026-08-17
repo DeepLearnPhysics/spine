@@ -107,7 +107,25 @@ class PlotlyBackend:
         return go.Figure(data=trace_groups[0], layout=layout)
 
     def _layer_traces(self, layer: Any, split_objects: bool) -> list[dict[str, Any]]:
-        """Convert one supported neutral layer to Plotly trace dictionaries."""
+        """Convert one neutral layer to Plotly trace dictionaries.
+
+        Parameters
+        ----------
+        layer : Any
+            Supported renderer-neutral layer.
+        split_objects : bool
+            Whether point layers should be split at object boundaries.
+
+        Returns
+        -------
+        list[dict]
+            Unvalidated Plotly trace dictionaries.
+
+        Raises
+        ------
+        TypeError
+            If the layer type is unsupported.
+        """
         if isinstance(layer, PointLayer):
             return self._point_traces(layer, split_objects)
         if isinstance(layer, LineLayer):
@@ -216,7 +234,24 @@ class PlotlyBackend:
 
     @staticmethod
     def _line_trace(layer: LineLayer) -> dict[str, Any]:
-        """Convert independent segments to one NaN-separated Plotly line."""
+        """Convert independent segments to one NaN-separated Plotly line.
+
+        Parameters
+        ----------
+        layer : LineLayer
+            Neutral line segments and display style.
+
+        Returns
+        -------
+        dict
+            Unvalidated ``scatter3d`` line specification.
+
+        Raises
+        ------
+        ValueError
+            If hover labels or values do not align with the segments.
+        """
+        # Plotly represents disconnected lines with non-finite separators.
         separators = np.full((len(layer.segments), 1, 3), np.nan, dtype=np.float32)
         points = np.concatenate((layer.segments, separators), axis=1).reshape(-1, 3)
 
@@ -242,6 +277,7 @@ class PlotlyBackend:
                 )
             ).reshape(-1)
 
+        # Repeat segment values at both endpoints and leave separators uncolored.
         values = layer.values
         if values is not None and not np.isscalar(values):
             values = np.asarray(values)
@@ -273,7 +309,18 @@ class PlotlyBackend:
 
     @staticmethod
     def _vector_traces(layer: VectorLayer) -> list[dict[str, Any]]:
-        """Convert vectors while preserving optional per-vector colors."""
+        """Convert vectors while preserving optional per-vector colors.
+
+        Parameters
+        ----------
+        layer : VectorLayer
+            Neutral vector glyphs and display style.
+
+        Returns
+        -------
+        list[dict]
+            Plotly cone or arrow trace dictionaries.
+        """
         if layer.values is None:
             return [PlotlyBackend._vector_trace(layer)]
 
@@ -294,7 +341,18 @@ class PlotlyBackend:
 
     @staticmethod
     def _vector_trace(layer: VectorLayer) -> dict[str, Any]:
-        """Convert vectors to Plotly cones rooted at their origins."""
+        """Convert vectors to Plotly cones rooted at their origins.
+
+        Parameters
+        ----------
+        layer : VectorLayer
+            Neutral vectors sharing one display style.
+
+        Returns
+        -------
+        dict
+            Unvalidated Plotly ``cone`` trace specification.
+        """
         vectors = layer.vectors * layer.scale
         return {
             "type": "cone",
@@ -321,7 +379,18 @@ class PlotlyBackend:
 
     @staticmethod
     def _mesh_trace(layer: MeshLayer) -> dict[str, Any]:
-        """Convert an indexed neutral mesh to Plotly Mesh3d."""
+        """Convert an indexed neutral mesh to Plotly Mesh3d.
+
+        Parameters
+        ----------
+        layer : MeshLayer
+            Neutral mesh vertices, faces and display style.
+
+        Returns
+        -------
+        dict
+            Unvalidated Plotly ``mesh3d`` trace specification.
+        """
         intensity = layer.values
         if intensity is not None and np.isscalar(intensity):
             intensity = np.full(len(layer.vertices), intensity)
@@ -347,7 +416,18 @@ class PlotlyBackend:
 
     @classmethod
     def _mesh_wireframe_trace(cls, layer: MeshLayer) -> dict[str, Any]:
-        """Convert mesh triangle edges to a NaN-separated Plotly line."""
+        """Convert mesh triangle edges to a NaN-separated Plotly line.
+
+        Parameters
+        ----------
+        layer : MeshLayer
+            Neutral mesh to render as wireframe edges.
+
+        Returns
+        -------
+        dict
+            Unvalidated Plotly ``scatter3d`` line specification.
+        """
         segments = []
         for face in layer.faces:
             a, b, c = layer.vertices[face]
@@ -369,7 +449,20 @@ class PlotlyBackend:
 
     @classmethod
     def _box_trace(cls, layer: BoxLayer) -> dict[str, Any]:
-        """Convert axis-aligned boxes to a line or triangle trace."""
+        """Convert axis-aligned boxes to a line or triangle trace.
+
+        Parameters
+        ----------
+        layer : BoxLayer
+            Neutral boxes and face or wireframe display configuration.
+
+        Returns
+        -------
+        dict
+            Unvalidated Plotly mesh or line trace specification.
+        """
+        # Templates use the conventional eight-corner box ordering and are
+        # translated and scaled independently for each requested box.
         vertices, faces, segments = [], [], []
         corners = np.asarray(
             [

@@ -21,18 +21,57 @@ __all__ = ["plotly_trace_to_layer"]
 
 
 def _value(obj: Any, name: str, default: Any = None) -> Any:
-    """Read a graph-object property without depending on its concrete class."""
+    """Read a graph-object property without requiring a concrete class.
+
+    Parameters
+    ----------
+    obj : Any
+        Plotly graph object or property container.
+    name : str
+        Property name to read.
+    default : Any, optional
+        Value returned when the property is absent or ``None``.
+
+    Returns
+    -------
+    Any
+        Resolved property value.
+    """
     value = getattr(obj, name, default)
     return default if value is None else value
 
 
 def _positions(trace: Any) -> np.ndarray:
-    """Stack Plotly x/y/z arrays into contiguous coordinates."""
+    """Stack Plotly coordinate arrays into contiguous positions.
+
+    Parameters
+    ----------
+    trace : plotly.graph_objs.BaseTraceType
+        Trace exposing ``x``, ``y`` and ``z`` coordinates.
+
+    Returns
+    -------
+    np.ndarray
+        Contiguous ``(N, 3)`` single-precision positions.
+    """
     return np.column_stack((trace.x, trace.y, trace.z)).astype(np.float32)
 
 
 def _line_segments(points: np.ndarray) -> np.ndarray:
-    """Expand NaN-separated polylines into independent line segments."""
+    """Expand NaN-separated polylines into independent line segments.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        Plotly polyline vertices with non-finite separator rows.
+
+    Returns
+    -------
+    np.ndarray
+        Line segment endpoints with shape ``(N, 2, 3)``.
+    """
+    # A non-finite row terminates the current polyline and prevents a segment
+    # from being drawn across Plotly's separator.
     segments = []
     previous = None
     for point in points:
@@ -46,7 +85,25 @@ def _line_segments(points: np.ndarray) -> np.ndarray:
 
 
 def _line_values(points: np.ndarray, values: Any) -> Any:
-    """Reduce Plotly vertex colors to one portable value per line segment."""
+    """Reduce Plotly vertex colors to one value per line segment.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        Plotly polyline vertices with non-finite separator rows.
+    values : Any
+        Shared color or one numeric color value per vertex.
+
+    Returns
+    -------
+    Any
+        Shared input color or one averaged value per finite segment.
+
+    Raises
+    ------
+    ValueError
+        If vertex colors do not align with ``points``.
+    """
     if values is None or np.isscalar(values):
         return values
     values = np.asarray(values)
@@ -65,9 +122,28 @@ def _line_values(points: np.ndarray, values: Any) -> Any:
 
 
 def _mesh_faces(trace: Any, vertices: np.ndarray) -> np.ndarray:
-    """Return explicit triangle faces, resolving Plotly convex hulls eagerly."""
+    """Return explicit triangle faces, resolving convex hulls eagerly.
+
+    Parameters
+    ----------
+    trace : plotly.graph_objs.Mesh3d
+        Plotly mesh containing explicit faces or an implicit convex hull.
+    vertices : np.ndarray
+        Mesh vertex coordinates.
+
+    Returns
+    -------
+    np.ndarray
+        Triangle indexes with shape ``(N, 3)``.
+
+    Raises
+    ------
+    ValueError
+        If explicit indexes are inconsistent or a supported hull cannot be
+        constructed.
+    """
     i, j, k = _value(trace, "i", []), _value(trace, "j", []), _value(trace, "k", [])
-    if len(i) or len(j) or len(k):
+    if len(i) > 0 or len(j) > 0 or len(k) > 0:
         if not (len(i) == len(j) == len(k)):
             raise ValueError("Mesh3d i, j and k arrays must have matching lengths.")
         return np.column_stack((i, j, k)).astype(np.int32)

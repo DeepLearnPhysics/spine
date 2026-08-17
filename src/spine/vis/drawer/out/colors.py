@@ -42,12 +42,17 @@ def object_color_kind(obj_cls: type, attr: str) -> str | None:
     metadata = obj_cls.attr_metadata(attr)
     attr_type = obj_cls.attr_type(attr)
 
+    # Positions and vectors cannot supply one scalar color per displayed point.
     if metadata.position or metadata.vector:
         return None
+
+    # Point-wise fields use their declared storage and reference semantics.
     if metadata.pointwise:
         if metadata.reference or metadata.categorical or metadata.enum:
             return "discrete"
         return "continuous" if metadata.dtype is not None else None
+
+    # Object-level colors are limited to scalar numeric and boolean fields.
     if attr_type not in (int, float, bool):
         return None
     if attr_type is bool or metadata.enum or metadata.reference:
@@ -58,15 +63,39 @@ def object_color_kind(obj_cls: type, attr: str) -> str | None:
 
 
 def colorable_attributes(obj_cls: type) -> tuple[str, ...]:
-    """Return attributes which can provide one color value per drawn point."""
+    """Return attributes which can provide one color value per drawn point.
+
+    Parameters
+    ----------
+    obj_cls : type
+        SPINE data class whose schema should be inspected.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Attribute names with a continuous or discrete color strategy.
+    """
     return tuple(
         attr for attr in obj_cls.attr_names() if object_color_kind(obj_cls, attr)
     )
 
 
 def _object_class(objects: Any, obj_name: str) -> type:
-    """Resolve the element class of a populated or typed object collection."""
-    if len(objects):
+    """Resolve the element class of an object collection.
+
+    Parameters
+    ----------
+    objects : sequence
+        Populated or typed object collection.
+    obj_name : str
+        Collection name used to infer a class when the collection is empty.
+
+    Returns
+    -------
+    type
+        Concrete output-object class represented by the collection.
+    """
+    if len(objects) > 0:
         return type(objects[0])
     prefix, obj_type = obj_name.split("_", 1)
     cls_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
@@ -74,10 +103,21 @@ def _object_class(objects: Any, obj_name: str) -> type:
 
 
 def _continuous_range(values: Any) -> tuple[float, float]:
-    """Return a finite continuous color range for scalar values."""
+    """Return a finite continuous color range for scalar values.
+
+    Parameters
+    ----------
+    values : array-like
+        Values from which to determine the finite range.
+
+    Returns
+    -------
+    tuple[float, float]
+        Non-degenerate lower and upper color limits.
+    """
     flat = np.asarray(values, dtype=np.float64).reshape(-1)
     finite = flat[np.isfinite(flat)]
-    if not len(finite):
+    if len(finite) == 0:
         return 0.0, 1.0
     cmin, cmax = float(np.min(finite)), float(np.max(finite))
     if cmin == cmax:
@@ -88,10 +128,30 @@ def _continuous_range(values: Any) -> tuple[float, float]:
 def _discrete_colors(
     values: Any,
 ) -> tuple[np.ndarray, list[str] | None, int, int]:
-    """Encode arbitrary categorical values as consecutive color indexes."""
+    """Encode categorical values as consecutive color indexes.
+
+    Parameters
+    ----------
+    values : array-like
+        Categorical values to encode.
+
+    Returns
+    -------
+    np.ndarray
+        Integer color index for each input value.
+    list[str] or None
+        Discrete color scale, or ``None`` for an empty input.
+    int
+        Lower color-scale limit.
+    int
+        Upper color-scale limit.
+    """
+    # Map arbitrary values onto compact indexes before selecting palette entries.
     unique, encoded = np.unique(values, return_inverse=True)
     count = len(unique)
     colorscale = HIGH_CONTRAST_COLORS
+
+    # Plotly requires special handling for empty and single-valued scales.
     if count == 0:
         colorscale = None
     elif count == 1:
@@ -306,6 +366,9 @@ def build_object_colors(
 
     elif color_kind == "discrete":
         color, colorscale, cmin, cmax = _discrete_colors(color)
+
+    else:
+        raise RuntimeError(f"Unknown color strategy: {color_kind}.")
 
     return {
         "color": color,
