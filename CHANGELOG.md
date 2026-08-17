@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Renderer-neutral visualization scenes**: Add typed point, marker, line,
+  vector, mesh, and box layers, a backend registry, and a Plotly compatibility
+  backend for notebook and application consumers.
+- **Complete output-drawer scenes**: Expose raw depositions, endpoints,
+  directions, vertices, optical responses, CRT hits, and detector geometry
+  through `Drawer.get_scene`, with compact object boundaries and recoloring
+  metadata for browser renderers.
+
+### Changed
+- **Portable mesh topology**: Resolve implicit Plotly convex hulls into explicit
+  triangle faces at the scene boundary so non-Plotly backends can render lite
+  showers, cylinders, cones, ellipsoids, and hulls directly.
+
 ## [0.17.0] - 2026-08-10
 
 ### Added

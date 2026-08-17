@@ -42,8 +42,19 @@ class TestFieldMetadata:
 
     def test_flags(self):
         """Test boolean flags."""
-        meta = FieldMetadata(index=True, skip=True)
+        meta = FieldMetadata(
+            index=True,
+            reference="particle",
+            reference_space="same",
+            categorical=True,
+            pointwise=True,
+            skip=True,
+        )
         assert meta.index is True
+        assert meta.reference == "particle"
+        assert meta.reference_space == "same"
+        assert meta.categorical is True
+        assert meta.pointwise is True
         assert meta.skip is True
         assert meta.lite_skip is False
         assert meta.cat is False
@@ -57,6 +68,13 @@ class TestFieldMetadata:
         """Test that enum must be an IntEnum subclass."""
         with pytest.raises(TypeError, match="must be an IntEnum subclass"):
             FieldMetadata(enum=["electron", "muon"])  # type: ignore
+
+    def test_reference_validation(self):
+        """Test reference-space declarations are complete and supported."""
+        with pytest.raises(ValueError, match="requires a 'reference'"):
+            FieldMetadata(reference_space="same")
+        with pytest.raises(ValueError, match="must be 'same'"):
+            FieldMetadata(reference="particle", reference_space="invalid")
 
     def test_immutable(self):
         """Test that FieldMetadata is immutable (frozen dataclass)."""

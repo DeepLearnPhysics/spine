@@ -48,7 +48,7 @@ def test_layout_and_dual_figure_helpers():
 
     assert layout.scene.xaxis.range == (0, 1)
     assert len(fig.data) == 2
-    assert fig.layout.margin.to_plotly_json() == {"b": 20, "t": 20, "l": 20, "r": 20}
+    assert fig.layout.margin.to_plotly_json() == {"b": 20, "t": 42, "l": 20, "r": 20}
     assert width > height > 0
     assert color_rgba((1, 2, 3), 0.5) == "rgba(1, 2, 3, 0.5)"
 
@@ -81,6 +81,45 @@ def test_layout3d_uses_point_ranges_meta_and_dark_options(monkeypatch):
     assert geo_layout.scene.xaxis.range == (-0.1, 1.1)
     assert managed_geo_layout.scene.xaxis.range == (-0.1, 1.1)
     assert pixel_geo_layout.scene.xaxis.range == (-0.1, 1.1)
+
+
+def test_layout3d_orients_default_camera_with_geometry():
+    """The default Plotly camera should honor the detector up direction."""
+    geo = SimpleNamespace(
+        up_dir=np.array([1.0, 0.0, 0.0]),
+        get_boundaries=lambda **_: np.array([[0.0, 1.0]] * 3),
+    )
+    layout = layout3d(geo=geo, detector_coords=True)
+
+    assert layout.scene.camera.up.to_plotly_json() == {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0,
+    }
+    assert layout.scene.camera.eye.to_plotly_json() == {
+        "x": 1.0,
+        "y": 2.0,
+        "z": -0.01,
+    }
+    assert layout.scene.camera.center.to_plotly_json() == {
+        "x": -0.1,
+        "y": 0.0,
+        "z": -0.01,
+    }
+
+    # A z-up frame exercises the alternate horizontal reference direction.
+    geo.up_dir = np.array([0.0, 0.0, 1.0])
+    z_up_layout = layout3d(geo=geo, detector_coords=True)
+    assert z_up_layout.scene.camera.up.to_plotly_json() == {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 1.0,
+    }
+    assert z_up_layout.scene.camera.eye.to_plotly_json() == {
+        "x": 2.0,
+        "y": -0.01,
+        "z": 1.0,
+    }
 
 
 def test_layout_helpers_cover_style_and_validation(monkeypatch):

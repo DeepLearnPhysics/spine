@@ -11,6 +11,7 @@ from spine.constants import TRACK_SHP
 
 from ...trace.arrow import scatter_arrows
 from ...trace.point import scatter_points_3d
+from ...trace.utils import is_scalar_sequence, select_scalar_or_sequence
 
 __all__ = [
     "build_crt_trace",
@@ -305,17 +306,29 @@ def build_point_trace(
     if point_list:
         points = np.vstack(point_list)
 
+    # Auxiliary colors are defined per parent object. Select only the objects
+    # that contributed a marker, since shower end points and empty truth
+    # objects are intentionally omitted.
+    color = kwargs.pop("color", None)
+    if is_scalar_sequence(color):
+        color = np.asarray(color)[idxs]
+
     # Preserve the legacy API shape: a single combined trace by default, with
     # an optional split path for per-object toggling in Plotly.
     if not split_traces:
         return scatter_points_3d(
-            points, hovertext=np.array(hovertext), name=name, **kwargs
+            points,
+            color=color,
+            hovertext=np.array(hovertext),
+            name=name,
+            **kwargs,
         )
 
     traces: list[go.Scatter3d] = []
     for i, point in enumerate(point_list):
         traces += scatter_points_3d(
             point[None, :],
+            color=select_scalar_or_sequence(color, i),
             hovertext=hovertext[i],
             name=f"{name} {idxs[i]}",
             **kwargs,
@@ -373,6 +386,9 @@ def build_direction_trace(
         points = np.vstack(point_list)
         dirs = np.vstack(dir_list)
 
+    if is_scalar_sequence(color):
+        color = np.asarray(color)[idxs]
+
     if not split_traces:
         return scatter_arrows(
             points,
@@ -388,7 +404,7 @@ def build_direction_trace(
         traces += scatter_arrows(
             point[None, :],
             start_dir[None, :],
-            color=color,
+            color=select_scalar_or_sequence(color, i),
             hovertext=hovertext[i],
             name=f"{name} {idxs[i]}",
             **kwargs,

@@ -179,6 +179,17 @@ class TestDataBase:
 
         assert obj.value == 42
 
+    def test_attribute_schema_accessors(self):
+        """Class-level schema helpers expose fields and stored properties."""
+        metadata = ArrayData.attr_metadata("position")
+        assert metadata.position is True
+        assert ArrayData.attr_type("position") is np.ndarray
+        assert DerivedData.attr_type("energy") is float
+        assert DerivedData.attr_metadata("energy").units == "MeV"
+
+        with pytest.raises(AttributeError, match="does not appear"):
+            SimpleData.attr_metadata("missing")
+
     def test_equality_scalars(self):
         """Test equality comparison for scalar attributes."""
         obj1 = SimpleData(value=42, name="test")

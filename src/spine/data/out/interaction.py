@@ -88,7 +88,9 @@ class InteractionBase(OutBase):
     # Vector attributes
     particle_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="particle", reference_space="same"
+        ),
     )
 
     vertex: np.ndarray = field(
@@ -103,11 +105,17 @@ class InteractionBase(OutBase):
 
     flash_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="flash", reference_space="external"
+        ),
     )
     flash_volume_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            reference="optical_volume",
+            reference_space="external",
+        ),
     )
     flash_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
@@ -119,7 +127,11 @@ class InteractionBase(OutBase):
     )
     flash_hypothesis_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            reference="flash_hypothesis",
+            reference_space="external",
+        ),
     )
 
     def __str__(self) -> str:
@@ -186,7 +198,7 @@ class InteractionBase(OutBase):
         return [part for part in self.particles if part.is_primary]
 
     @property
-    @stored_property(dtype=np.int32)
+    @stored_property(dtype=np.int32, reference="particle", reference_space="same")
     def primary_particle_ids(self) -> np.ndarray:
         """List of primary Particle IDs associated with this interaction.
 
@@ -268,7 +280,7 @@ class InteractionBase(OutBase):
         return bool(np.any([part.is_crt_matched for part in self.particles]))
 
     @property
-    @stored_property(dtype=np.int32)
+    @stored_property(dtype=np.int32, reference="crthit", reference_space="external")
     def crt_ids(self) -> np.ndarray:
         """Returns the list of CRT hit IDs matched to this interaction.
 
@@ -444,8 +456,19 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
         or from the earliest constituent particle otherwise
     """
 
+    # Index attributes
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="interaction", reference_space="same"
+        ),
+    )
+
     # Scalar attributes
-    nu_id: int = -1
+    nu_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="neutrino", reference_space="same"),
+    )
 
     # Object list attributes
     particles: list[TruthParticle] = field(  # type: ignore[assignment]

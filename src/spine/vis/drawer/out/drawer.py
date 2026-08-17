@@ -8,14 +8,25 @@ import numpy as np
 from plotly import graph_objs as go
 
 import spine.data.out
+from spine.constants import TRACK_SHP
 from spine.geo import GeoManager
 
 from ...layout import dual_figure3d, layout3d
-from ...scene import PointLayer, PointStyle, Scene, SceneView
+from ...scene import (
+    LineStyle,
+    MarkerLayer,
+    PointLayer,
+    PointStyle,
+    Scene,
+    SceneView,
+    VectorLayer,
+    plotly_trace_to_layer,
+)
 from ...trace.cluster import scatter_clusters
 from ..geo import GeoDrawer
 from ..lite import scatter_lite
-from .colors import build_object_colors
+from .colors import build_object_colors, colorable_attributes, object_color_kind
+from .formatting import is_long_form
 from .traces import (
     build_crt_trace,
     build_direction_trace,
@@ -29,7 +40,7 @@ from .traces import (
     get_flash_pe,
 )
 
-__all__ = ["Drawer"]
+__all__ = ["Drawer", "colorable_attributes", "object_color_kind"]
 
 
 class Drawer:
@@ -72,6 +83,7 @@ class Drawer:
         geo: Any | None = None,
         detector_coords: bool = True,
         lite: bool = False,
+        match_aux_colors: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the drawer configuration.
@@ -98,6 +110,10 @@ class Drawer:
         lite : bool, default False
             If ``True``, draw the lite object representation without per-point
             clouds.
+        match_aux_colors : bool, default True
+            If ``True``, match end points, directions, and vertices to their
+            parent object colors. If ``False``, use the legacy black end-point
+            and direction colors and green interaction vertices.
         **kwargs : Any
             Additional layout options forwarded to
             :func:`spine.vis.layout.layout3d`.
@@ -151,6 +167,7 @@ class Drawer:
 
         # Store the remaining trace-builder and layout configuration
         self.lite = lite
+        self.match_aux_colors = match_aux_colors
         self.split_scene = split_scene
         self.detector_coords = detector_coords
         self.meta = self.meta if self.geo is None else None
@@ -215,8 +232,18 @@ class Drawer:
         attr: str | list[str] | None = None,
         color_attr: str | None = None,
         draw_raw: bool = False,
+        draw_end_points: bool = False,
+        draw_directions: bool = False,
+        draw_vertices: bool = False,
+        draw_flashes: bool = False,
+        draw_flash_hypotheses: bool = False,
+        matched_flash_only: bool = True,
+        optical_size_by_pe: bool = False,
+        flash_hypothesis_key: str = "flash_hypotheses",
+        draw_crthits: bool = False,
+        matched_crthit_only: bool = True,
     ) -> Scene:
-        """Build a renderer-neutral scene for the dominant point-cloud path.
+        """Build a renderer-neutral scene for all event-display primitives.
 
         Unlike :meth:`get`, this method does not instantiate Plotly objects.
         It preserves object boundaries and per-point attributes in contiguous
@@ -232,6 +259,26 @@ class Drawer:
             Attribute used to define point colors.
         draw_raw : bool, default False
             If ``True``, include the raw deposition cloud as its own layer.
+        draw_end_points : bool, default False
+            If ``True``, draw object start and end markers.
+        draw_directions : bool, default False
+            If ``True``, draw object start-direction vectors.
+        draw_vertices : bool, default False
+            If ``True``, draw interaction vertex markers.
+        draw_flashes : bool, default False
+            If ``True``, draw measured optical responses.
+        draw_flash_hypotheses : bool, default False
+            If ``True``, draw predicted optical responses.
+        matched_flash_only : bool, default True
+            If ``True``, restrict measured flashes to object matches.
+        optical_size_by_pe : bool, default False
+            If ``True``, scale optical glyphs by photoelectron count.
+        flash_hypothesis_key : str, default ``"flash_hypotheses"``
+            Event-data key containing optical hypotheses.
+        draw_crthits : bool, default False
+            If ``True``, draw CRT hits and planes.
+        matched_crthit_only : bool, default True
+            If ``True``, restrict CRT hits to object matches.
 
         Returns
         -------
@@ -240,27 +287,14 @@ class Drawer:
 
         Raises
         ------
-        NotImplementedError
-            If the drawer is configured for lite objects.
         ValueError
             If the requested object collection or backing point data is absent.
-
-        Notes
-        -----
-        Geometry, optical, CRT, and auxiliary glyphs remain on the established
-        Plotly path for now. They can be added as new neutral layer types
-        without changing this API.
         """
-        # The initial neutral representation targets full point-cloud objects
-        if self.lite:
-            raise NotImplementedError(
-                "Renderer-neutral lite-object scenes are not implemented yet."
-            )
-
         # Normalize the request using the same validation as the Plotly path
         attrs = self._validate_request(obj_type, attr)
 
-        # Build one compact object layer, plus optional raw input, per prefix
+        # Build one compact object layer, plus optional raw input, per prefix.
+        # Lite representations are adapted into the same neutral primitives.
         layers = {}
         for prefix in self.prefixes:
             obj_name = f"{prefix}_{obj_type}"
@@ -268,12 +302,162 @@ class Drawer:
                 raise ValueError(
                     f"Must provide `{obj_name}` in the data products to draw them."
                 )
-            object_layer = self._object_layer(
-                obj_name, attrs[prefix], color_attr=color_attr
-            )
-            layers[prefix] = [object_layer]
+            if self.lite:
+                traces = self._object_traces(
+                    obj_name, attrs[prefix], color_attr, split_traces=False
+                )
+                layers[prefix] = self._neutralize_traces(
+                    traces, kind="objects", object_name=obj_name
+                )
+            else:
+                layers[prefix] = [
+                    self._object_layer(obj_name, attrs[prefix], color_attr=color_attr)
+                ]
             if draw_raw:
+                if self.lite:
+                    raise RuntimeError("Cannot draw raw input in lite mode.")
                 layers[prefix].insert(0, self._raw_layer(prefix))
+
+        # Add discrete object markers and vector glyphs.
+        if draw_end_points:
+            if obj_type == "interactions":
+                raise ValueError("Interactions do not have end point attributes.")
+            for prefix in self.prefixes:
+                obj_name = f"{prefix}_{obj_type}"
+                colors = self._aux_color_config(obj_name, attrs[prefix], color_attr)
+                layers[prefix] += [
+                    self._marker_layer(obj_name, "start_point", colors=colors),
+                    self._marker_layer(obj_name, "end_point", colors=colors),
+                ]
+
+        if draw_directions:
+            if obj_type == "interactions":
+                raise ValueError("Interactions do not have direction attributes.")
+            for prefix in self.prefixes:
+                obj_name = f"{prefix}_{obj_type}"
+                colors = self._aux_color_config(obj_name, attrs[prefix], color_attr)
+                layers[prefix].append(self._vector_layer(obj_name, colors=colors))
+
+        if draw_vertices:
+            for prefix in self.prefixes:
+                obj_name = f"{prefix}_interactions"
+                if obj_name not in self.data:
+                    raise ValueError(
+                        "Must provide interactions to draw their vertices."
+                    )
+                layers[prefix].append(
+                    self._marker_layer(
+                        obj_name,
+                        "vertex",
+                        color="green",
+                        colors=self._aux_color_config(
+                            obj_name,
+                            attrs[prefix] if obj_type == "interactions" else [],
+                            color_attr if obj_type == "interactions" else None,
+                        ),
+                    )
+                )
+
+        # Optical and CRT helpers already encode detector-specific glyph
+        # geometry; adapt their meshes and markers at the neutral boundary.
+        show_optical = draw_flashes or draw_flash_hypotheses
+        if draw_flashes and "flashes" not in self.data:
+            raise ValueError("Must provide the `flashes` objects to draw them.")
+        if draw_flash_hypotheses and flash_hypothesis_key not in self.data:
+            raise ValueError(
+                f"Must provide the `{flash_hypothesis_key}` objects to draw "
+                "hypotheses."
+            )
+        if show_optical:
+            for prefix in self.prefixes:
+                obj_name = f"{prefix}_interactions"
+                if obj_name not in self.data:
+                    raise ValueError(
+                        "Must provide interactions to draw matched flashes or "
+                        "optical hypotheses."
+                    )
+                flash_pe = (
+                    get_flash_pe(self.data, obj_name, matched_flash_only, self.geo)
+                    if draw_flashes
+                    else None
+                )
+                hypothesis_pe = (
+                    get_flash_hypothesis_pe(
+                        self.data, obj_name, flash_hypothesis_key, self.geo
+                    )
+                    if draw_flash_hypotheses
+                    else None
+                )
+                pe_arrays = [pe for pe in (flash_pe, hypothesis_pe) if pe is not None]
+                pe_max = max(
+                    (float(np.max(pe, initial=0.0)) for pe in pe_arrays),
+                    default=0.0,
+                )
+                cmax = pe_max if pe_max > 0.0 else 1.0
+                traces = []
+                if draw_flashes:
+                    traces += build_flash_trace(
+                        data=self.data,
+                        obj_name=obj_name,
+                        matched_only=matched_flash_only,
+                        geo=self.geo,
+                        geo_drawer=self.geo_drawer,
+                        meta=self.meta,
+                        size_by_pe=optical_size_by_pe,
+                        pe_max=pe_max,
+                        pe_per_detector=flash_pe,
+                        cmin=0.0,
+                        cmax=cmax,
+                        opacity=0.55 if draw_flash_hypotheses else 1.0,
+                    )
+                if draw_flash_hypotheses:
+                    traces += build_flash_hypothesis_trace(
+                        data=self.data,
+                        obj_name=obj_name,
+                        hypothesis_key=flash_hypothesis_key,
+                        geo=self.geo,
+                        geo_drawer=self.geo_drawer,
+                        meta=self.meta,
+                        size_by_pe=optical_size_by_pe,
+                        pe_max=pe_max,
+                        pe_per_detector=hypothesis_pe,
+                        cmin=0.0,
+                        cmax=cmax,
+                        opacity=0.8,
+                    )
+                layers[prefix] += self._neutralize_traces(
+                    traces, kind="optical", object_name=obj_name
+                )
+
+        show_crt = False
+        if draw_crthits:
+            if "crthits" not in self.data:
+                raise ValueError("Must provide the `crthits` objects to draw them.")
+            show_crt = True
+            for prefix in self.prefixes:
+                obj_name = f"{prefix}_{obj_type}"
+                traces = build_crt_trace(
+                    data=self.data,
+                    obj_name=obj_name,
+                    matched_only=matched_crthit_only,
+                    geo=self.geo,
+                    geo_drawer=self.geo_drawer,
+                    meta=self.meta,
+                )
+                layers[prefix] += self._neutralize_traces(
+                    traces, kind="crt", object_name=obj_name
+                )
+
+        # Detector geometry is a set of neutral line and mesh layers. Match the
+        # established behavior by repeating it in split views only.
+        if self.geo_drawer is not None:
+            geo_traces = self._geometry_traces()
+            geo_layers = self._neutralize_traces(geo_traces, kind="geometry")
+            if self.prefixes and self.split_scene:
+                for prefix in self.prefixes:
+                    layers[prefix] += geo_layers
+            else:
+                layers[self.prefixes[-1]] += geo_layers
 
         # Preserve independent truth and reconstruction views when requested
         if len(self.prefixes) > 1 and self.split_scene:
@@ -296,6 +480,14 @@ class Drawer:
                 )
             ]
 
+        bounds = None
+        if self.geo is not None:
+            bounds = self.geo.get_boundaries(
+                with_optical=show_optical, with_crt=show_crt
+            ).tolist()
+        elif self.meta is not None:
+            bounds = np.vstack((self.meta.lower, self.meta.upper)).T.tolist()
+
         # Attach domain context without introducing backend-specific objects
         return Scene(
             views=views,
@@ -303,8 +495,159 @@ class Drawer:
                 "object_type": obj_type,
                 "split_scene": self.split_scene,
                 "detector_coords": self.detector_coords,
+                "bounds": bounds,
+                "up_dir": (
+                    np.asarray(getattr(self.geo, "up_dir", [0.0, 1.0, 0.0])).tolist()
+                    if self.geo is not None
+                    else [0.0, 1.0, 0.0]
+                ),
             },
         )
+
+    @staticmethod
+    def _neutralize_traces(traces: list[Any], **metadata: Any) -> list[Any]:
+        """Convert established 3D traces into neutral layer primitives."""
+        return [plotly_trace_to_layer(trace, **metadata) for trace in traces]
+
+    def _geometry_traces(self) -> list[Any]:
+        """Build detector outlines with contrast for the configured theme."""
+        dark = self.layout_kwargs.get("dark", False)
+        color = "rgba(255,255,255,0.400)" if dark else "rgba(0,0,0,0.200)"
+        traces = self.geo_drawer.tpc_traces(meta=self.meta, color=color)
+        for trace in traces:
+            trace.update(meta={"kind": "geometry"})
+        return traces
+
+    def _marker_layer(
+        self,
+        obj_name: str,
+        point_attr: str,
+        color: str = "black",
+        colors: dict[str, Any] | None = None,
+    ) -> MarkerLayer:
+        """Build discrete object markers with filterable object membership."""
+        positions, object_ids, hovertext, indices = [], [], [], []
+        obj_type = obj_name.split("_")[-1][:-1].capitalize()
+        for index, obj in enumerate(self.data[obj_name]):
+            if point_attr == "end_point" and obj.shape != TRACK_SHP:
+                continue
+            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
+                continue
+            positions.append(getattr(obj, point_attr))
+            object_ids.append(index)
+            indices.append(index)
+            hovertext.append(f"{obj_type} {index} " + " ".join(point_attr.split("_")))
+        marker_size = 10.0 if point_attr == "vertex" else 7.0
+        symbol = {
+            "start_point": "circle",
+            "end_point": "circle-open",
+            "vertex": "diamond",
+        }[point_attr]
+        values = color
+        style = PointStyle(size=marker_size)
+        if colors is not None:
+            values = np.asarray(colors["color"])[indices]
+            style = PointStyle(
+                size=marker_size,
+                colorscale=colors["colorscale"],
+                cmin=colors["cmin"],
+                cmax=colors["cmax"],
+            )
+
+        return MarkerLayer(
+            np.asarray(positions, dtype=np.float32).reshape(-1, 3),
+            name=" ".join(obj_name.split("_")).capitalize()[:-1]
+            + " "
+            + " ".join(point_attr.split("_")),
+            values=values,
+            hovertext=np.asarray(hovertext, dtype=object),
+            object_ids=np.asarray(object_ids, dtype=np.int32),
+            style=style,
+            symbol=symbol,
+            metadata={"kind": point_attr, "object_name": obj_name},
+        )
+
+    def _vector_layer(
+        self, obj_name: str, colors: dict[str, Any] | None = None
+    ) -> VectorLayer:
+        """Build start-direction vectors with filterable object membership."""
+        origins, vectors, object_ids, hovertext, indices = [], [], [], [], []
+        obj_type = obj_name.split("_")[-1][:-1].capitalize()
+        for index, obj in enumerate(self.data[obj_name]):
+            if obj.is_truth and not len(getattr(obj, self.truth_index_mode)):
+                continue
+            origins.append(obj.start_point)
+            vectors.append(obj.start_dir)
+            object_ids.append(index)
+            indices.append(index)
+            hovertext.append(f"{obj_type} {index} direction")
+        values = None
+        style = LineStyle(width=5.0, color="black")
+        if colors is not None:
+            values = np.asarray(colors["color"])[indices]
+            style = LineStyle(
+                width=5.0,
+                colorscale=colors["colorscale"],
+                cmin=colors["cmin"],
+                cmax=colors["cmax"],
+            )
+
+        return VectorLayer(
+            np.asarray(origins, dtype=np.float32).reshape(-1, 3),
+            np.asarray(vectors, dtype=np.float32).reshape(-1, 3),
+            name=" ".join(obj_name.split("_")).capitalize()[:-1] + " directions",
+            values=values,
+            hovertext=np.asarray(hovertext, dtype=object),
+            object_ids=np.asarray(object_ids, dtype=np.int32),
+            scale=10.0,
+            head_size=0.25,
+            style=style,
+            metadata={"kind": "directions", "object_name": obj_name},
+        )
+
+    def _aux_color_config(
+        self, obj_name: str, attrs: list[str], color_attr: str | None
+    ) -> dict[str, Any] | None:
+        """Build parent-object colors for auxiliary markers and vectors.
+
+        Long-form attributes carry one value per point and therefore cannot
+        define one unambiguous color for an object-level glyph. In that case,
+        auxiliary glyphs fall back to the same object-ID palette used by the
+        default object display.
+        """
+        if not self.match_aux_colors:
+            return None
+
+        aux_attr = color_attr
+        aux_attrs = attrs
+        if aux_attr is not None and is_long_form(aux_attr):
+            aux_attr = None
+            aux_attrs = []
+
+        return build_object_colors(
+            data=self.data,
+            obj_name=obj_name,
+            attrs=aux_attrs,
+            color_attr=aux_attr,
+            split_traces=False,
+            geo=self.geo,
+            lite=self.lite,
+            truth_point_key=self.truth_point_key,
+            truth_point_mode=self.truth_point_mode,
+            dep_modes=self.dep_modes,
+        )
+
+    @staticmethod
+    def _aux_color_kwargs(colors: dict[str, Any] | None) -> dict[str, Any]:
+        """Return trace keyword arguments for a resolved color mapping."""
+        if colors is None:
+            return {}
+        return {
+            "color": colors["color"],
+            "colorscale": colors["colorscale"],
+            "cmin": colors["cmin"],
+            "cmax": colors["cmax"],
+        }
 
     def _validate_request(
         self, obj_type: str, attr: str | list[str] | None
@@ -460,17 +803,21 @@ class Drawer:
                 raise ValueError("Interactions do not have end point attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
+                colors = self._aux_color_config(obj_name, attrs[prefix], color_attr)
+                color_kwargs = self._aux_color_kwargs(colors)
                 traces[prefix] += build_start_point_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **color_kwargs,
                 )
                 traces[prefix] += build_end_point_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **color_kwargs,
                 )
 
         # Draw directions as a separate trace, if requested
@@ -479,11 +826,13 @@ class Drawer:
                 raise ValueError("Interactions do not have direction attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
+                colors = self._aux_color_config(obj_name, attrs[prefix], color_attr)
                 traces[prefix] += build_direction_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **self._aux_color_kwargs(colors),
                 )
 
         # Draw vertices as separate traces, if requested
@@ -499,6 +848,13 @@ class Drawer:
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **self._aux_color_kwargs(
+                        self._aux_color_config(
+                            obj_name,
+                            attrs[prefix] if obj_type == "interactions" else [],
+                            color_attr if obj_type == "interactions" else None,
+                        )
+                    ),
                 )
 
         # Draw flashes as a separate trace, if requested
@@ -588,11 +944,12 @@ class Drawer:
 
         # Draw the geometry overlay if a GeoDrawer is available
         if self.geo_drawer is not None:
+            geo_traces = self._geometry_traces()
             if self.prefixes and self.split_scene:
                 for prefix in self.prefixes:
-                    traces[prefix] += self.geo_drawer.tpc_traces(meta=self.meta)
+                    traces[prefix] += geo_traces
             else:
-                traces[self.prefixes[-1]] += self.geo_drawer.tpc_traces(meta=self.meta)
+                traces[self.prefixes[-1]] += geo_traces
 
         # Build the layout and assemble the requested traces and geometry overlay
         layout = layout3d(
@@ -713,7 +1070,10 @@ class Drawer:
         # Preserve requested numeric dimensions for client-side filtering
         layer_attrs = {"object_id": object_ids}
         for name in dict.fromkeys([*attrs, color_attr]):
-            if name is None or name == "id":
+            if name is None:
+                continue
+            if name == "id":
+                layer_attrs[name] = object_ids
                 continue
             raw_values = [getattr(obj, name) for obj in objects]
             try:
@@ -722,6 +1082,41 @@ class Drawer:
                 continue
             if expanded is not None and np.asarray(expanded).dtype.kind in "biuf":
                 layer_attrs[name] = expanded
+
+        # Store the exact numeric mappings for every colorable hover attribute.
+        # This lets a browser renderer recolor an uploaded buffer without asking
+        # Python to rebuild the scene and preserves categorical source mappings.
+        attribute_styles = {}
+        for name in attrs:
+            try:
+                attribute_colors = build_object_colors(
+                    data=self.data,
+                    obj_name=obj_name,
+                    attrs=[name],
+                    color_attr=name,
+                    split_traces=False,
+                    geo=self.geo,
+                    lite=False,
+                    truth_point_key=self.truth_point_key,
+                    truth_point_mode=self.truth_point_mode,
+                    dep_modes=self.dep_modes,
+                )
+                attribute_values = self._expand_object_values(
+                    attribute_colors["color"], indices, len(points)
+                )
+            except (TypeError, ValueError):
+                continue
+            attribute_values = np.asarray(attribute_values)
+            if attribute_values.ndim != 1 or len(attribute_values) != len(positions):
+                continue
+            if attribute_values.dtype.kind not in "biuf":
+                continue
+            layer_attrs[name] = attribute_values
+            attribute_styles[name] = {
+                "colorscale": attribute_colors["colorscale"],
+                "cmin": attribute_colors["cmin"],
+                "cmax": attribute_colors["cmax"],
+            }
 
         # Package arrays and common display hints without constructing Plotly objects
         return PointLayer(
@@ -737,7 +1132,12 @@ class Drawer:
                 cmin=color_dict["cmin"],
                 cmax=color_dict["cmax"],
             ),
-            metadata={"object_name": obj_name},
+            metadata={
+                "object_name": obj_name,
+                "color_attribute": color_attr,
+                "attribute_styles": attribute_styles,
+                "long_form_attributes": [name for name in attrs if is_long_form(name)],
+            },
         )
 
     def _raw_layer(self, prefix: str) -> PointLayer:

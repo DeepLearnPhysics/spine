@@ -1,6 +1,7 @@
 name: ProtoDUNE-HD
 tag: protodunehdv6
 version: 6
+up_dir: [0.0, 1.0, 0.0]
 gdml: protodunehd_v6_refactored.gdml
 tpc:
   dimensions:

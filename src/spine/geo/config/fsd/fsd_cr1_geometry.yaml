@@ -1,6 +1,7 @@
 name: FSD
 tag: cr1
 version: 1
+up_dir: [0.0, 1.0, 0.0]
 crs_files: [data/fsd_flow/multi_tile_layout-3.0.40_NDLArModule_v3.yaml]
 lrs_file: data/fsd_flow/light_module_desc-6.0.0.yaml
 tpc:

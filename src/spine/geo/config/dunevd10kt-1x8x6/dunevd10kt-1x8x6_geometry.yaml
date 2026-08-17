@@ -1,6 +1,7 @@
-name: dunevd10kt-1x8x6
+name: DUNE-VD-10kt-1x8x6
 tag: dunevd10kt_3view_30deg_v3_refactored_1x8x6ref
 version: 3
+up_dir: [1.0, 0.0, 0.0]
 gdml: dunevd10kt_3view_30deg_v3_refactored_1x8x6ref.gdml
 tpc:
   dimensions: [650.0, 1347.0, 895.4055]

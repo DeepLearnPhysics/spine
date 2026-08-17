@@ -41,14 +41,27 @@ class FlashHypothesis(DataBase):
         Total predicted number of photoelectrons.
     """
 
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    interaction_id: int = -1
-    volume_id: int = -1
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="flash_hypothesis", reference_space="same"
+        ),
+    )
+    interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="interaction", reference_space="same"),
+    )
+    volume_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="optical_volume", reference_space="external"),
+    )
     score: float = np.nan
     is_truth: bool = False
     flash_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="flash", reference_space="external"
+        ),
     )
     pe_per_ch: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),

@@ -424,6 +424,57 @@ class DataBase:
 
         return tuple(attrs)
 
+    @classmethod
+    def attr_metadata(cls, attr: str) -> FieldMetadata:
+        """Return the declared metadata for a field or stored property.
+
+        Parameters
+        ----------
+        attr : str
+            Attribute name to inspect.
+
+        Returns
+        -------
+        FieldMetadata
+            Immutable metadata associated with the attribute.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute is not part of the data class schema.
+        """
+        cls._ensure_cached_attrs()
+        if attr not in cls._metadata:
+            raise AttributeError(
+                f"Attribute `{attr}` does not appear in {cls.__name__}."
+            )
+        return cls._metadata[attr]
+
+    @classmethod
+    def attr_type(cls, attr: str) -> type | None:
+        """Return the resolved type of a field or stored property.
+
+        Parameters
+        ----------
+        attr : str
+            Attribute name to inspect.
+
+        Returns
+        -------
+        type, optional
+            Declared field type or stored-property return type.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute is not part of the data class schema.
+        """
+        cls._ensure_cached_attrs()
+        if attr in cls._field_types:
+            return cls._field_types[attr]
+        metadata = cls.attr_metadata(attr)
+        return metadata.return_type
+
     def scalar_dict(
         self,
         attrs: list[str] | None = None,

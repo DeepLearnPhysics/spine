@@ -15,6 +15,23 @@ from spine.geo import GeoManager, Geometry
 __all__ = ["dual_figure3d", "layout3d"]
 
 
+def _orient_camera_vector(vector: np.ndarray, up_dir: np.ndarray) -> np.ndarray:
+    """Rotate a y-up camera vector into a detector-oriented basis."""
+    up = np.asarray(up_dir, dtype=np.float64)
+    up /= np.linalg.norm(up)
+
+    # Preserve detector z as the preferred horizontal reference. Fall back to
+    # y when z itself is vertical, then construct a right-handed basis.
+    reference = np.array([0.0, 0.0, 1.0])
+    if np.abs(np.dot(reference, up)) > 1.0 - 1.0e-8:
+        reference = np.array([0.0, 1.0, 0.0])
+    forward = reference - np.dot(reference, up) * up
+    forward /= np.linalg.norm(forward)
+    right = np.cross(up, forward)
+
+    return vector[0] * right + vector[1] * up + vector[2] * forward
+
+
 def layout3d(
     ranges: np.ndarray | None = None,
     meta: ImageMeta3D | None = None,
@@ -111,6 +128,7 @@ def layout3d(
                 "Each range upper bound must be greater than its lower bound."
             )
 
+    up_dir = np.array([0.0, 1.0, 0.0])
     if use_geo or geo is not None:
         # Geometry-driven bounds take precedence over explicit point clouds.
         if ranges is not None and None not in ranges:
@@ -119,6 +137,7 @@ def layout3d(
             )
         if geo is None:
             geo = GeoManager.get_instance()
+        up_dir = np.asarray(getattr(geo, "up_dir", up_dir), dtype=np.float64)
         ranges = geo.get_boundaries(with_optical=show_optical, with_crt=show_crt)
         lengths = ranges[:, 1] - ranges[:, 0]
         ranges[:, 0] -= lengths * detector_padding
@@ -144,11 +163,13 @@ def layout3d(
             ).T
 
     if camera is None:
-        # Use the detector-style default camera unless the caller overrides it.
+        # Rotate the established y-up view into the detector coordinate frame.
+        eye = _orient_camera_vector(np.array([-2.0, 1.0, -0.01]), up_dir)
+        center = _orient_camera_vector(np.array([0.0, -0.1, -0.01]), up_dir)
         camera = {
-            "eye": {"x": -2.0, "y": 1.0, "z": -0.01},
-            "up": {"x": 0.0, "y": 1.0, "z": 0.0},
-            "center": {"x": 0.0, "y": -0.1, "z": -0.01},
+            "eye": dict(zip(("x", "y", "z"), eye.tolist())),
+            "up": dict(zip(("x", "y", "z"), up_dir.tolist())),
+            "center": dict(zip(("x", "y", "z"), center.tolist())),
         }
 
     if aspectmode == "manual" and aspectratio is None:
@@ -275,7 +296,8 @@ def dual_figure3d(
     fig.add_traces(traces_right, rows=[1] * num_right, cols=[2] * num_right)
 
     if margin is None:
-        margin = {"b": 20, "t": 20, "l": 20, "r": 20}
+        # Leave enough room between subplot titles and the containing panel.
+        margin = {"b": 20, "t": 42, "l": 20, "r": 20}
 
     if layout is None:
         layout = layout3d(width=width, height=height, margin=margin, **kwargs)

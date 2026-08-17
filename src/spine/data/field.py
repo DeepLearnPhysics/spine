@@ -34,6 +34,17 @@ class FieldMetadata(Mapping[str, object]):
         Whether this field represents a non-unitary vector quantity.
     index : bool, default=False
         Whether this field is an index (e.g., ID, parent_id).
+    reference : str, optional
+        Logical collection or namespace referenced by the field. This is
+        descriptive and does not imply that values should be shifted.
+    reference_space : str, optional
+        Relationship between the source and referenced namespaces. Supported
+        conventions include ``"same"``, ``"opposite"`` and ``"external"``.
+    categorical : bool, default=False
+        Whether scalar values are discrete categories rather than quantities.
+    pointwise : bool, default=False
+        Whether an array contains one entry per point in an object's point
+        cloud. Point-wise vectors may still require domain-specific decoding.
     skip : bool, default=False
         Whether to skip this field in standard serialization.
     lite_skip : bool, default=False
@@ -64,6 +75,10 @@ class FieldMetadata(Mapping[str, object]):
     units: str | None = None
     enum: type[IntEnum] | None = None
     index: bool = False
+    reference: str | None = None
+    reference_space: str | None = None
+    categorical: bool = False
+    pointwise: bool = False
     skip: bool = False
     lite_skip: bool = False
     cat: bool = False
@@ -74,6 +89,12 @@ class FieldMetadata(Mapping[str, object]):
             isinstance(self.enum, type) and issubclass(self.enum, IntEnum)
         ):
             raise TypeError("'enum' must be an IntEnum subclass")
+        if self.reference_space is not None and self.reference is None:
+            raise ValueError("'reference_space' requires a 'reference'")
+        if self.reference_space not in (None, "same", "opposite", "external"):
+            raise ValueError(
+                "'reference_space' must be 'same', 'opposite' or 'external'"
+            )
 
     # Implement Mapping protocol for dataclass field() compatibility
     def __getitem__(self, key: str) -> object:
@@ -93,6 +114,10 @@ class FieldMetadata(Mapping[str, object]):
             "units",
             "enum",
             "index",
+            "reference",
+            "reference_space",
+            "categorical",
+            "pointwise",
             "skip",
             "lite_skip",
             "cat",

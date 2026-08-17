@@ -7,7 +7,19 @@ from typing import Any, Mapping
 
 import numpy as np
 
-__all__ = ["PointLayer", "PointStyle", "Scene", "SceneView"]
+__all__ = [
+    "BoxLayer",
+    "LineLayer",
+    "LineStyle",
+    "MarkerLayer",
+    "MeshLayer",
+    "MeshStyle",
+    "PointLayer",
+    "PointStyle",
+    "Scene",
+    "SceneView",
+    "VectorLayer",
+]
 
 
 @dataclass(frozen=True)
@@ -33,6 +45,62 @@ class PointStyle:
 
     size: float = 2.0
     opacity: float | None = None
+    colorscale: str | list | None = None
+    cmin: float | None = None
+    cmax: float | None = None
+
+
+@dataclass(frozen=True)
+class LineStyle:
+    """Display hints shared by line and vector layers.
+
+    Attributes
+    ----------
+    width : float, default 2.0
+        Line width in display pixels.
+    color : Any, optional
+        Shared line color or per-segment color values.
+    opacity : float, optional
+        Layer opacity in the range ``[0, 1]``.
+    colorscale : str or list, optional
+        Named or explicit color scale used to map numeric values.
+    cmin : float, optional
+        Lower bound of the color scale.
+    cmax : float, optional
+        Upper bound of the color scale.
+    """
+
+    width: float = 2.0
+    color: Any = None
+    opacity: float | None = None
+    colorscale: str | list | None = None
+    cmin: float | None = None
+    cmax: float | None = None
+
+
+@dataclass(frozen=True)
+class MeshStyle:
+    """Display hints for indexed triangle meshes.
+
+    Attributes
+    ----------
+    color : Any, optional
+        Shared mesh color.
+    opacity : float, optional
+        Mesh opacity in the range ``[0, 1]``.
+    wireframe : bool, default False
+        Whether a backend should emphasize mesh edges instead of faces.
+    colorscale : str or list, optional
+        Named or explicit color scale used to map numeric values.
+    cmin : float, optional
+        Lower bound of the color scale.
+    cmax : float, optional
+        Upper bound of the color scale.
+    """
+
+    color: Any = None
+    opacity: float | None = None
+    wireframe: bool = False
     colorscale: str | list | None = None
     cmin: float | None = None
     cmax: float | None = None
@@ -137,6 +205,248 @@ class PointLayer:
 
 
 @dataclass
+class MarkerLayer(PointLayer):
+    """Discrete point glyphs with a renderer-neutral symbol hint.
+
+    Attributes
+    ----------
+    symbol : str, default ``"circle"``
+        Generic marker symbol such as ``"circle"``, ``"diamond"`` or
+        ``"circle-open"``.
+    """
+
+    symbol: str = "circle"
+
+
+@dataclass
+class LineLayer:
+    """Independent line segments stored as ``(N, 2, 3)`` coordinates.
+
+    Attributes
+    ----------
+    segments : np.ndarray
+        Line segment endpoints with shape ``(N, 2, 3)``.
+    name : str, optional
+        Layer label.
+    values : scalar or np.ndarray, optional
+        Shared or per-vector values used for coloring.
+    values : scalar or np.ndarray, optional
+        Shared or per-segment color values.
+    hovertext : scalar or sequence, optional
+        Shared or per-segment hover labels.
+    object_ids : np.ndarray, optional
+        Domain-object identifier per segment.
+    style : LineStyle, optional
+        Renderer-neutral line display hints.
+    metadata : dict, optional
+        Layer-level semantic metadata.
+    """
+
+    segments: np.ndarray
+    name: str | None = None
+    values: Any = None
+    hovertext: Any = None
+    object_ids: np.ndarray | None = None
+    style: LineStyle = field(default_factory=LineStyle)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize line-segment buffers."""
+        segments = np.asarray(self.segments, dtype=np.float32)
+        if segments.ndim != 3 or segments.shape[1:] != (2, 3):
+            raise ValueError("Line segments must have shape (N, 2, 3).")
+        self.segments = np.ascontiguousarray(segments)
+        if self.object_ids is not None:
+            object_ids = np.asarray(self.object_ids, dtype=np.int32)
+            if object_ids.shape != (len(segments),):
+                raise ValueError("Line object IDs must have shape (N,).")
+            self.object_ids = np.ascontiguousarray(object_ids)
+
+        # Normalize the portable one-value-per-segment color representation
+        if self.values is not None and not np.isscalar(self.values):
+            values = np.asarray(self.values)
+            if values.ndim != 1 or len(values) != len(segments):
+                raise ValueError(
+                    "Line values must be scalar or provide one value per segment."
+                )
+            self.values = np.ascontiguousarray(values)
+
+
+@dataclass
+class VectorLayer:
+    """Vector glyphs represented by origins and direction vectors.
+
+    Attributes
+    ----------
+    origins : np.ndarray
+        Vector origins with shape ``(N, 3)``.
+    vectors : np.ndarray
+        Direction vectors with shape ``(N, 3)``.
+    name : str, optional
+        Layer label.
+    hovertext : scalar or sequence, optional
+        Shared or per-vector hover labels.
+    object_ids : np.ndarray, optional
+        Domain-object identifier per vector.
+    scale : float, default 1.0
+        Common vector-length scale.
+    head_size : float, default 0.25
+        Arrow-head length relative to the displayed vector.
+    style : LineStyle, optional
+        Renderer-neutral vector display hints.
+    metadata : dict, optional
+        Layer-level semantic metadata.
+    """
+
+    origins: np.ndarray
+    vectors: np.ndarray
+    name: str | None = None
+    values: Any = None
+    hovertext: Any = None
+    object_ids: np.ndarray | None = None
+    scale: float = 1.0
+    head_size: float = 0.25
+    style: LineStyle = field(default_factory=LineStyle)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize vector buffers."""
+        origins = np.asarray(self.origins, dtype=np.float32)
+        vectors = np.asarray(self.vectors, dtype=np.float32)
+        if origins.ndim != 2 or origins.shape[1:] != (3,):
+            raise ValueError("Vector origins must have shape (N, 3).")
+        if vectors.shape != origins.shape:
+            raise ValueError("Vector directions must match origin shape.")
+        self.origins = np.ascontiguousarray(origins)
+        self.vectors = np.ascontiguousarray(vectors)
+        if self.object_ids is not None:
+            object_ids = np.asarray(self.object_ids, dtype=np.int32)
+            if object_ids.shape != (len(origins),):
+                raise ValueError("Vector object IDs must have shape (N,).")
+            self.object_ids = np.ascontiguousarray(object_ids)
+
+        # Normalize the portable one-value-per-vector color representation
+        if self.values is not None and not np.isscalar(self.values):
+            values = np.asarray(self.values)
+            if values.ndim != 1 or len(values) != len(origins):
+                raise ValueError(
+                    "Vector values must be scalar or provide one value per vector."
+                )
+            self.values = np.ascontiguousarray(values)
+
+
+@dataclass
+class MeshLayer:
+    """Indexed triangle mesh with optional per-vertex values.
+
+    Attributes
+    ----------
+    vertices : np.ndarray
+        Mesh vertices with shape ``(N, 3)``.
+    faces : np.ndarray
+        Triangle vertex indices with shape ``(M, 3)``.
+    name : str, optional
+        Layer label.
+    values : scalar or np.ndarray, optional
+        Shared or per-vertex color values.
+    hovertext : scalar or sequence, optional
+        Shared or per-vertex hover labels.
+    style : MeshStyle, optional
+        Renderer-neutral mesh display hints.
+    metadata : dict, optional
+        Layer-level semantic metadata.
+    """
+
+    vertices: np.ndarray
+    faces: np.ndarray
+    name: str | None = None
+    values: Any = None
+    hovertext: Any = None
+    style: MeshStyle = field(default_factory=MeshStyle)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize indexed mesh buffers."""
+        vertices = np.asarray(self.vertices, dtype=np.float32)
+        faces = np.asarray(self.faces, dtype=np.int32)
+        if vertices.ndim != 2 or vertices.shape[1:] != (3,):
+            raise ValueError("Mesh vertices must have shape (N, 3).")
+        if faces.ndim != 2 or faces.shape[1:] != (3,):
+            raise ValueError("Mesh faces must have shape (M, 3).")
+        if len(faces) and (np.min(faces) < 0 or np.max(faces) >= len(vertices)):
+            raise ValueError("Mesh face indices must reference existing vertices.")
+        self.vertices = np.ascontiguousarray(vertices)
+        self.faces = np.ascontiguousarray(faces)
+
+        # Per-vertex values are the portable mesh-color representation
+        if self.values is not None and not np.isscalar(self.values):
+            values = np.asarray(self.values)
+            if values.ndim == 0 or values.shape[0] != len(vertices):
+                raise ValueError(
+                    "Mesh values must be scalar or have one value per vertex."
+                )
+            self.values = np.ascontiguousarray(values)
+
+
+@dataclass
+class BoxLayer:
+    """Axis-aligned boxes represented by lower and upper corners.
+
+    Attributes
+    ----------
+    bounds : np.ndarray
+        Box bounds with shape ``(N, 2, 3)``.
+    name : str, optional
+        Layer label.
+    values : scalar or np.ndarray, optional
+        Shared or per-box color values.
+    hovertext : scalar or sequence, optional
+        Shared or per-box hover labels.
+    object_ids : np.ndarray, optional
+        Domain-object identifier per box.
+    draw_faces : bool, default False
+        Whether to draw filled faces rather than wireframes.
+    line_style : LineStyle, optional
+        Wireframe display hints.
+    mesh_style : MeshStyle, optional
+        Filled-face display hints.
+    metadata : dict, optional
+        Layer-level semantic metadata.
+    """
+
+    bounds: np.ndarray
+    name: str | None = None
+    values: Any = None
+    hovertext: Any = None
+    object_ids: np.ndarray | None = None
+    draw_faces: bool = False
+    line_style: LineStyle = field(default_factory=LineStyle)
+    mesh_style: MeshStyle = field(default_factory=MeshStyle)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize box buffers."""
+        bounds = np.asarray(self.bounds, dtype=np.float32)
+        if bounds.ndim != 3 or bounds.shape[1:] != (2, 3):
+            raise ValueError("Box bounds must have shape (N, 2, 3).")
+        if len(bounds) and np.any(bounds[:, 1] < bounds[:, 0]):
+            raise ValueError("Box upper bounds must not be below lower bounds.")
+        self.bounds = np.ascontiguousarray(bounds)
+        if self.object_ids is not None:
+            object_ids = np.asarray(self.object_ids, dtype=np.int32)
+            if object_ids.shape != (len(bounds),):
+                raise ValueError("Box object IDs must have shape (N,).")
+            self.object_ids = np.ascontiguousarray(object_ids)
+
+        # Per-box values retain one color value for each compact box primitive
+        if self.values is not None and not np.isscalar(self.values):
+            values = np.asarray(self.values)
+            if values.ndim == 0 or values.shape[0] != len(bounds):
+                raise ValueError("Box values must be scalar or have one value per box.")
+            self.values = np.ascontiguousarray(values)
+
+
+@dataclass
 class SceneView:
     """One independently viewable collection of scene layers.
 
@@ -151,7 +461,7 @@ class SceneView:
     """
 
     name: str
-    layers: list[PointLayer] = field(default_factory=list)
+    layers: list[Any] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -8,7 +8,17 @@ import numpy as np
 from plotly import graph_objs as go
 
 from ..layout import dual_figure3d, layout3d
-from .model import PointLayer, Scene
+from ..trace.arrow import scatter_arrows
+from .model import (
+    BoxLayer,
+    LineLayer,
+    LineStyle,
+    MarkerLayer,
+    MeshLayer,
+    PointLayer,
+    Scene,
+    VectorLayer,
+)
 
 __all__ = ["PlotlyBackend"]
 
@@ -64,7 +74,7 @@ class PlotlyBackend:
             [
                 trace
                 for layer in view.layers
-                for trace in self._point_traces(layer, split_objects)
+                for trace in self._layer_traces(layer, split_objects)
             ]
             for view in scene.views
         ]
@@ -84,6 +94,22 @@ class PlotlyBackend:
 
         # Emit all layers into one 3D scene for the common case
         return go.Figure(data=trace_groups[0], layout=layout)
+
+    def _layer_traces(self, layer: Any, split_objects: bool) -> list[dict[str, Any]]:
+        """Convert one supported neutral layer to Plotly trace dictionaries."""
+        if isinstance(layer, PointLayer):
+            return self._point_traces(layer, split_objects)
+        if isinstance(layer, LineLayer):
+            return [self._line_trace(layer)]
+        if isinstance(layer, VectorLayer):
+            return self._vector_traces(layer)
+        if isinstance(layer, MeshLayer):
+            if layer.style.wireframe:
+                return [self._mesh_wireframe_trace(layer)]
+            return [self._mesh_trace(layer)]
+        if isinstance(layer, BoxLayer):
+            return [self._box_trace(layer)]
+        raise TypeError(f"Unsupported scene layer: {type(layer).__name__}.")
 
     def _point_traces(
         self, layer: PointLayer, split_objects: bool
@@ -160,6 +186,8 @@ class PlotlyBackend:
             "cmin": layer.style.cmin,
             "cmax": layer.style.cmax,
         }
+        if isinstance(layer, MarkerLayer):
+            marker["symbol"] = layer.symbol
 
         # Keep the trace unvalidated until the final Figure construction
         return {
@@ -169,7 +197,219 @@ class PlotlyBackend:
             "y": points[:, 1],
             "z": points[:, 2],
             "name": name,
+            "meta": layer.metadata,
             "text": hovertext,
             "hovertemplate": "x: %{x}<br>y: %{y}<br>z: %{z}<br>%{text}<extra></extra>",
             "marker": marker,
         }
+
+    @staticmethod
+    def _line_trace(layer: LineLayer) -> dict[str, Any]:
+        """Convert independent segments to one NaN-separated Plotly line."""
+        separators = np.full((len(layer.segments), 1, 3), np.nan, dtype=np.float32)
+        points = np.concatenate((layer.segments, separators), axis=1).reshape(-1, 3)
+        values = layer.values
+        if values is not None and not np.isscalar(values):
+            values = np.asarray(values)
+            if values.shape != (len(layer.segments),):
+                raise ValueError("Line values must provide one scalar per segment.")
+            values = np.column_stack(
+                (values, values, np.full(len(values), np.nan))
+            ).reshape(-1)
+        return {
+            "type": "scatter3d",
+            "mode": "lines",
+            "x": points[:, 0],
+            "y": points[:, 1],
+            "z": points[:, 2],
+            "name": layer.name,
+            "meta": layer.metadata,
+            "hovertext": layer.hovertext,
+            "line": {
+                "width": layer.style.width,
+                "color": (
+                    layer.style.color if layer.style.color is not None else values
+                ),
+                "colorscale": layer.style.colorscale,
+                "cmin": layer.style.cmin,
+                "cmax": layer.style.cmax,
+            },
+            "opacity": layer.style.opacity,
+        }
+
+    @staticmethod
+    def _vector_traces(layer: VectorLayer) -> list[dict[str, Any]]:
+        """Convert vectors while preserving optional per-vector colors."""
+        if layer.values is None:
+            return [PlotlyBackend._vector_trace(layer)]
+
+        traces = scatter_arrows(
+            layer.origins,
+            layer.vectors,
+            length=layer.scale,
+            tip_ratio=layer.head_size,
+            color=layer.values,
+            hovertext=layer.hovertext,
+            linewidth=layer.style.width,
+            colorscale=layer.style.colorscale,
+            cmin=layer.style.cmin,
+            cmax=layer.style.cmax,
+            name=layer.name,
+        )
+        return [trace.to_plotly_json() for trace in traces]
+
+    @staticmethod
+    def _vector_trace(layer: VectorLayer) -> dict[str, Any]:
+        """Convert vectors to Plotly cones rooted at their origins."""
+        vectors = layer.vectors * layer.scale
+        return {
+            "type": "cone",
+            "x": layer.origins[:, 0],
+            "y": layer.origins[:, 1],
+            "z": layer.origins[:, 2],
+            "u": vectors[:, 0],
+            "v": vectors[:, 1],
+            "w": vectors[:, 2],
+            "name": layer.name,
+            "meta": layer.metadata,
+            "hovertext": layer.hovertext,
+            "anchor": "tail",
+            "sizemode": "absolute",
+            "sizeref": 1.0,
+            "showscale": False,
+            "colorscale": (
+                [[0.0, layer.style.color], [1.0, layer.style.color]]
+                if layer.style.color is not None
+                else None
+            ),
+            "opacity": layer.style.opacity,
+        }
+
+    @staticmethod
+    def _mesh_trace(layer: MeshLayer) -> dict[str, Any]:
+        """Convert an indexed neutral mesh to Plotly Mesh3d."""
+        intensity = layer.values
+        if intensity is not None and np.isscalar(intensity):
+            intensity = np.full(len(layer.vertices), intensity)
+        return {
+            "type": "mesh3d",
+            "x": layer.vertices[:, 0],
+            "y": layer.vertices[:, 1],
+            "z": layer.vertices[:, 2],
+            "i": layer.faces[:, 0],
+            "j": layer.faces[:, 1],
+            "k": layer.faces[:, 2],
+            "name": layer.name,
+            "meta": layer.metadata,
+            "hovertext": layer.hovertext,
+            "color": layer.style.color,
+            "intensity": intensity,
+            "opacity": layer.style.opacity,
+            "colorscale": layer.style.colorscale,
+            "cmin": layer.style.cmin,
+            "cmax": layer.style.cmax,
+            "flatshading": True,
+        }
+
+    @classmethod
+    def _mesh_wireframe_trace(cls, layer: MeshLayer) -> dict[str, Any]:
+        """Convert mesh triangle edges to a NaN-separated Plotly line."""
+        segments = []
+        for face in layer.faces:
+            a, b, c = layer.vertices[face]
+            segments.extend(((a, b), (b, c), (c, a)))
+        lines = LineLayer(
+            np.asarray(segments, dtype=np.float32).reshape(-1, 2, 3),
+            name=layer.name,
+            hovertext=layer.hovertext,
+            style=LineStyle(
+                color=layer.style.color,
+                opacity=layer.style.opacity,
+                colorscale=layer.style.colorscale,
+                cmin=layer.style.cmin,
+                cmax=layer.style.cmax,
+            ),
+            metadata=layer.metadata,
+        )
+        return cls._line_trace(lines)
+
+    @classmethod
+    def _box_trace(cls, layer: BoxLayer) -> dict[str, Any]:
+        """Convert axis-aligned boxes to a line or triangle trace."""
+        vertices, faces, segments = [], [], []
+        corners = np.asarray(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [1, 1, 0],
+                [0, 1, 0],
+                [0, 0, 1],
+                [1, 0, 1],
+                [1, 1, 1],
+                [0, 1, 1],
+            ],
+            dtype=np.int32,
+        )
+        face_template = np.asarray(
+            [
+                [0, 1, 2],
+                [0, 2, 3],
+                [4, 6, 5],
+                [4, 7, 6],
+                [0, 4, 5],
+                [0, 5, 1],
+                [1, 5, 6],
+                [1, 6, 2],
+                [2, 6, 7],
+                [2, 7, 3],
+                [3, 7, 4],
+                [3, 4, 0],
+            ],
+            dtype=np.int32,
+        )
+        edges = (
+            (0, 1),
+            (1, 2),
+            (2, 3),
+            (3, 0),
+            (4, 5),
+            (5, 6),
+            (6, 7),
+            (7, 4),
+            (0, 4),
+            (1, 5),
+            (2, 6),
+            (3, 7),
+        )
+        for bounds in layer.bounds:
+            base = len(vertices)
+            box_vertices = bounds[0] + corners * (bounds[1] - bounds[0])
+            vertices.extend(box_vertices)
+            faces.extend(face_template + base)
+            segments.extend([[box_vertices[a], box_vertices[b]] for a, b in edges])
+        if layer.draw_faces:
+            values = layer.values
+            if values is not None and not np.isscalar(values):
+                values = np.repeat(values, 8)
+            mesh = MeshLayer(
+                np.asarray(vertices, dtype=np.float32).reshape(-1, 3),
+                np.asarray(faces, dtype=np.int32).reshape(-1, 3),
+                name=layer.name,
+                values=values,
+                hovertext=layer.hovertext,
+                style=layer.mesh_style,
+                metadata=layer.metadata,
+            )
+            return cls._mesh_trace(mesh)
+        values = layer.values
+        if values is not None and not np.isscalar(values):
+            values = np.repeat(values, 12)
+        lines = LineLayer(
+            np.asarray(segments, dtype=np.float32).reshape(-1, 2, 3),
+            name=layer.name,
+            values=values,
+            hovertext=layer.hovertext,
+            style=layer.line_style,
+            metadata=layer.metadata,
+        )
+        return cls._line_trace(lines)

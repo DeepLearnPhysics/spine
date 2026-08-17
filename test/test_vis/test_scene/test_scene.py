@@ -1,26 +1,36 @@
 """Tests for renderer-neutral visualization scenes."""
 
 from importlib import import_module
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from plotly import graph_objs as go
 
 from spine.constants import TRACK_SHP
-from spine.data.out import RecoParticle, TruthParticle
+from spine.data.out import RecoInteraction, RecoParticle, TruthParticle
 from spine.vis import (
+    BoxLayer,
     Drawer,
+    LineLayer,
+    LineStyle,
+    MarkerLayer,
+    MeshLayer,
+    MeshStyle,
     PlotlyBackend,
     PointLayer,
     PointStyle,
     Scene,
     SceneView,
+    VectorLayer,
     get_backend,
+    plotly_trace_to_layer,
     register_backend,
     render_scene,
 )
 
 scene_backend = import_module("spine.vis.scene.backend")
+out_drawer = import_module("spine.vis.drawer.out.drawer")
 
 
 def test_point_layer_normalizes_gpu_arrays():
@@ -56,6 +66,178 @@ def test_point_layer_validates_shapes():
 
     layer = PointLayer(np.empty((0, 3)))
     assert layer.object_count == 0
+
+
+def test_geometric_layers_normalize_and_validate():
+    """Line, vector, mesh and box layers should expose compact buffers."""
+    line = LineLayer(np.zeros((2, 2, 3)), values=[1, 2], object_ids=[1, 2])
+    vector = VectorLayer(
+        np.zeros((2, 3)), np.ones((2, 3)), values=[3, 4], object_ids=[1, 2]
+    )
+    mesh = MeshLayer(np.zeros((3, 3)), [[0, 1, 2]], values=[1, 2, 3])
+    box = BoxLayer(np.asarray([[[0, 0, 0], [1, 2, 3]]]), values=[1], object_ids=[4])
+
+    assert line.segments.dtype == np.float32
+    assert line.values.flags.c_contiguous
+    assert vector.vectors.flags.c_contiguous
+    assert vector.values.tolist() == [3, 4]
+    assert mesh.faces.dtype == np.int32
+    assert mesh.values.flags.c_contiguous
+    assert box.bounds.shape == (1, 2, 3)
+    assert box.values.flags.c_contiguous
+
+    with pytest.raises(ValueError, match="segments"):
+        LineLayer(np.zeros((2, 3)))
+    with pytest.raises(ValueError, match="Line object IDs"):
+        LineLayer(np.zeros((2, 2, 3)), object_ids=[1])
+    with pytest.raises(ValueError, match="one value per segment"):
+        LineLayer(np.zeros((2, 2, 3)), values=[1])
+    with pytest.raises(ValueError, match="origins"):
+        VectorLayer(np.zeros((2, 2)), np.zeros((2, 2)))
+    with pytest.raises(ValueError, match="directions"):
+        VectorLayer(np.zeros((2, 3)), np.zeros((1, 3)))
+    with pytest.raises(ValueError, match="Vector object IDs"):
+        VectorLayer(np.zeros((2, 3)), np.zeros((2, 3)), object_ids=[1])
+    with pytest.raises(ValueError, match="Vector values"):
+        VectorLayer(np.zeros((2, 3)), np.zeros((2, 3)), values=[1])
+    with pytest.raises(ValueError, match="vertices"):
+        MeshLayer(np.zeros((3, 2)), [[0, 1, 2]])
+    with pytest.raises(ValueError, match="faces"):
+        MeshLayer(np.zeros((3, 3)), [0, 1, 2])
+    with pytest.raises(ValueError, match="existing"):
+        MeshLayer(np.zeros((3, 3)), [[0, 1, 3]])
+    with pytest.raises(ValueError, match="one value per vertex"):
+        MeshLayer(np.zeros((3, 3)), [[0, 1, 2]], values=[1, 2])
+    with pytest.raises(ValueError, match="bounds"):
+        BoxLayer(np.zeros((2, 3)))
+    with pytest.raises(ValueError, match="upper"):
+        BoxLayer(np.asarray([[[1, 0, 0], [0, 1, 1]]]))
+    with pytest.raises(ValueError, match="Box object IDs"):
+        BoxLayer(np.zeros((2, 2, 3)), object_ids=[1])
+    with pytest.raises(ValueError, match="one value per box"):
+        BoxLayer(np.zeros((2, 2, 3)), values=[1])
+
+
+def test_plotly_adapter_supports_all_3d_trace_types():
+    """Established Plotly glyphs should map onto neutral primitives."""
+    marker = go.Scatter3d(
+        x=[0], y=[1], z=[2], mode="markers", marker={"size": 5, "symbol": "diamond"}
+    )
+    line = go.Scatter3d(
+        x=[0, 1, None, 2, 3],
+        y=[0, 1, None, 2, 3],
+        z=[0, 1, None, 2, 3],
+        mode="lines",
+        line={"width": 4, "color": "red"},
+    )
+    valued_line = go.Scatter3d(
+        x=[0, 1, None, 2, 3],
+        y=[0, 1, None, 2, 3],
+        z=[0, 1, None, 2, 3],
+        mode="lines",
+        line={"color": [0, 2, 0, 4, 6]},
+    )
+    mesh = go.Mesh3d(x=[0, 1, 0], y=[0, 0, 1], z=[0, 0, 0], i=[0], j=[1], k=[2])
+    hull = go.Mesh3d(
+        x=[0, 1, 0, 0],
+        y=[0, 0, 1, 0],
+        z=[0, 0, 0, 1],
+        alphahull=0,
+    )
+    cone = go.Cone(
+        x=[0], y=[0], z=[0], u=[1], v=[0], w=[0], colorscale=[[0, "blue"], [1, "blue"]]
+    )
+
+    assert isinstance(plotly_trace_to_layer(marker), MarkerLayer)
+    assert plotly_trace_to_layer(marker).symbol == "diamond"
+    assert plotly_trace_to_layer(line).segments.shape == (2, 2, 3)
+    assert plotly_trace_to_layer(valued_line).values.tolist() == [1.0, 5.0]
+    assert isinstance(plotly_trace_to_layer(mesh), MeshLayer)
+    assert plotly_trace_to_layer(hull).faces.shape == (4, 3)
+    assert isinstance(plotly_trace_to_layer(cone), VectorLayer)
+
+    with pytest.raises(TypeError, match="mode"):
+        plotly_trace_to_layer(go.Scatter3d(x=[0], y=[0], z=[0], mode="text"))
+    with pytest.raises(TypeError, match="trace type"):
+        plotly_trace_to_layer(go.Bar(x=[0], y=[1]))
+    with pytest.raises(ValueError, match="convex"):
+        plotly_trace_to_layer(
+            go.Mesh3d(
+                x=[0, 1, 0, 0],
+                y=[0, 0, 1, 0],
+                z=[0, 0, 0, 1],
+                alphahull=2,
+            )
+        )
+    with pytest.raises(ValueError, match="matching lengths"):
+        plotly_trace_to_layer(
+            go.Mesh3d(x=[0, 1, 0], y=[0, 0, 1], z=[0, 0, 0], i=[0], k=[2])
+        )
+    with pytest.raises(ValueError, match="line colors"):
+        plotly_trace_to_layer(
+            go.Scatter3d(
+                x=[0, 1], y=[0, 1], z=[0, 1], mode="lines", line={"color": [1]}
+            )
+        )
+    assert plotly_trace_to_layer(
+        go.Mesh3d(x=[0, 1, 0], y=[0, 0, 1], z=[0, 0, 0])
+    ).faces.shape == (0, 3)
+    with pytest.raises(ValueError, match="three-dimensional"):
+        plotly_trace_to_layer(go.Mesh3d(x=[0, 1, 0, 1], y=[0, 0, 1, 1], z=[0, 0, 0, 0]))
+
+
+def test_plotly_backend_renders_all_neutral_layers():
+    """The compatibility backend should render every neutral primitive."""
+    layers = [
+        MarkerLayer(np.zeros((1, 3)), symbol="diamond"),
+        LineLayer(np.zeros((1, 2, 3)), values=[1], style=LineStyle(color="red")),
+        VectorLayer(np.zeros((1, 3)), np.ones((1, 3)), style=LineStyle(color="blue")),
+        VectorLayer(
+            np.zeros((1, 3)),
+            np.ones((1, 3)),
+            values=[1],
+            style=LineStyle(colorscale="Viridis", cmin=0, cmax=1),
+        ),
+        MeshLayer(
+            np.asarray([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+            [[0, 1, 2]],
+            values=2,
+            style=MeshStyle(color="green"),
+        ),
+        MeshLayer(
+            np.asarray([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+            [[0, 1, 2]],
+            style=MeshStyle(color="blue", wireframe=True),
+        ),
+        BoxLayer(np.asarray([[[0, 0, 0], [1, 1, 1]]]), values=[2]),
+        BoxLayer(
+            np.asarray([[[0, 0, 0], [1, 1, 1]]]),
+            values=[3],
+            draw_faces=True,
+            mesh_style=MeshStyle(color="orange"),
+        ),
+    ]
+    figure = Scene([SceneView("all", layers)]).render("plotly")
+
+    assert [trace.type for trace in figure.data] == [
+        "scatter3d",
+        "scatter3d",
+        "cone",
+        "scatter3d",
+        "cone",
+        "mesh3d",
+        "scatter3d",
+        "scatter3d",
+        "mesh3d",
+    ]
+    with pytest.raises(TypeError, match="Unsupported scene layer"):
+        Scene([SceneView("bad", [object()])]).render("plotly")
+    invalid_line = LineLayer(np.zeros((1, 2, 3)))
+    invalid_line.values = np.asarray([1, 2])
+    with pytest.raises(ValueError, match="one scalar per segment"):
+        PlotlyBackend._line_trace(invalid_line)
+    assert len(figure.data[7].line.color) == 36
+    assert len(figure.data[8].intensity) == 8
 
 
 def test_scene_accepts_custom_backend():
@@ -175,15 +357,257 @@ def test_drawer_builds_raw_split_scene():
         "truth_particles": [truth],
     }
 
-    scene = Drawer(data, draw_mode="both", split_scene=True).get_scene(
-        "particles", draw_raw=True
+    drawer = Drawer(data, draw_mode="both", split_scene=True)
+    drawer.geo = SimpleNamespace(
+        get_boundaries=lambda **kwargs: np.asarray([[0, 1], [0, 1], [0, 1]])
     )
+    drawer.geo_drawer = SimpleNamespace(
+        tpc_traces=lambda **kwargs: [
+            go.Scatter3d(x=[0, 1], y=[0, 1], z=[0, 1], mode="lines")
+        ]
+    )
+    scene = drawer.get_scene("particles", draw_raw=True)
 
     assert len(scene.views) == 2
-    assert [len(view.layers) for view in scene.views] == [2, 2]
+    assert [len(view.layers) for view in scene.views] == [3, 3]
     assert scene.views[0].layers[0].style.cmax == 4.0
     assert scene.views[1].layers[0].style.cmax == 1.0
     assert scene.views[1].layers[1].point_count == 0
+
+
+def test_drawer_scene_builds_native_auxiliary_layers():
+    """Full scenes should expose raw, marker and vector layers natively."""
+    track = RecoParticle(
+        id=7,
+        index=np.array([0, 1], dtype=np.int32),
+        shape=TRACK_SHP,
+        start_point=np.zeros(3, dtype=np.float32),
+        end_point=np.ones(3, dtype=np.float32),
+        start_dir=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    shower = RecoParticle(
+        id=8,
+        index=np.array([2], dtype=np.int32),
+        shape=0,
+        start_point=np.ones(3, dtype=np.float32),
+        end_point=np.ones(3, dtype=np.float32) * 2,
+        start_dir=np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    )
+    data = {
+        "points": np.arange(9, dtype=np.float32).reshape(3, 3),
+        "depositions": np.arange(1, 4, dtype=np.float32),
+        "reco_particles": [track, shower],
+    }
+
+    scene = Drawer(data, draw_mode="reco").get_scene(
+        "particles",
+        draw_raw=True,
+        draw_end_points=True,
+        draw_directions=True,
+    )
+
+    assert [type(layer) for layer in scene.views[0].layers] == [
+        PointLayer,
+        PointLayer,
+        MarkerLayer,
+        MarkerLayer,
+        VectorLayer,
+    ]
+    assert scene.views[0].layers[3].object_ids.tolist() == [0]
+    assert scene.views[0].layers[4].object_ids.tolist() == [0, 1]
+    assert scene.views[0].layers[2].values.tolist() == [0, 1]
+    assert scene.views[0].layers[3].values.tolist() == [0]
+    assert scene.views[0].layers[4].values.tolist() == [0, 1]
+
+    legacy_scene = Drawer(data, draw_mode="reco", match_aux_colors=False).get_scene(
+        "particles", draw_end_points=True, draw_directions=True
+    )
+    assert legacy_scene.views[0].layers[1].values == "black"
+    assert legacy_scene.views[0].layers[3].values is None
+    assert legacy_scene.views[0].layers[3].style.color == "black"
+
+
+def test_drawer_scene_builds_vertex_and_meta_bounds():
+    """Interaction vertices and metadata bounds should remain renderer neutral."""
+    interaction = RecoInteraction(
+        id=0,
+        index=np.array([0], dtype=np.int32),
+        vertex=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+    )
+    data = {
+        "points": np.ones((1, 3), dtype=np.float32),
+        "reco_interactions": [interaction],
+        "meta": SimpleNamespace(lower=np.zeros(3), upper=np.ones(3)),
+    }
+
+    scene = Drawer(data, draw_mode="reco").get_scene("interactions", draw_vertices=True)
+
+    assert isinstance(scene.views[0].layers[-1], MarkerLayer)
+    assert scene.views[0].layers[-1].symbol == "diamond"
+    assert scene.views[0].layers[-1].values.tolist() == [0]
+    assert scene.metadata["bounds"] == [[0.0, 1.0]] * 3
+
+    legacy_scene = Drawer(data, draw_mode="reco", match_aux_colors=False).get_scene(
+        "interactions", draw_vertices=True
+    )
+    assert legacy_scene.views[0].layers[-1].values == "green"
+
+
+def test_drawer_scene_adapts_lite_objects():
+    """Lite object glyphs should be accepted at the neutral scene boundary."""
+    particle = RecoParticle(
+        id=0,
+        index=np.array([0], dtype=np.int32),
+        shape=TRACK_SHP,
+        start_point=np.zeros(3),
+        end_point=np.ones(3),
+        start_dir=np.array([1.0, 0.0, 0.0]),
+    )
+    drawer = Drawer({"reco_particles": [particle]}, draw_mode="reco", lite=True)
+
+    scene = drawer.get_scene("particles")
+
+    assert scene.views[0].layers
+    assert all(
+        isinstance(layer, (MarkerLayer, MeshLayer, LineLayer))
+        for layer in scene.views[0].layers
+    )
+    with pytest.raises(RuntimeError, match="raw input"):
+        drawer.get_scene("particles", draw_raw=True)
+
+
+def test_drawer_scene_adapts_detector_optical_and_crt(monkeypatch):
+    """Every detector-specific drawing path should produce neutral layers."""
+    interaction = RecoInteraction(
+        id=0,
+        index=np.array([0], dtype=np.int32),
+        vertex=np.zeros(3, dtype=np.float32),
+    )
+    drawer = Drawer(
+        {
+            "points": np.zeros((1, 3), dtype=np.float32),
+            "reco_interactions": [interaction],
+            "flashes": [object()],
+            "flash_hypotheses": [object()],
+            "crthits": [object()],
+        },
+        draw_mode="reco",
+        split_scene=False,
+    )
+    calls = []
+
+    class FakeGeometry:
+        up_dir = np.array([1.0, 0.0, 0.0])
+
+        def get_boundaries(self, *, with_optical, with_crt):
+            calls.append((with_optical, with_crt))
+            return np.asarray([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
+
+    drawer.geo = FakeGeometry()
+    drawer.geo_drawer = SimpleNamespace(
+        tpc_traces=lambda **kwargs: [
+            go.Scatter3d(x=[0, 1], y=[0, 1], z=[0, 1], mode="lines")
+        ]
+    )
+    monkeypatch.setattr(out_drawer, "get_flash_pe", lambda *args, **kwargs: np.ones(2))
+    monkeypatch.setattr(
+        out_drawer,
+        "get_flash_hypothesis_pe",
+        lambda *args, **kwargs: np.ones(2) * 2,
+    )
+    monkeypatch.setattr(
+        out_drawer,
+        "build_flash_trace",
+        lambda **kwargs: [
+            go.Scatter3d(x=[0], y=[0], z=[0], mode="markers", name="flash")
+        ],
+    )
+    monkeypatch.setattr(
+        out_drawer,
+        "build_flash_hypothesis_trace",
+        lambda **kwargs: [
+            go.Mesh3d(
+                x=[0, 1, 0],
+                y=[0, 0, 1],
+                z=[0, 0, 0],
+                i=[0],
+                j=[1],
+                k=[2],
+                name="hypothesis",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        out_drawer,
+        "build_crt_trace",
+        lambda **kwargs: [
+            go.Scatter3d(x=[0, 1], y=[0, 1], z=[1, 1], mode="lines", name="crt")
+        ],
+    )
+
+    scene = drawer.get_scene(
+        "interactions",
+        draw_flashes=True,
+        draw_flash_hypotheses=True,
+        draw_crthits=True,
+        optical_size_by_pe=True,
+    )
+
+    kinds = [layer.metadata.get("kind") for layer in scene.views[0].layers]
+    assert kinds == [None, "optical", "optical", "crt", "geometry"]
+    assert calls == [(True, True)]
+    assert scene.metadata["bounds"] == [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]
+    assert scene.metadata["up_dir"] == [1.0, 0.0, 0.0]
+
+
+def test_drawer_scene_skips_empty_truth_auxiliary_glyphs():
+    """Empty truth objects should not contribute markers or vectors."""
+    particle = TruthParticle(
+        id=0,
+        index=np.empty(0, dtype=np.int32),
+        index_adapt=np.empty(0, dtype=np.int32),
+        shape=TRACK_SHP,
+        start_point=np.zeros(3, dtype=np.float32),
+        end_point=np.ones(3, dtype=np.float32),
+        momentum=np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    )
+    drawer = Drawer(
+        {
+            "points_label": np.empty((0, 3), dtype=np.float32),
+            "truth_particles": [particle],
+        },
+        draw_mode="truth",
+    )
+
+    scene = drawer.get_scene("particles", draw_end_points=True, draw_directions=True)
+
+    assert [layer.point_count for layer in scene.views[0].layers[1:3]] == [0, 0]
+    assert len(scene.views[0].layers[3].origins) == 0
+
+
+def test_drawer_scene_validates_all_auxiliary_requests():
+    """Neutral scenes should preserve every established request failure."""
+    points = np.empty((0, 3), dtype=np.float32)
+    particle_drawer = Drawer({"points": points, "reco_particles": []}, draw_mode="reco")
+    interaction_drawer = Drawer(
+        {"points": points, "reco_interactions": []}, draw_mode="reco"
+    )
+
+    with pytest.raises(ValueError, match="Interactions do not have end"):
+        interaction_drawer.get_scene("interactions", draw_end_points=True)
+    with pytest.raises(ValueError, match="Interactions do not have direction"):
+        interaction_drawer.get_scene("interactions", draw_directions=True)
+    with pytest.raises(ValueError, match="provide interactions"):
+        particle_drawer.get_scene("particles", draw_vertices=True)
+    with pytest.raises(ValueError, match="`flashes`"):
+        interaction_drawer.get_scene("interactions", draw_flashes=True)
+    with pytest.raises(ValueError, match="`flash_hypotheses`"):
+        interaction_drawer.get_scene("interactions", draw_flash_hypotheses=True)
+    with pytest.raises(ValueError, match="interactions"):
+        particle_drawer.data["flashes"] = []
+        particle_drawer.get_scene("particles", draw_flashes=True)
+    with pytest.raises(ValueError, match="`crthits`"):
+        particle_drawer.get_scene("particles", draw_crthits=True)
 
 
 def test_drawer_scene_validates_missing_products():
@@ -220,6 +644,58 @@ def test_drawer_scene_skips_unaligned_numeric_attributes():
     )
 
     assert "start_point" not in scene.views[0].layers[0].attributes
+
+
+def test_drawer_scene_skips_nonportable_color_mappings(monkeypatch):
+    """Client recoloring should retain only aligned scalar numeric mappings."""
+    particle = RecoParticle(
+        id=1,
+        index=np.array([0, 1], dtype=np.int32),
+        shape=TRACK_SHP,
+        pid=2,
+    )
+    data = {
+        "points": np.ones((2, 3), dtype=np.float32),
+        "depositions": np.array([1.0, 2.0], dtype=np.float32),
+        "reco_particles": [particle],
+    }
+    original = out_drawer.build_object_colors
+
+    def build_colors(**kwargs):
+        result = original(**kwargs)
+        if kwargs["color_attr"] == "pid":
+            result["color"] = np.ones((2, 2), dtype=np.float32)
+        elif kwargs["color_attr"] == "shape":
+            result["color"] = np.asarray(["track", "track"])
+        return result
+
+    monkeypatch.setattr(out_drawer, "build_object_colors", build_colors)
+    scene = Drawer(data, draw_mode="reco").get_scene("particles", attr=["pid", "shape"])
+
+    assert "pid" not in scene.views[0].layers[0].metadata["attribute_styles"]
+    assert "shape" not in scene.views[0].layers[0].metadata["attribute_styles"]
+
+
+def test_drawer_scene_identifies_pointwise_hover_attributes():
+    """Scene metadata should distinguish pointwise from object attributes."""
+    particle = RecoParticle(
+        id=1,
+        index=np.array([0, 1], dtype=np.int32),
+        shape=TRACK_SHP,
+        is_contained=True,
+        depositions=np.array([1.0, 2.0], dtype=np.float32),
+    )
+    data = {
+        "points": np.ones((2, 3), dtype=np.float32),
+        "depositions": np.array([1.0, 2.0], dtype=np.float32),
+        "reco_particles": [particle],
+    }
+
+    scene = Drawer(data, draw_mode="reco").get_scene(
+        "particles", attr=["depositions", "is_contained"]
+    )
+
+    assert scene.views[0].layers[0].metadata["long_form_attributes"] == ["depositions"]
 
 
 def test_expand_object_values_covers_alignment_modes():
