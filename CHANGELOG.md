@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.17.2] - 2026-08-17
+
+### Fixed
+- **Truth shower geometry**: Build aggregate truth-particle start, first-step, timing, end, and semantic properties from a retained visible fragment instead of allowing empty or excluded group progenitors to contribute invalid sentinel geometry, while preserving explicit Michel and delta shapes.
+- **Fragment group-primary supervision**: Assign a positive group-primary label only to a retained, label-eligible group progenitor that is uniquely earliest among retained eligible fragments; leave groups without a clean observable primary unsupervised instead of promoting a visible daughter.
+
 ## [0.17.1] - 2026-08-14
 
 ### Added
