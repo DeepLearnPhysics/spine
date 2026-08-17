@@ -1,4 +1,5 @@
 name: DUNE-HD-10kt-1x2x6
+aliases: [DUNE10kt-1x2x6]
 tag: dune10kt_v4_1x2x6
 version: 6
 up_dir: [0.0, 1.0, 0.0]

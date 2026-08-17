@@ -480,13 +480,30 @@ class Drawer:
                 )
             ]
 
-        bounds = None
+        bounds, layout_bounds = None, None
         if self.geo is not None:
-            bounds = self.geo.get_boundaries(
+            bounds_array = self.geo.get_boundaries(
                 with_optical=show_optical, with_crt=show_crt
-            ).tolist()
+            )
+            bounds = bounds_array.tolist()
+            layout_bounds = np.asarray(bounds_array, dtype=np.float64).copy()
+            padding = self.layout_kwargs.get("detector_padding", 0.1)
+            lengths = layout_bounds[:, 1] - layout_bounds[:, 0]
+            layout_bounds[:, 0] -= padding * lengths
+            layout_bounds[:, 1] += padding * lengths
+            layout_bounds = layout_bounds.tolist()
         elif self.meta is not None:
-            bounds = np.vstack((self.meta.lower, self.meta.upper)).T.tolist()
+            if self.detector_coords:
+                bounds_array = np.vstack((self.meta.lower, self.meta.upper)).T
+            else:
+                bounds_array = np.vstack(
+                    (
+                        np.zeros(3),
+                        np.round((self.meta.upper - self.meta.lower) / self.meta.size),
+                    )
+                ).T
+            bounds = bounds_array.tolist()
+            layout_bounds = bounds
 
         # Attach domain context without introducing backend-specific objects
         return Scene(
@@ -496,6 +513,7 @@ class Drawer:
                 "split_scene": self.split_scene,
                 "detector_coords": self.detector_coords,
                 "bounds": bounds,
+                "layout_bounds": layout_bounds,
                 "up_dir": (
                     np.asarray(getattr(self.geo, "up_dir", [0.0, 1.0, 0.0])).tolist()
                     if self.geo is not None

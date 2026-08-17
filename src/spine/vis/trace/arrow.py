@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
-from plotly.colors import sample_colorscale
 from plotly import graph_objs as go
+from plotly.colors import sample_colorscale
 
 from .point import scatter_points_3d
 from .utils import (
@@ -100,24 +101,28 @@ def scatter_arrows(
 
         vertices = np.vstack(vertices)
 
-    traces = scatter_points_3d(
-        vertices,
-        color=color_trunks,
-        hovertext=hovertext_trunks,
-        line=line,
-        linewidth=linewidth,
-        colorscale=colorscale,
-        cmin=cmin,
-        cmax=cmax,
-        mode="lines",
-        hovertemplate="%{text}",
-        name=name,
-        legendgroup=legendgroup,
+    traces: list[go.Scatter3d | go.Cone] = []
+    traces.extend(
+        scatter_points_3d(
+            vertices,
+            color=color_trunks,
+            hovertext=hovertext_trunks,
+            line=line,
+            linewidth=linewidth,
+            colorscale=colorscale,
+            cmin=cmin,
+            cmax=cmax,
+            mode="lines",
+            hovertemplate="%{text}",
+            name=name,
+            legendgroup=legendgroup,
+        )
     )
 
     # Process color information for the arrow tips
-    # Initialize the arrow tips. Plotly cones do not support one categorical
-    # scalar per cone, so materialize colored tips individually when needed.
+    # Plotly cones do not support one categorical scalar per cone. Group tips
+    # by their rendered color so shared colors retain the efficient batched
+    # representation and discrete colors cost one trace per unique color.
     ends = points + (1 - tip_ratio / 2) * length * directions
     directions = tip_ratio * length * directions
     tip_colors = [color] * len(points)
@@ -134,21 +139,26 @@ def scatter_arrows(
         else:
             tip_colors = values.tolist()
 
+    color_groups = defaultdict(list)
     for index, tip_color in enumerate(tip_colors):
-        tip_color = tip_color if isinstance(tip_color, str) else "black"
+        rendered_color = tip_color if isinstance(tip_color, str) else "black"
+        color_groups[rendered_color].append(index)
+
+    for tip_color, indexes in color_groups.items():
+        indexes = np.asarray(indexes, dtype=np.int64)
         traces.append(
             go.Cone(
-                x=ends[index : index + 1, 0],
-                y=ends[index : index + 1, 1],
-                z=ends[index : index + 1, 2],
-                u=directions[index : index + 1, 0],
-                v=directions[index : index + 1, 1],
-                w=directions[index : index + 1, 2],
+                x=ends[indexes, 0],
+                y=ends[indexes, 1],
+                z=ends[indexes, 2],
+                u=directions[indexes, 0],
+                v=directions[indexes, 1],
+                w=directions[indexes, 2],
                 showscale=False,
                 showlegend=False,
                 sizemode="raw",
                 colorscale=[(0, tip_color), (1, tip_color)],
-                hovertext=[hovertext_arrows[index]],
+                hovertext=[hovertext_arrows[index] for index in indexes],
                 hovertemplate="%{hovertext}",
                 name=name,
                 legendgroup=legendgroup,

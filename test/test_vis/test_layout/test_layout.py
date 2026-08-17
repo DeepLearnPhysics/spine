@@ -122,6 +122,26 @@ def test_layout3d_orients_default_camera_with_geometry():
     }
 
 
+def test_layout3d_accepts_explicit_up_direction():
+    """Renderer backends should orient cameras without a Geometry object."""
+    layout = layout3d(
+        ranges=np.asarray([[0.0, 1.0]] * 3),
+        detector_coords=True,
+        up_dir=np.array([2.0, 0.0, 0.0]),
+    )
+
+    assert layout.scene.camera.up.to_plotly_json() == {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0,
+    }
+
+    with pytest.raises(ValueError, match="up direction"):
+        layout3d(up_dir=np.zeros(3))
+    with pytest.raises(ValueError, match="up direction"):
+        layout3d(up_dir=np.ones(2))
+
+
 def test_layout_helpers_cover_style_and_validation(monkeypatch):
     layout = layout3d(width=10, height=20)
     fig = dual_figure3d([], [], layout=layout, width=100, height=50)

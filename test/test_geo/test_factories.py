@@ -29,6 +29,21 @@ def test_geo_dict_reads_available_configs(geo_config_dir):
     assert options[path] == {"name": "demo", "tag": "v1", "version": "1.0"}
 
 
+def test_geo_factory_accepts_deprecated_aliases(geo_config_dir):
+    """Geometry aliases should preserve old names while naming replacements."""
+    path = write_geometry_config(geo_config_dir, "DUNE-HD", "v1", "1")
+    text = path.read_text(encoding="utf-8")
+    path.write_text(
+        text.replace("name: DUNE-HD", "name: DUNE-HD\naliases: [DUNE]"),
+        encoding="utf-8",
+    )
+
+    with pytest.warns(DeprecationWarning, match="use 'DUNE-HD'"):
+        geo = geo_factory("DUNE")
+
+    assert geo.name == "DUNE-HD"
+
+
 def test_packaged_geometries_declare_up_direction():
     """Every packaged detector should explicitly define its physical up axis."""
     paths = sorted(GEO_CONFIG_DIR.glob("*/*_geometry.yaml"))
@@ -43,6 +58,14 @@ def test_packaged_geometries_declare_up_direction():
             else [0.0, 1.0, 0.0]
         )
         assert np.array_equal(config["up_dir"], expected), path
+
+
+def test_packaged_dune_hd_geometry_preserves_old_name():
+    """The clarified DUNE-HD name should retain its historical factory alias."""
+    with pytest.warns(DeprecationWarning, match="DUNE-HD-10kt-1x2x6"):
+        geo = geo_factory("DUNE10kt-1x2x6")
+
+    assert geo.name == "DUNE-HD-10kt-1x2x6"
 
 
 def test_geo_dict_rejects_missing_version(geo_config_dir):

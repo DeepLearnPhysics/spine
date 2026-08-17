@@ -229,8 +229,6 @@ class LineLayer:
     name : str, optional
         Layer label.
     values : scalar or np.ndarray, optional
-        Shared or per-vector values used for coloring.
-    values : scalar or np.ndarray, optional
         Shared or per-segment color values.
     hovertext : scalar or sequence, optional
         Shared or per-segment hover labels.
@@ -284,6 +282,8 @@ class VectorLayer:
         Direction vectors with shape ``(N, 3)``.
     name : str, optional
         Layer label.
+    values : scalar or np.ndarray, optional
+        Shared or per-vector color values.
     hovertext : scalar or sequence, optional
         Shared or per-vector hover labels.
     object_ids : np.ndarray, optional

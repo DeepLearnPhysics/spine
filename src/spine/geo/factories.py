@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ GEO_CONFIG_DIR = Path(__file__).parent / "config"
 __all__ = ["geo_factory"]
 
 
-def geo_dict() -> dict[Path, dict[str, str]]:
+def geo_dict() -> dict[Path, dict[str, Any]]:
     """Builds a dictionary of available geometry modules.
 
     Returns
@@ -35,6 +36,8 @@ def geo_dict() -> dict[Path, dict[str, str]]:
             raise ValueError(f"Geometry configuration is missing a version: {path}")
         options[path] = {"version": version}
         options[path].update({k: str(cfg[k]) for k in ("name", "tag")})
+        if "aliases" in cfg:
+            options[path]["aliases"] = [str(alias) for alias in cfg["aliases"]]
 
     return options
 
@@ -65,15 +68,26 @@ def geo_factory(
     requested_version = normalize_version(version)
     requested_version_parts = str(version).split(".") if version is not None else []
     paths, tags, versions = [], [], []
+    canonical_name = None
     for path, cfg in options.items():
         # If the detector name matches, store the path
-        if cfg["name"].lower() == detector.lower():
+        aliases = [alias.lower() for alias in cfg.get("aliases", [])]
+        if cfg["name"].lower() == detector.lower() or detector.lower() in aliases:
             paths.append(path)
             tags.append(cfg.get("tag", None))
             versions.append(cfg.get("version", None))
+            if detector.lower() in aliases:
+                canonical_name = cfg["name"]
 
     if len(paths) == 0:
         raise ValueError(f"No geometry found for detector '{detector}'.")
+    if canonical_name is not None:
+        warnings.warn(
+            f"Geometry name '{detector}' is deprecated; use "
+            f"'{canonical_name}' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # If a tag is specified, must find the exact tag or throw
     file_path = ""
@@ -122,6 +136,7 @@ def geo_factory(
     # Parse configuration file as a dictionary
     with open(file_path, "r", encoding="utf-8") as f:
         cfg: dict[str, Any] = yaml.safe_load(f)
+    cfg.pop("aliases", None)
 
     # Instantiate the geometry module
     return Geometry(**cfg)

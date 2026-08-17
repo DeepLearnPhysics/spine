@@ -61,9 +61,23 @@ class PlotlyBackend:
         ValueError
             If the scene contains more than two independent views.
         """
+        # Reconstruct the established detector layout from portable metadata.
+        # Explicit backend arguments and preconfigured layouts take precedence.
+        if layout is None:
+            metadata = scene.metadata
+            layout_kwargs = dict(layout_kwargs)
+            bounds = metadata.get("layout_bounds", metadata.get("bounds"))
+            if bounds is not None:
+                layout_kwargs.setdefault("ranges", np.asarray(bounds))
+            if metadata.get("detector_coords") is not None:
+                layout_kwargs.setdefault("detector_coords", metadata["detector_coords"])
+            if metadata.get("up_dir") is not None:
+                layout_kwargs.setdefault("up_dir", np.asarray(metadata["up_dir"]))
+            layout = layout3d(**layout_kwargs)
+
         # Return a valid empty figure for scenes without views
         if not scene.views:
-            return go.Figure(layout=layout or layout3d(**layout_kwargs))
+            return go.Figure(layout=layout)
 
         # Plotly's current subplot helper supports the event-display use case
         if len(scene.views) > 2:
@@ -78,9 +92,6 @@ class PlotlyBackend:
             ]
             for view in scene.views
         ]
-
-        # Build a common layout unless the caller provided one explicitly
-        layout = layout or layout3d(**layout_kwargs)
 
         # Render truth and reconstruction as linked side-by-side scenes
         if len(trace_groups) == 2:
@@ -208,6 +219,29 @@ class PlotlyBackend:
         """Convert independent segments to one NaN-separated Plotly line."""
         separators = np.full((len(layer.segments), 1, 3), np.nan, dtype=np.float32)
         points = np.concatenate((layer.segments, separators), axis=1).reshape(-1, 3)
+
+        hovertext = layer.hovertext
+        if hovertext is not None:
+            if np.isscalar(hovertext):
+                hovertext = np.full(len(layer.segments), hovertext, dtype=object)
+            else:
+                hovertext = np.asarray(hovertext, dtype=object)
+                if hovertext.ndim == 0:
+                    hovertext = np.full(
+                        len(layer.segments), hovertext.item(), dtype=object
+                    )
+                elif hovertext.shape != (len(layer.segments),):
+                    raise ValueError(
+                        "Line hover text must provide one label per segment."
+                    )
+            hovertext = np.column_stack(
+                (
+                    hovertext,
+                    hovertext,
+                    np.full(len(hovertext), None, dtype=object),
+                )
+            ).reshape(-1)
+
         values = layer.values
         if values is not None and not np.isscalar(values):
             values = np.asarray(values)
@@ -224,7 +258,7 @@ class PlotlyBackend:
             "z": points[:, 2],
             "name": layer.name,
             "meta": layer.metadata,
-            "hovertext": layer.hovertext,
+            "hovertext": hovertext,
             "line": {
                 "width": layer.style.width,
                 "color": (
@@ -391,12 +425,15 @@ class PlotlyBackend:
             values = layer.values
             if values is not None and not np.isscalar(values):
                 values = np.repeat(values, 8)
+            hovertext = layer.hovertext
+            if hovertext is not None and not np.isscalar(hovertext):
+                hovertext = np.repeat(hovertext, 8)
             mesh = MeshLayer(
                 np.asarray(vertices, dtype=np.float32).reshape(-1, 3),
                 np.asarray(faces, dtype=np.int32).reshape(-1, 3),
                 name=layer.name,
                 values=values,
-                hovertext=layer.hovertext,
+                hovertext=hovertext,
                 style=layer.mesh_style,
                 metadata=layer.metadata,
             )
@@ -404,11 +441,14 @@ class PlotlyBackend:
         values = layer.values
         if values is not None and not np.isscalar(values):
             values = np.repeat(values, 12)
+        hovertext = layer.hovertext
+        if hovertext is not None and not np.isscalar(hovertext):
+            hovertext = np.repeat(hovertext, 12)
         lines = LineLayer(
             np.asarray(segments, dtype=np.float32).reshape(-1, 2, 3),
             name=layer.name,
             values=values,
-            hovertext=layer.hovertext,
+            hovertext=hovertext,
             style=layer.line_style,
             metadata=layer.metadata,
         )

@@ -42,6 +42,7 @@ def layout3d(
     detector_padding: float = 0.1,
     titles: list[str] | None = None,
     detector_coords: bool = False,
+    up_dir: np.ndarray | None = None,
     backgroundcolor: str = "white",
     gridcolor: str = "lightgray",
     width: int = 800,
@@ -81,6 +82,9 @@ def layout3d(
     detector_coords : bool, default False
         If ``True``, treat all coordinates as detector coordinates rather than
         pixel coordinates.
+    up_dir : np.ndarray, optional
+        Physical up direction in ``x``, ``y``, ``z`` coordinates. Geometry
+        configuration takes precedence when ``geo`` is provided.
     backgroundcolor : str, default ``"white"``
         Plot background color.
     gridcolor : str, default ``"lightgray"``
@@ -128,7 +132,14 @@ def layout3d(
                 "Each range upper bound must be greater than its lower bound."
             )
 
-    up_dir = np.array([0.0, 1.0, 0.0])
+    if up_dir is None:
+        up_dir = np.array([0.0, 1.0, 0.0])
+    else:
+        up_dir = np.asarray(up_dir, dtype=np.float64)
+        if up_dir.shape != (3,) or not np.any(up_dir):
+            raise ValueError("The physical up direction must be a nonzero 3-vector.")
+        up_dir = up_dir / np.linalg.norm(up_dir)
+
     if use_geo or geo is not None:
         # Geometry-driven bounds take precedence over explicit point clouds.
         if ranges is not None and None not in ranges:

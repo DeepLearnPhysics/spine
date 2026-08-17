@@ -9,6 +9,7 @@ from plotly import graph_objs as go
 
 from spine.constants import TRACK_SHP
 from spine.data.out import RecoInteraction, RecoParticle, TruthParticle
+from spine.geo import Geometry
 from spine.vis import (
     BoxLayer,
     Drawer,
@@ -240,6 +241,144 @@ def test_plotly_backend_renders_all_neutral_layers():
     assert len(figure.data[8].intensity) == 8
 
 
+def test_plotly_backend_uses_scene_layout_metadata():
+    """Plotly rendering should preserve neutral detector layout context."""
+    scene = Scene(
+        [SceneView("all", [PointLayer(np.zeros((1, 3)))])],
+        metadata={
+            "bounds": [[0.0, 10.0], [0.0, 20.0], [0.0, 30.0]],
+            "detector_coords": True,
+            "up_dir": [1.0, 0.0, 0.0],
+        },
+    )
+
+    figure = scene.render("plotly")
+
+    assert figure.layout.scene.xaxis.range == (0, 10)
+    assert figure.layout.scene.yaxis.range == (0, 20)
+    assert figure.layout.scene.zaxis.range == (0, 30)
+    assert figure.layout.scene.xaxis.title.text == "x [cm]"
+    assert figure.layout.scene.camera.up.to_plotly_json() == {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0,
+    }
+
+    override = scene.render(
+        "plotly",
+        ranges=np.asarray([[1.0, 2.0]] * 3),
+        detector_coords=False,
+    )
+    assert override.layout.scene.xaxis.range == (1, 2)
+    assert override.layout.scene.xaxis.title.text == "x [pixel]"
+
+
+def test_drawer_scene_plotly_layout_matches_direct_drawer():
+    """The neutral Plotly path should retain the direct drawer layout."""
+    geo = Geometry(
+        name="test",
+        tag="test",
+        version="1",
+        tpc={
+            "dimensions": [10.0, 20.0, 30.0],
+            "positions": [[5.0, 10.0, 15.0]],
+            "module_ids": [0],
+            "drift_dirs": [[1.0, 0.0, 0.0]],
+        },
+        up_dir=[1.0, 0.0, 0.0],
+    )
+    particle = RecoParticle(id=0, index=np.array([0], dtype=np.int32))
+    drawer = Drawer(
+        {
+            "points": np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32),
+            "reco_particles": [particle],
+        },
+        draw_mode="reco",
+        geo=geo,
+    )
+
+    direct = drawer.get("particles")
+    scene = drawer.get_scene("particles")
+    compatible = scene.render("plotly")
+
+    for axis in ("xaxis", "yaxis", "zaxis"):
+        direct_axis = getattr(direct.layout.scene, axis)
+        compatible_axis = getattr(compatible.layout.scene, axis)
+        assert compatible_axis.range == direct_axis.range
+        assert compatible_axis.title.text == direct_axis.title.text
+    assert compatible.layout.scene.camera == direct.layout.scene.camera
+    assert scene.metadata["bounds"] == [
+        [0.0, 10.0],
+        [0.0, 20.0],
+        [0.0, 30.0],
+    ]
+    assert scene.metadata["layout_bounds"] == [
+        [-1.0, 11.0],
+        [-2.0, 22.0],
+        [-3.0, 33.0],
+    ]
+
+
+def test_plotly_backend_expands_line_hovertext():
+    """One line label should be attached to both vertices of its segment."""
+    segments = np.asarray(
+        [
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            [[0.0, 1.0, 0.0], [1.0, 1.0, 0.0]],
+        ]
+    )
+    trace = PlotlyBackend._line_trace(
+        LineLayer(segments, hovertext=["first", "second"])
+    )
+
+    assert trace["hovertext"].tolist() == [
+        "first",
+        "first",
+        None,
+        "second",
+        "second",
+        None,
+    ]
+    scalar = PlotlyBackend._line_trace(LineLayer(segments, hovertext="shared"))
+    assert scalar["hovertext"].tolist() == [
+        "shared",
+        "shared",
+        None,
+        "shared",
+        "shared",
+        None,
+    ]
+    array_scalar = PlotlyBackend._line_trace(
+        LineLayer(segments, hovertext=np.asarray("shared"))
+    )
+    assert array_scalar["hovertext"].tolist() == scalar["hovertext"].tolist()
+
+    with pytest.raises(ValueError, match="one label per segment"):
+        PlotlyBackend._line_trace(LineLayer(segments, hovertext=["only one"]))
+
+
+def test_plotly_backend_expands_box_hovertext():
+    """Wireframe boxes should repeat each box label across all of its edges."""
+    boxes = BoxLayer(
+        np.asarray(
+            [
+                [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]],
+                [[2.0, 2.0, 2.0], [3.0, 3.0, 3.0]],
+            ]
+        ),
+        hovertext=["first", "second"],
+    )
+
+    trace = PlotlyBackend._box_trace(boxes)
+
+    assert trace["hovertext"][:36].tolist().count("first") == 24
+    assert trace["hovertext"][36:].tolist().count("second") == 24
+
+    boxes.draw_faces = True
+    face_trace = PlotlyBackend._box_trace(boxes)
+    assert face_trace["hovertext"].tolist() == ["first"] * 8 + ["second"] * 8
+
+
 def test_scene_accepts_custom_backend():
     """Third-party renderers should plug in without depending on Plotly."""
 
@@ -437,7 +576,9 @@ def test_drawer_scene_builds_vertex_and_meta_bounds():
     data = {
         "points": np.ones((1, 3), dtype=np.float32),
         "reco_interactions": [interaction],
-        "meta": SimpleNamespace(lower=np.zeros(3), upper=np.ones(3)),
+        "meta": SimpleNamespace(
+            lower=np.zeros(3), upper=np.ones(3), size=np.full(3, 0.25)
+        ),
     }
 
     scene = Drawer(data, draw_mode="reco").get_scene("interactions", draw_vertices=True)
@@ -446,6 +587,11 @@ def test_drawer_scene_builds_vertex_and_meta_bounds():
     assert scene.views[0].layers[-1].symbol == "diamond"
     assert scene.views[0].layers[-1].values.tolist() == [0]
     assert scene.metadata["bounds"] == [[0.0, 1.0]] * 3
+
+    pixel_scene = Drawer(data, draw_mode="reco", detector_coords=False).get_scene(
+        "interactions"
+    )
+    assert pixel_scene.metadata["bounds"] == [[0.0, 4.0]] * 3
 
     legacy_scene = Drawer(data, draw_mode="reco", match_aux_colors=False).get_scene(
         "interactions", draw_vertices=True
