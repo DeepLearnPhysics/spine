@@ -8,12 +8,10 @@ from warnings import warn
 import numpy as np
 
 from spine.constants import (
-    DELTA_SHP,
     INVAL_ID,
     INVAL_IDX,
     INVAL_TID,
     LOWES_SHP,
-    MICHL_SHP,
     PDG_TO_PID,
 )
 
@@ -418,7 +416,7 @@ def get_nu_ids(
     return nu_ids
 
 
-def get_group_primary_ids(particles, valid_mask=None, label_le=False):
+def get_group_primary_ids(particles, valid_mask=None, label_le=False, visible_ids=None):
     """Gets the group primary status of particle fragments.
 
     This could be handled somewhere else (e.g. Supera).
@@ -431,6 +429,9 @@ def get_group_primary_ids(particles, valid_mask=None, label_le=False):
         (P) Particle label validity mask
     label_le : bool, default False
         If `True`, allows low-energy fragments to be group primaries
+    visible_ids : np.ndarray, optional
+        Particle indexes represented in the retained label image. If omitted,
+        particles with at least one voxel are considered visible.
 
     Results
     -------
@@ -440,6 +441,16 @@ def get_group_primary_ids(particles, valid_mask=None, label_le=False):
     # Compute the validity mask if it is not provided
     if valid_mask is None:
         valid_mask = get_valid_mask(particles)
+
+    # Build the retained-particle mask. Primary identification is supervised
+    # only when the declared group progenitor is actually observable.
+    if visible_ids is None:
+        visible_mask = np.array([p.num_voxels() > 0 for p in particles], dtype=bool)
+    else:
+        visible_mask = np.zeros(len(particles), dtype=bool)
+        visible_ids = np.asarray(visible_ids, dtype=int)
+        visible_ids = visible_ids[(visible_ids >= 0) & (visible_ids < len(particles))]
+        visible_mask[visible_ids] = True
 
     # Loop over the list of particle groups
     primary_ids = np.zeros(len(particles), dtype=int)
@@ -461,25 +472,29 @@ def get_group_primary_ids(particles, valid_mask=None, label_le=False):
             primary_ids[group_index] = -1
             continue
 
-        # If a group originates from a Delta or a Michel, it has a primary
-        group_p = particles[group_id]
-        if group_p.shape() == MICHL_SHP or group_p.shape() == DELTA_SHP:
-            primary_ids[group_id] = 1
+        # The only possible primary target is the declared group progenitor.
+        # Never promote a visible daughter when the progenitor is absent.
+        if not visible_mask[group_id]:
             continue
 
-        # Select the earliest eligible fragment in the group. Do not require
-        # it to be visible: if the physical primary owns no retained voxels,
-        # no visible fragment receives a positive primary-training label.
-        eligible_index = group_index
+        # Require the progenitor to be label-eligible and uniquely earliest
+        # among retained, eligible fragments. Otherwise the primary target is
+        # not cleanly observable and the group receives no positive label.
+        eligible_index = group_index[visible_mask[group_index]]
         if not label_le:
-            eligible_index = group_index[
-                np.array([particles[i].shape() < LOWES_SHP for i in group_index])
+            eligible_index = eligible_index[
+                np.array(
+                    [particles[i].shape() < LOWES_SHP for i in eligible_index],
+                    dtype=bool,
+                )
             ]
-        if len(eligible_index):
-            clust_times = np.array(
-                [particles[i].first_step().t() for i in eligible_index]
-            )
-            primary_ids[eligible_index[np.argmin(clust_times)]] = 1
+        if group_id not in eligible_index:
+            continue
+
+        clust_times = np.array([particles[i].first_step().t() for i in eligible_index])
+        earliest_index = eligible_index[clust_times == np.min(clust_times)]
+        if len(earliest_index) == 1 and earliest_index[0] == group_id:
+            primary_ids[group_id] = 1
 
     return primary_ids
 

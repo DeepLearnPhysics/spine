@@ -81,6 +81,7 @@ def test_build_truth_particles_from_groups(points, depositions):
         Particle(
             id=0,
             group_id=0,
+            group_primary=1,
             interaction_id=0,
             parent_id=-1,
             shape=TRACK_SHP,
@@ -293,6 +294,43 @@ def test_build_truth_particles_preserve_delta_group_shape(points, depositions):
     assert result[0].first_step_t == 2.0
     np.testing.assert_array_equal(result[0].first_step, [2, 0, 0])
     np.testing.assert_array_equal(result[0].start_point, [2, 0, 0])
+
+
+def test_build_truth_particles_without_visible_representative(
+    points, depositions, monkeypatch
+):
+    """Groups without a geometry representative are explicitly invalid."""
+    builder = ParticleBuilder(mode="truth", units="px")
+    labels = make_label_tensor(
+        points,
+        depositions,
+        [0, 0, -1, -1],
+        group_ids=[0, 0, -1, -1],
+    )
+    particles = [Particle(id=0, group_id=0)]
+
+    assert (
+        builder._truth_group_representative(
+            particles,
+            np.array([0], dtype=int),
+            None,
+            np.array([1], dtype=int),
+        )
+        is None
+    )
+    monkeypatch.setattr(builder, "_truth_group_representative", lambda *args: None)
+
+    result = builder._build_truth(
+        particles=particles,
+        label_tensor=labels,
+        points_label=points,
+        depositions_label=depositions,
+    )
+
+    assert result[0].is_valid is False
+    assert np.isnan(result[0].first_step_t)
+    assert np.isnan(result[0].first_step).all()
+    assert np.isnan(result[0].start_point).all()
 
 
 def test_build_truth_particles_reject_invalid_group_ids(points, depositions):

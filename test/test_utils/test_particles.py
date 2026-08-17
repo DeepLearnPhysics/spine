@@ -43,7 +43,7 @@ class DummyParticle:
 
 
 def test_group_primary_ids_respect_label_le():
-    """Low-energy fragments should be primary only when labels are retained."""
+    """An excluded low-energy progenitor must not promote its daughter."""
     particles = [
         DummyParticle(group_id=0, shape=LOWES_SHP, time=0.0),
         DummyParticle(group_id=0, shape=0, time=1.0),
@@ -51,7 +51,7 @@ def test_group_primary_ids_respect_label_le():
     valid_mask = np.ones(len(particles), dtype=bool)
 
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 1]
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 0]
     )
     np.testing.assert_array_equal(
         get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
@@ -67,10 +67,55 @@ def test_group_primary_ids_do_not_promote_visible_fragments():
     valid_mask = np.ones(len(particles), dtype=bool)
 
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=False), [1, 0]
+        get_group_primary_ids(particles, valid_mask, label_le=False), [0, 0]
     )
     np.testing.assert_array_equal(
-        get_group_primary_ids(particles, valid_mask, label_le=True), [1, 0]
+        get_group_primary_ids(particles, valid_mask, label_le=True), [0, 0]
+    )
+
+
+def test_group_primary_ids_require_unique_earliest_progenitor():
+    """Only a uniquely earliest visible progenitor is a clean target."""
+    valid_mask = np.ones(2, dtype=bool)
+
+    clean = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=1.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(clean, valid_mask, label_le=False), [1, 0]
+    )
+
+    earlier_daughter = [
+        DummyParticle(group_id=0, shape=0, time=1.0),
+        DummyParticle(group_id=0, shape=0, time=0.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(earlier_daughter, valid_mask, label_le=False), [0, 0]
+    )
+
+    tied = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=0.0),
+    ]
+    np.testing.assert_array_equal(
+        get_group_primary_ids(tied, valid_mask, label_le=False), [0, 0]
+    )
+
+
+def test_group_primary_ids_use_explicit_visibility():
+    """Explicit retained indexes override raw voxel visibility."""
+    particles = [
+        DummyParticle(group_id=0, shape=0, time=0.0),
+        DummyParticle(group_id=0, shape=0, time=1.0),
+    ]
+    valid_mask = np.ones(2, dtype=bool)
+
+    np.testing.assert_array_equal(
+        get_group_primary_ids(
+            particles, valid_mask, label_le=False, visible_ids=np.array([1])
+        ),
+        [0, 0],
     )
 
 
