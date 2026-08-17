@@ -87,6 +87,23 @@ class MetaStub:
 def test_geometry_normalizes_version(simple_geo):
     """Geometry instances should store normalized version strings."""
     assert simple_geo.version == "1.0"
+    assert np.array_equal(simple_geo.up_dir, [0.0, 1.0, 0.0])
+
+
+def test_geometry_normalizes_up_direction():
+    """Geometry should validate and normalize its detector up direction."""
+    tpc = {
+        "dimensions": [10.0, 20.0, 30.0],
+        "positions": [[-6.0, 0.0, 0.0], [6.0, 0.0, 0.0]],
+        "module_ids": [0, 0],
+    }
+    geo = Geometry("demo", "v1", 1, tpc, up_dir=[2.0, 0.0, 0.0])
+
+    assert np.array_equal(geo.up_dir, [1.0, 0.0, 0.0])
+
+    for up_dir in ([0.0, 0.0], [0.0, 0.0, 0.0], [0.0, np.inf, 0.0]):
+        with pytest.raises(ValueError, match="up direction"):
+            Geometry("demo", "v1", 1, tpc, up_dir=up_dir)
 
 
 def test_parse_optical_rejects_unknown_volume(simple_geo):

@@ -32,8 +32,11 @@ class Trigger(DataBase):
     """
 
     # Scalar attributes
-    id: int = -1
-    type: int = -1
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="trigger", reference_space="same"),
+    )
+    type: int = field(default=-1, metadata=FieldMetadata(categorical=True))
     time_s: int = field(default=-1, metadata=FieldMetadata(units="s"))
     time_ns: int = field(default=-1, metadata=FieldMetadata(units="ns"))
     beam_time_s: int = field(default=-1, metadata=FieldMetadata(units="s"))

@@ -38,8 +38,14 @@ class FragmentBase(OutBase):
     """
 
     # Scalar attributes
-    particle_id: int = -1
-    interaction_id: int = -1
+    particle_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="particle", reference_space="same"),
+    )
+    interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="interaction", reference_space="same"),
+    )
 
     is_primary: bool = False
 
@@ -154,15 +160,34 @@ class TruthFragment(Particle, FragmentBase, TruthBase):
         to track objects)
     """
 
+    # Index attributes
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="fragment", reference_space="same"
+        ),
+    )
+
     # Scalar attributes
-    orig_interaction_id: int = -1
-    orig_parent_id: int = -1
-    orig_group_id: int = -1
+    orig_interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="interaction", reference_space="external"),
+    )
+    orig_parent_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="particle", reference_space="external"),
+    )
+    orig_group_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="particle", reference_space="external"),
+    )
 
     # Vector attributes
     orig_children_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="particle", reference_space="external"
+        ),
     )
     children_counts: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),

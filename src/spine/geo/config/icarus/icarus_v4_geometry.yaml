@@ -1,6 +1,7 @@
 name: ICARUS
 tag: icarus_v4
 version: 4
+up_dir: [0.0, 1.0, 0.0]
 gdml: icarus_refactored_nounderscore_20230918.gdml
 tpc:
   dimensions: [148.2, 316.82, 1789.902]

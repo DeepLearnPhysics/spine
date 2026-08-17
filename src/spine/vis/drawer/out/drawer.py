@@ -11,10 +11,13 @@ import spine.data.out
 from spine.geo import GeoManager
 
 from ...layout import dual_figure3d, layout3d
+from ...scene import Scene
 from ...trace.cluster import scatter_clusters
 from ..geo import GeoDrawer
 from ..lite import scatter_lite
-from .colors import build_object_colors
+from .colors import build_object_colors, colorable_attributes, object_color_kind
+from .formatting import is_long_form
+from .scene import SceneBuilder
 from .traces import (
     build_crt_trace,
     build_direction_trace,
@@ -28,7 +31,7 @@ from .traces import (
     get_flash_pe,
 )
 
-__all__ = ["Drawer"]
+__all__ = ["Drawer", "colorable_attributes", "object_color_kind"]
 
 
 class Drawer:
@@ -46,7 +49,7 @@ class Drawer:
     # Supported draw modes
     _draw_modes = ("reco", "truth", "both", "all")
 
-    # Supported truth point, deposition and source modes and their corresponding backing data keys
+    # Supported truth point, deposition and source modes and their backing keys
     _point_modes = (
         ("points", "points_label"),
         ("points_adapt", "points"),
@@ -71,6 +74,7 @@ class Drawer:
         geo: Any | None = None,
         detector_coords: bool = True,
         lite: bool = False,
+        match_aux_colors: bool = True,
         **kwargs: Any,
     ) -> None:
         """Initialize the drawer configuration.
@@ -97,6 +101,10 @@ class Drawer:
         lite : bool, default False
             If ``True``, draw the lite object representation without per-point
             clouds.
+        match_aux_colors : bool, default True
+            If ``True``, match end points, directions, and vertices to their
+            parent object colors. If ``False``, use the legacy black end-point
+            and direction colors and green interaction vertices.
         **kwargs : Any
             Additional layout options forwarded to
             :func:`spine.vis.layout.layout3d`.
@@ -104,10 +112,11 @@ class Drawer:
         # Store the data products to be visualized for use by the trace builders
         self.data = data
 
-        # Validate the requested draw mode and determine which object families to draw
+        # Validate the requested draw mode
         if draw_mode not in self._draw_modes:
             raise ValueError(
-                f"`mode` not recognized: {draw_mode}. Must be one of {self._draw_modes}."
+                f"`mode` not recognized: {draw_mode}. Must be one of "
+                f"{self._draw_modes}."
             )
 
         # Determine which object families to draw based on the requested draw mode
@@ -147,8 +156,9 @@ class Drawer:
             self.geo_drawer = GeoDrawer(geo=self.geo, detector_coords=detector_coords)
             self.geo = self.geo_drawer.geo
 
-        # Store the remaining configuration options for use by the trace builders and layout
+        # Store the remaining trace-builder and layout configuration
         self.lite = lite
+        self.match_aux_colors = match_aux_colors
         self.split_scene = split_scene
         self.detector_coords = detector_coords
         self.meta = self.meta if self.geo is None else None
@@ -206,6 +216,234 @@ class Drawer:
         if not obj.is_truth:
             return obj.index
         return getattr(obj, self.truth_index_mode)
+
+    def get_scene(
+        self,
+        obj_type: str,
+        attr: str | list[str] | None = None,
+        color_attr: str | None = None,
+        draw_raw: bool = False,
+        draw_end_points: bool = False,
+        draw_directions: bool = False,
+        draw_vertices: bool = False,
+        draw_flashes: bool = False,
+        draw_flash_hypotheses: bool = False,
+        matched_flash_only: bool = True,
+        optical_size_by_pe: bool = False,
+        flash_hypothesis_key: str = "flash_hypotheses",
+        draw_crthits: bool = False,
+        matched_crthit_only: bool = True,
+    ) -> Scene:
+        """Build a renderer-neutral scene for the requested event display.
+
+        Parameters
+        ----------
+        obj_type : str
+            Object family to draw.
+        attr : str or list[str], optional
+            Object attributes included in hover labels and numeric layer data.
+        color_attr : str, optional
+            Attribute used to define point colors.
+        draw_raw : bool, default False
+            If ``True``, include the raw deposition cloud.
+        draw_end_points : bool, default False
+            If ``True``, include object start and end markers.
+        draw_directions : bool, default False
+            If ``True``, include object start-direction vectors.
+        draw_vertices : bool, default False
+            If ``True``, include interaction vertex markers.
+        draw_flashes : bool, default False
+            If ``True``, include measured optical responses.
+        draw_flash_hypotheses : bool, default False
+            If ``True``, include predicted optical responses.
+        matched_flash_only : bool, default True
+            If ``True``, restrict measured flashes to object matches.
+        optical_size_by_pe : bool, default False
+            If ``True``, scale optical glyphs by photoelectron count.
+        flash_hypothesis_key : str, default ``"flash_hypotheses"``
+            Event-data key containing optical hypotheses.
+        draw_crthits : bool, default False
+            If ``True``, include CRT hits and hit planes.
+        matched_crthit_only : bool, default True
+            If ``True``, restrict CRT hits to object matches.
+
+        Returns
+        -------
+        Scene
+            Renderer-neutral scene with one combined or two split views.
+
+        Raises
+        ------
+        ValueError
+            If a requested collection or required backing array is absent.
+        RuntimeError
+            If raw input is requested for lite objects.
+        """
+        # Keep the public entry point small; neutral assembly belongs to the
+        # renderer-independent scene builder.
+        return SceneBuilder(self).build(
+            obj_type=obj_type,
+            attr=attr,
+            color_attr=color_attr,
+            draw_raw=draw_raw,
+            draw_end_points=draw_end_points,
+            draw_directions=draw_directions,
+            draw_vertices=draw_vertices,
+            draw_flashes=draw_flashes,
+            draw_flash_hypotheses=draw_flash_hypotheses,
+            matched_flash_only=matched_flash_only,
+            optical_size_by_pe=optical_size_by_pe,
+            flash_hypothesis_key=flash_hypothesis_key,
+            draw_crthits=draw_crthits,
+            matched_crthit_only=matched_crthit_only,
+        )
+
+    def build_geometry_traces(self) -> list[Any]:
+        """Build detector outlines with contrast for the configured theme.
+
+        Returns
+        -------
+        list
+            Plotly traces describing the configured TPC geometry.
+
+        Raises
+        ------
+        RuntimeError
+            If this drawer was initialized without a geometry drawer.
+        """
+        if self.geo_drawer is None:
+            raise RuntimeError(
+                "A geometry drawer is required to build geometry traces."
+            )
+
+        dark = self.layout_kwargs.get("dark", False)
+        color = "rgba(255,255,255,0.400)" if dark else "rgba(0,0,0,0.200)"
+        traces = self.geo_drawer.tpc_traces(meta=self.meta, color=color)
+        for trace in traces:
+            trace.update(meta={"kind": "geometry"})
+        return traces
+
+    def resolve_aux_colors(
+        self, obj_name: str, attrs: list[str], color_attr: str | None
+    ) -> dict[str, Any] | None:
+        """Build parent-object colors for auxiliary markers and vectors.
+
+        Long-form attributes carry one value per point and therefore cannot
+        define one unambiguous color for an object-level glyph. In that case,
+        auxiliary glyphs fall back to the same object-ID palette used by the
+        default object display.
+
+        Parameters
+        ----------
+        obj_name : str
+            Name of the parent object collection.
+        attrs : list[str]
+            Attributes included in the parent hover labels.
+        color_attr : str, optional
+            Attribute used to color the parent objects.
+
+        Returns
+        -------
+        dict or None
+            Parent color mapping, or ``None`` when matching is disabled.
+        """
+        if not self.match_aux_colors:
+            return None
+
+        aux_attr = color_attr
+        aux_attrs = attrs
+        if aux_attr is not None and is_long_form(aux_attr):
+            aux_attr = None
+            aux_attrs = []
+
+        return build_object_colors(
+            data=self.data,
+            obj_name=obj_name,
+            attrs=aux_attrs,
+            color_attr=aux_attr,
+            split_traces=False,
+            geo=self.geo,
+            lite=self.lite,
+            truth_point_key=self.truth_point_key,
+            truth_point_mode=self.truth_point_mode,
+            dep_modes=self.dep_modes,
+        )
+
+    @staticmethod
+    def _aux_color_kwargs(colors: dict[str, Any] | None) -> dict[str, Any]:
+        """Return trace keyword arguments for a resolved color mapping.
+
+        Parameters
+        ----------
+        colors : dict, optional
+            Resolved parent-object color configuration.
+
+        Returns
+        -------
+        dict
+            Color, color-scale and range arguments accepted by trace helpers.
+        """
+        if colors is None:
+            return {}
+        return {
+            "color": colors["color"],
+            "colorscale": colors["colorscale"],
+            "cmin": colors["cmin"],
+            "cmax": colors["cmax"],
+        }
+
+    def validate_request(
+        self, obj_type: str, attr: str | list[str] | None
+    ) -> dict[str, list[str]]:
+        """Validate an object request and normalize attributes per prefix.
+
+        Parameters
+        ----------
+        obj_type : str
+            Object family to validate.
+        attr : str or list[str], optional
+            Requested hover or point attributes.
+
+        Returns
+        -------
+        dict[str, list[str]]
+            Valid attributes grouped by truth/reconstruction prefix.
+
+        Raises
+        ------
+        ValueError
+            If the object family or any requested attribute is unsupported.
+        """
+        # Validate the supported domain-object family
+        if obj_type not in self._obj_types:
+            raise ValueError(
+                f"Object type not recognized: {obj_type}. Must be one of "
+                f"{self._obj_types}."
+            )
+
+        # Normalize scalar and repeated attributes while preserving order
+        req_attrs = [attr] if isinstance(attr, str) else attr
+        req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
+        req_attr_set = set(req_attrs)
+        found_attrs = set()
+        attrs = {prefix: [] for prefix in self.prefixes}
+
+        # Keep only attributes exposed by each truth/reconstruction class
+        for prefix in self.prefixes:
+            class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
+            class_obj = getattr(spine.data.out, class_name)()
+            valid_attrs = set(class_obj.attr_names())
+            attrs[prefix] = [name for name in req_attrs if name in valid_attrs]
+            found_attrs.update(attrs[prefix])
+
+        # Reject attributes unsupported by every requested object declination
+        if req_attr_set != found_attrs:
+            missing_attrs = req_attr_set.difference(found_attrs)
+            raise ValueError(
+                "The following requested attributes are not available for "
+                f"any of the drawn objects: {missing_attrs}."
+            )
+        return attrs
 
     def get(
         self,
@@ -274,33 +512,7 @@ class Drawer:
         go.Figure
             Plotly figure containing all requested object and detector traces.
         """
-        # Validate the requested object type and hover attributes
-        if obj_type not in self._obj_types:
-            raise ValueError(
-                f"Object type not recognized: {obj_type}. Must be one of {self._obj_types}."
-            )
-
-        # Build a list of valid hover attributes for each requested declination
-        # because truth and reconstruction objects expose slightly different
-        # attribute sets.
-        req_attrs = [attr] if isinstance(attr, str) else attr
-        req_attrs = list(dict.fromkeys(req_attrs)) if req_attrs is not None else []
-        req_attr_set = set(req_attrs)
-        found_attrs = set()
-        attrs = {prefix: [] for prefix in self.prefixes}
-        for prefix in self.prefixes:
-            class_name = f"{prefix.capitalize()}{obj_type[:-1].capitalize()}"
-            class_obj = getattr(spine.data.out, class_name)()
-            valid_attrs = set(class_obj.attr_names())
-            attrs[prefix] = [attr for attr in req_attrs if attr in valid_attrs]
-            found_attrs.update(attrs[prefix])
-
-        if req_attr_set != found_attrs:
-            missing_attrs = req_attr_set.difference(found_attrs)
-            raise ValueError(
-                "The following requested attributes are not available for "
-                f"any of the drawn objects: {missing_attrs}."
-            )
+        attrs = self.validate_request(obj_type, attr)
 
         traces: dict[str, list] = {}
         for prefix in self.prefixes:
@@ -309,7 +521,7 @@ class Drawer:
                 raise ValueError(
                     f"Must provide `{obj_name}` in the data products to draw them."
                 )
-            traces[prefix] = self._object_traces(
+            traces[prefix] = self.build_object_traces(
                 obj_name, attrs[prefix], color_attr, split_traces
             )
 
@@ -334,17 +546,21 @@ class Drawer:
                 raise ValueError("Interactions do not have end point attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
+                colors = self.resolve_aux_colors(obj_name, attrs[prefix], color_attr)
+                color_kwargs = self._aux_color_kwargs(colors)
                 traces[prefix] += build_start_point_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **color_kwargs,
                 )
                 traces[prefix] += build_end_point_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **color_kwargs,
                 )
 
         # Draw directions as a separate trace, if requested
@@ -353,11 +569,13 @@ class Drawer:
                 raise ValueError("Interactions do not have direction attributes.")
             for prefix in self.prefixes:
                 obj_name = f"{prefix}_{obj_type}"
+                colors = self.resolve_aux_colors(obj_name, attrs[prefix], color_attr)
                 traces[prefix] += build_direction_trace(
                     data=self.data,
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **self._aux_color_kwargs(colors),
                 )
 
         # Draw vertices as separate traces, if requested
@@ -373,6 +591,13 @@ class Drawer:
                     obj_name=obj_name,
                     split_traces=split_traces,
                     truth_index_mode=self.truth_index_mode,
+                    **self._aux_color_kwargs(
+                        self.resolve_aux_colors(
+                            obj_name,
+                            attrs[prefix] if obj_type == "interactions" else [],
+                            color_attr if obj_type == "interactions" else None,
+                        )
+                    ),
                 )
 
         # Draw flashes as a separate trace, if requested
@@ -462,14 +687,14 @@ class Drawer:
 
         # Draw the geometry overlay if a GeoDrawer is available
         if self.geo_drawer is not None:
+            geo_traces = self.build_geometry_traces()
             if self.prefixes and self.split_scene:
                 for prefix in self.prefixes:
-                    traces[prefix] += self.geo_drawer.tpc_traces(meta=self.meta)
+                    traces[prefix] += geo_traces
             else:
-                traces[self.prefixes[-1]] += self.geo_drawer.tpc_traces(meta=self.meta)
+                traces[self.prefixes[-1]] += geo_traces
 
-        # Build the layout with or without separate scenes based on the configuration and
-        # assemble the final figure with all requested traces and the geometry overlay
+        # Build the layout and assemble the requested traces and geometry overlay
         layout = layout3d(
             geo=self.geo,
             use_geo=self.geo is not None,
@@ -505,7 +730,7 @@ class Drawer:
             all_traces += trace_group
         return go.Figure(all_traces, layout=layout)
 
-    def _object_traces(
+    def build_object_traces(
         self,
         obj_name: str,
         attr: list[str],
@@ -530,8 +755,7 @@ class Drawer:
         list
             Trace list representing the requested objects.
         """
-        # Build the color mapping for the object collection based on the requested
-        # color attribute and the semantics of its name if it is not explicitly requested.
+        # Build the color mapping from the requested or inferred color attribute
         color_dict = build_object_colors(
             data=self.data,
             obj_name=obj_name,

@@ -1,6 +1,7 @@
 name: ProtoDUNE-SP
 tag: protodunev7
 version: 7
+up_dir: [0.0, 1.0, 0.0]
 gdml: protodune_v7.gdml
 tpc:
   dimensions:

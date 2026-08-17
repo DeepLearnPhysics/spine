@@ -36,6 +36,8 @@ class Geometry(Box):
         Version number of the geometry
     tpc : TPCDetector
         TPC detector properties
+    up_dir : np.ndarray
+        Unit vector which points vertically upward in detector coordinates
     optical : OptDetector, optional
         Optical detector properties
     crt : CRTDetector, optional
@@ -52,6 +54,7 @@ class Geometry(Box):
     tag: str
     version: str
     tpc: TPCDetector
+    up_dir: np.ndarray
     optical: OptDetector | None = None
     crt: CRTDetector | None = None
     gdml: str | None = None
@@ -64,6 +67,7 @@ class Geometry(Box):
         tag: str,
         version: str,
         tpc: dict[str, Any],
+        up_dir: list[float] | None = None,
         optical: dict[str, Any] | None = None,
         crt: dict[str, Any] | None = None,
         gdml: str | None = None,
@@ -82,6 +86,8 @@ class Geometry(Box):
             Version number of the geometry
         tpc : dict
             Detector boundary configuration
+        up_dir : list[float], optional
+            Direction which points vertically upward in detector coordinates
         optical : dict, optional
             Optical detector configuration
         crt : dict, optional
@@ -107,6 +113,20 @@ class Geometry(Box):
         self.gdml = gdml
         self.crs_files = crs_files
         self.lrs_file = lrs_file
+
+        # Store the detector orientation as a unit vector. A direction, rather
+        # than an axis index, preserves the sign and supports rotated detectors.
+        if up_dir is None:
+            up_dir = [0.0, 1.0, 0.0]
+        up_dir_arr = np.asarray(up_dir, dtype=np.float64)
+        if up_dir_arr.shape != (3,):
+            raise ValueError("The detector up direction must contain three values.")
+        if not np.all(np.isfinite(up_dir_arr)):
+            raise ValueError("The detector up direction must contain finite values.")
+        norm = np.linalg.norm(up_dir_arr)
+        if norm == 0.0:
+            raise ValueError("The detector up direction cannot be zero.")
+        self.up_dir = up_dir_arr / norm
 
         # Load the charge detector boundaries
         self.tpc = TPCDetector(**tpc)

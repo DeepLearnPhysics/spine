@@ -91,26 +91,42 @@ class Neutrino(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="neutrino", reference_space="same"
+        ),
+    )
+    interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="interaction", reference_space="same"
+        ),
+    )
 
     # Enumerated attributes
     current_type: int = field(default=-1, metadata=FieldMetadata(enum=NuCurrentType))
     interaction_scheme: int = field(
         default=-1, metadata=FieldMetadata(enum=NuInteractionScheme)
     )
-    interaction_mode: int = -1
-    interaction_type: int = -1
+    interaction_mode: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    interaction_type: int = field(default=-1, metadata=FieldMetadata(categorical=True))
 
     # Scalar attributes
-    mct_index: int = -1
-    track_id: int = -1
-    lepton_track_id: int = -1
-    pdg_code: int = -1
-    lepton_pdg_code: int = -1
-    target: int = -1
-    nucleon: int = -1
-    quark: int = -1
+    mct_index: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    track_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="geant_track", reference_space="external"),
+    )
+    lepton_track_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="geant_track", reference_space="external"),
+    )
+    pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    lepton_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    target: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    nucleon: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    quark: int = field(default=-1, metadata=FieldMetadata(categorical=True))
 
     energy_init: float = field(default=np.nan, metadata=FieldMetadata(units="GeV"))
     hadronic_invariant_mass: float = field(

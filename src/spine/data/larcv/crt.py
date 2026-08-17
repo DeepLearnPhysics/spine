@@ -51,10 +51,16 @@ class CRTHit(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(index=True, reference="crthit", reference_space="same"),
+    )
 
     # Scalar attributes
-    plane: int = -1
+    plane: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="crt_plane", reference_space="external"),
+    )
 
     ts0_s: int = field(
         default=-1, metadata=FieldMetadata(units="s")
@@ -71,7 +77,9 @@ class CRTHit(PosDataBase):
     # Vector attributes
     feb_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.ubyte),
-        metadata=FieldMetadata(dtype=np.ubyte),
+        metadata=FieldMetadata(
+            dtype=np.ubyte, reference="crt_feb", reference_space="external"
+        ),
     )
     center: np.ndarray = field(
         default_factory=lambda: np.full(3, np.nan, dtype=np.float32),
