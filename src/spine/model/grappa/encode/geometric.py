@@ -3,15 +3,17 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
-from spine.utils.gnn.cluster import (
+from spine.cluster.direction import (
     get_cluster_dedxs_batch,
     get_cluster_directions_batch,
-    get_cluster_features_batch,
+)
+from spine.cluster.features import get_cluster_features_batch
+from spine.cluster.graph import get_cluster_edge_features_batch
+from spine.cluster.label import (
     get_cluster_points_label_batch,
 )
-from spine.utils.gnn.network import get_cluster_edge_features_batch
-from spine.utils.torch.scripts import cdist_fast
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.utils.torch.runtime import cdist_fast
 
 __all__ = ["ClustGeoNodeEncoder", "ClustGeoEdgeEncoder"]
 

@@ -10,7 +10,7 @@ import numpy as np
 import yaml
 from yaml.parser import ParserError
 
-from spine.utils.logger import logger
+from spine.logging import logger
 
 from .hdf5 import HDF5Reader
 

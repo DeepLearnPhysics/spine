@@ -9,13 +9,13 @@ from warnings import warn
 import numpy as np
 import torch
 
-from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.common.factories import loss_fn_factory
-from spine.utils.gnn.cluster import (
+from spine.cluster.label import (
     get_cluster_closest_label_batch,
     get_cluster_label_batch,
 )
-from spine.utils.weighting import get_class_weights
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.common.factories import loss_fn_factory
+from spine.model.common.weighting import get_class_weights
 
 __all__ = ["NodeClassLoss"]
 

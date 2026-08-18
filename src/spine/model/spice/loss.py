@@ -6,9 +6,9 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import Config
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
-from spine.utils.factory import Config
 
 __all__ = ["SPICELoss"]
 

@@ -8,9 +8,9 @@ import torch
 
 from spine.constants import GHOST_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.full_chain.label import ClusterLabelAdapter
 from spine.model.uresnet import SegmentationLoss, UResNetSegmentation
 from spine.model.uresnet.ppn import UResNetPPN, UResNetPPNLoss
-from spine.utils.cluster.label import ClusterLabelAdapter
 
 from ..registry import ProviderSpec, register_provider
 from ..stage import ChainLossStage, ChainStage

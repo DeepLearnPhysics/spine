@@ -6,10 +6,10 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from spine.cluster.formation import form_clusters_batch
 from spine.constants import LOWES_SHP
 from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.utils.gnn.cluster import form_clusters_batch
 
 __all__ = ["ImageObjectBuilder"]
 

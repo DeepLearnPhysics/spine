@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Added
+- **Shower-start dE/dx diagnostic**: Implement the shower analyzer with
+  configurable spherical and direction-aware kernels, scalar or scanned
+  neighborhood radii, reconstructed/truth point representations, and stable
+  per-object CSV output.
+- **Structured data-class reference**: Generate source-driven API pages that
+  separate stored fields, computed properties, and methods, group inherited
+  members by their declaring class, and expose defaults, types, units, and
+  other SPINE field metadata without hard-coded member lists.
+- **Documentation concepts**: Add pipeline-architecture and data-model guides
+  alongside API pages for the new calibration, clustering, logging, and physics
+  package boundaries.
+
+### Changed
+- **Warning-strict documentation**: Rebuild autosummary output from scratch and
+  require warning-free Sphinx builds in CI and Read the Docs, with one aligned
+  dependency set for local and hosted builds.
+- **Optional dependency extras**: Keep focused visualization and development
+  extras; remove the empty `core`, incomplete `model`, overly narrow
+  `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime
+  remains provided by the released container or a manual compatible-stack
+  installation.
+
+### Fixed
+- **Container optional dependencies**: Install the declared visualization extra
+  in release images and test that Dockerfiles cannot reference undefined
+  package extras.
+- **Visualization module namespace**: Ensure ``spine.vis.scene`` and the other
+  documented visualization package attributes cannot be shadowed by modules
+  leaked through wildcard convenience exports.
+- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager`
+  importable without PyTorch by avoiding eager optimizer implementation imports.
+
 ## [0.17.3] - 2026-08-18
 
 ### Added

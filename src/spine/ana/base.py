@@ -7,7 +7,7 @@ from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 from warnings import warn
 
-from spine.io.write.csv import CSVWriter
+from spine.logging import CSVLogger
 
 
 class AnaBase(ABC):
@@ -215,7 +215,7 @@ class AnaBase(ABC):
         self.log_dir = log_dir
         self.output_prefix = prefix
         self.buffer_size = buffer_size
-        self.writers: dict[str, CSVWriter] = {}
+        self.writers: dict[str, CSVLogger] = {}
 
     def __del__(self) -> None:
         """Destructor to ensure CSV files are closed.
@@ -261,7 +261,7 @@ class AnaBase(ABC):
             file_name = f"{self.log_dir}/{file_name}"
 
         # Initialize the writer
-        self.writers[name] = CSVWriter(
+        self.writers[name] = CSVLogger(
             file_name,
             append=self.append_file,
             overwrite=self.overwrite_file,
@@ -547,6 +547,37 @@ class AnaBase(ABC):
             return obj.points
         else:
             return getattr(obj, self.truth_point_mode)
+
+    def get_depositions(self, obj: Any) -> Any:
+        """Get the configured deposition representation for an object.
+
+        Reconstructed objects always use ``depositions``. Truth objects use
+        the attribute selected by :attr:`truth_dep_mode` during initialization.
+        This keeps the returned values aligned with the coordinates selected
+        by :meth:`get_points`.
+
+        Parameters
+        ----------
+        obj : FragmentBase or ParticleBase or InteractionBase
+            Object whose point-aligned depositions should be returned
+
+        Returns
+        -------
+        np.ndarray
+            (N) Point-aligned deposition values
+
+        Raises
+        ------
+        AttributeError
+            If a truth object does not provide the configured deposition
+            attribute
+        """
+        # Reconstructed objects have one canonical deposition representation
+        if not obj.is_truth:
+            return obj.depositions
+
+        # Truth objects may expose several point-aligned energy representations
+        return getattr(obj, self.truth_dep_mode)
 
     @abstractmethod
     def process(self, data: MutableMapping[str, Any]) -> Any:

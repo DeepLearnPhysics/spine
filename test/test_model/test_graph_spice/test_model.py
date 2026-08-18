@@ -9,7 +9,7 @@ import torch
 from spine.constants import SHOWR_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch, TensorSchema
 from spine.model.graph_spice import EdgeLoss, GraphSPICE, GraphSPICELoss
-from spine.utils.cluster.graph import ClusterGraphConstructor
+from spine.model.graph_spice.constructor import ClusterGraphConstructor
 
 
 def test_graph_spice_rejects_misaligned_segmentation_labels():

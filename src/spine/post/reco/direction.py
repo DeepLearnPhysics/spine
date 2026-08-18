@@ -7,9 +7,9 @@ from typing import Any
 
 import numpy as np
 
+from spine.cluster.direction import get_cluster_directions
 from spine.constants import TRACK_SHP
 from spine.post.base import PostBase
-from spine.utils.gnn.cluster import get_cluster_directions
 
 __all__ = ["DirectionProcessor"]
 

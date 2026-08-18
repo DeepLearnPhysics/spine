@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-import spine.utils.metrics
+import spine.math.metrics
 from spine.ana.base import AnaBase
 from spine.constants import LOWES_SHP
 
@@ -143,7 +143,7 @@ class ClusterAna(AnaBase):
 
         # Convert metric strings to functions
         self.metrics: dict[str, Callable[..., float]] = {
-            m: getattr(spine.utils.metrics, m) for m in metrics
+            m: getattr(spine.math.metrics, m) for m in metrics
         }
 
         # If objects are not used, remove them from the required keys

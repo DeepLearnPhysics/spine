@@ -44,8 +44,10 @@ File Writers
    :toctree: generated
 
    write.HDF5Writer
-   write.CSVWriter
    write.StageHDF5Writer
+
+Tabular metric logs are written by :class:`spine.logging.CSVLogger`, not by
+the generic event-output writer interface.
 
 HDF5 format versions
 --------------------
@@ -140,11 +142,11 @@ cached data products.
    :toctree: generated
 
    parse.base
-   parse.data
    parse.clean_data
    parse.hdf5.tensor
    parse.hdf5.index
    parse.hdf5.object
+   parse.hdf5.cluster
    parse.larcv.misc
    parse.larcv.sparse
    parse.larcv.cluster
@@ -162,4 +164,5 @@ Tools for dataset preparation, augmentation, collation, and sampling.
    sample
    augment
    overlay
+   unwrap
    factories

@@ -115,11 +115,9 @@ pip install spine[viz]
 pip install spine[dev]
 ```
 
-**4. Everything (except non-pip dependencies, i.e. ROOT, larcv, MinkowskiEngine, etc.)**
-```bash
-# All optional dependencies (visualization + development tools)
-pip install spine[all]
-```
+The development extra also includes the visualization dependencies, so a
+source checkout installed with `spine[dev]` supports the complete lightweight
+development workflow. Model development remains container-first.
 
 ### PyTorch ecosystem
 
@@ -135,8 +133,8 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 # Step 2: Install ecosystem packages (critical order)
 pip install --no-build-isolation torch-scatter torch-cluster torch-geometric MinkowskiEngine
 
-# Step 3: Install SPINE
-pip install spine[all]
+# Step 3: Install SPINE (add [viz] or [dev] when needed)
+pip install spine
 ```
 
 > **Why the container is preferred**: the PyTorch ecosystem (torch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine) forms an interdependent group requiring exact version compatibility and complex compilation. The released SPINE container pins that stack for you.
@@ -195,7 +193,7 @@ To build and test packages locally:
 ./build_packages.sh
 
 # Install locally built package
-pip install dist/spine-*.whl[all]
+pip install dist/spine-*.whl
 ```
 
 ## Usage
@@ -531,7 +529,7 @@ To check coverage locally:
 
 ```bash
 # Run the coverage script (generates terminal, HTML, and XML reports)
-./bin/coverage.sh
+./check_coverage.sh
 
 # Or run pytest with coverage flags directly
 pytest --cov=spine --cov-report=term --cov-report=html
@@ -550,7 +548,7 @@ Before you start contributing to the code, please see the [contribution guidelin
 
 The SPINE framework is designed to be extensible. To add a new model:
 
-1. **Data Loading**: Parsers exist for various sparse tensor and particle outputs in `spine.io.core.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
+1. **Data Loading**: Parsers exist for sparse tensors, clusters, particles, and detector records in `spine.io.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
 
 2. **Model Implementation**: Add your model to the `spine.model` package. Include your model in the factory dictionary in `spine.model.factories` so it can be found by the configuration system.
 

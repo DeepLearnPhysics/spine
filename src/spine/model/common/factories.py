@@ -7,8 +7,8 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import Config, instantiate, module_dict
 from spine.model.common.evidential import EDLRegressionLoss, EVDLoss
-from spine.utils.factory import Config, instantiate, module_dict
 
 from . import final, losses, metric
 

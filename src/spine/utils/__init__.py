@@ -1,26 +1,12 @@
-"""Utility functions and tools used across the SPINE package.
+"""Small tools shared across otherwise independent SPINE packages.
 
-This module contains reusable utility functions organized into several categories:
+Only cross-layer infrastructure belongs here: optional-dependency adapters,
+JIT/docstring helpers, timing and manager infrastructure, and PyTorch runtime
+adapters. ``ghost``, ``optical`` and the minimal PPN prediction interface are
+explicit domain exceptions because each bridges multiple top-level packages.
 
-Core utilities:
-
-- ``conditional`` for optional imports such as ROOT, LArCV, and PyTorch.
-- ``factory`` and ``logger`` for application infrastructure.
-- ``globals`` for deprecated shared-constant compatibility.
-
-Scientific utilities:
-
-- ``cluster`` and ``gnn`` for clustering and graph operations.
-- ``particles``, ``pid``, ``tracking``, and ``vertex`` for reconstruction helpers.
-- ``energy_loss`` and ``optical`` for detector-physics calculations.
-
-Developer utilities:
-
-- ``docstring`` for docstring inheritance.
-- ``jit`` for Numba-backed acceleration.
-- ``stopwatch`` for timing and profiling.
-- ``unwrap`` and ``weighting`` for data processing.
-
-Most utilities are designed to be framework-agnostic where possible, with PyTorch-specific
-functionality clearly separated and conditionally imported.
+Numerical algorithms live in :mod:`spine.math`, reconstruction calculations in
+:mod:`spine.physics`, cluster operations in :mod:`spine.cluster`, configuration
+tools in :mod:`spine.config`, and implementation-specific helpers beside their
+owning IO, model, post-processing, or analysis code.
 """

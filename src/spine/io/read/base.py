@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from spine.logging import logger
 from spine.utils.docstring import merge_ancestor_docstrings
-from spine.utils.logger import logger
 
 
 class ReaderBase(ABC):

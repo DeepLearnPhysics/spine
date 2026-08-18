@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from spine.utils.factory import Config
+from spine.config.factory import Config
 
 
 def setup_cnn_configuration(

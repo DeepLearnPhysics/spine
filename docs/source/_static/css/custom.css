@@ -127,6 +127,18 @@
     border-bottom: 2px solid var(--spine-orange);
 }
 
+/* Dataclass references keep names and types compact while descriptions wrap. */
+.rst-content table.dataclass-members th:first-child,
+.rst-content table.dataclass-members td:first-child {
+    white-space: nowrap;
+    width: 16%;
+}
+
+.rst-content table.dataclass-members th:nth-child(2),
+.rst-content table.dataclass-members td:nth-child(2) {
+    width: 27%;
+}
+
 /* Small mobile adjustment */
 @media screen and (max-width: 768px) {
     .rst-content .lead p {

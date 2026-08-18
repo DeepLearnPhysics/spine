@@ -12,6 +12,8 @@ weights*
 *.rst
 !docs/source/api/*.rst
 !docs/source/*.rst
+!docs/source/_templates/
+!docs/source/_templates/*.rst
 *.hdf5
 *.h5
 *.ipynb

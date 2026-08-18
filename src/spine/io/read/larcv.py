@@ -5,8 +5,8 @@ from typing import Any
 
 import numpy as np
 
+from spine.logging import logger
 from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
-from spine.utils.logger import logger
 
 from .base import ReaderBase
 

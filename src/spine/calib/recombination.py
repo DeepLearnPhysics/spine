@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from spine.constants import LAR_DENSITY, LAR_WION
-from spine.utils.tracking import get_track_segment_dedxs
+from spine.physics.tracking import get_track_segment_dedxs
 
 __all__ = ["RecombinationCalibrator"]
 

@@ -7,9 +7,9 @@ from typing import Any
 import numpy as np
 import torch
 
+from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
-from spine.utils.gnn.cluster import get_cluster_label_batch
 
 __all__ = ["NodeRegressionLoss"]
 

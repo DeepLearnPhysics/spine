@@ -9,7 +9,7 @@ import numpy as np
 import yaml
 from yaml.parser import ParserError
 
-from spine.utils.logger import logger
+from spine.logging import logger
 
 from ..base import ReaderBase
 from .common import contiguous_runs, require_group, resolve_object_class

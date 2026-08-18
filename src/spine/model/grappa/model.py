@@ -16,17 +16,17 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from spine.cluster.formation import form_clusters_batch
+from spine.cluster.label import (
+    get_cluster_label_batch,
+    get_cluster_primary_label_batch,
+)
 from spine.constants import LOWES_SHP, TRACK_SHP
 from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.model.common.factories import final_factory
-from spine.utils.gnn.cluster import (
-    form_clusters_batch,
-    get_cluster_label_batch,
-    get_cluster_primary_label_batch,
-)
-from spine.utils.gnn.evaluation import (
+from spine.model.grappa.evaluation import (
     node_assignment_batch,
     node_assignment_score_batch,
 )
@@ -241,6 +241,8 @@ class GrapPA(torch.nn.Module):
             "inter": "interaction",
         }
         self.node_source = source_aliases.get(source, source)
+        if self.node_source == "voxel" and min_size not in (-1, 1):
+            raise ValueError("Voxel nodes are singletons; `min_size` must be -1 or 1.")
 
         # Interpret node type as list of shapes to cluster
         if shapes is None:
@@ -481,7 +483,7 @@ class GrapPA(torch.nn.Module):
 
         # Encode the node boundaries as clusters if they are not provided directly
         if clusts is None:
-            if not isinstance(data, ClusterLabelBatch):
+            if not isinstance(data, ClusterLabelBatch) and self.node_source != "voxel":
                 raise TypeError(
                     "Building clusters requires structured cluster labels. "
                     "Tensor input must be paired with explicit `clusts`."
@@ -611,7 +613,7 @@ class GrapPA(torch.nn.Module):
 
     def _make_clusters(
         self,
-        data: ClusterLabelBatch,
+        data: ClusterLabelBatch | TensorBatch,
         coord_label: TensorBatch | None = None,
     ) -> IndexBatch:
         """Build node clusters from labels or configured DBSCAN fragmentation.
@@ -628,12 +630,44 @@ class GrapPA(torch.nn.Module):
         clusts : IndexBatch
             (C, N_c, N_{c,i}) Cluster indexes
         """
+        if self.node_source == "voxel":
+            # Represent each selected voxel as a singleton graph node. With
+            # structured labels, retain the usual semantic-shape selection;
+            # plain tensors intentionally include every input row.
+            tensor_data = (
+                data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
+            )
+            selected = np.arange(len(tensor_data.data), dtype=np.int64)
+            if isinstance(data, ClusterLabelBatch):
+                shape_values = data.shapes.to_numpy().data
+                selected = selected[np.isin(shape_values, self.node_type)]
+
+            clusters = [np.asarray([index], dtype=np.int64) for index in selected]
+            batch_ids = tensor_data.batch_ids
+            if not isinstance(batch_ids, np.ndarray):
+                batch_ids = batch_ids.detach().cpu().numpy()
+            batch_ids = batch_ids[selected]
+            counts = np.bincount(
+                batch_ids.astype(np.int64),
+                minlength=tensor_data.batch_size,
+            )
+            single_counts = np.ones(len(clusters), dtype=np.int64)
+            return IndexBatch(
+                clusters,
+                spans=tensor_data.counts,
+                counts=counts,
+                single_counts=single_counts,
+                default=np.empty(0, dtype=np.int64),
+            )
+
         if self.dbscan is not None:
             # Use the DBSCAN fragmenter to build the clusters
             seg_label = data.shapes
             clusts, _ = self.dbscan(data.to_tensor_batch(), seg_label, coord_label)
         else:
             # Use the label tensor to build the clusters
+            if not isinstance(data, ClusterLabelBatch):  # pragma: no cover
+                raise TypeError("Label clustering requires structured labels.")
             clusts = form_clusters_batch(
                 data.to_numpy(),
                 self.node_min_size,

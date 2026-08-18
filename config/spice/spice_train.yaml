@@ -56,7 +56,13 @@ model:
     clust_label: clust_label
   modules:
     spice:
-      skip_classes: [lowe]
+      shapes: [shower, track, michel, delta]
+      make_clusters: true
+      clusterer:
+        seed_threshold: 0.0
+        probability_threshold: 0.5
+        min_size: 2
+        assign_all: true
       coord_conv: true
       margin_dim: 1
       seediness_dim: 1

@@ -122,6 +122,56 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+def test_main_converts_to_inference_before_cli_overrides(monkeypatch, tmp_path):
+    """The inference transform should run before authoritative CLI inputs."""
+    config_path = tmp_path / "train.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {},
+            "train": {},
+            "io": {"reader": {"file_keys": ["training.root"]}},
+            "model": {},
+        },
+    )
+
+    def convert(config):
+        assert config["io"]["reader"]["file_keys"] == ["training.root"]
+        converted = dict(config)
+        converted.pop("train")
+        return converted
+
+    monkeypatch.setattr(cli_module, "to_inference_config", convert)
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=["inference.root"],
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        inference=True,
+    )
+
+    assert "train" not in captured["cfg"]
+    assert captured["cfg"]["io"]["reader"]["file_keys"] == ["inference.root"]
+
+
 @pytest.mark.parametrize("resume", [True, False])
 def test_main_applies_resume_override(monkeypatch, tmp_path, resume):
     """Dedicated resume flags should override the training configuration."""
@@ -392,6 +442,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 weight_list="weights.txt",
                 config_overrides=["a=1"],
                 resume=None,
+                inference=False,
             )
 
         def add_argument(self, *args, **kwargs):
@@ -456,7 +507,10 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
             "matplotlib": "3.8.0",
             "plotly": None,
             "seaborn": "0.13.0",
-            "minkowski": None,
+            "torch-geometric": None,
+            "torch-scatter": None,
+            "torch-cluster": None,
+            "MinkowskiEngine": None,
         },
     )
     cli_module.show_info()
@@ -480,8 +534,17 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
     )
     deps = cli_module.check_dependencies()
     assert deps["torch"] is None
-    assert deps["minkowski"] is None
-    assert set(deps) == {"torch", "matplotlib", "plotly", "seaborn", "minkowski"}
+    assert deps["MinkowskiEngine"] is None
+    assert set(deps) == {
+        "torch",
+        "matplotlib",
+        "plotly",
+        "seaborn",
+        "torch-geometric",
+        "torch-scatter",
+        "torch-cluster",
+        "MinkowskiEngine",
+    }
 
 
 def test_get_version_and_dependency_checks_success(monkeypatch):
@@ -508,7 +571,12 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "package_version",
-        lambda name: {"MinkowskiEngine": "0.5.4"}[name],
+        lambda name: {
+            "torch-geometric": "2.6.0",
+            "torch-scatter": "2.1.2",
+            "torch-cluster": "1.6.3",
+            "MinkowskiEngine": "0.5.4",
+        }[name],
     )
 
     assert cli_module.get_version() == __version__
@@ -517,7 +585,10 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
     assert deps["matplotlib"] == "3.8.0"
     assert deps["plotly"] == "5.0.0"
     assert deps["seaborn"] == "0.13.0"
-    assert deps["minkowski"] == "0.5.4"
+    assert deps["torch-geometric"] == "2.6.0"
+    assert deps["torch-scatter"] == "2.1.2"
+    assert deps["torch-cluster"] == "1.6.3"
+    assert deps["MinkowskiEngine"] == "0.5.4"
 
 
 def test_show_info_reports_available_optional_features(monkeypatch, capsys):
@@ -531,12 +602,15 @@ def test_show_info_reports_available_optional_features(monkeypatch, capsys):
             "matplotlib": "3.8.0",
             "plotly": "5.0.0",
             "seaborn": None,
-            "minkowski": None,
+            "torch-geometric": "2.6.0",
+            "torch-scatter": "2.1.2",
+            "torch-cluster": "1.6.3",
+            "MinkowskiEngine": "0.5.4",
         },
     )
 
     cli_module.show_info()
 
     output = capsys.readouterr().out
-    assert "Model: Neural networks available (PyTorch 2.0.0)" in output
+    assert "Model stack: Available" in output
     assert "Visualization: Available (Plotly 5.0.0)" in output

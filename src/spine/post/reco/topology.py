@@ -7,10 +7,10 @@ from typing import Any
 
 import numpy as np
 
+from spine.cluster.direction import cluster_dedx, cluster_dedx_dir
 from spine.constants import ELEC_PID, PHOT_PID, SHOWR_SHP
 from spine.math.decomposition import PCA
 from spine.post.base import PostBase
-from spine.utils.gnn.cluster import cluster_dedx, cluster_dedx_dir
 
 __all__ = [
     "ParticleDEDXProcessor",

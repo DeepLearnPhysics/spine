@@ -20,12 +20,6 @@ from spine.data import ClusterLabelData, Meta, TensorData
 from spine.math.cluster import dbscan
 from spine.math.distance import METRICS
 from spine.utils.conditional import larcv
-from spine.utils.particles import (
-    get_group_primary_ids,
-    get_valid_mask,
-    process_particle_event,
-)
-from spine.utils.ppn import image_coordinates_batch
 
 from ..base import ParserBase
 from ..clean_data import clean_sparse_data
@@ -34,6 +28,12 @@ from .sparse import (
     LArCVSparse3DChargeRescaledParser,
     LArCVSparse3DParser,
 )
+from .utils.particle import (
+    get_group_primary_ids,
+    get_valid_mask,
+    process_particle_event,
+)
+from .utils.point import image_coordinates_batch
 
 __all__ = [
     "LArCVCluster2DParser",

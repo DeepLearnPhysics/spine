@@ -8,6 +8,7 @@ from .empty import (
 )
 from .geometric import ClustGeoEdgeEncoder, ClustGeoNodeEncoder
 from .mixed import ClustGeoCNNMixEdgeEncoder, ClustGeoCNNMixNodeEncoder
+from .voxel import VoxelGeoNodeEncoder
 
 __all__ = [
     "ClustCNNEdgeEncoder",
@@ -20,4 +21,5 @@ __all__ = [
     "EmptyClusterEdgeEncoder",
     "EmptyClusterGlobalEncoder",
     "EmptyClusterNodeEncoder",
+    "VoxelGeoNodeEncoder",
 ]

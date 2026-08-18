@@ -7,8 +7,8 @@ from warnings import warn
 
 import numpy as np
 
+from spine.cluster.graph import inter_cluster_distance
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
-from spine.utils.gnn.network import inter_cluster_distance
 
 
 class GraphBase:

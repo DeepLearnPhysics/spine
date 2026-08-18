@@ -22,5 +22,6 @@ This package is an implementation layer for the reconstruction stack, not the ma
    distance
    graph
    linalg
+   match
    metrics
    neighbors

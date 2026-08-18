@@ -9,13 +9,13 @@ import numpy as np
 import torch
 from torch_scatter import scatter_mean, scatter_std
 
-from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
-from spine.model.grappa import GrapPA
-from spine.utils.gnn.cluster import (
+from spine.cluster.label import (
     get_cluster_label_batch,
     get_cluster_points_label_batch,
 )
-from spine.utils.gnn.evaluation import primary_assignment_batch
+from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.grappa import GrapPA
+from spine.model.grappa.evaluation import primary_assignment_batch
 from spine.utils.ppn import ParticlePointPredictor
 
 __all__ = ["AggregationOperations"]

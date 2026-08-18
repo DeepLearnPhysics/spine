@@ -8,12 +8,12 @@ from typing import Any
 import numpy as np
 from scipy.spatial.distance import cdist
 
+from spine.cluster.direction import cluster_direction
 from spine.constants import TRACK_SHP
 from spine.data import RecoInteraction
 from spine.geo import GeoManager
 from spine.math.distance import farthest_pair
 from spine.post.base import PostBase
-from spine.utils.gnn.cluster import cluster_direction
 
 __all__ = ["CathodeCrosserProcessor"]
 

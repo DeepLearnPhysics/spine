@@ -7,10 +7,10 @@ from typing import Any
 import numpy as np
 from scipy.special import softmax
 
+from spine.cluster.topology import filter_invalid_nodes
 from spine.constants import DELTA_SHP, MICHL_SHP, TRACK_SHP
 from spine.data import ClusterLabelData, EdgeIndexData
 from spine.data.out import RecoParticle, TruthParticle
-from spine.utils.gnn.network import filter_invalid_nodes
 
 from .base import BuilderBase
 
@@ -447,7 +447,8 @@ class ParticleBuilder(BuilderBase):
             edge_index = graph_label
             inval = set(np.unique(graph_label)).difference(set(valid_group_ids))
             if len(inval) > 0:
-                edge_index = filter_invalid_nodes(graph_label, tuple(inval))
+                invalid_nodes = np.fromiter(inval, dtype=np.int64)
+                edge_index = filter_invalid_nodes(graph_label, invalid_nodes)
 
             # Use the remaining edges to build parentage relations
             mapping = {group_id: i for i, group_id in enumerate(valid_group_ids)}

@@ -213,6 +213,14 @@ def _legacy_chain_plan(
 
     fragmentation = config.get("fragmentation")
     if fragmentation is not None:
+        fragmentation_losses = {
+            key: value
+            for key, value in {
+                "spice": modules.get("spice_loss"),
+                "graph_spice": modules.get("graph_spice_loss"),
+            }.items()
+            if value is not None
+        }
         stages.append(
             StageConfig(
                 "fragmentation",
@@ -220,9 +228,10 @@ def _legacy_chain_plan(
                 {
                     "mode": fragmentation,
                     "dbscan": modules.get("dbscan"),
+                    "spice": modules.get("spice"),
                     "graph_spice": modules.get("graph_spice"),
                 },
-                modules.get("graph_spice_loss"),
+                fragmentation_losses or None,
             )
         )
 

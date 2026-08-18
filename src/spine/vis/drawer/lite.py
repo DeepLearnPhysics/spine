@@ -15,7 +15,7 @@ import numpy as np
 from plotly import graph_objs as go
 
 from spine.constants import TRACK_SHP
-from spine.utils.shower import shower_angle_quantile, shower_long_quantile
+from spine.physics.shower import shower_angle_quantile, shower_long_quantile
 
 from ..trace.utils import (
     ColorInput,

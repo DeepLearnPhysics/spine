@@ -57,12 +57,6 @@ viz = [
     "seaborn>=0.11.0",
 ]
 
-# Model-adjacent runtime dependencies. PyTorch and compiled torch ecosystem
-# packages are installed separately in model-capable environments.
-model = [
-    "tensorboard>=2.10.0",
-]
-
 # Development and testing
 dev = [
     "pytest>=6.0.0",
@@ -78,18 +72,12 @@ dev = [
     "sphinx-rtd-theme>=1.0.0",
     "sphinx-copybutton>=0.5.0",
     "numpydoc>=1.4.0",
-]
-
-# All optional dependencies (PyTorch ecosystem installed separately)
-all = [
-    "spine[viz]",
-    "spine[model]",
-    "spine[dev]",
-]
-
-# Lightweight core package (data structures, utilities, basic I/O)
-core = [
-    # Only core dependencies are included by default
+    "mypy>=1.0.0",
+    "pylint>=3.0.0",
+    # Include all pip-installable optional runtime features for development.
+    "matplotlib>=3.3.0",
+    "plotly>=4.14.0",
+    "seaborn>=0.11.0",
 ]
 
 [project.scripts]
@@ -105,7 +93,7 @@ include = ["spine*"]
 exclude = ["test*", "docs*"]
 
 [tool.setuptools.package-data]
-spine = ["config/*.cfg", "*.yaml", "*.yml"]
+spine = ["config/*.cfg", "physics/data/csda/*.table", "*.yaml", "*.yml"]
 
 # Black code formatting
 [tool.black]

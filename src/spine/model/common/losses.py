@@ -6,7 +6,7 @@ from typing import Any, Literal, Mapping
 
 import torch
 
-from spine.utils.weighting import get_class_weights
+from spine.model.common.weighting import get_class_weights
 
 from .act_norm import act_factory
 

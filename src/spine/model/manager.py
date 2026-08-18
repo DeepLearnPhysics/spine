@@ -18,10 +18,10 @@ from spine.data import (
     TensorBatch,
     TensorBatchConvertible,
 )
+from spine.logging import logger
+from spine.model.optim.factory import lr_sched_factory, optim_factory
 from spine.utils.conditional import TORCH_AVAILABLE, torch
-from spine.utils.logger import logger
 from spine.utils.stopwatch import StopwatchManager
-from spine.utils.torch.training import lr_sched_factory, optim_factory
 
 from .checkpoint import (
     CHECKPOINT_FORMAT_VERSION,
@@ -93,7 +93,8 @@ class ModelManager:
         if not TORCH_AVAILABLE:
             raise ImportError(
                 "PyTorch is required to use the model manager. "
-                "Install with: pip install spine[model]"
+                "Use the released SPINE container or install a compatible "
+                "PyTorch ecosystem manually."
             )
 
         if not isinstance(modules, Mapping):

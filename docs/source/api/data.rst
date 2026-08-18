@@ -15,8 +15,8 @@ The canonical namespaces inside ``spine.data`` are:
 
 - **LArCV data structures** under ``spine.data.larcv`` for detector records, generator truth, and metadata imported from LArCV-style sources
 - **Output data structures** under ``spine.data.out`` for reconstructed and truth fragments, particles, and interactions
-- **Batch data structures** under ``spine.data.batch`` for tensor, edge-index, and index batching in ML workflows
-- **Generic list containers** under ``spine.data.list`` for lightweight container utilities
+- **Self-describing products** under ``spine.data.product`` for event and batch
+  tensors, indexes, cluster labels, and object collections
 
 CRT, optical, trigger, run-information, and image-metadata classes are part of the LArCV-facing namespace in SPINE. They are detector or acquisition records, but they are not a separate top-level category outside ``spine.data.larcv``.
 
@@ -27,6 +27,7 @@ These classes provide the low-level inputs and metadata that enter the reconstru
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
    larcv.Particle
    larcv.Neutrino
@@ -34,6 +35,8 @@ These classes provide the low-level inputs and metadata that enter the reconstru
    larcv.Flash
    larcv.Trigger
    larcv.Meta
+   larcv.ImageMeta2D
+   larcv.ImageMeta3D
    larcv.RunInfo
 
 Output Data Structures
@@ -49,6 +52,7 @@ in the reconstruction hierarchy.
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
    out.RecoFragment
    out.TruthFragment
@@ -60,6 +64,7 @@ Particles represent individual particles with full kinematic and identification 
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
    out.RecoParticle
    out.TruthParticle
@@ -71,6 +76,7 @@ Interactions represent complete neutrino interactions with all associated partic
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
    out.RecoInteraction
    out.TruthInteraction
@@ -85,20 +91,47 @@ by likelihood matching.
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
    out.FlashHypothesis
 
-Batch Data Structures
----------------------
+Event Data Products
+-------------------
+
+These self-describing products carry schemas and conversion metadata between
+I/O, reconstruction, and model boundaries.
+
+.. autosummary::
+   :toctree: generated
+   :template: dataclass.rst
+
+   product.TensorData
+   product.IndexData
+   product.IndexListData
+   product.EdgeIndexData
+   product.ParticleLabel
+   product.ClusterLabelData
+
+Batch Data Products
+-------------------
 
 These containers support model-facing batching and unbatching for tensors, graph edges, and index collections.
 
 .. autosummary::
    :toctree: generated
+   :template: dataclass.rst
 
-   batch.TensorBatch
-   batch.EdgeIndexBatch
-   batch.IndexBatch
+   product.batch.TensorBatch
+   product.batch.EdgeIndexBatch
+   product.batch.IndexBatch
+
+The non-dataclass batch containers have conventional class references:
+
+.. autosummary::
+   :toctree: generated
+
+   product.batch.ClusterLabelBatch
+   product.batch.ObjectListBatch
 
 Other Data Structures
 ---------------------
@@ -108,4 +141,5 @@ Additional generic containers defined directly under ``spine.data``.
 .. autosummary::
    :toctree: generated
 
-   ObjectList
+   product.ObjectList
+   product.ObjectListData

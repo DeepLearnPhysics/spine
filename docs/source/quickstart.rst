@@ -81,13 +81,13 @@ If you want to inspect one entry interactively, start a shell in the container f
 
    # On Apple Silicon macOS, add --platform=linux/amd64 before the image name.
 
-From that shell, you can open Python or Jupyter and use the same driver directly. A typical workflow is to process one entry and hand the result to :class:`spine.vis.out.Drawer` for visualization:
+From that shell, you can open Python or Jupyter and use the same driver directly. A typical workflow is to process one entry and hand the result to :class:`spine.vis.Drawer` for visualization:
 
 .. code-block:: python
 
    from spine.config import load_config_file
    from spine.driver import Driver
-   from spine.vis.out import Drawer
+   from spine.vis import Drawer
 
    cfg = load_config_file("/workspace/config/uresnet/uresnet_train.yaml")
 
@@ -146,7 +146,7 @@ For broader analysis or documentation work:
 
 .. code-block:: bash
 
-   pip install spine[all]
+   pip install spine[dev]
 
 This mode is useful for ``spine.post``, ``spine.ana``, and ``spine.vis`` workflows, but it is not the recommended default for full reconstruction jobs when a released container image is available.
 
@@ -154,5 +154,7 @@ Next Steps
 ----------
 
 - Review :doc:`installation` for the runtime options and tradeoffs
+- Read :doc:`pipeline` for the ownership and execution boundaries
+- Read :doc:`data_model` before consuming reconstructed and truth objects
 - Explore :doc:`config_loader` to understand SPINE configuration files
 - Browse the API reference for the pipeline stage you are modifying or using

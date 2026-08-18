@@ -16,24 +16,11 @@ Use this package to inspect detector point clouds, overlay reconstructed or trut
 .. autosummary::
    :toctree: generated
 
+   drawer
    layout
-   out
-   point
-   arrow
-   box
-   cone
-   cylinder
-   ellipsoid
-   hull
-   cluster
-   particle
-   network
-   lite
-   evaluation
-   train
-   geo
    metric
    scene
+   trace
 
 Renderer-Neutral Scenes
 -----------------------

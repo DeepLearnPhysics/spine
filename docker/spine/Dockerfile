@@ -182,8 +182,9 @@ RUN wget -O "${ICARUS_PHOTONLIB_PATH}" "${ICARUS_PHOTONLIB_URL}" && \
 COPY pyproject.toml MANIFEST.in README.md ./
 COPY src/ ./src/
 
-# Install SPINE with all dependencies
-RUN pip install --no-cache-dir --no-build-isolation .[all]
+# Install SPINE with the optional visualization stack. The compiled model
+# dependencies are installed explicitly above to keep their versions aligned.
+RUN pip install --no-cache-dir --no-build-isolation .[viz]
 
 # Verify that the default container environment and the explicit fallback setup
 # recipe both provide the compiled dependency imports SPINE needs at runtime.

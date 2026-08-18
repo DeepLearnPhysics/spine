@@ -7,16 +7,16 @@ from typing import Any
 import numpy as np
 import torch
 
+from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
-from spine.utils.gnn.cluster import get_cluster_label_batch
-from spine.utils.gnn.evaluation import (
+from spine.model.common.weighting import get_class_weights
+from spine.model.grappa.evaluation import (
     edge_assignment_batch,
     edge_assignment_forest_batch,
     edge_assignment_from_graph_batch,
     edge_purity_mask_batch,
 )
-from spine.utils.weighting import get_class_weights
 
 __all__ = ["EdgeChannelLoss"]
 

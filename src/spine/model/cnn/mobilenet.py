@@ -6,8 +6,8 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import Config
 from spine.model import sparse
-from spine.utils.factory import Config
 
 from .act_norm import act_factory, norm_factory
 from .blocks import MBResConv, MBResConvSE

@@ -11,8 +11,8 @@ from typing import Optional, Tuple
 
 from .config import normalize_config
 from .driver import Driver
+from .logging import configure_rank_logging, logger
 from .utils.conditional import TORCH_AVAILABLE, torch
-from .utils.logger import configure_rank_logging, logger
 from .utils.torch.devices import set_visible_devices
 
 
@@ -110,7 +110,8 @@ def run_single(
     if (train or distributed) and not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for training or distributed execution. "
-            "Install with: pip install spine[model]"
+            "Use the released SPINE container or install a compatible "
+            "PyTorch ecosystem manually."
         )
 
     if train and distributed and not cfg["base"].get("ddp", True):

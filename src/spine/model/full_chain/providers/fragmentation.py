@@ -6,10 +6,12 @@ from typing import Any
 
 import numpy as np
 
+from spine.cluster.formation import form_clusters_batch
+from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.model.graph_spice import GraphSPICE, GraphSPICELoss
-from spine.utils.gnn.cluster import form_clusters_batch, get_cluster_label_batch
+from spine.model.spice import SPICE, SPICELoss
 
 from ..registry import ProviderSpec, register_provider
 from ..stage import ChainLossStage, ChainStage
@@ -17,7 +19,7 @@ from ..state import ChainState, StageResult
 
 
 class FragmentationStage(ChainStage):
-    """Construct particle fragments with labels, DBSCAN, or Graph-SPICE.
+    """Construct particle fragments with labels, DBSCAN, SPICE, or Graph-SPICE.
 
     Classical and learned fragmenters may own disjoint semantic shapes and
     publish one combined cluster list in the canonical voxel-index namespace.
@@ -33,6 +35,7 @@ class FragmentationStage(ChainStage):
         name: str,
         mode: str,
         dbscan: DBSCAN | None,
+        spice: SPICE | None,
         graph_spice: GraphSPICE | None,
     ) -> None:
         """Initialize the selected fragment implementations.
@@ -41,15 +44,26 @@ class FragmentationStage(ChainStage):
         ----------
         name : str
             Stage name.
-        mode : {"dbscan", "graph_spice", "dbscan_graph_spice", "label"}
+        mode : str
             Fragmentation implementation selection.
         dbscan : DBSCAN, optional
             Classical fragmenter.
+        spice : SPICE, optional
+            Spatial-embedding fragmenter.
         graph_spice : GraphSPICE, optional
             Learned fragmenter.
         """
         super().__init__(name)
-        valid_modes = {"dbscan", "graph_spice", "dbscan_graph_spice", "label"}
+        valid_modes = {
+            "dbscan",
+            "spice",
+            "graph_spice",
+            "dbscan_spice",
+            "dbscan_graph_spice",
+            "spice_graph_spice",
+            "dbscan_spice_graph_spice",
+            "label",
+        }
         if mode not in valid_modes:
             raise ValueError(
                 f"Unknown fragmentation mode `{mode}`. Choose from "
@@ -57,6 +71,7 @@ class FragmentationStage(ChainStage):
             )
         self.mode = mode
         self.dbscan = dbscan
+        self.spice = spice
         self.graph_spice = graph_spice
 
     @staticmethod
@@ -81,12 +96,12 @@ class FragmentationStage(ChainStage):
         return clusts, shapes
 
     @staticmethod
-    def _restore_graph_indexes(
+    def _restore_filtered_indexes(
         clusts: IndexBatch,
         filter_index: IndexBatch,
         spans: Any,
     ) -> IndexBatch:
-        """Map Graph-SPICE indexes back to the canonical voxel set.
+        """Map filtered model indexes back to the canonical voxel set.
 
         Parameters
         ----------
@@ -149,6 +164,25 @@ class FragmentationStage(ChainStage):
             fragments = fragments.merge(dbscan_clusts)
             fragment_shapes = fragment_shapes.merge(dbscan_shapes)
 
+        # SPICE directly clusters its spatial embeddings. As with Graph-SPICE,
+        # its cluster indexes first refer to a shape-filtered tensor.
+        if self.spice is not None:
+            semantic_rows = TensorBatch(
+                seg_pred.torch_tensor().reshape(-1, 1),
+                data.counts,
+            )
+            spice_result = self.spice(data, semantic_rows)
+            outputs.update(
+                {f"spice_{key}": value for key, value in spice_result.items()}
+            )
+            spice_clusts = self._restore_filtered_indexes(
+                spice_result["clusts"],
+                spice_result["filter_index"],
+                data.counts,
+            )
+            fragments = fragments.merge(spice_clusts.to_numpy())
+            fragment_shapes = fragment_shapes.merge(spice_result["clust_shapes"])
+
         # Graph-SPICE operates on a shape-filtered tensor. Restore its output
         # indexes before combining them with clusters from another provider.
         if self.graph_spice is not None:
@@ -161,7 +195,7 @@ class FragmentationStage(ChainStage):
                 {f"graph_spice_{key}": value for key, value in graph_result.items()}
             )
             if "clusts" in graph_result:
-                graph_clusts = self._restore_graph_indexes(
+                graph_clusts = self._restore_filtered_indexes(
                     graph_result["clusts"],
                     graph_result["filter_index"],
                     data.counts,
@@ -246,6 +280,58 @@ class GraphSPICELossStage(ChainLossStage):
         )
 
 
+class SPICELossStage(ChainLossStage):
+    """Route namespaced SPICE embedding outputs to its native objective."""
+
+    def __init__(self, name: str, loss: SPICELoss) -> None:
+        """Initialize the SPICE loss adapter."""
+        super().__init__(name)
+        self.loss = loss
+
+    def forward(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Evaluate SPICE supervision on adapted cluster labels."""
+        clust_label = data.get("clust_label_adapt", data.get("clust_label"))
+        if clust_label is None:
+            raise ValueError("SPICE loss requires `clust_label`.")
+        output = {
+            key.removeprefix("spice_"): value
+            for key, value in data.items()
+            if key.startswith("spice_")
+        }
+        return self.loss(clust_label=clust_label, **output)
+
+
+class FragmentationLossStage(ChainLossStage):
+    """Combine independent learned-fragmentation objectives."""
+
+    def __init__(self, name: str, stages: dict[str, ChainLossStage]) -> None:
+        """Initialize named native loss adapters."""
+        super().__init__(name)
+        self.stages = stages
+
+    def forward(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Sum objectives and retain implementation-namespaced diagnostics."""
+        result: dict[str, Any] = {"loss": 0.0, "accuracy": 1.0, "num_losses": 0}
+        for implementation, stage in self.stages.items():
+            native = stage(data)
+            count = int(native.get("num_losses", 1))
+            if count < 1:
+                raise ValueError(
+                    f"Fragmentation loss `{implementation}` reported no objectives."
+                )
+            previous = result["num_losses"]
+            result["loss"] = result["loss"] + native["loss"]
+            result["accuracy"] = (
+                result["accuracy"] * previous
+                + float(native.get("accuracy", 1.0)) * count
+            ) / (previous + count)
+            result["num_losses"] += count
+            for key, value in native.items():
+                if key not in {"loss", "accuracy", "num_losses"}:
+                    result[f"{implementation}_{key}"] = value
+        return result
+
+
 def build_fragmentation_stage(
     name: str,
     config: dict[str, Any],
@@ -272,6 +358,7 @@ def build_fragmentation_stage(
         raise ValueError("Fragmentation requires a string `mode`.")
 
     dbscan = None
+    spice = None
     graph_spice = None
     shapes: list[int] = []
     if "dbscan" in mode:
@@ -282,7 +369,28 @@ def build_fragmentation_stage(
         owner.add_module("dbscan", dbscan)
         shapes.extend(dbscan.shapes)
 
-    if "graph_spice" in mode:
+    if mode in {
+        "spice",
+        "dbscan_spice",
+        "spice_graph_spice",
+        "dbscan_spice_graph_spice",
+    }:
+        spice_config = config.get("spice")
+        if not isinstance(spice_config, dict):
+            raise ValueError("SPICE fragmentation requires a `spice` block.")
+        spice_config = dict(spice_config)
+        spice_config["make_clusters"] = True
+        spice_config.setdefault("clusterer", {})
+        spice = SPICE(spice_config)
+        owner.add_module("spice", spice)
+        shapes.extend(spice.shapes)
+
+    if mode in {
+        "graph_spice",
+        "dbscan_graph_spice",
+        "spice_graph_spice",
+        "dbscan_spice_graph_spice",
+    }:
         graph_config = config.get("graph_spice")
         if not isinstance(graph_config, dict):
             raise ValueError(
@@ -299,11 +407,11 @@ def build_fragmentation_stage(
         expected = np.arange(4, dtype=unique.dtype)
         if not np.array_equal(unique, expected) or not np.all(counts == 1):
             raise ValueError(
-                "DBSCAN and Graph-SPICE must collectively own each of the four "
+                "DBSCAN, SPICE and Graph-SPICE must collectively own each of the four "
                 "fragment shapes exactly once."
             )
 
-    return FragmentationStage(name, mode, dbscan, graph_spice)
+    return FragmentationStage(name, mode, dbscan, spice, graph_spice)
 
 
 def build_fragmentation_loss(
@@ -327,15 +435,37 @@ def build_fragmentation_loss(
     ChainLossStage or None
         Graph-SPICE loss adapter, or ``None`` without supervision.
     """
-    model_config = config.get("graph_spice")
+    spice_config = config.get("spice")
+    graph_config = config.get("graph_spice")
     loss_config = config.get("loss")
-    if model_config is None or loss_config is None:
+    if loss_config is None:
         return None
-    if not isinstance(model_config, dict) or not isinstance(loss_config, dict):
-        raise TypeError("Graph-SPICE model and loss blocks must be mappings.")
-    loss = GraphSPICELoss(model_config, loss_config)
-    owner.add_module("graph_spice_loss", loss)
-    return GraphSPICELossStage(name, loss)
+    if not isinstance(loss_config, dict):
+        raise TypeError("Fragmentation loss blocks must be mappings.")
+    stages: dict[str, ChainLossStage] = {}
+    if spice_config is not None:
+        if not isinstance(spice_config, dict):
+            raise TypeError("SPICE model configuration must be a mapping.")
+        native_config = loss_config.get("spice", loss_config)
+        if not isinstance(native_config, dict):
+            raise TypeError("SPICE loss configuration must be a mapping.")
+        loss = SPICELoss(spice_config, native_config)
+        owner.add_module("spice_loss", loss)
+        stages["spice"] = SPICELossStage(name, loss)
+    if graph_config is not None:
+        if not isinstance(graph_config, dict):
+            raise TypeError("Graph-SPICE model and loss blocks must be mappings.")
+        native_config = loss_config.get("graph_spice", loss_config)
+        if not isinstance(native_config, dict):
+            raise TypeError("Graph-SPICE loss configuration must be a mapping.")
+        loss = GraphSPICELoss(graph_config, native_config)
+        owner.add_module("graph_spice_loss", loss)
+        stages["graph_spice"] = GraphSPICELossStage(name, loss)
+    if len(stages) == 1:
+        return next(iter(stages.values()))
+    if stages:
+        return FragmentationLossStage(name, stages)
+    return None
 
 
 PROVIDER_SPEC = register_provider(

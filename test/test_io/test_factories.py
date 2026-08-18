@@ -15,7 +15,7 @@ import yaml
 
 from spine.io import factories as factories_module
 from spine.io.factories import collate_factory, dataset_factory, loader_factory
-from spine.io.write.csv import CSVWriter
+from spine.logging import CSVLogger
 from spine.utils.conditional import TORCH_AVAILABLE
 
 MAX_ITER = 10
@@ -201,9 +201,9 @@ def test_collate_factory():
 
 def test_reader_and_writer_factories(hdf5_data, tmp_path):
     """Reader and writer factories should instantiate the configured class."""
-    hdf5_output = tmp_path / "output.csv"
-    writer = factories_module.writer_factory({"name": "csv", "file_name": hdf5_output})
-    assert writer.name == "csv"
+    hdf5_output = tmp_path / "output.h5"
+    writer = factories_module.writer_factory({"name": "hdf5", "file_name": hdf5_output})
+    assert writer.name == "hdf5"
 
     reader = factories_module.reader_factory(
         {"name": "hdf5", "file_keys": hdf5_data, "build_classes": False}
@@ -221,11 +221,17 @@ def test_writer_factory_forwards_prefix_and_split(monkeypatch):
 
     monkeypatch.setattr(factories_module, "instantiate", fake_instantiate)
 
-    factories_module.writer_factory({"name": "csv"})
-    factories_module.writer_factory({"name": "csv"}, prefix="input", split=True)
+    factories_module.writer_factory({"name": "hdf5"})
+    factories_module.writer_factory({"name": "hdf5"}, prefix="input", split=True)
 
     assert calls[0] == {}
     assert calls[1] == {"prefix": "input", "split": True}
+
+
+def test_writer_factory_rejects_analysis_csv_logger():
+    """Analysis CSV logging is intentionally outside generic event writers."""
+    with pytest.raises(ValueError, match="csv"):
+        factories_module.writer_factory({"name": "csv"})
 
 
 def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
@@ -607,7 +613,7 @@ def test_loader(larcv_data, quiet=True, csv=False):
 
     # If requested, intialize a CSV output
     if csv:
-        csv = CSVWriter("test.csv")
+        csv = CSVLogger("test.csv")
 
     # Initialize the loader
     with open(cfg_path, "r", encoding="utf-8") as cfg_str:

@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
-from spine.utils.factory import instantiate, module_dict
-from spine.utils.logger import logger
+from spine.config.factory import instantiate, module_dict
+from spine.logging import logger
 
 from ..parse import larcv as parse_larcv
 from ..read import LArCVReader

@@ -11,6 +11,7 @@ from spine.data import (
     Meta,
     TensorBatch,
 )
+from spine.model.grappa.evaluation import edge_assignment_forest_batch
 from spine.model.grappa.loss import (
     EdgeChannelLoss,
     NodeClassLoss,
@@ -18,7 +19,6 @@ from spine.model.grappa.loss import (
     NodeShowerPrimaryLoss,
     NodeVertexLoss,
 )
-from spine.utils.gnn.evaluation import edge_assignment_forest_batch
 
 
 def test_forest_assignment_builds_valid_spanning_tree_labels():

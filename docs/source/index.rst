@@ -1,9 +1,6 @@
 SPINE Documentation
 ===================
 
-Introduction
-============
-
 .. rst-class:: lead
 
 `Scalable Particle Imaging with Neural Embeddings (SPINE) <https://github.com/DeepLearnPhysics/spine>`_ is a machine-learning reconstruction toolkit for particle imaging detectors, developed primarily for Liquid Argon Time Projection Chambers (LArTPCs). It combines configuration-driven I/O, deep neural network models, object construction, post-processing, analysis, and visualization into a single reconstruction workflow.
@@ -27,6 +24,8 @@ The package is organized around the :class:`spine.driver.Driver` pipeline:
    Introduction <self>
    installation
    quickstart
+   pipeline
+   data_model
    config_loader
    api/index
 
@@ -89,7 +88,7 @@ If you want to inspect one entry interactively, the Python entry point looks lik
 
    from spine.config import load_config_file
    from spine.driver import Driver
-   from spine.vis.out import Drawer
+   from spine.vis import Drawer
 
    cfg = load_config_file("/workspace/config/uresnet/uresnet_train.yaml")
 

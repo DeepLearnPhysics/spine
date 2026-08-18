@@ -6,9 +6,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from spine.constants import KAON_PID, MUON_PID, PION_PID, PROT_PID, TRACK_SHP
+from spine.physics.energy_loss import csda_table_spline
+from spine.physics.tracking import get_track_length
 from spine.post.base import PostBase
-from spine.utils.energy_loss import csda_table_spline
-from spine.utils.tracking import get_track_length
 
 __all__ = ["CSDAEnergyProcessor"]
 

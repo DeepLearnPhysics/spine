@@ -34,7 +34,8 @@ def set_visible_devices(
         if gpus is not None or world_size is not None and world_size > 0:
             raise ImportError(
                 "PyTorch is required for GPU operations. "
-                "Install with: pip install spine[model]"
+                "Use the released SPINE container or install a compatible "
+                "PyTorch ecosystem manually."
             )
         return 0  # CPU only
 

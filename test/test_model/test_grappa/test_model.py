@@ -167,6 +167,21 @@ def test_grappa_validates_node_graph_and_grouping_configuration():
     model = GrapPA(cfg)
     assert model.node_type == list(range(4))
 
+    cfg = shower_model_config()
+    cfg["nodes"].update(source="voxel", min_size=2)
+    with pytest.raises(ValueError, match="Voxel nodes are singletons"):
+        GrapPA(cfg)
+
+
+def test_grappa_voxel_nodes_filter_structured_labels(graph_labels):
+    """Voxel node construction should apply semantic filters to truth products."""
+    cfg = shower_model_config()
+    cfg["nodes"].update(source="voxel", min_size=1, shapes=[SHOWR_SHP])
+    cfg["graph"].update(max_length=None, dist_algorithm="brute")
+    model = GrapPA(cfg)
+    clusters = model._make_clusters(graph_labels)
+    assert all(len(cluster) == 1 for cluster in clusters.index_list)
+
 
 def test_grappa_validates_dbscan_and_group_prediction_configuration():
     """Shared DBSCAN fields and group construction require one owner/head."""
