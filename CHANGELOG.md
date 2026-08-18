@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-## [0.17.3] - 2026-08-18
-
 ### Added
 - **Shower-start dE/dx diagnostic**: Implement the shower analyzer with
   configurable spherical and direction-aware kernels, scalar or scanned
@@ -16,6 +14,30 @@
 - **Documentation concepts**: Add pipeline-architecture and data-model guides
   alongside API pages for the new calibration, clustering, logging, and physics
   package boundaries.
+
+### Changed
+- **Warning-strict documentation**: Rebuild autosummary output from scratch and
+  require warning-free Sphinx builds in CI and Read the Docs, with one aligned
+  dependency set for local and hosted builds.
+- **Optional dependency extras**: Keep focused visualization and development
+  extras; remove the empty `core`, incomplete `model`, overly narrow
+  `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime
+  remains provided by the released container or a manual compatible-stack
+  installation.
+
+### Fixed
+- **Container optional dependencies**: Install the declared visualization extra
+  in release images and test that Dockerfiles cannot reference undefined
+  package extras.
+- **Visualization module namespace**: Ensure ``spine.vis.scene`` and the other
+  documented visualization package attributes cannot be shadowed by modules
+  leaked through wildcard convenience exports.
+- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager`
+  importable without PyTorch by avoiding eager optimizer implementation imports.
+
+## [0.17.3] - 2026-08-18
+
+### Added
 - **Renderer-neutral visualization scenes**: Add typed point, marker, line,
   vector, mesh, and box layers, a backend registry, and a Plotly compatibility
   backend for notebook and application consumers.
@@ -28,14 +50,6 @@
   drawers can offer type-appropriate hover and color controls.
 
 ### Changed
-- **Warning-strict documentation**: Rebuild autosummary output from scratch and
-  require warning-free Sphinx builds in CI and Read the Docs, with one aligned
-  dependency set for local and hosted builds.
-- **Optional dependency extras**: Keep focused visualization and development
-  extras; remove the empty `core`, incomplete `model`, overly narrow
-  `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime
-  remains provided by the released container or a manual compatible-stack
-  installation.
 - **Portable mesh topology**: Resolve implicit Plotly convex hulls into explicit
   triangle faces at the scene boundary so non-Plotly backends can render lite
   showers, cylinders, cones, ellipsoids, and hulls directly.
@@ -49,14 +63,6 @@
   deprecated alias.
 
 ### Fixed
-- **Container optional dependencies**: Install the declared visualization extra
-  in release images and test that Dockerfiles cannot reference undefined
-  package extras.
-- **Visualization module namespace**: Ensure ``spine.vis.scene`` and the other
-  documented visualization package attributes cannot be shadowed by modules
-  leaked through wildcard convenience exports.
-- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager`
-  importable without PyTorch by avoiding eager optimizer implementation imports.
 - **Plotly scene parity**: Preserve detector bounds, coordinate units, camera
   orientation, line hover labels, and batched arrow tips when rendering neutral
   scenes through the Plotly compatibility backend.
