@@ -7,7 +7,8 @@ from spine.utils.conditional import TORCH_AVAILABLE, torch
 if not TORCH_AVAILABLE:  # pragma: no cover - guarded by optional-import tests
     raise ImportError(
         "PyTorch is required for AdaBound optimizers. "
-        "Install with: pip install spine[model]"
+        "Use the released SPINE container or install a compatible PyTorch "
+        "ecosystem manually."
     )
 
 from torch.optim import Optimizer

@@ -107,18 +107,16 @@ This installs the base Python dependencies declared in ``pyproject.toml``. In pr
 Optional Python Extras
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Machine Learning Models
-+++++++++++++++++++++++
+Machine Learning Runtime
+++++++++++++++++++++++++
 
 Installing ML dependencies locally is possible, but it is not the preferred path for most users because the PyTorch ecosystem and LArCV compatibility are the hard part of getting SPINE running reliably.
 
-If you do need to install model support outside the container:
-
-.. code-block:: bash
-
-   pip install spine[model]
-
-You may still need to manage PyTorch, torch-geometric, torch-scatter, torch-cluster, MinkowskiEngine, and CUDA compatibility yourself, which is why the released SPINE image remains the recommended runtime.
+There is deliberately no ``spine[model]`` extra. A small extra cannot provide
+the complete model runtime honestly: PyTorch, torch-geometric, torch-scatter,
+torch-cluster, MinkowskiEngine, CUDA, and LArCV must be selected as a compatible
+set for the host platform. Use the released SPINE container, or install that
+stack manually before installing SPINE.
 
 Visualization Tools
 +++++++++++++++++++
@@ -138,17 +136,6 @@ For package development and documentation work:
 
    pip install spine[dev]
 
-All Dependencies
-++++++++++++++++
-
-To install all optional Python extras from PyPI:
-
-.. code-block:: bash
-
-   pip install spine[all]
-
-This is useful for local post/ana/vis workflows, but it still does not replace the container as the recommended runtime for full SPINE jobs.
-
 Python And Dependency Requirements
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -157,8 +144,8 @@ Python And Dependency Requirements
 - Optional extras depending on the workflow:
 
    - ``spine[viz]`` for plotting and visualization
-   - ``spine[dev]`` for testing, formatting, packaging, and documentation
-   - ``spine[all]`` for the union of the shipped Python extras
+   - ``spine[dev]`` for testing, linting, packaging, documentation, and all
+     pip-installable optional features
 
 For GPU acceleration outside the container, you must ensure that CUDA-compatible PyTorch and the rest of the SPINE ML dependency stack are installed consistently.
 

@@ -15,6 +15,11 @@
   drawers can offer type-appropriate hover and color controls.
 
 ### Changed
+- **Optional dependency extras**: Keep focused visualization and development
+  extras; remove the empty `core`, incomplete `model`, overly narrow
+  `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime
+  remains provided by the released container or a manual compatible-stack
+  installation.
 - **Portable mesh topology**: Resolve implicit Plotly convex hulls into explicit
   triangle faces at the scene boundary so non-Plotly backends can render lite
   showers, cylinders, cones, ellipsoids, and hulls directly.
@@ -28,6 +33,8 @@
   deprecated alias.
 
 ### Fixed
+- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager`
+  importable without PyTorch by avoiding eager optimizer implementation imports.
 - **Plotly scene parity**: Preserve detector bounds, coordinate units, camera
   orientation, line hover labels, and batched arrow tips when rendering neutral
   scenes through the Plotly compatibility backend.

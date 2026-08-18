@@ -110,7 +110,8 @@ def run_single(
     if (train or distributed) and not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for training or distributed execution. "
-            "Install with: pip install spine[model]"
+            "Use the released SPINE container or install a compatible "
+            "PyTorch ecosystem manually."
         )
 
     if train and distributed and not cfg["base"].get("ddp", True):

@@ -236,7 +236,8 @@ def require_torch(operation="this operation"):
     if not TORCH_AVAILABLE:
         raise ImportError(
             f"PyTorch is required for {operation}. "
-            "Install with: pip install spine[model]"
+            "Use the released SPINE container or install a compatible "
+            "PyTorch ecosystem manually."
         )
 
 

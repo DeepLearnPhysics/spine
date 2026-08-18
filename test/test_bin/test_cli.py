@@ -507,7 +507,10 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
             "matplotlib": "3.8.0",
             "plotly": None,
             "seaborn": "0.13.0",
-            "minkowski": None,
+            "torch-geometric": None,
+            "torch-scatter": None,
+            "torch-cluster": None,
+            "MinkowskiEngine": None,
         },
     )
     cli_module.show_info()
@@ -531,8 +534,17 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
     )
     deps = cli_module.check_dependencies()
     assert deps["torch"] is None
-    assert deps["minkowski"] is None
-    assert set(deps) == {"torch", "matplotlib", "plotly", "seaborn", "minkowski"}
+    assert deps["MinkowskiEngine"] is None
+    assert set(deps) == {
+        "torch",
+        "matplotlib",
+        "plotly",
+        "seaborn",
+        "torch-geometric",
+        "torch-scatter",
+        "torch-cluster",
+        "MinkowskiEngine",
+    }
 
 
 def test_get_version_and_dependency_checks_success(monkeypatch):
@@ -559,7 +571,12 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
     monkeypatch.setattr(
         cli_module,
         "package_version",
-        lambda name: {"MinkowskiEngine": "0.5.4"}[name],
+        lambda name: {
+            "torch-geometric": "2.6.0",
+            "torch-scatter": "2.1.2",
+            "torch-cluster": "1.6.3",
+            "MinkowskiEngine": "0.5.4",
+        }[name],
     )
 
     assert cli_module.get_version() == __version__
@@ -568,7 +585,10 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
     assert deps["matplotlib"] == "3.8.0"
     assert deps["plotly"] == "5.0.0"
     assert deps["seaborn"] == "0.13.0"
-    assert deps["minkowski"] == "0.5.4"
+    assert deps["torch-geometric"] == "2.6.0"
+    assert deps["torch-scatter"] == "2.1.2"
+    assert deps["torch-cluster"] == "1.6.3"
+    assert deps["MinkowskiEngine"] == "0.5.4"
 
 
 def test_show_info_reports_available_optional_features(monkeypatch, capsys):
@@ -582,12 +602,15 @@ def test_show_info_reports_available_optional_features(monkeypatch, capsys):
             "matplotlib": "3.8.0",
             "plotly": "5.0.0",
             "seaborn": None,
-            "minkowski": None,
+            "torch-geometric": "2.6.0",
+            "torch-scatter": "2.1.2",
+            "torch-cluster": "1.6.3",
+            "MinkowskiEngine": "0.5.4",
         },
     )
 
     cli_module.show_info()
 
     output = capsys.readouterr().out
-    assert "Model: Neural networks available (PyTorch 2.0.0)" in output
+    assert "Model stack: Available" in output
     assert "Visualization: Available (Plotly 5.0.0)" in output

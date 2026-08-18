@@ -231,8 +231,8 @@ Examples:
   spine -c config.cfg --set model.detect_anomaly=true Debug PyTorch issues
   spine --help                                  Show this help message
 
-For ML training/inference functionality, ensure PyTorch is installed:
-  pip install spine[model]
+For ML training/inference, use the released SPINE container or install a
+compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
 """,
     )
 
@@ -408,10 +408,18 @@ def show_info():
     print("Available functionality:")
     print("  Core: Mathematical operations, data handling, I/O")
 
-    if deps["torch"]:
-        print(f"  Model: Neural networks available (PyTorch {deps['torch']})")
+    model_deps = (
+        "torch",
+        "torch-geometric",
+        "torch-scatter",
+        "torch-cluster",
+        "MinkowskiEngine",
+    )
+    missing_model_deps = [name for name in model_deps if not deps[name]]
+    if not missing_model_deps:
+        print("  Model stack: Available")
     else:
-        print("  Model: Not available (install with: pip install spine[model])")
+        print(f"  Model stack: Incomplete (missing: {', '.join(missing_model_deps)})")
 
     if deps["plotly"]:
         print(f"  Visualization: Available (Plotly {deps['plotly']})")
@@ -421,8 +429,8 @@ def show_info():
     if deps["torch"] is None:
         print("\n" + "=" * 50)
         print("NOTICE: PyTorch not found!")
-        print("For full ML functionality, install with:")
-        print("  pip install spine[model]")
+        print("For full ML functionality, use the released SPINE container")
+        print("or install the compatible ML ecosystem manually.")
         print("=" * 50)
 
 
@@ -460,11 +468,18 @@ def check_dependencies():
     except ImportError:
         deps["seaborn"] = None
 
-    # Check ML dependencies
-    try:
-        deps["minkowski"] = package_version("MinkowskiEngine")
-    except PackageNotFoundError:
-        deps["minkowski"] = None
+    # Check the compiled packages needed by the complete model stack without
+    # importing them, as imports may initialize CUDA or compiled extensions.
+    for distribution in (
+        "torch-geometric",
+        "torch-scatter",
+        "torch-cluster",
+        "MinkowskiEngine",
+    ):
+        try:
+            deps[distribution] = package_version(distribution)
+        except PackageNotFoundError:
+            deps[distribution] = None
 
     return deps
 

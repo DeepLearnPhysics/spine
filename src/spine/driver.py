@@ -533,7 +533,8 @@ class Driver:
         if not TORCH_AVAILABLE:
             raise ImportError(
                 "PyTorch is required for model functionality. "
-                "Install with: pip install spine[model]"
+                "Use the released SPINE container or install a compatible "
+                "PyTorch ecosystem manually."
             )
 
         self.model = ModelManager(

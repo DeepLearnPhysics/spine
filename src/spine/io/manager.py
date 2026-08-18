@@ -216,7 +216,8 @@ class IOManager:
         if not TORCH_AVAILABLE:
             raise ImportError(
                 "PyTorch is required for loader functionality. "
-                "Install with: pip install spine[model]"
+                "Use the released SPINE container or install a compatible "
+                "PyTorch ecosystem manually."
             )
 
         # Initialize the loader and reader attributes and register the load timer.

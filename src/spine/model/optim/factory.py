@@ -5,19 +5,10 @@ learning rate schedulers from configuration dictionaries, including support
 for custom optimizers like AdaBound.
 """
 
+from importlib import import_module
+
 from spine.config.factory import instantiate, module_dict
 from spine.utils.conditional import TORCH_AVAILABLE, torch
-
-# Conditionally import AdaBound optimizers
-AdaBound = None
-AdaBoundW = None
-_ADABOUND_AVAILABLE = False
-try:
-    from .adabound import AdaBound, AdaBoundW
-
-    _ADABOUND_AVAILABLE = True
-except ImportError:
-    pass
 
 __all__ = ["optim_dict", "optim_factory", "lr_sched_factory"]
 
@@ -27,16 +18,17 @@ def optim_dict():
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for optimizer functionality. "
-            "Install with: pip install spine[model]"
+            "Use the released SPINE container or install a compatible "
+            "PyTorch ecosystem manually."
         )
 
-    # Start with empty optimizer dict
-    optimizers = {}
-
-    # Add AdaBound optimizers if available
-    if _ADABOUND_AVAILABLE and AdaBound is not None and AdaBoundW is not None:
-        optimizers["AdaBound"] = AdaBound
-        optimizers["AdaBoundW"] = AdaBoundW
+    # Load custom implementations only after establishing that the optional
+    # runtime is available. This keeps core-only imports independent of Torch.
+    adabound = import_module("spine.model.optim.adabound")
+    optimizers = {
+        "AdaBound": adabound.AdaBound,
+        "AdaBoundW": adabound.AdaBoundW,
+    }
 
     # Append the default optimizers from torch
     optimizers.update(module_dict(torch.optim))
@@ -80,7 +72,8 @@ def lr_sched_factory(cfg, optimizer):
     if not TORCH_AVAILABLE:
         raise ImportError(
             "PyTorch is required for learning rate scheduler functionality. "
-            "Install with: pip install spine[model]"
+            "Use the released SPINE container or install a compatible "
+            "PyTorch ecosystem manually."
         )
     lr_sched_dict = module_dict(torch.optim.lr_scheduler)
 

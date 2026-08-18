@@ -146,7 +146,7 @@ For broader analysis or documentation work:
 
 .. code-block:: bash
 
-   pip install spine[all]
+   pip install spine[dev]
 
 This mode is useful for ``spine.post``, ``spine.ana``, and ``spine.vis`` workflows, but it is not the recommended default for full reconstruction jobs when a released container image is available.
 

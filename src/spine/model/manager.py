@@ -93,7 +93,8 @@ class ModelManager:
         if not TORCH_AVAILABLE:
             raise ImportError(
                 "PyTorch is required to use the model manager. "
-                "Install with: pip install spine[model]"
+                "Use the released SPINE container or install a compatible "
+                "PyTorch ecosystem manually."
             )
 
         if not isinstance(modules, Mapping):

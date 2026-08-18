@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from spine.model.optim import AdaBound, AdaBoundW
 from spine.model.optim import factory as optim_module
 from spine.model.optim import lr_sched_factory, optim_factory
+from spine.model.optim.adabound import AdaBound, AdaBoundW
 
 
 @pytest.mark.parametrize("optimizer_cls", [AdaBound, AdaBoundW])
