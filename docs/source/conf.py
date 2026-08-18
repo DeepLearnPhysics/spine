@@ -139,6 +139,13 @@ html_js_files = [
     "js/version.js",
 ]
 
+# The favicon is an HTML-only asset. Sphinx copies it to both paths below,
+# neither of which has a supported EPUB media type.
+epub_exclude_files = [
+    "_static/favicon.ico",
+    "_static/img/favicon.ico",
+]
+
 # Napoleon custom sections
 napoleon_custom_sections = [
     "Shapes",

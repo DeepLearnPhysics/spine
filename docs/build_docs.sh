@@ -11,5 +11,6 @@ cd "$docs_dir"
 rm -rf source/api/generated
 make clean
 make html SPHINXOPTS="-W --keep-going"
+make epub SPHINXOPTS="-W --keep-going"
 
-echo "Documentation built at $docs_dir/build/html/index.html"
+echo "Documentation built at $docs_dir/build/html/index.html and $docs_dir/build/epub/SPINE.epub"
