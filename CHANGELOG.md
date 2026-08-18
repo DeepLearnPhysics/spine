@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-08-18
+
 ### Added
 - **Shower-start dE/dx diagnostic**: Implement the shower analyzer with
   configurable spherical and direction-aware kernels, scalar or scanned
