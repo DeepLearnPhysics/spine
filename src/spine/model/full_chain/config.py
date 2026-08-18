@@ -301,6 +301,23 @@ def _legacy_chain_plan(
             )
         )
 
+    # Vertex reduction follows interaction aggregation because both supported
+    # modes publish exactly one prediction for each reconstructed interaction.
+    vertexing = config.get("vertexing")
+    if vertexing is not None:
+        vertexing_config = modules.get("interaction_vertexing")
+        if vertexing_config is None:
+            vertexing_config = {}
+        if not isinstance(vertexing_config, dict):
+            raise TypeError("`interaction_vertexing` must be a mapping.")
+        stages.append(
+            StageConfig(
+                "interaction_vertexing",
+                "interaction_vertexing",
+                {"mode": vertexing, **vertexing_config},
+            )
+        )
+
     # Historical calibration named a target stage rather than occupying an
     # explicit position. Resolve aliases and insert it immediately beforehand.
     calibration = config.get("calibration")

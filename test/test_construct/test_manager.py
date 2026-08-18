@@ -258,6 +258,7 @@ def test_build_sources_converts_points_and_truth_objects(points, depositions, me
         "meta": meta_cm,
         "particles": [particle],
         "fragment_start_points": np.array([[1, 1, 1]], dtype=np.float32),
+        "interaction_vertices": np.array([[2, 2, 2]], dtype=np.float32),
     }
     manager = BuildManager(False, False, False, mode="both", units="cm")
 
@@ -265,6 +266,7 @@ def test_build_sources_converts_points_and_truth_objects(points, depositions, me
 
     np.testing.assert_allclose(update["points"][0], [1, 1, 1])
     np.testing.assert_allclose(update["fragment_start_points"][0], [3, 3, 3])
+    np.testing.assert_allclose(update["interaction_vertices"][0], [5, 5, 5])
     np.testing.assert_array_equal(update["sources"].dtype, np.dtype("int32"))
     np.testing.assert_array_equal(update["orig_index"], [10, 11, 12, 13])
     np.testing.assert_array_equal(update["depositions_q_label"], depositions + 100)

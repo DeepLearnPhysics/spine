@@ -1,0 +1,62 @@
+# Canonical UResNet vertex-proposal inference/evaluation configuration.
+
+base:
+  world_size: 0
+  iterations: 1
+  seed: 0
+  unwrap: false
+  log_dir: logs/uresnet_vertex/test
+  log_step: 1
+  overwrite_log: true
+
+io:
+  loader:
+    minibatch_size: 2
+    shuffle: false
+    num_workers: 0
+    collate_fn: all
+    dataset:
+      name: larcv
+      file_keys: null
+      schema:
+        data:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          parser: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+        vertex_label:
+          parser: vertex_points
+          sparse_event: sparse3d_pcluster
+          particle_event: particle_corrected
+
+model:
+  name: uresnet_ppn
+  weight_path: null
+  network_input:
+    data: data
+  loss_input:
+    seg_label: seg_label
+    vertex_label: vertex_label
+  modules:
+    uresnet:
+      num_input: 1
+      num_classes: 5
+      filters: 32
+      depth: 5
+      reps: 2
+      allow_bias: false
+      activation:
+        name: lrelu
+        negative_slope: 0.33
+      norm_layer:
+        name: batch_norm
+        eps: 0.0001
+        momentum: 0.01
+    vertex:
+      mask_score_threshold: 0.5
+    uresnet_loss:
+      balance_loss: false
+    vertex_loss:
+      mask_loss: CE
+      resolution: 5.0

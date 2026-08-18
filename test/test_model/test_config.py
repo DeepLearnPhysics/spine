@@ -10,7 +10,12 @@ from spine.model.factories import model_names, model_spec
 from spine.model.manager import ModelManager
 from spine.utils.conditional import TORCH_AVAILABLE
 
-from .cases import EXAMPLE_CONFIGS, INFERENCE_MODEL_CONFIGS, MODEL_CONFIGS
+from .cases import (
+    EXAMPLE_CONFIGS,
+    INFERENCE_MODEL_CONFIGS,
+    MODEL_CONFIGS,
+    POINT_PROPOSAL_VARIANT_CONFIGS,
+)
 
 
 @pytest.mark.parametrize(
@@ -128,6 +133,24 @@ def test_full_chain_train_and_test_config_contract():
     assert train_cfg["model"] == test_cfg["model"]
     assert train_cfg["io"]["loader"]["minibatch_size"] == 2
     assert test_cfg["io"]["loader"]["minibatch_size"] == 2
+
+
+@pytest.mark.parametrize("variant", POINT_PROPOSAL_VARIANT_CONFIGS)
+def test_point_proposal_variant_config_contract(variant):
+    """Keep vertex proposal model definitions aligned across run modes."""
+    train_path, test_path = POINT_PROPOSAL_VARIANT_CONFIGS[variant]
+    train_cfg = load_config_file(str(train_path), download=False)
+    test_cfg = load_config_file(str(test_path), download=False)
+
+    assert train_cfg["model"] == test_cfg["model"]
+    assert train_cfg["io"]["loader"]["minibatch_size"] == 64
+    assert test_cfg["io"]["loader"]["minibatch_size"] == 2
+
+    modules = train_cfg["model"]["modules"]
+    assert "vertex" in modules
+    assert "vertex_loss" in modules
+    if variant == "ppn_vertex":
+        assert modules["proposal_decoder"]["shared"] is False
 
 
 @pytest.mark.parametrize(

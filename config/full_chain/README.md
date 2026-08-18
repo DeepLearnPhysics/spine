@@ -147,6 +147,76 @@ Likewise, `orientation` maps to `particle_node_orient_pred`. Arbitrary extra
 heads such as energy regression are published as
 `particle_node_<head>_pred`.
 
+## Interaction vertexing
+
+Interaction vertexing is a reduction stage after interaction aggregation. It
+publishes one `interaction_vertices` row and one
+`interaction_vertex_scores` value for every `interaction_clusts` entry. The
+interaction builder consumes the vertex product when available and otherwise
+retains its unset (`NaN`) vertex.
+
+A vertex PPN supplies voxel-aligned proposals through the segmentation stage:
+
+```yaml
+    chain:
+      stages:
+      # Segmentation must use a uresnet_ppn block with a `vertex` head.
+      - name: segmentation
+        provider: segmentation
+        uses: uresnet_ppn
+        config:
+          mode: uresnet
+          point_proposal: ppn
+      # Fragmentation and both aggregation stages precede this reducer.
+      - name: interaction_vertexing
+        provider: interaction_vertexing
+        config:
+          mode: ppn
+          score_threshold: 0.5
+          pool_radius: 1.999
+          pool_score_fn: max
+```
+
+Interaction GrapPA can instead expose a named five-output vertex head: two
+primary logits and three position values. The reducer chooses the particle
+with the largest primary probability in each predicted interaction.
+
+```yaml
+    chain:
+      stages:
+      - name: interaction_aggregation
+        provider: interaction_aggregation
+        uses: grappa_inter
+        loss: grappa_inter_loss
+        config:
+          mode: grappa
+      - name: interaction_vertexing
+        provider: interaction_vertexing
+        config:
+          mode: grappa
+          normalize_positions: false
+          use_anchor_points: false
+
+    grappa_inter:
+      gnn_model:
+        node_pred:
+          vertex: 5
+
+    grappa_inter_loss:
+      node_loss:
+        vertex:
+          name: vertex
+          normalize_positions: false
+          use_anchor_points: false
+```
+
+Anchor mode additionally requires an endpoint-producing GrapPA node encoder,
+such as the geometric encoder with `add_points: true`. The legacy schema uses
+`chain.vertexing: ppn` or `chain.vertexing: grappa`; reducer options belong in
+the sibling `interaction_vertexing` module block. When a learned vertex is
+enabled, omit the geometric `post.vertex` processor unless intentionally
+replacing the learned result.
+
 External providers can be registered with `register_provider`, or referenced
 as `package.module:PROVIDER_SPEC`. A provider may publish several capabilities
 at once—for example, semantic predictions and fragments—without any change to

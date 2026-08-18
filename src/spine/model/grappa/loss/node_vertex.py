@@ -12,6 +12,10 @@ from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, IndexBatch, Meta, TensorBatch
 from spine.geo import GeoManager
 from spine.model.common.factories import loss_fn_factory
+from spine.model.grappa.vertex import (
+    decode_vertex_positions,
+    vertex_position_scales,
+)
 
 from .node_class import NodeClassLoss
 
@@ -208,66 +212,22 @@ class NodeVertexLoss(torch.nn.Module):
         position_scales = None
         if self.normalize_positions:
             assert meta is not None
-            if len(meta) != vertex_labels.batch_size:
-                raise ValueError(
-                    "Expected one metadata entry per batch entry, but received "
-                    f"{len(meta)} metadata entries for a batch size of "
-                    f"{vertex_labels.batch_size}."
-                )
-
-            # Each entry may have a different image extent. Build one scale
-            # vector per node instead of assuming the first entry represents
-            # the entire batch.
-            position_scales = np.empty_like(vertex_labels.numpy_tensor())
-            for batch_id in range(vertex_labels.batch_size):
-                lower = vertex_labels.edges[batch_id]
-                upper = vertex_labels.edges[batch_id + 1]
-                position_scales[lower:upper] = meta[batch_id].count
-
+            position_scales = vertex_position_scales(vertex_pred, meta)
             vertex_labels = TensorBatch(
-                vertex_labels.numpy_tensor() / position_scales,
+                vertex_labels.numpy_tensor() / position_scales.detach().cpu().numpy(),
                 vertex_labels.counts,
             )
 
-        # If requested, anchor predicted positions to the closest particle point
-        if self.use_anchor_points:
-            # Check that we have particle end points
-            if start_points is None or end_points is None:
-                raise ValueError(
-                    "Must provide particle end points to anchor predictions."
-                )
-
-            # Get the particle end points, scale if necessary
-            points = torch.hstack(
-                (
-                    start_points.torch_tensor(),
-                    end_points.torch_tensor(),
-                )
-            ).view(-1, 2, 3)
-            if self.normalize_positions:
-                assert position_scales is not None
-                points = points / torch.as_tensor(
-                    position_scales,
-                    dtype=points.dtype,
-                    device=points.device,
-                ).view(-1, 1, 3)
-
-            # Get the closest particle end point for each prediction
-            vertex_pred_tensor = vertex_pred.torch_tensor()
-            dist_to_anchor = torch.norm(
-                vertex_pred_tensor.view(-1, 1, 3) - points,
-                dim=2,
-            )
-            min_index = torch.argmin(dist_to_anchor, dim=1)
-            range_index = torch.arange(len(points), device=points.device).long()
-            anchors = points[range_index, min_index, :]
-
-            # Update the predictions so that the offset w.r.t. to anchor
-            # points is predicted instead of the raw position
-            vertex_pred = TensorBatch(
-                anchors + vertex_pred_tensor,
-                vertex_pred.counts,
-            )
+        # Apply the same position transformation used by full-chain inference.
+        vertex_pred = decode_vertex_positions(
+            vertex_pred,
+            start_points=start_points,
+            end_points=end_points,
+            meta=meta,
+            normalize_positions=self.normalize_positions,
+            use_anchor_points=self.use_anchor_points,
+            position_scales=position_scales,
+        )
 
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]

@@ -310,6 +310,24 @@ class InteractionAggregationStage(ChainStage):
         self.operations = operations
         self.task_modes = task_modes or {}
 
+        # A named vertex head exposes canonical particle-level proposals for a
+        # later interaction reducer. Keep the native diagnostics unchanged.
+        self.predicts_vertex = bool(
+            model is not None
+            and "node_vertex_pred" in getattr(model, "node_pred_keys", ())
+        )
+        if self.predicts_vertex:
+            assert model is not None
+            self.provides = self.provides | {
+                "particle_vertex_proposals",
+                "particle_interaction_ids",
+            }
+            if bool(getattr(model.node_encoder, "add_points", False)):
+                self.provides = self.provides | {
+                    "particle_vertex_start_points",
+                    "particle_vertex_end_points",
+                }
+
     def forward(self, state: ChainState) -> StageResult:
         """Build interaction candidates and publish native GrapPA outputs.
 
@@ -327,6 +345,7 @@ class InteractionAggregationStage(ChainStage):
         shapes: TensorBatch = state.require("particle_shapes", self.name)
         primaries: IndexBatch = state.require("particle_primaries", self.name)
         outputs: dict[str, Any] = {}
+        native: dict[str, Any] = {}
 
         # Learned grouping may also publish particle-level task predictions.
         if self.mode == "grappa":
@@ -366,6 +385,16 @@ class InteractionAggregationStage(ChainStage):
             )
 
         products = {"interaction_clusts": interactions}
+        if self.predicts_vertex:
+            products.update(
+                {
+                    "particle_vertex_proposals": native["node_vertex_pred"],
+                    "particle_interaction_ids": native["group_pred"],
+                }
+            )
+            for key in ("start_points", "end_points"):
+                if key in native:
+                    products[f"particle_vertex_{key}"] = native[key]
         outputs.update(products)
         return StageResult(products, outputs)
 

@@ -55,6 +55,8 @@ class SegmentationStage(ChainStage):
         self.mode = mode
         self.model = model
         self.label_adapter = label_adapter
+        if bool(getattr(model, "predicts_vertex", False)):
+            self.provides = self.provides | {"vertex_proposals"}
 
     def forward(self, state: ChainState) -> StageResult:
         """Run semantic segmentation and adapt aligned cluster labels.
@@ -103,7 +105,11 @@ class SegmentationStage(ChainStage):
                         "ghost_pred": TensorBatch(ghost_prediction, data.counts),
                     }
                 )
-                for key in ("ppn_points", "ppn_classify_endpoints"):
+                for key in (
+                    "ppn_points",
+                    "ppn_classify_endpoints",
+                    "vertex_points",
+                ):
                     if key in model_result:
                         value = model_result[key]
                         model_result[key] = TensorBatch(
@@ -112,6 +118,8 @@ class SegmentationStage(ChainStage):
                 data = adapted_data
 
             outputs.update(model_result)
+            if "vertex_points" in model_result:
+                products["vertex_proposals"] = model_result["vertex_points"]
             segmentation = model_result["segmentation"]
             seg_pred = TensorBatch(
                 torch.argmax(segmentation.torch_tensor(), dim=1),

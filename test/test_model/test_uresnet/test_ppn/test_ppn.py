@@ -7,7 +7,12 @@ from spine.constants import GHOST_SHP
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.model.cnn.uresnet_layers import UResNet
-from spine.model.uresnet.ppn import UResNetPPN
+from spine.model.uresnet.ppn import (
+    PointProposalDecoder,
+    ProposalTask,
+    UResNetPPN,
+    UResNetPPNLoss,
+)
 from spine.model.uresnet.ppn.ppn import (
     PPN,
     AttentionMask,
@@ -23,6 +28,10 @@ POINT_SCHEMA = TensorSchema(coordinate_groups={"points": (0, 1, 2)})
 PPN_LABEL_SCHEMA = TensorSchema(
     coordinate_groups={"point": (0, 1, 2)},
     feature_fields={"shape": (0,), "particle": (1,), "endpoint": (2,)},
+)
+VERTEX_LABEL_SCHEMA = TensorSchema(
+    coordinate_groups={"vertex": (0, 1, 2)},
+    feature_fields={"interaction": (0,)},
 )
 
 
@@ -341,11 +350,105 @@ def test_ghost_ppn_validates_and_uses_ghost_inputs(cnn_config):
         )
 
 
-def test_vertex_loss_reports_unsupported_label_contract():
-    loss = VertexPPNLoss()
+def _positive_vertex_loss_inputs():
+    """Build one final-resolution site centered on its target vertex."""
+    coords = TensorBatch(
+        torch.tensor([[0, 0, 0, 0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    logits = TensorBatch(torch.tensor([[0.0, 2.0]]), counts=[1])
+    masks = TensorBatch(torch.tensor([[True]]), counts=[1])
+    points = TensorBatch(
+        torch.tensor([[0.0, 0.0, 0.0, 0.0, 2.0]]),
+        counts=[1],
+        schema=TensorSchema(
+            feature_fields={
+                "offsets": (0, 1, 2),
+                "vertex_logits": (3, 4),
+            },
+            feats_only=True,
+        ),
+    )
+    label = TensorBatch(
+        torch.tensor([[0.0, 0.5, 0.5, 0.5, 7.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=VERTEX_LABEL_SCHEMA,
+    )
+    return {
+        "vertex_label": label,
+        "vertex_points": points,
+        "vertex_points_unique": points,
+        "vertex_masks": [masks],
+        "vertex_layers": [logits],
+        "vertex_coords": [coords],
+        "vertex_output_coords": coords,
+    }
 
-    with pytest.raises(NotImplementedError, match="vertex-label schema"):
-        loss()
+
+def test_vertex_loss_trains_foreground_and_offsets(cnn_config):
+    """The parser-style vertex contract supervises both proposal outputs."""
+    loss = VertexPPNLoss(
+        cnn_config,
+        {
+            "balance_mask_loss": False,
+            "return_mask_labels": True,
+        },
+    )
+
+    result = loss(**_positive_vertex_loss_inputs())
+
+    assert torch.isfinite(result["loss"])
+    assert result["mask_accuracy"] == 1.0
+    assert result["reg_accuracy"] == 1.0
+    assert len(result["mask_labels"]) == 1
+
+
+def test_vertex_loss_handles_empty_labels_and_predictions(cnn_config):
+    """Empty entries produce a finite differentiable zero objective."""
+    counts = [0, 0]
+    coords = TensorBatch(
+        torch.empty((0, 4)),
+        counts=counts,
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    logits = TensorBatch(torch.empty((0, 2)), counts=counts)
+    masks = TensorBatch(torch.empty((0, 1), dtype=torch.bool), counts=counts)
+    points = TensorBatch(
+        torch.empty((0, 5)),
+        counts=counts,
+        schema=TensorSchema(
+            feature_fields={
+                "offsets": (0, 1, 2),
+                "vertex_logits": (3, 4),
+            },
+            feats_only=True,
+        ),
+    )
+    labels = TensorBatch(
+        torch.empty((0, 5)),
+        counts=counts,
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=VERTEX_LABEL_SCHEMA,
+    )
+
+    result = VertexPPNLoss(cnn_config, {})(
+        vertex_label=labels,
+        vertex_points=points,
+        vertex_masks=[masks],
+        vertex_layers=[logits],
+        vertex_coords=[coords],
+        vertex_output_coords=coords,
+    )
+
+    assert torch.isfinite(result["loss"])
 
 
 def test_vertex_ppn_decodes_uresnet_feature_pyramid(cnn_config):
@@ -366,7 +469,54 @@ def test_vertex_ppn_decodes_uresnet_feature_pyramid(cnn_config):
     assert result["vertex_points_unique"].shape[1] == 5
     assert len(result["vertex_layers"]) == cnn_config["depth"] - 1
     assert len(result["vertex_coords"]) == cnn_config["depth"] - 1
-    assert result["vertex_output_coordinates"].has_batch_col
+    assert result["vertex_output_coords"].has_batch_col
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_combined_point_tasks_support_decoder_sharing(cnn_config, shared):
+    """Dual-task models expose the same products in both decoder modes."""
+    model = UResNetPPN(
+        {**cnn_config, "num_classes": 5},
+        ppn={},
+        vertex={},
+        proposal_decoder={"shared": shared},
+    )
+    model.eval()
+    data = TensorBatch(
+        torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+
+    result = model(data)
+
+    assert "ppn_points" in result
+    assert "vertex_points" in result
+    assert (model.vertex is None) == shared
+    assert hasattr(model.ppn, "vertex_pred") == shared
+
+
+def test_vertex_only_model_uses_the_generic_proposal_decoder(cnn_config):
+    """Vertex regression can run without constructing particle-point heads."""
+    model = UResNetPPN(
+        {**cnn_config, "num_classes": 5},
+        vertex={},
+    )
+    model.eval()
+    data = TensorBatch(
+        torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+
+    result = model(data)
+
+    assert "vertex_points" in result
+    assert "ppn_points" not in result
+    assert model.ppn is None
+    assert model.vertex is not None
 
 
 def test_vertex_ppn_validates_threshold_and_feature_pyramid(cnn_config):
@@ -377,6 +527,284 @@ def test_vertex_ppn_validates_threshold_and_feature_pyramid(cnn_config):
     vertex = VertexPPN(cnn_config)
     with pytest.raises(ValueError, match="decoder tensors"):
         vertex(object(), [])
+
+
+def test_proposal_task_configuration_is_validated(cnn_config):
+    """Cross-task configuration fails early when its intent is ambiguous."""
+    backbone = {**cnn_config, "num_classes": 5}
+    with pytest.raises(ValueError, match="at least one"):
+        UResNetPPN(backbone)
+    with pytest.raises(ValueError, match="requires both"):
+        UResNetPPN(backbone, ppn={}, proposal_decoder={"shared": True})
+    with pytest.raises(TypeError, match="Unexpected proposal-decoder"):
+        UResNetPPN(backbone, ppn={}, proposal_decoder={"mode": "shared"})
+
+    with pytest.raises(ValueError, match="requires `vertex_loss`"):
+        UResNetPPNLoss(
+            uresnet=backbone,
+            uresnet_loss={},
+            vertex={},
+        )
+
+    with pytest.raises(ValueError, match="at least one proposal task loss"):
+        UResNetPPNLoss(backbone, {})
+    with pytest.raises(ValueError, match="requires `ppn_loss`"):
+        UResNetPPNLoss(backbone, {}, ppn={})
+
+
+def test_generic_proposal_decoder_validates_task_identity(cnn_config):
+    """Generic proposal paths require unique task and module names."""
+
+    class RawPointProposalDecoder(PointProposalDecoder):
+        """Expose raw decoder products for generic contract tests."""
+
+        def forward(self, *args, **kwargs):
+            return self.decode(*args, **kwargs)
+
+    with pytest.raises(ValueError, match="At least one"):
+        RawPointProposalDecoder(cnn_config, [])
+    with pytest.raises(ValueError, match="task names"):
+        RawPointProposalDecoder(
+            cnn_config,
+            [ProposalTask("point", "first", 0.5), ProposalTask("point", "second", 0.5)],
+        )
+    with pytest.raises(ValueError, match="module names"):
+        RawPointProposalDecoder(
+            cnn_config,
+            [
+                ProposalTask("first", "scores", 0.5),
+                ProposalTask("second", "scores", 0.5),
+            ],
+        )
+
+    # The generic form is directly executable for consumers that only need
+    # the final feature plane and multiscale proposal products.
+    rows = torch.tensor([[0.0, 1.0, 1.0, 1.0, 1.0]])
+    features = UResNet(cnn_config)(rows)
+    decoder = RawPointProposalDecoder(
+        cnn_config,
+        [ProposalTask("custom", "custom_masks", 0.5)],
+        legacy_layers=False,
+    )
+    decoder.eval()
+    final, outputs = decoder(
+        features["final_tensor"],
+        features["decoder_tensors"],
+    )
+    assert final.shape[0] == 1
+    assert len(outputs["custom"]["layers"]) == 1
+
+
+@pytest.mark.parametrize("gate_option", ["propagate_all", "use_binary_mask"])
+def test_shared_decoder_supports_configured_union_gating(cnn_config, gate_option):
+    """Shared paths combine task scores under soft and configured hard gates."""
+    model = UResNetPPN(
+        {**cnn_config, "num_classes": 5},
+        ppn={gate_option: True},
+        vertex={},
+        proposal_decoder={"shared": True},
+    )
+    model.eval()
+    data = TensorBatch(
+        torch.tensor([[0.0, 1.0, 1.0, 1.0, 2.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+
+    result = model(data)
+
+    assert result["ppn_points"].shape[0] == 1
+    assert result["vertex_points"].shape[0] == 1
+
+
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"extra": True}, "Unexpected vertex configuration"),
+        ({"mask_score_threshold": -0.1}, "between zero and one"),
+    ],
+)
+def test_shared_vertex_configuration_is_validated(cnn_config, config, message):
+    """Shared vertex heads apply the same strict contract as standalone ones."""
+    with pytest.raises((TypeError, ValueError), match=message):
+        PPN({**cnn_config, "num_classes": 5}, {}, vertex=config)
+
+
+@pytest.mark.parametrize(
+    ("config", "error", "message"),
+    [
+        ({"extra": True}, TypeError, "Unexpected vertex-loss"),
+        ({"mask_loss": "dice"}, ValueError, "not recognized"),
+        ({"resolution": 0.0}, ValueError, "resolution"),
+        ({"reg_loss_weight": -1.0}, ValueError, "nonnegative"),
+    ],
+)
+def test_vertex_loss_configuration_is_validated(
+    cnn_config,
+    config,
+    error,
+    message,
+):
+    """Malformed vertex objectives fail during construction."""
+    with pytest.raises(error, match=message):
+        VertexPPNLoss(cnn_config, config)
+
+    if config == {"extra": True}:
+        with pytest.raises(TypeError, match="Unexpected vertex configuration"):
+            VertexPPN(cnn_config, config)
+
+
+def test_vertex_loss_requires_a_multiscale_backbone(cnn_config):
+    """Vertex supervision requires explicit depth and at least two scales."""
+    with pytest.raises(ValueError, match="define `depth`"):
+        VertexPPNLoss({}, {})
+    with pytest.raises(ValueError, match="depth of at least two"):
+        VertexPPNLoss({**cnn_config, "depth": 1}, {})
+
+
+def test_vertex_loss_validates_prediction_alignment(cnn_config):
+    """Vertex supervision rejects incomplete or row-misaligned products."""
+    inputs = _positive_vertex_loss_inputs()
+    loss = VertexPPNLoss(cnn_config, {})
+    with pytest.raises(ValueError, match="Expected 1 vertex layers"):
+        loss(**{**inputs, "vertex_masks": []})
+
+    other_coords = TensorBatch(
+        torch.tensor([[0, 1, 1, 1]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    with pytest.raises(ValueError, match="must match"):
+        loss(**{**inputs, "vertex_output_coords": other_coords})
+
+    extra_points = TensorBatch(
+        torch.zeros((2, 5)),
+        counts=[2],
+        schema=inputs["vertex_points"].schema,
+    )
+    with pytest.raises(ValueError, match="matching rows"):
+        loss(**{**inputs, "vertex_points_unique": extra_points})
+
+    extra_masks = TensorBatch(torch.ones((2, 1), dtype=torch.bool), counts=[2])
+    with pytest.raises(ValueError, match="mask and score rows"):
+        loss(**{**inputs, "vertex_masks": [extra_masks]})
+
+
+def test_combined_loss_routes_configured_proposal_tasks(cnn_config):
+    """The wrapper requires each label and prefixes every native metric."""
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        ppn={},
+        ppn_loss={},
+        vertex={},
+        vertex_loss={},
+        proposal_decoder={"shared": True},
+    )
+
+    class FixedLoss(torch.nn.Module):
+        """Return a deterministic differentiable metric dictionary."""
+
+        def __init__(self, value):
+            super().__init__()
+            self.value = value
+
+        def forward(self, *args, **kwargs):
+            del args, kwargs
+            return {
+                "loss": torch.tensor(float(self.value)),
+                "accuracy": float(self.value),
+            }
+
+    loss.seg_loss = FixedLoss(1)
+    loss.ppn_loss = FixedLoss(2)
+    loss.vertex_loss = FixedLoss(3)
+    label = TensorBatch(torch.zeros(1), counts=[1])
+
+    with pytest.raises(ValueError, match="requires `ppn_label`"):
+        loss(seg_label=label)
+    with pytest.raises(ValueError, match="requires `vertex_label`"):
+        loss(seg_label=label, ppn_label=label)
+
+    result = loss(
+        seg_label=label,
+        ppn_label=label,
+        vertex_label=label,
+    )
+
+    assert result["loss"] == 6.0
+    assert result["accuracy"] == 2.0
+    assert result["uresnet_loss"] == 1.0
+    assert result["ppn_loss"] == 2.0
+    assert result["vertex_loss"] == 3.0
+
+
+def test_vertex_only_loss_constructs_without_ppn(cnn_config):
+    """Vertex-only training does not require a particle-point loss block."""
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        vertex={},
+        vertex_loss={},
+    )
+
+    assert loss.ppn_loss is None
+    assert isinstance(loss.vertex_loss, VertexPPNLoss)
+
+
+def test_vertex_loss_builds_multiscale_targets(cnn_config):
+    """A deeper decoder max-pools final labels onto every proposal scale."""
+    config = {**cnn_config, "depth": 3}
+    rows = [[0.0, x, y, z, 1.0] for x in range(4) for y in range(4) for z in range(4)]
+    backbone = UResNet(config)
+    vertex = VertexPPN(config)
+    backbone.eval()
+    vertex.eval()
+    features = backbone(torch.tensor(rows))
+    result = vertex(features["final_tensor"], features["decoder_tensors"])
+    label = TensorBatch(
+        torch.tensor([[0.0, 1.5, 1.5, 1.5, 0.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=VERTEX_LABEL_SCHEMA,
+    )
+
+    metrics = VertexPPNLoss(config, {})(vertex_label=label, **result)
+
+    assert torch.isfinite(metrics["loss"])
+    assert "mask_loss_layer_1" in metrics
+
+
+def test_ppn_loss_builds_multiscale_targets(cnn_config):
+    """Particle-point PPN retains target pooling on deeper generic decoders."""
+    config = {**cnn_config, "num_classes": 5, "depth": 3}
+    rows = [[0.0, x, y, z, 1.0] for x in range(4) for y in range(4) for z in range(4)]
+    model = UResNetPPN(config, ppn={})
+    model.eval()
+    result = model(
+        TensorBatch(
+            torch.tensor(rows),
+            counts=[len(rows)],
+            has_batch_col=True,
+            coord_cols=(1, 2, 3),
+        )
+    )
+    label = TensorBatch(
+        torch.tensor([[0.0, 1.5, 1.5, 1.5, 1.0, 0.0, 0.0]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=PPN_LABEL_SCHEMA,
+    )
+
+    metrics = PPNLoss(config, {})(ppn_label=label, **result)
+
+    assert torch.isfinite(metrics["loss"])
+    assert "mask_loss_layer_1" in metrics
 
 
 def test_ppn_validates_required_and_optional_configuration(cnn_config):

@@ -47,6 +47,17 @@ INFERENCE_MODEL_CONFIGS = {
 
 FULL_CHAIN_REGRESSION_CONFIG = CONFIG_DIR / "full_chain" / "full_chain_regression.yaml"
 
+POINT_PROPOSAL_VARIANT_CONFIGS = {
+    "vertex": (
+        CONFIG_DIR / "uresnet" / "ppn" / "uresnet_vertex_train.yaml",
+        CONFIG_DIR / "uresnet" / "ppn" / "uresnet_vertex_test.yaml",
+    ),
+    "ppn_vertex": (
+        CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_vertex_train.yaml",
+        CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_vertex_test.yaml",
+    ),
+}
+
 STANDALONE_MODEL_CONFIGS = {
     name: path for name, path in MODEL_CONFIGS.items() if name != "full_chain"
 }

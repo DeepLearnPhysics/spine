@@ -410,6 +410,38 @@ def test_legacy_plan_translates_voxel_and_interaction_stages() -> None:
     }
 
 
+def test_legacy_plan_places_vertexing_after_interactions() -> None:
+    """Legacy vertexing should become a reducer after interaction grouping."""
+    plan = build_chain_plan(
+        {
+            "inter_aggregation": "label",
+            "vertexing": "ppn",
+        },
+        {"interaction_vertexing": {"score_threshold": 0.7}},
+    )
+
+    assert [stage.provider for stage in plan] == [
+        "interaction_aggregation",
+        "interaction_vertexing",
+    ]
+    assert plan[1].config == {
+        "mode": "ppn",
+        "score_threshold": 0.7,
+    }
+
+    default_plan = build_chain_plan(
+        {"inter_aggregation": "label", "vertexing": "grappa"},
+        {},
+    )
+    assert default_plan[1].config == {"mode": "grappa"}
+
+    with pytest.raises(TypeError, match="must be a mapping"):
+        build_chain_plan(
+            {"inter_aggregation": "label", "vertexing": "ppn"},
+            {"interaction_vertexing": []},
+        )
+
+
 def test_external_provider_can_supply_multiple_capabilities() -> None:
     """A combined semantic/fragment provider needs no FullChain changes."""
 
@@ -479,6 +511,8 @@ def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
     """Internal sparse PPN products retain their independently pruned rows."""
 
     class Model:
+        predicts_vertex = True
+
         def __call__(self, _data: TensorBatch) -> dict[str, Any]:
             return {
                 "segmentation": TensorBatch(torch.zeros((3, 5)), [3]),
@@ -487,6 +521,10 @@ def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
                     [3],
                 ),
                 "ppn_points": TensorBatch(torch.arange(30).reshape(3, 10), [3]),
+                "vertex_points": TensorBatch(
+                    torch.arange(15).reshape(3, 5),
+                    [3],
+                ),
                 "ppn_coords": [TensorBatch(torch.zeros((1, 4)), [1])],
             }
 
@@ -499,7 +537,10 @@ def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
     state = ChainState(data=make_data(3))
     result = stage(state)
     assert result.outputs["ppn_points"].counts.tolist() == [2]
+    assert result.outputs["vertex_points"].counts.tolist() == [2]
     assert result.outputs["ppn_coords"][0].counts.tolist() == [1]
+    assert result.products["vertex_proposals"].counts.tolist() == [2]
+    assert "vertex_proposals" in stage.provides
 
 
 def test_segmentation_loss_aligns_cached_deghosted_rows() -> None:
@@ -1248,6 +1289,47 @@ def test_interaction_aggregation_modes_and_task_ownership() -> None:
     assert "particle_node_type_pred" not in result.outputs
     assert "particle_node_primary_pred" in result.outputs
     assert "particle_edge_pred" in result.outputs
+
+
+def test_interaction_aggregation_promotes_vertex_products() -> None:
+    """A named GrapPA vertex head should publish reducer-ready products."""
+    data = make_data()
+    clusts, shapes = make_clusters()
+    state = ChainState(
+        data=data,
+        particle_clusts=clusts,
+        particle_shapes=shapes,
+        particle_primaries=clusts,
+    )
+
+    class Model:
+        node_type = [SHOWR_SHP, TRACK_SHP]
+        node_pred_keys = ["node_vertex_pred"]
+        node_encoder = SimpleNamespace(add_points=True)
+
+    proposals = TensorBatch(torch.zeros((2, 5)), [2])
+    assignments = TensorBatch(torch.tensor([0, 1]), [2])
+    starts = TensorBatch(torch.zeros((2, 3)), [2])
+    ends = TensorBatch(torch.ones((2, 3)), [2])
+
+    class Operations:
+        def run_grappa(self, *args, **kwargs):
+            native = {
+                "clusts": clusts,
+                "node_vertex_pred": proposals,
+                "group_pred": assignments,
+                "start_points": starts,
+                "end_points": ends,
+            }
+            return clusts, shapes, clusts, None, native
+
+    stage = InteractionAggregationStage("inter", "grappa", Model(), Operations())
+    result = stage(state)
+
+    assert result.products["particle_vertex_proposals"] is proposals
+    assert result.products["particle_interaction_ids"] is assignments
+    assert result.products["particle_vertex_start_points"] is starts
+    assert result.products["particle_vertex_end_points"] is ends
 
 
 def test_grappa_loss_stage_restores_native_namespace() -> None:

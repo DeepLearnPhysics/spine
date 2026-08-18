@@ -1,8 +1,11 @@
+"""Generic sparse point proposal decoder and particle-point PPN task."""
+
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, Generic, TypeAlias, TypeVar
 
 import torch
 
@@ -11,9 +14,8 @@ from spine.constants import (
     TRACK_SHP,
 )
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
-from spine.logging import logger
 from spine.model import sparse
-from spine.model.cnn.act_norm import act_factory
+from spine.model.cnn.act_norm import act_factory, norm_factory
 from spine.model.cnn.blocks import ResNetBlock
 from spine.model.cnn.configuration import setup_cnn_configuration
 from spine.model.common.weighting import get_class_weights
@@ -25,8 +27,16 @@ PPNLossOutput: TypeAlias = dict[
     str,
     torch.Tensor | float | list[TensorBatch],
 ]
+ProposalOutputT = TypeVar("ProposalOutputT")
 
-__all__ = ["PPN", "PPNLoss", "PPNOutput", "PPNLossOutput"]
+__all__ = [
+    "PointProposalDecoder",
+    "ProposalTask",
+    "PPN",
+    "PPNLoss",
+    "PPNOutput",
+    "PPNLossOutput",
+]
 
 
 @dataclass(frozen=True)
@@ -38,23 +48,6 @@ class _PPNConfig:
     propagate_all: bool
     use_binary_mask: bool
     use_true_ghost_mask: bool
-
-
-@dataclass(frozen=True)
-class _PPNModules:
-    """Modules constructed for a PPN head."""
-
-    decoding_block: torch.nn.Sequential
-    decoding_conv: torch.nn.Sequential
-    ppn_masks: torch.nn.ModuleList
-    expand_as: ExpandAs
-    final_block: torch.nn.Module
-    ppn_pixel_pos: torch.nn.Module
-    ppn_type: torch.nn.Module
-    ppn_endpoint: torch.nn.Module | None
-    masker: torch.nn.Module | None
-    merge_concat: torch.nn.Module | None
-    ghost_mask: torch.nn.Module | None
 
 
 @dataclass(frozen=True)
@@ -75,7 +68,370 @@ class _PPNLossConfig:
     restrict_to_clusters: bool
 
 
-class PPN(sparse.Network):
+@dataclass(frozen=True)
+class ProposalTask:
+    """Configuration of one task decoded by a point-proposal path.
+
+    Parameters
+    ----------
+    name : str
+        Prefix used for the task outputs.
+    module_name : str
+        Attribute under which the scale-wise score heads are registered.
+    score_threshold : float
+        Foreground probability threshold used for binary masks.
+    propagate_all : bool, default False
+        Propagate every decoded feature irrespective of its score.
+    use_binary_mask : bool, default False
+        Gate features with thresholded rather than continuous scores.
+    """
+
+    name: str
+    module_name: str
+    score_threshold: float
+    propagate_all: bool = False
+    use_binary_mask: bool = False
+
+
+class PointProposalDecoder(sparse.Network, Generic[ProposalOutputT]):
+    """Decode one or more sparse point-proposal tasks.
+
+    The decoder follows the UResNet resolution schedule, fuses the matching
+    skip feature at every scale and predicts a two-class foreground mask for
+    each configured task. A single-task decoder reproduces the traditional
+    PPN gating path. For multiple tasks, the union of their foreground
+    probabilities gates the shared features, while every task retains its own
+    mask heads and supervision.
+
+    This class owns only the multiscale proposal path. Concrete tasks add
+    their final regression and classification heads after :meth:`decode`.
+    """
+
+    def __init__(
+        self,
+        backbone: dict[str, Any],
+        tasks: Sequence[ProposalTask],
+        *,
+        ghost: bool = False,
+        use_true_ghost_mask: bool = False,
+        legacy_layers: bool = True,
+    ) -> None:
+        """Initialize the generic proposal decoder.
+
+        Parameters
+        ----------
+        backbone : dict
+            Shared CNN configuration with model-specific keys removed.
+        tasks : sequence of ProposalTask
+            Point tasks decoded along the shared feature path.
+        ghost : bool, default False
+            Apply the UResNet ghost mask to proposal features.
+        use_true_ghost_mask : bool, default False
+            Build the ghost mask from semantic labels instead of predictions.
+        legacy_layers : bool, default True
+            Preserve the historical PPN normalization and bias choices. The
+            standalone vertexer disables this to honor the shared CNN config.
+
+        Raises
+        ------
+        ValueError
+            If no task is supplied, task names collide, or the backbone is too
+            shallow for a proposal path.
+        """
+        super().__init__(backbone.get("data_dim", 3))
+        setup_cnn_configuration(self, **backbone)
+        if self.depth < 2:
+            raise ValueError(
+                "Point proposal decoding requires a UResNet depth of at least two."
+            )
+        if not tasks:
+            raise ValueError("At least one point-proposal task is required.")
+
+        task_names = [task.name for task in tasks]
+        module_names = [task.module_name for task in tasks]
+        if len(set(task_names)) != len(task_names):
+            raise ValueError("Point-proposal task names must be unique.")
+        if len(set(module_names)) != len(module_names):
+            raise ValueError("Point-proposal module names must be unique.")
+
+        self.proposal_tasks = tuple(tasks)
+        self.ghost = ghost
+        self.use_true_ghost_mask = use_true_ghost_mask
+
+        # Build the scale-wise upsampling and skip-fusion path once, even when
+        # multiple proposal tasks consume it.
+        decoding_blocks = []
+        decoding_convolutions = []
+        task_heads = {task.module_name: torch.nn.ModuleList() for task in tasks}
+        for level in range(self.depth - 2, -1, -1):
+            normalization = (
+                sparse.BatchNorm(self.num_planes[level + 1])
+                if legacy_layers
+                else norm_factory(self.norm_cfg, self.num_planes[level + 1])
+            )
+            decoding_convolutions.append(
+                torch.nn.Sequential(
+                    normalization,
+                    act_factory(self.act_cfg),
+                    sparse.ConvolutionTranspose(
+                        in_channels=self.num_planes[level + 1],
+                        out_channels=self.num_planes[level],
+                        kernel_size=2,
+                        stride=2,
+                        dimension=self.dimension,
+                        bias=self.allow_bias if not legacy_layers else False,
+                    ),
+                )
+            )
+
+            blocks = []
+            for repetition in range(self.reps):
+                block_options: dict[str, Any] = {}
+                if not legacy_layers:
+                    block_options.update(
+                        normalization=self.norm_cfg,
+                        bias=self.allow_bias,
+                    )
+                blocks.append(
+                    ResNetBlock(
+                        self.num_planes[level] * (2 if repetition == 0 else 1),
+                        self.num_planes[level],
+                        dimension=self.dimension,
+                        activation=self.act_cfg,
+                        **block_options,
+                    )
+                )
+            decoding_blocks.append(torch.nn.Sequential(*blocks))
+            for heads in task_heads.values():
+                heads.append(sparse.Linear(self.num_planes[level], 2))
+
+        self.decoding_conv = torch.nn.Sequential(*decoding_convolutions)
+        self.decoding_block = torch.nn.Sequential(*decoding_blocks)
+        for module_name, heads in task_heads.items():
+            setattr(self, module_name, heads)
+        self.expand_as = ExpandAs()
+
+        # Ghost utilities are registered here so the legacy PPN state-dict
+        # hierarchy remains unchanged.
+        self.masker = AttentionMask() if ghost else None
+        self.merge_concat = MergeConcat() if ghost else None
+        self.ghost_mask = GhostMask(self.dimension) if ghost else None
+
+    def _decoder_features(
+        self,
+        decoder_tensors: Sequence[sparse.SparseTensor],
+        ghost: sparse.SparseTensor | None,
+        seg_label: TensorBatch | None,
+    ) -> tuple[list[sparse.SparseTensor], list[sparse.SparseTensor]]:
+        """Return decoder features and aligned ghost masks.
+
+        Parameters
+        ----------
+        decoder_tensors : sequence of sparse.SparseTensor
+            UResNet decoder features ordered from deep to shallow.
+        ghost : sparse.SparseTensor, optional
+            Predicted ghost logits at input resolution.
+        seg_label : TensorBatch, optional
+            Semantic labels used by truth-mask mode.
+
+        Returns
+        -------
+        tuple of list of sparse.SparseTensor
+            Decoder features and their scale-wise ghost masks. The second list
+            is empty when ghost masking is disabled.
+        """
+        expected = self.depth - 1
+        if len(decoder_tensors) != expected:
+            raise ValueError(
+                f"Expected {expected} decoder tensors, got {len(decoder_tensors)}."
+            )
+        if not self.ghost:
+            return list(decoder_tensors), []
+
+        assert self.ghost_mask is not None
+        assert self.masker is not None
+        with torch.no_grad():
+            if self.use_true_ghost_mask:
+                if seg_label is None:
+                    raise ValueError(
+                        "If `use_true_ghost_mask` is set to `True`, must "
+                        "provide the `seg_label` tensor."
+                    )
+                labels = seg_label.values.torch_tensor()
+                if labels.shape[0] != decoder_tensors[-1].reference_size:
+                    raise ValueError(
+                        "The label tensor length must match that of the last "
+                        "UResNet layer."
+                    )
+                ghost_coords = decoder_tensors[-1].coordinates
+                mask_features = labels < GHOST_SHP
+            else:
+                if ghost is None:
+                    raise ValueError("Ghost masking requires ghost prediction logits.")
+                ghost_coords = ghost.coordinates
+                mask_features = 1.0 - torch.argmax(ghost.features, dim=1, keepdim=True)
+
+            mask_features = mask_features.to(dtype=decoder_tensors[-1].features.dtype)
+            ghost_tensor = sparse.SparseTensor(
+                mask_features,
+                coordinates=ghost_coords,
+                coordinate_manager=decoder_tensors[-1].coordinate_manager,
+                batch_size=decoder_tensors[-1].batch_size,
+            )
+
+        features, masks = [], []
+        for decoder_tensor in reversed(decoder_tensors):
+            mask = self.ghost_mask(ghost_tensor, decoder_tensor)
+            features.append(self.masker(decoder_tensor, mask))
+            masks.append(mask)
+        return features[::-1], masks[::-1]
+
+    def decode(
+        self,
+        final_tensor: sparse.SparseTensor,
+        decoder_tensors: Sequence[sparse.SparseTensor],
+        ghost: sparse.SparseTensor | None = None,
+        seg_label: TensorBatch | None = None,
+    ) -> tuple[sparse.SparseTensor, dict[str, dict[str, list[TensorBatch]]]]:
+        """Decode the UResNet pyramid and collect task-specific masks.
+
+        Returns
+        -------
+        sparse.SparseTensor
+            Final shared proposal features at input resolution.
+        dict
+            Per-task ``layers``, binary ``masks`` and ``coords`` products.
+        """
+        features, ghost_masks = self._decoder_features(
+            decoder_tensors, ghost, seg_label
+        )
+        outputs = {
+            task.name: {"layers": [], "masks": [], "coords": []}
+            for task in self.proposal_tasks
+        }
+
+        x = final_tensor
+        for level, upsample in enumerate(self.decoding_conv):
+            x = upsample(x)
+            if self.ghost:
+                assert self.masker is not None
+                assert self.merge_concat is not None
+                x = self.masker(x, ghost_masks[level])
+                x = self.merge_concat(features[level], x)
+            else:
+                x = sparse.cat(features[level], x)
+            x = self.decoding_block[level](x)
+
+            probability_tensors = []
+            for task in self.proposal_tasks:
+                heads = getattr(self, task.module_name)
+                scores = heads[level](x)
+                scores_prob = sparse.softmax(scores, dim=1)
+                probability_tensors.append(scores_prob)
+                foreground = scores_prob.features[:, 1:] > task.score_threshold
+                counts = scores.counts
+                outputs[task.name]["coords"].append(
+                    TensorBatch(
+                        scores.coordinates,
+                        counts,
+                        has_batch_col=True,
+                        coord_cols=tuple(range(1, self.dimension + 1)),
+                    )
+                )
+                outputs[task.name]["layers"].append(
+                    TensorBatch(
+                        scores.features,
+                        counts,
+                        schema=TensorSchema(
+                            feature_fields={"mask_logits": (0, 1)},
+                            feats_only=True,
+                        ),
+                    )
+                )
+                outputs[task.name]["masks"].append(
+                    TensorBatch(
+                        foreground,
+                        counts,
+                        schema=TensorSchema(
+                            feature_fields={"foreground": (0,)},
+                            feats_only=True,
+                        ),
+                    )
+                )
+
+            # A shared decoder propagates the union of task foreground scores.
+            # Each task's own logits remain independent and deeply supervised.
+            if len(self.proposal_tasks) == 1:
+                task = self.proposal_tasks[0]
+                expanded = self.expand_as(
+                    probability_tensors[0],
+                    x.features.shape,
+                    propagate_all=task.propagate_all,
+                    use_binary_mask=task.use_binary_mask,
+                    score_threshold=task.score_threshold,
+                )
+                x = x * expanded.detach()
+                continue
+
+            probabilities = [tensor.features[:, 1:] for tensor in probability_tensors]
+            gate = torch.stack(probabilities, dim=0).amax(dim=0)
+            if any(task.propagate_all for task in self.proposal_tasks):
+                gate = torch.ones_like(gate)
+            elif any(task.use_binary_mask for task in self.proposal_tasks):
+                thresholds = torch.as_tensor(
+                    [task.score_threshold for task in self.proposal_tasks],
+                    dtype=gate.dtype,
+                    device=gate.device,
+                )[:, None, None]
+                gate = (torch.stack(probabilities, dim=0) > thresholds).any(dim=0)
+            x = x * gate.expand_as(x.features).detach()
+
+        if not torch.equal(  # pragma: no cover - sparse backend invariant
+            x.coordinates, features[-1].coordinates
+        ):
+            raise ValueError(
+                "Final proposal coordinates must match the highest-resolution "
+                "UResNet decoder plane."
+            )
+        return x, outputs
+
+    @abstractmethod
+    def forward(
+        self,
+        final_tensor: sparse.SparseTensor,
+        decoder_tensors: Sequence[sparse.SparseTensor],
+        ghost: sparse.SparseTensor | None = None,
+        seg_label: TensorBatch | None = None,
+    ) -> ProposalOutputT:
+        """Run the generic decoder without a task-specific final head.
+
+        Parameters
+        ----------
+        final_tensor : sparse.SparseTensor
+            Deepest UResNet encoder representation.
+        decoder_tensors : sequence of sparse.SparseTensor
+            UResNet decoder planes ordered from deep to shallow.
+        ghost : sparse.SparseTensor, optional
+            Predicted ghost logits at input resolution.
+        seg_label : TensorBatch, optional
+            Semantic truth used when true ghost masking is configured.
+
+        Returns
+        -------
+        sparse.SparseTensor
+            Final shared proposal feature plane.
+        dict
+            Multiscale mask products keyed by proposal task.
+
+        Notes
+        -----
+        Concrete point tasks normally override this method to format their
+        final predictions.
+        """
+        raise NotImplementedError
+
+
+class PPN(PointProposalDecoder[PPNOutput]):
     """Predict sparse points of interest from UResNet feature planes.
 
     PPN follows the UResNet decoder resolution schedule. At each level it
@@ -102,6 +458,7 @@ class PPN(sparse.Network):
         self,
         uresnet: dict[str, Any],
         ppn: dict[str, Any],
+        vertex: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the point proposal decoder.
 
@@ -112,10 +469,11 @@ class PPN(sparse.Network):
             the shared CNN parameters.
         ppn : dict
             Proposal-head configuration.
+        vertex : dict, optional
+            Vertex-head configuration. When provided, the particle-point and
+            vertex tasks share this proposal decoder but retain distinct mask
+            and final prediction heads.
         """
-        # Initialize the parent class
-        super().__init__(uresnet.get("data_dim", 3))
-
         # Initialize the shared backbone configuration. Ghost handling belongs
         # to the UResNet configuration so the PPN block cannot override it.
         backbone = dict(uresnet)
@@ -126,9 +484,6 @@ class PPN(sparse.Network):
                 "The UResNet configuration must define `num_classes`."
             ) from err
         self.ghost = bool(backbone.pop("ghost", False))
-        setup_cnn_configuration(self, **backbone)
-        if self.depth < 2:
-            raise ValueError("PPN requires a UResNet depth of at least two.")
 
         # Store the PPN-specific configuration.
         config = self._parse_model_config(**ppn)
@@ -140,19 +495,72 @@ class PPN(sparse.Network):
         if self.use_true_ghost_mask and not self.ghost:
             raise ValueError("`use_true_ghost_mask` requires UResNet `ghost: true`.")
 
-        # Construct and register the PPN modules.
-        modules = self._build_modules()
-        self.decoding_block = modules.decoding_block
-        self.decoding_conv = modules.decoding_conv
-        self.ppn_masks = modules.ppn_masks
-        self.expand_as = modules.expand_as
-        self.final_block = modules.final_block
-        self.ppn_pixel_pos = modules.ppn_pixel_pos
-        self.ppn_type = modules.ppn_type
-        self.ppn_endpoint = modules.ppn_endpoint
-        self.masker = modules.masker
-        self.merge_concat = modules.merge_concat
-        self.ghost_mask = modules.ghost_mask
+        tasks = [
+            ProposalTask(
+                "ppn",
+                "ppn_masks",
+                self.mask_score_threshold,
+                self.propagate_all,
+                self.use_binary_mask,
+            )
+        ]
+        self.vertex_score_threshold = 0.5
+        if vertex is not None:
+            vertex_config = dict(vertex)
+            self.vertex_score_threshold = float(
+                vertex_config.pop(
+                    "mask_score_threshold",
+                    vertex_config.pop("score_threshold", 0.5),
+                )
+            )
+            if vertex_config:
+                unexpected = ", ".join(sorted(vertex_config))
+                raise TypeError(f"Unexpected vertex configuration: {unexpected}.")
+            if not 0.0 <= self.vertex_score_threshold <= 1.0:
+                raise ValueError(
+                    "Vertex `mask_score_threshold` must be between zero and one."
+                )
+            tasks.append(
+                ProposalTask(
+                    "vertex",
+                    "vertex_pred",
+                    self.vertex_score_threshold,
+                )
+            )
+
+        # Register the generic multiscale decoder under the historical PPN
+        # attribute names to preserve legacy checkpoint compatibility.
+        super().__init__(
+            backbone,
+            tasks,
+            ghost=self.ghost,
+            use_true_ghost_mask=self.use_true_ghost_mask,
+        )
+
+        # Initialize the task-specific heads at input resolution.
+        num_output = self.num_planes[0]
+        self.final_block = ResNetBlock(
+            num_output,
+            num_output,
+            dimension=self.dimension,
+            activation=self.act_cfg,
+        )
+        self.ppn_pixel_pos = sparse.Linear(num_output, self.dimension)
+        self.ppn_type = sparse.Linear(num_output, self.num_classes)
+        self.ppn_endpoint = (
+            sparse.Linear(num_output, 2) if self.classify_endpoints else None
+        )
+
+        self.vertex_regression = None
+        if vertex is not None:
+            self.vertex_regression = sparse.Convolution(
+                num_output,
+                self.dimension,
+                kernel_size=3,
+                stride=1,
+                dimension=self.dimension,
+                bias=self.allow_bias,
+            )
 
     @staticmethod
     def _parse_model_config(
@@ -198,87 +606,6 @@ class PPN(sparse.Network):
             use_true_ghost_mask=use_true_ghost_mask,
         )
 
-    def _build_modules(self) -> _PPNModules:
-        """Construct the proposal decoder and its output heads."""
-        # Initialize the decoding blocks
-        decoding_block = []
-        decoding_conv = []
-        ppn_masks = torch.nn.ModuleList()
-        for level in range(self.depth - 2, -1, -1):
-            upsample_layers = [
-                sparse.BatchNorm(self.num_planes[level + 1]),
-                act_factory(self.act_cfg),
-                sparse.ConvolutionTranspose(
-                    in_channels=self.num_planes[level + 1],
-                    out_channels=self.num_planes[level],
-                    kernel_size=2,
-                    stride=2,
-                    dimension=self.dimension,
-                ),
-            ]
-            decoding_conv.append(torch.nn.Sequential(*upsample_layers))
-
-            decoding_blocks = []
-            for repetition in range(self.reps):
-                decoding_blocks.append(
-                    ResNetBlock(
-                        self.num_planes[level] * (2 if repetition == 0 else 1),
-                        self.num_planes[level],
-                        dimension=self.dimension,
-                        activation=self.act_cfg,
-                    )
-                )
-            decoding_block.append(torch.nn.Sequential(*decoding_blocks))
-            ppn_masks.append(sparse.Linear(self.num_planes[level], 2))
-
-        decoding_block_module = torch.nn.Sequential(*decoding_block)
-        decoding_conv_module = torch.nn.Sequential(*decoding_conv)
-
-        # Expands the scores to the appropriate feature shape
-        expand_as = ExpandAs()
-
-        # Final ResNet block at the original image size
-        num_output = self.num_planes[0]
-        final_block = ResNetBlock(
-            num_output, num_output, dimension=self.dimension, activation=self.act_cfg
-        )
-
-        # Final linear layer for positional regression (dimension size)
-        ppn_pixel_pos = sparse.Linear(num_output, self.dimension)
-
-        # Final convolution layer for type classification
-        ppn_type = sparse.Linear(num_output, self.num_classes)
-
-        # Final convolution layer for endpoint prediction
-        if self.classify_endpoints:
-            ppn_endpoint = sparse.Linear(num_output, 2)
-        else:
-            ppn_endpoint = None
-
-        # Ghost point removal tools
-        masker = None
-        merge_concat = None
-        ghost_mask = None
-        if self.ghost:
-            logger.debug("Ghost masking is enabled for PPN.")
-            masker = AttentionMask()
-            merge_concat = MergeConcat()
-            ghost_mask = GhostMask(self.dimension)
-
-        return _PPNModules(
-            decoding_block=decoding_block_module,
-            decoding_conv=decoding_conv_module,
-            ppn_masks=ppn_masks,
-            expand_as=expand_as,
-            final_block=final_block,
-            ppn_pixel_pos=ppn_pixel_pos,
-            ppn_type=ppn_type,
-            ppn_endpoint=ppn_endpoint,
-            masker=masker,
-            merge_concat=merge_concat,
-            ghost_mask=ghost_mask,
-        )
-
     def forward(
         self,
         final_tensor: sparse.SparseTensor,
@@ -312,157 +639,18 @@ class PPN(sparse.Network):
             input reference, or final proposal coordinates do not align with
             the highest-resolution decoder plane.
         """
-        # Get the list of decoder feature maps
-        decoder_feature_maps = []
-        decoder_ghost_masks = []
-        if self.ghost:
-            ghost_mask_layer = self.ghost_mask
-            masker = self.masker
-            assert ghost_mask_layer is not None
-            assert masker is not None
+        x, proposal_outputs = self.decode(
+            final_tensor,
+            decoder_tensors,
+            ghost,
+            seg_label,
+        )
+        ppn_outputs = proposal_outputs["ppn"]
+        ppn_masks = ppn_outputs["masks"]
+        ppn_layers = ppn_outputs["layers"]
+        ppn_coords = ppn_outputs["coords"]
 
-            # If there are ghosts, must downsample the ghost label/prediction
-            # and apply it to each decoder feature map
-            with torch.no_grad():
-                if self.use_true_ghost_mask:
-                    # If using the true ghost mask, use the label tensor
-                    if seg_label is None:
-                        raise ValueError(
-                            "If `use_true_ghost_mask` is set to `True`, must "
-                            "provide the `seg_label` tensor."
-                        )
-
-                    labels = seg_label.values.torch_tensor()
-                    if labels.shape[0] != decoder_tensors[-1].reference_size:
-                        raise ValueError(
-                            "The label tensor length must match that "
-                            "of the last UResNet layer"
-                        )
-
-                    # Truth labels are feature-only but are contractually row
-                    # aligned with the final UResNet plane checked above.
-                    ghost_coords = decoder_tensors[-1].coordinates
-                    ghost_mask_tensor = labels < GHOST_SHP
-                else:
-                    # If using predictions, convert the ghost scores to a mask
-                    if ghost is None:
-                        raise ValueError(
-                            "Ghost masking requires ghost prediction logits."
-                        )
-                    ghost_coords = ghost.coordinates
-                    ghost_mask_tensor = 1.0 - torch.argmax(
-                        ghost.features, dim=1, keepdim=True
-                    )
-
-                ghost_mask_tensor = ghost_mask_tensor.to(
-                    dtype=decoder_tensors[-1].features.dtype
-                )
-                ghost_mask = sparse.SparseTensor(
-                    ghost_mask_tensor,
-                    coordinates=ghost_coords,
-                    coordinate_manager=decoder_tensors[-1].coordinate_manager,
-                    batch_size=decoder_tensors[-1].batch_size,
-                )
-
-            # Downsample stride 1 ghost mask to all intermediate decoder layers
-            for decoder_tensor in reversed(decoder_tensors):
-                scaled_ghost_mask = ghost_mask_layer(
-                    ghost_mask,
-                    decoder_tensor,
-                )
-                nonghost_tensor = masker(
-                    decoder_tensor,
-                    scaled_ghost_mask,
-                )
-                decoder_feature_maps.append(nonghost_tensor)
-                decoder_ghost_masks.append(scaled_ghost_mask)
-
-            decoder_feature_maps = decoder_feature_maps[::-1]
-            decoder_ghost_masks = decoder_ghost_masks[::-1]
-
-        else:
-            decoder_feature_maps = list(decoder_tensors)
-
-        expected_layers = self.depth - 1
-        if len(decoder_feature_maps) != expected_layers:
-            raise ValueError(
-                f"Expected {expected_layers} decoder tensors, got "
-                f"{len(decoder_feature_maps)}."
-            )
-
-        # Loop over the PPN decoding path
-        ppn_masks, ppn_layers, ppn_coords = [], [], []
-        x = final_tensor
-        for level, layer in enumerate(self.decoding_conv):
-            # Pass the previous features through the decoding convolution
-            x = layer(x)
-
-            # Merge with the UesNet decoding features
-            decoder_tensor = decoder_feature_maps[level]
-            if self.ghost:
-                assert self.merge_concat is not None
-                assert self.masker is not None
-                x = self.masker(x, decoder_ghost_masks[level])
-                x = self.merge_concat(decoder_tensor, x)
-            else:
-                x = sparse.cat(decoder_tensor, x)
-
-            # Apply the decoding block, linear layer and sigmoid function
-            x = self.decoding_block[level](x)
-            scores = self.ppn_masks[level](x)
-            probabilities = sparse.softmax(scores, dim=1)
-            foreground_mask = probabilities.features[:, 1:] > self.mask_score_threshold
-
-            # Store the coordinates, raw score logits and score mask
-            counts = scores.counts
-            ppn_coords.append(
-                TensorBatch(
-                    scores.coordinates,
-                    counts,
-                    has_batch_col=True,
-                    coord_cols=tuple(range(1, self.dimension + 1)),
-                )
-            )
-            ppn_layers.append(
-                TensorBatch(
-                    scores.features,
-                    counts,
-                    schema=TensorSchema(
-                        feature_fields={
-                            "mask_logits": tuple(range(scores.features.shape[1]))
-                        },
-                        feats_only=True,
-                    ),
-                )
-            )
-            ppn_masks.append(
-                TensorBatch(
-                    foreground_mask,
-                    counts,
-                    schema=TensorSchema(
-                        feature_fields={
-                            "foreground": tuple(range(foreground_mask.shape[1]))
-                        },
-                        feats_only=True,
-                    ),
-                )
-            )
-
-            # Expand the score mask
-            expanded_scores = self.expand_as(
-                probabilities,
-                x.features.shape,
-                propagate_all=self.propagate_all,
-                use_binary_mask=self.use_binary_mask,
-                score_threshold=self.mask_score_threshold,
-            )
-
-            # Scale the out of this layer using the score mask
-            x = x * expanded_scores.detach()
-
-        # Output set of coordinates (should match the last decoder tensor)
-        assert x.coordinates.shape[0] == decoder_feature_maps[-1].shape[0]
-        assert torch.equal(x.coordinates, decoder_feature_maps[-1].coordinates)
+        # Apply the task-specific heads after the shared decoder is complete.
         final_counts = x.counts
         ppn_output_coords = TensorBatch(
             x.coordinates,
@@ -471,7 +659,6 @@ class PPN(sparse.Network):
             coord_cols=tuple(range(1, self.dimension + 1)),
         )
 
-        # Pass the final PPN tensor through the individual predictions, combine
         x = self.final_block(x)
         pixel_pos = self.ppn_pixel_pos(x)
         ppn_type = self.ppn_type(x)
@@ -522,6 +709,51 @@ class PPN(sparse.Network):
             endpoint.schema = endpoint_schema
             result["ppn_classify_endpoints_unique"] = endpoint_unique
             result["ppn_classify_endpoints"] = endpoint
+
+        # A jointly configured vertex task consumes the same final feature
+        # plane but exposes an entirely separate output and loss contract.
+        if "vertex" in proposal_outputs:
+            assert self.vertex_regression is not None
+            offsets = self.vertex_regression(x)
+            vertex_outputs = proposal_outputs["vertex"]
+            vertex_features = x.replace_features(
+                torch.cat(
+                    (
+                        offsets.features,
+                        vertex_outputs["layers"][-1].torch_tensor(),
+                    ),
+                    dim=1,
+                )
+            )
+            vertex_schema = TensorSchema(
+                feature_fields={
+                    "offsets": tuple(range(self.dimension)),
+                    "vertex_logits": (
+                        self.dimension,
+                        self.dimension + 1,
+                    ),
+                },
+                feats_only=True,
+            )
+            vertex_points = vertex_features.to_tensor_batch(
+                include_coordinates=False,
+                restore=True,
+            )
+            vertex_points_unique = vertex_features.to_tensor_batch(
+                include_coordinates=False
+            )
+            vertex_points.schema = vertex_schema
+            vertex_points_unique.schema = vertex_schema
+            result.update(
+                {
+                    "vertex_points": vertex_points,
+                    "vertex_points_unique": vertex_points_unique,
+                    "vertex_masks": vertex_outputs["masks"],
+                    "vertex_layers": vertex_outputs["layers"],
+                    "vertex_coords": vertex_outputs["coords"],
+                    "vertex_output_coords": ppn_output_coords,
+                }
+            )
 
         return result
 
@@ -866,7 +1098,7 @@ class PPNLoss(torch.nn.Module):
         ppn_points_unique: TensorBatch | None = None,
         ppn_classify_endpoints_unique: TensorBatch | None = None,
         clust_label: ClusterLabelBatch | None = None,
-        **kwargs: object,
+        **_: object,
     ) -> PPNLossOutput:
         """Compute PPN losses and accuracy metrics.
 
@@ -895,7 +1127,7 @@ class PPNLoss(torch.nn.Module):
         clust_label : ClusterLabelBatch, optional
             ``(N, 1 + D + C)`` cluster-label table used to restrict particle
             associations.
-        **kwargs : object
+        **_ : object
             Other upstream outputs ignored by this loss.
 
         Returns

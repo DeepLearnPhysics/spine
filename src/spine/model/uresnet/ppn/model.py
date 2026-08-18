@@ -12,12 +12,13 @@ from spine.data import ClusterLabelBatch, TensorBatch
 from ...registry import ModelSpec
 from ..model import SegmentationLoss, UResNetSegmentation
 from .ppn import PPN, PPNLoss
+from .vertex import VertexPPN, VertexPPNLoss
 
 __all__ = ["UResNetPPN", "UResNetPPNLoss"]
 
 
 class UResNetPPN(torch.nn.Module):
-    """A model made of a UResNet backbone and PPN layers.
+    """Combine UResNet with particle-point and/or vertex proposal tasks.
 
     Typical configuration:
 
@@ -28,18 +29,24 @@ class UResNetPPN(torch.nn.Module):
           modules:
             uresnet:
               # Your backbone uresnet config here
-            ppn:
-              # Your ppn config here
+            ppn:  # Optional when only vertex regression is requested
+              # Particle-point PPN configuration
+            vertex:  # Optional
+              # Interaction-vertex proposal configuration
+            proposal_decoder:
+              shared: false  # Share the decoder when both tasks are present
 
     See Also
     --------
-    :class:`UResNetSegmentation`, :class:`PPN`
+    :class:`UResNetSegmentation`, :class:`PPN`, :class:`VertexPPN`
     """
 
     def __init__(
         self,
         uresnet: dict[str, Any],
-        ppn: dict[str, Any],
+        ppn: dict[str, Any] | None = None,
+        vertex: dict[str, Any] | None = None,
+        proposal_decoder: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the UResNet+PPN model.
 
@@ -47,8 +54,21 @@ class UResNetPPN(torch.nn.Module):
         ----------
         uresnet : dict
             UResNet configuration dictionary
-        ppn : dict
-            PPN configuration dictionary
+        ppn : dict, optional
+            Particle-point PPN configuration.
+        vertex : dict, optional
+            Interaction-vertex proposal configuration.
+        proposal_decoder : dict, optional
+            Cross-task decoder options. ``shared`` defaults to ``False`` and
+            only affects models that configure both proposal tasks.
+
+        Raises
+        ------
+        ValueError
+            If no proposal task is configured or decoder sharing is requested
+            without both tasks.
+        TypeError
+            If the decoder block contains an unknown option.
         """
         # Initialize the parent class
         super().__init__()
@@ -56,12 +76,30 @@ class UResNetPPN(torch.nn.Module):
         # Initialize the UResNet backbone
         self.uresnet = UResNetSegmentation(uresnet)
 
-        # Initialize the PPN layers
-        self.ppn = PPN(uresnet, ppn)
+        if ppn is None and vertex is None:
+            raise ValueError("Configure at least one of `ppn` and `vertex`.")
+        decoder_config = {} if proposal_decoder is None else dict(proposal_decoder)
+        self.shared_proposal_decoder = bool(decoder_config.pop("shared", False))
+        if decoder_config:
+            unexpected = ", ".join(sorted(decoder_config))
+            raise TypeError(f"Unexpected proposal-decoder option: {unexpected}.")
+        if self.shared_proposal_decoder and (ppn is None or vertex is None):
+            raise ValueError(
+                "A shared proposal decoder requires both `ppn` and `vertex`."
+            )
 
-        # Check that the UResNet and PPN configurations are compatible
-        assert self.uresnet.ghost == self.ppn.ghost
+        # Existing PPN-only configurations retain the same `ppn` module path.
+        self.ppn = None
+        self.vertex = None
+        if ppn is not None:
+            shared_vertex = vertex if self.shared_proposal_decoder else None
+            self.ppn = PPN(uresnet, ppn, vertex=shared_vertex)
+        if vertex is not None and not self.shared_proposal_decoder:
+            self.vertex = VertexPPN(uresnet, vertex)
+
         self.ghost = self.uresnet.ghost
+        self.predicts_ppn = self.ppn is not None
+        self.predicts_vertex = vertex is not None
 
     def forward(
         self, data: TensorBatch, seg_label: TensorBatch | None = None
@@ -82,40 +120,32 @@ class UResNetPPN(torch.nn.Module):
         # Pass the input through the backbone UResNet model
         result = self.uresnet(data)
 
-        # Pass the decoder feature tensors to the PPN layers
-        if self.ghost:
-            # Deghost
-            if self.ppn.use_true_ghost_mask:
-                # Use the true ghost labels
-                if seg_label is None:
-                    raise ValueError(
-                        "If `use_true_ghost_mask` is set to `True`, must "
-                        "provide the `seg_label` tensor."
-                    )
-                result_ppn = self.ppn(
+        # Run each configured proposal path over the common UResNet pyramid.
+        if self.ppn is not None:
+            ghost = result.get("ghost_tensor") if self.ghost else None
+            result.update(
+                self.ppn(
                     result["final_tensor"],
                     result["decoder_tensors"],
-                    result["ghost_tensor"],
+                    ghost,
                     seg_label,
                 )
-            else:
-                # Use the ghost predictions
-                result_ppn = self.ppn(
+            )
+        if self.vertex is not None:
+            ghost = result.get("ghost_tensor") if self.ghost else None
+            result.update(
+                self.vertex(
                     result["final_tensor"],
                     result["decoder_tensors"],
-                    result["ghost_tensor"],
+                    ghost,
                 )
-        else:
-            # No ghost
-            result_ppn = self.ppn(result["final_tensor"], result["decoder_tensors"])
-
-        result.update(result_ppn)
+            )
 
         return result
 
 
 class UResNetPPNLoss(torch.nn.Module):
-    """Loss for a model made of a UResNet backbone and PPN layers.
+    """Supervise UResNet and its configured point-proposal tasks.
 
     It includes a segmentation loss and a PPN loss.
 
@@ -142,9 +172,12 @@ class UResNetPPNLoss(torch.nn.Module):
     def __init__(
         self,
         uresnet: dict[str, Any],
-        ppn: dict[str, Any],
         uresnet_loss: dict[str, Any],
-        ppn_loss: dict[str, Any],
+        ppn: dict[str, Any] | None = None,
+        ppn_loss: dict[str, Any] | None = None,
+        vertex: dict[str, Any] | None = None,
+        vertex_loss: dict[str, Any] | None = None,
+        proposal_decoder: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the UResNet+PPN model loss.
 
@@ -152,14 +185,20 @@ class UResNetPPNLoss(torch.nn.Module):
         ----------
         uresnet : dict
             UResNet configuration dictionary
-        ppn : dict
+        ppn : dict, optional
             PPN model configuration supplied as part of the manager's shared
             model/loss contract. The current loss infers optional heads from
             the model outputs.
         uresnet_loss : dict
             UResNet loss configuration
-        ppn_loss : dict
-            PPN loss configuration
+        ppn_loss : dict, optional
+            PPN loss configuration.
+        vertex : dict, optional
+            Vertex model configuration supplied by the shared manager contract.
+        vertex_loss : dict, optional
+            Vertex loss configuration.
+        proposal_decoder : dict, optional
+            Decoder-sharing configuration supplied by the model contract.
         """
         # Initialize the parent class
         super().__init__()
@@ -167,13 +206,23 @@ class UResNetPPNLoss(torch.nn.Module):
         # Initialize the segmentation loss
         self.seg_loss = SegmentationLoss(uresnet, uresnet_loss)
 
-        # Initialize the point proposal loss
-        self.ppn_loss = PPNLoss(uresnet, ppn_loss)
+        del proposal_decoder
+        if ppn is None and vertex is None:
+            raise ValueError("Configure at least one proposal task loss.")
+        if ppn is not None and ppn_loss is None:
+            raise ValueError("A configured `ppn` task requires `ppn_loss`.")
+        if vertex is not None and vertex_loss is None:
+            raise ValueError("A configured `vertex` task requires `vertex_loss`.")
+        self.ppn_loss = PPNLoss(uresnet, ppn_loss) if ppn_loss is not None else None
+        self.vertex_loss = (
+            VertexPPNLoss(uresnet, vertex_loss) if vertex_loss is not None else None
+        )
 
     def forward(
         self,
         seg_label: TensorBatch,
-        ppn_label: TensorBatch,
+        ppn_label: TensorBatch | None = None,
+        vertex_label: TensorBatch | None = None,
         clust_label: ClusterLabelBatch | None = None,
         weights: TensorBatch | None = None,
         **result: Any,
@@ -186,6 +235,8 @@ class UResNetPPNLoss(torch.nn.Module):
             (N, 1 + D + 1) Tensor of segmentation labels for the batch
         ppn_label : TensorBatch
             (N, 1 + D + N_l) Tensor of PPN labels for the batch
+        vertex_label : TensorBatch, optional
+            Parsed interaction-vertex coordinates.
         clust_label : ClusterLabelBatch, optional
             (N, 1 + D + N_c) Tensor of cluster labels
             - N_c is is the number of cluster labels
@@ -203,19 +254,37 @@ class UResNetPPNLoss(torch.nn.Module):
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
 
-        # Apply the PPN loss
-        result_ppn = self.ppn_loss(ppn_label, clust_label=clust_label, **result)
+        task_results = [("uresnet", result_seg)]
+        if self.ppn_loss is not None:
+            if ppn_label is None:
+                raise ValueError("PPN supervision requires `ppn_label`.")
+            task_results.append(
+                (
+                    "ppn",
+                    self.ppn_loss(
+                        ppn_label,
+                        clust_label=clust_label,
+                        **result,
+                    ),
+                )
+            )
+        if self.vertex_loss is not None:
+            if vertex_label is None:
+                raise ValueError("Vertex supervision requires `vertex_label`.")
+            task_results.append(("vertex", self.vertex_loss(vertex_label, **result)))
 
-        # Combine the two outputs
-        result = {
-            "loss": result_seg["loss"] + result_ppn["loss"],
-            "accuracy": (result_seg["accuracy"] + result_ppn["accuracy"]) / 2,
+        # Every task contributes its native loss; reported accuracy is the
+        # unweighted mean of the independently interpretable task metrics.
+        output: dict[str, Any] = {
+            "loss": sum(task["loss"] for _, task in task_results),
+            "accuracy": sum(task["accuracy"] for _, task in task_results)
+            / len(task_results),
         }
-
-        result.update({"uresnet_" + k: v for k, v in result_seg.items()})
-        result.update({"ppn_" + k: v for k, v in result_ppn.items()})
-
-        return result
+        for prefix, task_result in task_results:
+            output.update(
+                {f"{prefix}_{key}": value for key, value in task_result.items()}
+            )
+        return output
 
 
 MODEL_SPEC = ModelSpec("uresnet_ppn", UResNetPPN, UResNetPPNLoss)

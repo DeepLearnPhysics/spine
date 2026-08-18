@@ -56,6 +56,7 @@ _BUILTIN_MODULES = {
     "fragmentation": "spine.model.full_chain.providers.fragmentation",
     "particle_aggregation": "spine.model.full_chain.providers.aggregation",
     "interaction_aggregation": "spine.model.full_chain.providers.aggregation",
+    "interaction_vertexing": "spine.model.full_chain.providers.vertexing",
     "particle_image": "spine.model.full_chain.providers.image",
     "calibration": "spine.model.full_chain.providers.calibration",
 }

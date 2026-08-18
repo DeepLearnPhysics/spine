@@ -268,13 +268,16 @@ class BuildManager:
                     "orig_index_label"
                 ].features.astype(np.int32, copy=False)
 
-        # If provided, etch the point attributes to check their units
+        # Preserve model-produced positional products so they undergo the
+        # same unit conversion as the point clouds used by object builders.
+        position_keys = ["interaction_vertices"]
         for obj in ["fragment", "particle"]:
-            for key in [f"{obj}_start_points", f"{obj}_end_points"]:
-                if key in data:
-                    update[key] = data[key]
-                    if entry is not None:
-                        update[key] = update[key][entry]
+            position_keys.extend([f"{obj}_start_points", f"{obj}_end_points"])
+        for key in position_keys:
+            if key in data:
+                update[key] = data[key]
+                if entry is not None:
+                    update[key] = update[key][entry]
 
         # Convert everything to the proper units once and for all
         if self.units != "px":
@@ -284,9 +287,8 @@ class BuildManager:
 
             meta = data["meta"][entry] if entry is not None else data["meta"]
             for key in update:
-                if "points" in key and key in update:
-                    if key in update:
-                        update[key] = meta.to_cm(np.copy(update[key]), center=True)
+                if "points" in key or key == "interaction_vertices":
+                    update[key] = meta.to_cm(np.copy(update[key]), center=True)
 
             for key in ["particles", "neutrinos"]:
                 if key in sources:

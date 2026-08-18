@@ -30,7 +30,10 @@ class InteractionBuilder(BuilderBase):
     _truth_type = TruthInteraction
 
     # Necessary/optional data products to build a reconstructed object
-    _build_reco_keys = (("reco_particles", True),)
+    _build_reco_keys = (
+        ("reco_particles", True),
+        ("interaction_vertices", False),
+    )
 
     # Necessary/optional data products to build a truth object
     _build_truth_keys = (("truth_particles", True), ("neutrinos", False))
@@ -56,7 +59,11 @@ class InteractionBuilder(BuilderBase):
         """
         return self._build_reco(**data)
 
-    def _build_reco(self, reco_particles: list[Any]) -> list[RecoInteraction]:
+    def _build_reco(
+        self,
+        reco_particles: list[Any],
+        interaction_vertices: np.ndarray | None = None,
+    ) -> list[RecoInteraction]:
         """Builds :class:`RecoInteraction` objects from the full chain output.
 
         This class builds an interaction by assembling particles together.
@@ -65,6 +72,9 @@ class InteractionBuilder(BuilderBase):
         ----------
         reco_particles : List[RecoParticle]
             List of reconstructed particle objects
+        interaction_vertices : numpy.ndarray, optional
+            One reconstructed three-dimensional vertex per interaction, in
+            the same sorted interaction order used by this builder.
 
         Returns
         -------
@@ -74,7 +84,18 @@ class InteractionBuilder(BuilderBase):
         # Loop over unique interaction IDs
         reco_interactions = []
         inter_ids = np.array([part.interaction_id for part in reco_particles])
-        for i, inter_id in enumerate(np.unique(inter_ids)):
+        unique_inter_ids = np.unique(inter_ids)
+        vertices = None
+        if interaction_vertices is not None:
+            vertices = np.asarray(interaction_vertices)
+            expected_shape = (len(unique_inter_ids), 3)
+            if vertices.shape != expected_shape:
+                raise ValueError(
+                    "Interaction vertices must have shape "
+                    f"{expected_shape}, received {vertices.shape}."
+                )
+
+        for i, inter_id in enumerate(unique_inter_ids):
             # Get the list of particles associates with this interaction
             if inter_id <= -1:
                 raise ValueError("Invalid reconstructed interaction ID found.")
@@ -84,6 +105,8 @@ class InteractionBuilder(BuilderBase):
             # Build interaction
             interaction = RecoInteraction.from_particles(inter_particles)
             interaction.id = i
+            if vertices is not None:
+                interaction.vertex = vertices[i]
 
             # Match the interaction ID of the constituent particles
             for part in inter_particles:

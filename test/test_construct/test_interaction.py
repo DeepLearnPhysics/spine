@@ -50,6 +50,30 @@ def test_build_reco_interactions_from_particles():
     assert frag.interaction_id == 0
 
 
+def test_build_reco_interactions_assigns_optional_vertices():
+    """Reco interactions should consume aligned learned vertices when present."""
+    builder = InteractionBuilder(mode="reco", units="px")
+    particles = [
+        RecoParticle(id=0, interaction_id=5),
+        RecoParticle(id=1, interaction_id=7),
+    ]
+    vertices = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    interactions = builder._build_reco(particles, vertices)
+
+    np.testing.assert_array_equal(interactions[0].vertex, vertices[0])
+    np.testing.assert_array_equal(interactions[1].vertex, vertices[1])
+
+
+def test_build_reco_interactions_validates_vertex_alignment():
+    """Learned vertices must align one-to-one with reconstructed interactions."""
+    builder = InteractionBuilder(mode="reco", units="px")
+    particles = [RecoParticle(id=0, interaction_id=5)]
+
+    with pytest.raises(ValueError, match="must have shape"):
+        builder._build_reco(particles, np.zeros((2, 3)))
+
+
 def test_build_reco_interactions_rejects_invalid_ids():
     """Reco interactions require valid non-negative interaction IDs."""
     builder = InteractionBuilder(mode="reco", units="px")
