@@ -94,11 +94,16 @@ def test_ana_base_filters_entry_and_manages_writers(monkeypatch):
 
 
 def test_ana_base_optional_base_fields_and_truth_accessors():
-    ana = DummyAna(truth_point_mode="points", truth_index_mode="custom_index")
+    ana = DummyAna(
+        truth_point_mode="points",
+        truth_index_mode="custom_index",
+        truth_dep_mode="depositions",
+    )
 
     class TruthObject:
         is_truth = True
         points = "truth_points"
+        depositions = "truth_depositions"
         custom_index = "truth_index"
 
     base = ana.get_base_dict(
@@ -112,6 +117,7 @@ def test_ana_base_optional_base_fields_and_truth_accessors():
 
     assert base == {"index": 1, "file_index": 2, "file_entry_index": 3, "run": 1}
     assert ana.get_points(TruthObject()) == "truth_points"
+    assert ana.get_depositions(TruthObject()) == "truth_depositions"
     assert ana.get_index(TruthObject()) == "truth_index"
 
 
@@ -121,12 +127,14 @@ def test_ana_base_warns_without_run_info_and_reads_reco_index():
     class RecoObject:
         is_truth = False
         index = [1, 2, 3]
+        depositions = "reco_depositions"
 
     with pytest.warns(UserWarning, match="run_info"):
         base = ana.get_base_dict({"index": 1, "file_index": 2})
 
     assert base == {"index": 1, "file_index": 2}
     assert ana.get_index(RecoObject()) == [1, 2, 3]
+    assert ana.get_depositions(RecoObject()) == "reco_depositions"
 
 
 def test_ana_base_reports_missing_required_input():

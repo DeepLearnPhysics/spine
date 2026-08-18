@@ -548,6 +548,37 @@ class AnaBase(ABC):
         else:
             return getattr(obj, self.truth_point_mode)
 
+    def get_depositions(self, obj: Any) -> Any:
+        """Get the configured deposition representation for an object.
+
+        Reconstructed objects always use ``depositions``. Truth objects use
+        the attribute selected by :attr:`truth_dep_mode` during initialization.
+        This keeps the returned values aligned with the coordinates selected
+        by :meth:`get_points`.
+
+        Parameters
+        ----------
+        obj : FragmentBase or ParticleBase or InteractionBase
+            Object whose point-aligned depositions should be returned
+
+        Returns
+        -------
+        np.ndarray
+            (N) Point-aligned deposition values
+
+        Raises
+        ------
+        AttributeError
+            If a truth object does not provide the configured deposition
+            attribute
+        """
+        # Reconstructed objects have one canonical deposition representation
+        if not obj.is_truth:
+            return obj.depositions
+
+        # Truth objects may expose several point-aligned energy representations
+        return getattr(obj, self.truth_dep_mode)
+
     @abstractmethod
     def process(self, data: MutableMapping[str, Any]) -> Any:
         """Place-holder method to be defined in each analysis script.

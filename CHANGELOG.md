@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- **Shower-start dE/dx diagnostic**: Implement the shower analyzer with
+  configurable spherical and direction-aware kernels, scalar or scanned
+  neighborhood radii, reconstructed/truth point representations, and stable
+  per-object CSV output.
 - **Structured data-class reference**: Generate source-driven API pages that
   separate stored fields, computed properties, and methods, group inherited
   members by their declaring class, and expose defaults, types, units, and
