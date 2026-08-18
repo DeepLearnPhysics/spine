@@ -47,6 +47,9 @@
   deprecated alias.
 
 ### Fixed
+- **Container optional dependencies**: Install the declared visualization extra
+  in release images and test that Dockerfiles cannot reference undefined
+  package extras.
 - **Visualization module namespace**: Ensure ``spine.vis.scene`` and the other
   documented visualization package attributes cannot be shadowed by modules
   leaked through wildcard convenience exports.
