@@ -254,7 +254,7 @@ def test_drawer_raw_and_lite_validation_paths():
         Drawer({"reco_particles": [particle]}, draw_mode="reco").get("particles")
 
 
-def test_drawer_color_helper_branches():
+def test_drawer_color_helper_branches(monkeypatch):
     """Drawer color helper should cover supported scalar attribute families."""
     particles = [
         RecoParticle(
@@ -307,6 +307,16 @@ def test_drawer_color_helper_branches():
         attrs={"ke"}, color_attr="ke", split_traces=False, **common
     )
     assert ke_colors["colorscale"] == "Inferno"
+
+    # Keep the defensive failure explicit if a future schema introduces a
+    # color strategy that this renderer does not yet support.
+    monkeypatch.setattr(
+        out_colors, "object_color_kind", lambda obj_cls, attr: "unsupported"
+    )
+    with pytest.raises(RuntimeError, match="Unknown color strategy: unsupported"):
+        out_colors.build_object_colors(
+            attrs={"id"}, color_attr="id", split_traces=False, **common
+        )
 
 
 def test_schema_driven_color_attributes():

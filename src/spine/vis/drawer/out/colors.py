@@ -367,7 +367,7 @@ def build_object_colors(
     elif color_kind == "discrete":
         color, colorscale, cmin, cmax = _discrete_colors(color)
 
-    else:  # pragma: no cover
+    else:
         # Defensive guard for future color strategies; current classification
         # returns only the two handled values after the ``None`` check above.
         raise RuntimeError(f"Unknown color strategy: {color_kind}.")
