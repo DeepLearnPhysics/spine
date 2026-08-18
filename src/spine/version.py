@@ -1,3 +1,3 @@
 """Module which stores the current software version."""
 
-__version__ = "0.17.2"
+__version__ = "0.17.3"

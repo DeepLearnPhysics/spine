@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-08-18
+
 ### Added
 - **Renderer-neutral visualization scenes**: Add typed point, marker, line,
   vector, mesh, and box layers, a backend registry, and a Plotly compatibility
