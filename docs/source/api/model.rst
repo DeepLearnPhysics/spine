@@ -17,10 +17,11 @@ The model package is built around configuration-driven instantiation through :cl
    :toctree: generated
 
    manager
+   validation
+   checkpoint
    factories
    uresnet
    uresnet.bayes
-   uresnet.ppn
    spice
    full_chain
    image
@@ -29,3 +30,8 @@ The model package is built around configuration-driven instantiation through :cl
    cnn
    common
    sparse
+
+The point-proposal implementation is available as
+``spine.model.uresnet.ppn``. Its API is imported only in a model-capable
+runtime because the package defines PyTorch type aliases and modules at import
+time.

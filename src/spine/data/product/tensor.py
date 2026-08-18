@@ -25,6 +25,8 @@ class TensorData(DataProduct):
     ----------
     features : np.ndarray
         Feature matrix associated with the parsed tensor.
+    _coords : np.ndarray, optional
+        Internal coordinate storage exposed through :attr:`coordinate_data`.
     coordinate_data : np.ndarray, optional
         Complete coordinate matrix, typically with shape ``(N, 3)``. Use
         :attr:`coords` or :meth:`coordinates` for semantic access.

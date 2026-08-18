@@ -1,7 +1,11 @@
 API Reference
 =============
 
-This section documents SPINE by reconstruction stage rather than by utility depth. The core package centers on the driver, which orchestrates data ingestion, model execution, object construction, post-processing, analysis, and output writing. Supporting packages provide the data structures, numerical helpers, and visualization tools used throughout that workflow.
+This section follows the public package layout introduced for SPINE 1.0. The
+driver orchestrates I/O, model execution, object construction,
+post-processing, analysis, logging, and output writing. Shared packages expose
+the data model, detector geometry, clustering, physics, numerical kernels, and
+the deliberately small set of cross-layer utilities.
 
 .. toctree::
    :maxdepth: 2
@@ -13,9 +17,13 @@ This section documents SPINE by reconstruction stage rather than by utility dept
    build
    geo
    io
+   logging
    ana
+   calib
+   cluster
    math
    model
+   physics
    post
    utils
    vis

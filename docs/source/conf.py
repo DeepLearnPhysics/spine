@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../../src"))
 sys.path.insert(0, os.path.abspath("./"))
+sys.path.insert(0, os.path.abspath("./_ext"))
 
 # Force SPINE optional-dependency detection into documentation-safe mode.
 # RTD/Sphinx may inject mocked modules for unavailable packages; for docs we
@@ -51,6 +52,7 @@ extensions = [
     "sphinx_rtd_theme",
     "sphinx_copybutton",
     "numpydoc",
+    "spine_dataclass",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -68,7 +70,6 @@ napoleon_include_init_with_doc = False
 napoleon_include_private_with_doc = False
 
 autodoc_default_options = {
-    "members": True,
     "member-order": "bysource",
     "undoc-members": False,
     "private-members": False,
@@ -77,6 +78,7 @@ autodoc_default_options = {
 
 # Autosummary settings for automatic API generation
 autosummary_generate = True
+autosummary_generate_overwrite = True
 autosummary_imported_members = False
 
 # Show all inherited members in docs
@@ -146,6 +148,8 @@ napoleon_custom_sections = [
 
 # Numpydoc settings
 numpydoc_xref_param_type = False
+numpydoc_show_class_members = False
+numpydoc_class_members_toctree = False
 
 autosectionlabel_prefix_document = True
 

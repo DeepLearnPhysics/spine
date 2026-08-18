@@ -193,7 +193,7 @@ To build and test packages locally:
 ./build_packages.sh
 
 # Install locally built package
-pip install dist/spine-*.whl[all]
+pip install dist/spine-*.whl
 ```
 
 ## Usage
@@ -529,7 +529,7 @@ To check coverage locally:
 
 ```bash
 # Run the coverage script (generates terminal, HTML, and XML reports)
-./bin/coverage.sh
+./check_coverage.sh
 
 # Or run pytest with coverage flags directly
 pytest --cov=spine --cov-report=term --cov-report=html
@@ -548,7 +548,7 @@ Before you start contributing to the code, please see the [contribution guidelin
 
 The SPINE framework is designed to be extensible. To add a new model:
 
-1. **Data Loading**: Parsers exist for various sparse tensor and particle outputs in `spine.io.core.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
+1. **Data Loading**: Parsers exist for sparse tensors, clusters, particles, and detector records in `spine.io.parse`. If you need fundamentally different data formats, you may need to add new parsers or collation functions.
 
 2. **Model Implementation**: Add your model to the `spine.model` package. Include your model in the factory dictionary in `spine.model.factories` so it can be found by the configuration system.
 

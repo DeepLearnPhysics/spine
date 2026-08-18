@@ -643,7 +643,8 @@ class DataBase:
         attributes. This ensures that the attributes that are derived but stored
         to file are not loaded back to the object.
 
-        Provides basic functionalities:
+        Provides the following basic functionality:
+
         - Casts strings when they are provided as binary objects, which is the
           format one gets when loading string from HDF5 files.
         - Casts 8-bit unsigned integers to booleans when they are provided as

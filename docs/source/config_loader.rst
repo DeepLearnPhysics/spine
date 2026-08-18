@@ -199,7 +199,7 @@ Complete Example
        uresnet: !include uresnet_config.yaml
 
    # Override specific parameters
-   overrides:
+   override:
      io.loader.batch_size: 8
      io.loader.dataset.file_keys: [data, seg_label, clust_label]
      base.iterations: 1000
@@ -209,10 +209,10 @@ Usage in Python
 
 .. code-block:: python
 
-   from spine.config import load_config
+   from spine.config import load_config_file
 
    # Load your config file
-   cfg = load_config('icarus_full_chain.yaml')
+   cfg = load_config_file("icarus_full_chain.yaml")
 
    # Access configuration values
    print(cfg['base']['iterations'])  # 1000

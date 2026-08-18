@@ -1,7 +1,9 @@
 Utilities
 =========
 
-The ``spine.utils`` package collects the cross-cutting helpers that support the driver, model, reconstruction, and analysis layers. It includes optional-dependency handling, logging, factories, reconstruction-specific utilities, and numerical helpers that do not belong to a single pipeline stage.
+The :mod:`spine.utils` package is deliberately limited to small tools shared
+across otherwise independent SPINE packages. Numerical, clustering, physics,
+configuration, logging, and package-owned helpers have dedicated homes.
 
 .. currentmodule:: spine.utils
 
@@ -16,37 +18,27 @@ Core Utilities
 
    conditional
    docstring
-   factory
-   globals
-   logger
+   jit
+   manager
    stopwatch
 
-Physics And Reconstruction Utilities
-------------------------------------
+Cross-layer domain adapters
+---------------------------
+
+These are explicit exceptions to the generic-infrastructure rule because each
+bridges more than one top-level package.
 
 .. autosummary::
    :toctree: generated
 
-   energy_loss
-   match
-   metrics
+   ghost
    optical
-   particles
-   pid
    ppn
-   tracking
-   vertex
-   weighting
 
-Numerical And Graph Utilities
------------------------------
+Optional runtime adapters
+-------------------------
 
 .. autosummary::
    :toctree: generated
 
-   cluster
-   gnn
-   inference
-   jit
-   unwrap
    torch

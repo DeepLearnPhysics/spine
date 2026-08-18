@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from plotly import graph_objs as go
 
+from spine import vis
 from spine.constants import TRACK_SHP
 from spine.data.out import RecoInteraction, RecoParticle, TruthParticle
 from spine.geo import Geometry
@@ -33,6 +34,17 @@ from spine.vis import (
 scene_backend = import_module("spine.vis.scene.backend")
 out_layers = import_module("spine.vis.drawer.out.layers")
 out_scene = import_module("spine.vis.drawer.out.scene")
+
+
+def test_public_visualization_modules_resolve_to_packages():
+    """Public dotted paths should not resolve to re-exported helper modules."""
+    for name in ("drawer", "layout", "metric", "scene", "trace"):
+        module = import_module(f"spine.vis.{name}")
+
+        assert getattr(vis, name) is module
+        assert module.__name__ == f"spine.vis.{name}"
+
+    assert vis.scene.Scene is Scene
 
 
 def test_point_layer_normalizes_gpu_arrays():

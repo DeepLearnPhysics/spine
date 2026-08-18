@@ -2,36 +2,46 @@
 
 [![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/latest/)
 
-We use Sphinx to generate the documentation, and ReadTheDocs.org to host it at https://spine.readthedocs.io/latest/.
-The online documentation gets built and updated automatically every time the main branch changes.
+We use Sphinx to generate the documentation, and Read the Docs to host it at https://spine.readthedocs.io/latest/.
+CI and Read the Docs treat every Sphinx warning as a build failure.
 
-## Automatic Class Documentation
+## API documentation
 
-SPINE uses **automatic docstring inheritance** and **Sphinx autosummary** to provide comprehensive class documentation. When you update a class, the documentation automatically:
+SPINE uses autosummary for package, module, function, and conventional class
+references. Public dataclasses use the custom `spine-dataclass` directive
+through `docs/source/_templates/dataclass.rst`. It derives the reference from
+the dataclass definitions and NumPy-style docstrings, and presents:
 
-1. **Merges inherited attributes** from parent classes (via `__init_subclass__`)
-2. **Generates individual class pages** with complete docstrings
-3. **Updates on every git push** via ReadTheDocs
+1. stored fields grouped by their declaring class;
+2. computed properties in a separate section;
+3. public methods with signatures and documentation;
+4. types, defaults, units, and other SPINE field metadata.
 
-No manual intervention needed! Just write good docstrings in your classes and they'll appear beautifully formatted in the docs.
+This avoids flattening complex objects such as `TruthParticle` into one
+alphabetical member list. Do not copy inherited fields into a child class's
+docstring: document each field where it is declared.
 
-### How It Works
+### Adding API entries
 
-Classes with inheritance (like `RecoFragment` inheriting from `OutBase`, `FragmentBase`, `RecoBase`) automatically merge their parent attributes into their docstrings. When Sphinx builds the docs, it sees the fully merged docstring and generates complete documentation.
+Add a public symbol to the appropriate file under `docs/source/api/`. Modules,
+functions, and conventional classes use standard autosummary:
 
-**Example:**
-```python
-class RecoFragment(RecoBase, FragmentBase, OutBase):
-    """Reconstructed fragment.
-    
-    Attributes
-    ----------
-    shape : int
-        Predicted shape (from RecoBase)
-    """
+```rst
+.. autosummary::
+   :toctree: generated
+
+   module_name
 ```
 
-The documentation will show **all** attributes: those from `RecoBase`, `FragmentBase`, `OutBase`, plus `shape`.
+For a dataclass, select the structured template:
+
+```rst
+.. autosummary::
+   :toctree: generated
+   :template: dataclass.rst
+
+   out.TruthParticle
+```
 
 ## Writing docstrings
 
@@ -105,7 +115,8 @@ cd docs/
 ./build_docs.sh
 ```
 
-This script will clean, build, and show you where to open the result.
+This removes generated autosummary sources, cleans the HTML output, and runs a
+warning-strict build matching CI.
 
 ### Manual build
 
@@ -114,8 +125,9 @@ If you would like to build it yourself on your local computer:
 ```bash
 cd docs/
 pip install -r requirements.txt
-make clean  # Clean previous build
-make html   # Build HTML
+rm -rf source/api/generated
+make clean
+make html SPHINXOPTS="-W --keep-going"
 ```
 
 Then open the file `docs/build/html/index.html` in your favorite browser:
@@ -125,31 +137,10 @@ open build/html/index.html  # macOS
 xdg-open build/html/index.html  # Linux
 ```
 
-### Adding new classes to documentation
-
-To add new classes to the API documentation:
-
-1. **Add the class to the appropriate .rst file** in `docs/source/api/`
-2. **Use autosummary and autoclass directives**:
-
-```rst
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-
-   spine.module.NewClass
-
-.. autoclass:: spine.module.NewClass
-   :members:
-   :inherited-members:
-   :show-inheritance:
-```
-
-3. **That's it!** The documentation will automatically include all merged docstrings.
-
-### On ReadTheDocs.org
+### On Read the Docs
 The configuration for this build is in `../.readthedocs.yaml`.
 
-The dependencies used by the build are in `requirements_rtd.txt`.
+`requirements_rtd.txt` includes the same documentation dependency set as the
+local build.
 
 ReadTheDocs automatically builds on every push to main.

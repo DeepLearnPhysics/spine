@@ -247,6 +247,8 @@ class TruthBase:
     ----------
     orig_id : int
         If matched to an MC truth instance, ID of the original instance
+    is_truth : bool
+        Whether this is a truth object (always True for truth objects)
     index_adapt: np.ndarray
         (N') Voxel indexes corresponding to this object in the adapted cluster
         label tensor
