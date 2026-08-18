@@ -102,10 +102,10 @@ def test_manager_applies_response_without_other_calibrators(monkeypatch, fake_ge
 
 def test_manager_applies_smearing_after_response(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
-    monkeypatch.setattr(np.random, "normal", lambda **kwargs: np.array([0.1]))
+    monkeypatch.setattr(np.random, "normal", lambda **kwargs: np.array([1.1]))
     manager = CalibrationManager(
         response={"response_func": "x**2"},
-        smearing={"scale": 0.2},
+        smearing={"scale": 0.2, "mode": "multiplicative", "mean": 1.0},
     )
 
     _, corrected = manager(
@@ -117,6 +117,34 @@ def test_manager_applies_smearing_after_response(monkeypatch, fake_geo):
     assert list(manager.modules) == ["response", "smearing"]
     assert isinstance(manager.modules["smearing"], SmearingCalibrator)
     assert np.allclose(corrected, [9.9])
+
+
+def test_manager_shares_image_smearing_across_tpcs(monkeypatch, fake_geo):
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    calls = []
+
+    def sample_normal(**kwargs):
+        calls.append(kwargs)
+        return 1.1
+
+    monkeypatch.setattr(np.random, "normal", sample_normal)
+    manager = CalibrationManager(
+        smearing={
+            "scale": 0.2,
+            "mode": "multiplicative",
+            "mean": 1.0,
+            "scope": "image",
+        }
+    )
+
+    _, corrected = manager(
+        np.array([[1.0, 0.0, 0.0], [8.0, 0.0, 0.0]]),
+        np.array([10.0, 20.0]),
+        sources=np.array([[0, 0], [0, 1]]),
+    )
+
+    assert calls == [{"loc": 1.0, "scale": 0.2, "size": None}]
+    assert np.allclose(corrected, [11.0, 22.0])
 
 
 def test_manager_can_infer_tpc_indexes_without_sources(monkeypatch, fake_geo):

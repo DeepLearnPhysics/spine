@@ -7,7 +7,7 @@ import yaml
 
 from spine.config.api import META_KEY, META_LIST_APPEND, META_STRICT
 from spine.config.errors import ConfigCycleError, ConfigIncludeError
-from spine.config.load import _load_config_recursive, load_config_file
+from spine.config.load import load_config_file, load_config_recursive
 from spine.config.loader import ConfigLoader, DownloadTag, resolve_config_path
 
 
@@ -17,10 +17,10 @@ class TestLoadHelpers:
     def test_load_config_recursive_requires_exactly_one_input(self):
         """Test helper rejects both and neither cfg_path/config_string."""
         with pytest.raises(ValueError, match="exactly one"):
-            _load_config_recursive()
+            load_config_recursive()
 
         with pytest.raises(ValueError, match="exactly one"):
-            _load_config_recursive(cfg_path="a.yaml", config_string="base: 1")
+            load_config_recursive(cfg_path="a.yaml", config_string="base: 1")
 
     def test_load_config_recursive_missing_file_raises_config_include_error(
         self, tmp_path
@@ -29,7 +29,7 @@ class TestLoadHelpers:
         missing = tmp_path / "missing.yaml"
 
         with pytest.raises(ConfigIncludeError, match="Configuration file not found"):
-            _load_config_recursive(cfg_path=str(missing))
+            load_config_recursive(cfg_path=str(missing))
 
     def test_load_config_recursive_wraps_loader_errors(self, tmp_path):
         """Test malformed YAML is wrapped with source context."""
@@ -37,14 +37,14 @@ class TestLoadHelpers:
         bad_config.write_text("foo: [1, 2\n")
 
         with pytest.raises(ConfigIncludeError, match="Error loading"):
-            _load_config_recursive(cfg_path=str(bad_config))
+            load_config_recursive(cfg_path=str(bad_config))
 
     def test_load_config_recursive_empty_yaml_returns_empty_parts(self, tmp_path):
         """Test empty YAML files return empty config fragments."""
         empty = tmp_path / "empty.yaml"
         empty.write_text("")
 
-        result = _load_config_recursive(cfg_path=str(empty))
+        result = load_config_recursive(cfg_path=str(empty))
 
         assert result == ({}, {}, [], {})
 
@@ -129,7 +129,7 @@ base:
         main = tmp_path / "main.yaml"
         main.write_text("include: component.yaml\n")
 
-        _config, _overrides, _removals, metadata = _load_config_recursive(
+        _config, _overrides, _removals, metadata = load_config_recursive(
             cfg_path=str(main)
         )
 
@@ -165,7 +165,7 @@ io:
         main = tmp_path / "main.yaml"
         main.write_text("include: io/io_common.yaml\n")
 
-        _config, _overrides, _removals, metadata = _load_config_recursive(
+        _config, _overrides, _removals, metadata = load_config_recursive(
             cfg_path=str(main)
         )
 
@@ -195,7 +195,7 @@ io:
 
         monkeypatch.setattr("spine.config.load.extract_metadata", fake_extract_metadata)
 
-        _config, _overrides, _removals, metadata = _load_config_recursive(
+        _config, _overrides, _removals, metadata = load_config_recursive(
             cfg_path=str(main)
         )
 
@@ -233,7 +233,7 @@ legacy: true
         from spine.config.load import load_config
 
         monkeypatch.setattr(
-            "spine.config.load._load_config_recursive",
+            "spine.config.load.load_config_recursive",
             lambda **_kwargs: (
                 {META_KEY: {"version": "240719"}, "parsers": ["one"], "legacy": True},
                 {"parsers+": "two"},
@@ -270,7 +270,7 @@ remove: base.drop
         config_file.write_text("base: 1\n")
 
         monkeypatch.setattr(
-            "spine.config.load._load_config_recursive",
+            "spine.config.load.load_config_recursive",
             lambda **_kwargs: (
                 {META_KEY: {"version": "240719"}, "base": {"keep": 1}},
                 {},
@@ -396,7 +396,7 @@ class TestLoaderHelpers:
             "spine.config.loader.resolve_config_path",
             lambda *_args, **_kwargs: "child.yaml",
         )
-        monkeypatch.setattr("spine.config.load._load_config_recursive", fake_recursive)
+        monkeypatch.setattr("spine.config.load.load_config_recursive", fake_recursive)
 
         result = loader.include(node)
 

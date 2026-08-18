@@ -64,7 +64,10 @@ class OutBase(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(index=True, reference="object", reference_space="same"),
+    )
 
     # Scalar attributes
     is_contained: bool = False
@@ -92,6 +95,7 @@ class OutBase(PosDataBase):
         metadata=FieldMetadata(
             dtype=np.float32,
             position=True,
+            pointwise=True,
             cat=True,
             skip=True,
             units="instance",
@@ -100,22 +104,32 @@ class OutBase(PosDataBase):
 
     depositions: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+        metadata=FieldMetadata(dtype=np.float32, pointwise=True, cat=True, skip=True),
     )
 
     depositions_q: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+        metadata=FieldMetadata(dtype=np.float32, pointwise=True, cat=True, skip=True),
     )
 
     sources: np.ndarray = field(
         default_factory=lambda: np.empty((0, 2), dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32, cat=True, skip=True),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            reference="tpc",
+            reference_space="external",
+            categorical=True,
+            pointwise=True,
+            cat=True,
+            skip=True,
+        ),
     )
 
     match_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="object", reference_space="opposite"
+        ),
     )
 
     match_overlaps: np.ndarray = field(
@@ -171,19 +185,19 @@ class OutBase(PosDataBase):
         return np.sum(self.depositions_q).item()
 
     @property
-    @stored_property
+    @stored_property(reference="object", reference_space="opposite")
     def best_match_id(self) -> int:
         """ID of the best matched object, or -1 when no match exists."""
-        return int(self.match_ids[0]) if len(self.match_ids) else -1
+        return int(self.match_ids[0]) if len(self.match_ids) > 0 else -1
 
     @property
     @stored_property
     def best_match_overlap(self) -> float:
         """Overlap with the best matched object, or -1 when unmatched."""
-        return float(self.match_overlaps[0]) if len(self.match_overlaps) else -1.0
+        return float(self.match_overlaps[0]) if len(self.match_overlaps) > 0 else -1.0
 
     @property
-    @stored_property(dtype=np.int32)
+    @stored_property(dtype=np.int32, reference="module", reference_space="external")
     def module_ids(self) -> np.ndarray:
         """List of modules that contribute to this object.
 
@@ -266,7 +280,10 @@ class TruthBase:
     """
 
     # Scalar attributes
-    orig_id: int = -1
+    orig_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="object", reference_space="external"),
+    )
 
     is_truth: bool = True
 
@@ -285,6 +302,7 @@ class TruthBase:
         metadata=FieldMetadata(
             dtype=np.float32,
             position=True,
+            pointwise=True,
             cat=True,
             skip=True,
             units="instance",
@@ -295,6 +313,7 @@ class TruthBase:
         metadata=FieldMetadata(
             dtype=np.float32,
             position=True,
+            pointwise=True,
             cat=True,
             skip=True,
             units="instance",
@@ -303,20 +322,28 @@ class TruthBase:
 
     depositions_adapt: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+        metadata=FieldMetadata(dtype=np.float32, pointwise=True, cat=True, skip=True),
     )
     depositions_adapt_q: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+        metadata=FieldMetadata(dtype=np.float32, pointwise=True, cat=True, skip=True),
     )
     depositions_g4: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
-        metadata=FieldMetadata(dtype=np.float32, cat=True, skip=True),
+        metadata=FieldMetadata(dtype=np.float32, pointwise=True, cat=True, skip=True),
     )
 
     sources_adapt: np.ndarray = field(
         default_factory=lambda: np.empty((0, 2), dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32, cat=True, skip=True),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            reference="tpc",
+            reference_space="external",
+            categorical=True,
+            pointwise=True,
+            cat=True,
+            skip=True,
+        ),
     )
 
     @property

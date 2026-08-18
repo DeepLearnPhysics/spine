@@ -1,6 +1,7 @@
 name: ProtoDUNE-VD
 tag: protodunevd_v5
 version: 5
+up_dir: [1.0, 0.0, 0.0]
 gdml: protodunevd_v5_ggd.gdml
 tpc:
   dimensions: [338.5, 672.8, 298.1]

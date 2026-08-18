@@ -1,6 +1,7 @@
 name: ND-LAr
 tag: mp1-2
 version: 1.2
+up_dir: [0.0, 1.0, 0.0]
 crs_files: [data/ndlar_flow/multi_tile_layout-3.0.40.yaml]
 tpc:
   dimensions: [50.4, 304.0, 97.28]

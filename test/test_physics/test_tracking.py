@@ -34,6 +34,30 @@ def test_bin_pca_segments_fall_back_for_one_point_chunks():
     assert any(len(segment) == 0 for segment in sparse_segments[0])
 
 
+def test_track_spline_handles_repeated_longitudinal_coordinates():
+    """Repeated spline abscissas should be combined before fitting."""
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    u, spline_points, _, length = get_track_spline(
+        points,
+        segment_length=1.0,
+        s=0.0,
+    )
+
+    assert len(u) == len(points)
+    assert np.all(np.isfinite(spline_points))
+    assert np.isclose(length, 3.0)
+
+
 def line_track(count=11):
     """Return a straight track with a rising deposition profile."""
     points = np.zeros((count, 3), dtype=np.float32)

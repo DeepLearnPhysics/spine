@@ -37,6 +37,7 @@ same_geo = GeoManager.get_instance()
 Selection rules:
 
 - `detector` is case-insensitive.
+- Deprecated names listed under `aliases` remain accepted with a warning.
 - `tag` selects an exact configuration tag.
 - `version="6"` selects the latest matching `6.x` configuration.
 - `version="6.5"` selects the exact normalized version.
@@ -50,6 +51,7 @@ Every geometry file must provide:
 name: 2x2
 tag: mr6-5
 version: 6.5
+up_dir: [0.0, 1.0, 0.0]
 tpc:
   dimensions: [30.6, 129.6, 64.0]
   positions:
@@ -60,6 +62,12 @@ tpc:
 
 Top-level optional fields:
 
+- `aliases`: Deprecated detector names accepted by `geo_factory`. New code
+  should use the canonical `name`.
+- `up_dir`: Three-component direction which points vertically upward in the
+  detector coordinate system. It defaults to `[0, 1, 0]` for programmatically
+  constructed geometries, but detector configuration files declare it
+  explicitly.
 - `gdml`: GDML filename associated with the geometry.
 - `crs_files`: Charge readout system geometry file references.
 - `lrs_file`: Light readout system geometry file reference.

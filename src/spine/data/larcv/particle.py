@@ -113,27 +113,68 @@ class Particle(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    parent_id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    group_id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    interaction_id: int = field(default=-1, metadata=FieldMetadata(index=True))
-    nu_id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="particle", reference_space="same"
+        ),
+    )
+    parent_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="particle", reference_space="same"
+        ),
+    )
+    group_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="particle", reference_space="same"
+        ),
+    )
+    interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="interaction", reference_space="same"
+        ),
+    )
+    nu_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="neutrino", reference_space="same"
+        ),
+    )
     children_id: np.ndarray = field(
         default_factory=lambda: np.array([], dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32, index=True),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            index=True,
+            reference="particle",
+            reference_space="same",
+        ),
     )
 
     # Scalar attributes
-    mct_index: int = -1
-    mcst_index: int = -1
-    group_primary: int = -1
-    interaction_primary: int = -1
-    track_id: int = -1
-    parent_track_id: int = -1
-    ancestor_track_id: int = -1
-    pdg_code: int = -1
-    parent_pdg_code: int = -1
-    ancestor_pdg_code: int = -1
+    mct_index: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    mcst_index: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    group_primary: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    interaction_primary: int = field(
+        default=-1, metadata=FieldMetadata(categorical=True)
+    )
+    track_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="geant_track", reference_space="external"),
+    )
+    parent_track_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="geant_track", reference_space="external"),
+    )
+    ancestor_track_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="geant_track", reference_space="external"),
+    )
+    pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    parent_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    ancestor_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
     num_voxels: int = -1
 
     t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))

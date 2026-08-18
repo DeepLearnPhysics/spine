@@ -52,10 +52,15 @@ def make_label_tensor(
     inter_ids: list[int] | None = None,
     pids: list[int] | None = None,
     shapes: list[int] | None = None,
+    group_primaries: list[int] | None = None,
+    particle_indexes: list[int] | None = None,
 ) -> ClusterLabelData:
     """Build structured cluster labels with one table row per voxel."""
     particle_ids = np.asarray(clust_ids if part_ids is None else part_ids)
-    associations = np.arange(len(points), dtype=np.float32)
+    associations = np.asarray(
+        np.arange(len(points)) if particle_indexes is None else particle_indexes,
+        dtype=np.float32,
+    )
     associations[particle_ids < 0] = -1
     data = np.column_stack(
         (
@@ -72,4 +77,6 @@ def make_label_tensor(
         "pid": np.asarray([2] * len(points) if pids is None else pids),
         "shape": np.asarray([1] * len(points) if shapes is None else shapes),
     }
+    if group_primaries is not None:
+        particles["group_primary"] = np.asarray(group_primaries)
     return ClusterLabelData(data, particles)

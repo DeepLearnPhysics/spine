@@ -51,12 +51,18 @@ class Flash(PosDataBase):
     """
 
     # Index attributes
-    id: int = field(default=-1, metadata=FieldMetadata(index=True))
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(index=True, reference="flash", reference_space="same"),
+    )
 
     # Scalar attributes
-    volume_id: int = -1
-    frame: int = -1
-    on_beam_time: int = -1
+    volume_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="optical_volume", reference_space="external"),
+    )
+    frame: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    on_beam_time: int = field(default=-1, metadata=FieldMetadata(categorical=True))
 
     in_beam_frame: bool = False
 

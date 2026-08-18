@@ -28,7 +28,11 @@ from .sparse import (
     LArCVSparse3DChargeRescaledParser,
     LArCVSparse3DParser,
 )
-from .utils.particle import process_particle_event
+from .utils.particle import (
+    get_group_primary_ids,
+    get_valid_mask,
+    process_particle_event,
+)
 from .utils.point import image_coordinates_batch
 
 __all__ = [
@@ -573,6 +577,19 @@ class LArCVCluster3DParser(ParserBase):
             if sparse_value_event is not None:
                 tensor_val = self.sparse_parser.process(sparse_value_event)
                 np_features[:, 0] = tensor_val.features[:, 0]
+
+        # Re-evaluate primary supervision against the particle associations
+        # that remain after semantic cleaning. This keeps raw particle-table
+        # bookkeeping from promoting or retaining an unobservable target.
+        if particle_table is not None:
+            particle_indexes = np_features[:, 2].astype(np.int64, copy=False)
+            visible_ids = np.unique(particle_indexes[particle_indexes >= 0])
+            particle_table["group_primary"] = get_group_primary_ids(
+                particles,
+                get_valid_mask(particles),
+                self.label_le,
+                visible_ids,
+            )
 
         return ClusterLabelData(
             coords=np_voxels,

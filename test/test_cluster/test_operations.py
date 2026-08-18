@@ -228,6 +228,48 @@ def test_cluster_dedx_accepts_mixed_coordinate_dtypes():
     assert dedx == np.float32(3.0)
 
 
+def test_cluster_dedx_dir_handles_duplicate_coordinates():
+    """Coincident points should produce a finite zero-length dE/dx result."""
+    voxels = np.zeros((2, 3), dtype=np.float32)
+    values = np.array([1.0, 2.0], dtype=np.float32)
+    start = np.zeros(3, dtype=np.float32)
+    direction = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+    dedx, energy, length, spread, count = cluster_dedx_dir(
+        voxels,
+        values,
+        start,
+        direction,
+    )
+
+    assert dedx == 0.0
+    assert energy == 3.0
+    assert length == 0.0
+    assert spread == 0.0
+    assert count == 2
+
+
+def test_cluster_direction_handles_duplicate_coordinates_during_optimization():
+    """Coincident leading points must not divide by zero during optimization."""
+    voxels = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+
+    direction = cluster_direction(
+        voxels,
+        np.zeros(3, dtype=np.float64),
+        optimize=True,
+    )
+
+    np.testing.assert_allclose(direction, [1.0, 0.0, 0.0])
+
+
 def test_cluster_directions_preserve_reference_point_dtype():
     """Directions must match the start/end-point dtype, not the voxel dtype."""
     voxels = np.array(

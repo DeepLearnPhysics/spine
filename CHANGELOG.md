@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Renderer-neutral visualization scenes**: Add typed point, marker, line,
+  vector, mesh, and box layers, a backend registry, and a Plotly compatibility
+  backend for notebook and application consumers.
+- **Complete output-drawer scenes**: Expose raw depositions, endpoints,
+  directions, vertices, optical responses, CRT hits, and detector geometry
+  through `Drawer.get_scene`, with compact object boundaries and recoloring
+  metadata for browser renderers.
+- **Visualization field metadata**: Describe data fields as categorical,
+  point-wise, index-like, or references to related object namespaces so generic
+  drawers can offer type-appropriate hover and color controls.
+
+### Changed
+- **Portable mesh topology**: Resolve implicit Plotly convex hulls into explicit
+  triangle faces at the scene boundary so non-Plotly backends can render lite
+  showers, cylinders, cones, ellipsoids, and hulls directly.
+- **Matched auxiliary colors**: Match particle endpoints and directions and
+  interaction vertices to their parent-object colors by default, with an option
+  to retain the previous fixed colors.
+- **Detector orientation**: Declare the physical up direction in every packaged
+  geometry and use it to orient default 3D cameras.
+- **DUNE far-detector naming**: Rename the horizontal-drift configuration to
+  `DUNE-HD-10kt-1x2x6`; the former `DUNE10kt-1x2x6` name remains available as a
+  deprecated alias.
+
+### Fixed
+- **Plotly scene parity**: Preserve detector bounds, coordinate units, camera
+  orientation, line hover labels, and batched arrow tips when rendering neutral
+  scenes through the Plotly compatibility backend.
+
+## [0.17.2] - 2026-08-17
+
+### Fixed
+- **Truth shower geometry**: Build aggregate truth-particle start, first-step, timing, end, and semantic properties from a retained visible fragment instead of allowing empty or excluded group progenitors to contribute invalid sentinel geometry, while preserving explicit Michel and delta shapes.
+- **Fragment group-primary supervision**: Assign a positive group-primary label only to a retained, label-eligible group progenitor that is uniquely earliest among retained eligible fragments; leave groups without a clean observable primary unsupervised instead of promoting a visible daughter.
+
+## [0.17.1] - 2026-08-14
+
+### Added
+- **Charge smearing calibration**: Add configurable Gaussian charge smearing with literal additive and multiplicative modes, mean and scale controls, optional lower clipping, and voxel- or image-scoped random factors shared consistently across TPC partitions.
+- **Calibration map inputs**: Load transparency maps from ROOT histograms and support column-mapped per-TPC scalar calibration payloads with configurable value scaling for lifetime and drift-velocity databases.
+- **Modifier conflict declarations**: Let configuration modifiers declare incompatible peers and reject conflicting combinations across nested includes.
+
+### Fixed
+- **Duplicate-coordinate geometry**: Prevent coincident calibrated voxels from causing divisions by zero in direction optimization and local dE/dx, and handle repeated longitudinal coordinates in spline-based track reconstruction.
+
+### Removed
+- **One-off container recovery workflow**: Remove the temporary manual GHCR repair workflow after the release-publishing path was hardened.
+
 ## [0.17.0] - 2026-08-10
 
 ### Added

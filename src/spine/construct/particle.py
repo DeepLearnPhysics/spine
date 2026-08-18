@@ -8,7 +8,7 @@ import numpy as np
 from scipy.special import softmax
 
 from spine.cluster.topology import filter_invalid_nodes
-from spine.constants import TRACK_SHP
+from spine.constants import DELTA_SHP, MICHL_SHP, TRACK_SHP
 from spine.data import ClusterLabelData, EdgeIndexData
 from spine.data.out import RecoParticle, TruthParticle
 
@@ -286,6 +286,27 @@ class ParticleBuilder(BuilderBase):
         # Fetch the group ID of each of the particles
         group_ids = np.array([p.group_id for p in particles], dtype=int)
 
+        # Fetch the physical-primary labels and the particle IDs which own
+        # retained voxels. A physical primary may be invisible, in which case
+        # geometry is delegated to a visible representative below without
+        # promoting it to a primary-training target.
+        primary_ids = None
+        if label_tensor.particles is not None:
+            try:
+                primary_ids = np.asarray(
+                    label_tensor.particle_field("group_primary"), dtype=int
+                )
+            except KeyError:
+                pass
+        if primary_ids is None:
+            particle_primary_ids = np.array(
+                [p.group_primary for p in particles], dtype=int
+            )
+            if np.any(particle_primary_ids > -1):
+                primary_ids = particle_primary_ids
+        visible_ids = np.unique(label_tensor.particle_indexes).astype(int)
+        visible_ids = visible_ids[visible_ids > -1]
+
         # Prepare fragment associations, if they were built
         fragment_group_ids = np.empty(0, dtype=np.int64)
         if truth_fragments is not None:
@@ -308,12 +329,13 @@ class ParticleBuilder(BuilderBase):
             if particle.id != group_id:
                 raise ValueError("The ordering of the true particles is wrong.")
 
-            # Identify the first fragment in the group, which will be used to set the
-            # start point and the shape of the particle
+            # Identify the retained primary fragment in the group. This is used
+            # for reconstruction-facing geometry, while the group progenitor
+            # above continues to provide genealogy and physics metadata.
             group_index = np.where(group_ids == group_id)[0]
-            first_fragment_id = group_index[
-                np.argmin([particles[j].first_step_t for j in group_index])
-            ]
+            representative_id = self._truth_group_representative(
+                particles, group_index, primary_ids, visible_ids
+            )
 
             # Override the index of the particle and its group, but preserve it
             particle.orig_id = group_id
@@ -327,10 +349,31 @@ class ParticleBuilder(BuilderBase):
             particle.parent_id = i
             particle.children_id = np.empty(0, dtype=particle.orig_children_id.dtype)
 
-            # Override the shape of the particle with that of the earliest fragment in the group
-            particle.shape = particles[first_fragment_id].shape
+            # Override the reconstruction-facing attributes with those of the
+            # representative fragment, keeping them mutually consistent.
+            if representative_id is not None:
+                representative = particles[representative_id]
+                # Michel and delta shapes describe the origin of the group,
+                # even when an empty progenitor delegates visible geometry to
+                # a daughter fragment. Other groups take the representative's
+                # retained semantic shape.
+                if particle.shape not in (MICHL_SHP, DELTA_SHP):
+                    particle.shape = representative.shape
+                particle.group_primary = 1
+                particle.first_step = np.copy(representative.first_step)
+                particle.first_step_t = representative.first_step_t
+                particle.start_point = np.copy(representative.first_step)
+                if particle.shape == TRACK_SHP:
+                    particle.last_step = np.copy(representative.last_step)
+                    particle.last_step_t = representative.last_step_t
+                    particle.end_point = np.copy(representative.last_step)
+            else:
+                particle.is_valid = False
+                particle.first_step = np.full(3, np.nan, dtype=np.float32)
+                particle.first_step_t = np.nan
+                particle.start_point = np.full(3, np.nan, dtype=np.float32)
 
-            # Sum energy deposits and use the earliest fragment in the group.
+            # Sum the deposits from every fragment in the truth group.
             particle.energy_deposit = 0.0
             for j in group_index:
                 particle.energy_deposit += particles[j].energy_deposit
@@ -338,9 +381,6 @@ class ParticleBuilder(BuilderBase):
             # Update the attributes shared between reconstructed and true
             particle.length = particle.distance_travel
             particle.is_primary = bool(particle.interaction_primary > 0)
-            particle.start_point = particles[first_fragment_id].first_step
-            if particle.shape == TRACK_SHP:
-                particle.end_point = particle.last_step
 
             # Update the particle with its long-form attributes
             index = np.where(group_labels == group_id)[0].astype(np.int32, copy=False)
@@ -594,3 +634,27 @@ class ParticleBuilder(BuilderBase):
                 particle.fragments = [truth_fragments[j] for j in particle.fragment_ids]
 
         return truth_particles
+
+    @staticmethod
+    def _truth_group_representative(
+        particles: list[Any],
+        group_index: np.ndarray,
+        primary_ids: np.ndarray | None,
+        visible_ids: np.ndarray,
+    ) -> int | None:
+        """Select the retained primary fragment which represents a truth group."""
+        visible_index = np.intersect1d(group_index, visible_ids, assume_unique=False)
+        if len(visible_index) == 0:
+            return None
+
+        # Prefer the physical primary when it is visible. If it is not, keep
+        # the primary-training label untouched and select geometry separately.
+        if primary_ids is not None:
+            primary_index = visible_index[primary_ids[visible_index] == 1]
+            if len(primary_index):
+                visible_index = primary_index
+
+        # Legacy label products may not carry primary information. Fall back to
+        # the earliest retained fragment. Empty fragments cannot enter this set.
+        first_step_times = np.array([particles[i].first_step_t for i in visible_index])
+        return int(visible_index[np.argmin(first_step_times)])

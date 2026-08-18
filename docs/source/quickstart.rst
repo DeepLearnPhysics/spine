@@ -99,6 +99,9 @@ From that shell, you can open Python or Jupyter and use the same driver directly
    fig.show()
 
 The same pattern works for other object families such as ``fragments`` or ``interactions``.
+Applications that own their 3D renderer can call
+``drawer.get_scene("particles")`` instead; the returned typed scene can still
+be rendered in a notebook with ``scene.render("plotly")``.
 
 Run JupyterLab Or Classic Notebook
 ----------------------------------

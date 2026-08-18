@@ -2,7 +2,8 @@
 
 `spine.vis` provides visualization helpers used to build Plotly traces,
 assemble domain-aware drawers, share plotting layouts, and render metric
-figures such as confusion matrices and annotated heatmaps.
+figures such as confusion matrices and annotated heatmaps. It also provides a
+renderer-neutral scene representation for high-volume 3D event displays.
 
 The implementation lives in:
 
@@ -11,6 +12,7 @@ src/spine/vis/trace/
 src/spine/vis/drawer/
 src/spine/vis/layout/
 src/spine/vis/metric/
+src/spine/vis/scene/
 ```
 
 The top-level `spine.vis` namespace re-exports the intended public API, while
@@ -38,6 +40,12 @@ the subpackages keep the implementation split by responsibility.
   - Metric-specific plotting helpers
   - Confusion matrices, heatmaps, and related annotation helpers
 
+- `scene/`
+  - Renderer-neutral, contiguous point-cloud layers
+  - Object membership and numeric attributes are retained without requiring
+    one render object per SPINE object
+  - Configurable backends; Plotly is the built-in backend
+
 ## Design rule
 
 Use the following boundary when deciding where new code belongs:
@@ -46,6 +54,8 @@ Use the following boundary when deciding where new code belongs:
   Plotly traces.
 - Put code in `drawer/` when it decides *what* to draw from SPINE objects or
   domain-aware structures, and then delegates to `trace/`.
+- Put code in `scene/` when it describes *what is present in a 3D scene*
+  independently of a plotting library, or converts that scene to a backend.
 
 Examples:
 
@@ -68,6 +78,51 @@ import spine.vis as vis
 traces = vis.scatter_points_3d(points, color=values)
 drawer = vis.GeoDrawer()
 ```
+
+For large interactive point clouds, build a renderer-neutral scene first:
+
+```python
+scene = vis.Drawer(data, draw_mode="reco").get_scene(
+    "particles",
+    attr=["pid"],
+    color_attr="pid",
+)
+
+# Existing notebook-friendly output
+figure = scene.render("plotly")
+
+# Optional legacy-style object splitting. The scene itself stays combined.
+figure = scene.render("plotly", split_objects=True)
+```
+
+Prefer the combined form for large events. Plotly validates and copies every
+nested trace independently, and its browser runtime maintains per-trace state.
+Splitting hundreds of objects therefore adds substantial fixed overhead even
+when the total point count is unchanged. Object boundaries remain available in
+``PointLayer.object_ids`` and ``PointLayer.object_offsets`` so WebGL backends
+can provide per-object picking and legends without creating separate buffers.
+
+Browser applications can consume the neutral arrays without adding a browser
+renderer to SPINE itself:
+
+```python
+layer = scene.views[0].layers[0]
+positions = layer.positions
+object_ids = layer.object_ids
+attributes = layer.attributes
+```
+
+SPINE currently provides only the Python-side Plotly backend. Applications
+such as Spinal Tap own their JavaScript renderer, transport and interactive
+filter state. A reusable browser renderer can be extracted later if another
+consumer, such as a Jupyter widget, needs the same implementation.
+
+The neutral scene model covers object and raw point clouds, markers, vectors,
+meshes, detector geometry, optical responses, and CRT hits. Rendering a scene
+with the Plotly backend preserves its detector bounds, coordinate units, and
+physical up direction. `Drawer.get` remains the established direct Plotly API,
+while `Drawer.get_scene(...).render("plotly")` provides the portable
+compatibility path used by applications and alternative renderers.
 
 Stored optical hypotheses can be overlaid with measured flashes in an output
 event display:

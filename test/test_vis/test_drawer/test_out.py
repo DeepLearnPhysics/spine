@@ -44,6 +44,24 @@ def test_drawer_accepts_derived_hover_attr():
     assert figure is not None
 
 
+def test_drawer_geometry_color_tracks_theme():
+    """Drawer geometry should remain visible against either theme."""
+    colors = []
+    trace = SimpleNamespace(update=lambda **kwargs: colors.append(kwargs["meta"]))
+    drawer = Drawer({}, draw_mode="reco", dark=True)
+
+    with pytest.raises(RuntimeError, match="geometry drawer"):
+        drawer.build_geometry_traces()
+
+    drawer.geo_drawer = SimpleNamespace(
+        tpc_traces=lambda **kwargs: colors.append(kwargs["color"]) or [trace]
+    )
+
+    drawer.build_geometry_traces()
+
+    assert colors == ["rgba(255,255,255,0.400)", {"kind": "geometry"}]
+
+
 def test_drawer_accepts_skipped_hover_attr():
     """Drawer validation should still accept skipped DataBase attributes."""
     data = {
@@ -109,6 +127,9 @@ def test_drawer_draws_reco_particles_with_auxiliary_traces():
 
     assert len(figure.data) >= 6
     assert figure.data[0].name == "Raw input"
+    assert figure.data[2].marker.color.tolist() == [2]
+    assert figure.data[3].marker.color.tolist() == [2]
+    assert figure.data[4].line.color.tolist() == [2, 2, 2]
 
 
 def test_drawer_draws_truth_long_form_attributes():
@@ -156,6 +177,12 @@ def test_drawer_draws_vertices_and_validates_requests():
     figure = drawer.get("interactions", draw_vertices=True)
 
     assert len(figure.data) == 2
+    assert figure.data[-1].marker.color.tolist() == [0]
+
+    legacy_figure = Drawer(data, draw_mode="reco", match_aux_colors=False).get(
+        "interactions", draw_vertices=True
+    )
+    assert legacy_figure.data[-1].marker.color == "green"
     with pytest.raises(ValueError, match="Object type"):
         drawer.get("bad")
     with pytest.raises(ValueError, match="not available"):
@@ -276,10 +303,33 @@ def test_drawer_color_helper_branches():
     assert primary_colors["cmax"] == 1
     assert sum_colors["cmax"] == 2.0
     assert id_colors["name"] == "Reco particle"
-    with pytest.raises(ValueError, match="not supported"):
-        out_colors.build_object_colors(
-            attrs={"ke"}, color_attr="ke", split_traces=False, **common
-        )
+    ke_colors = out_colors.build_object_colors(
+        attrs={"ke"}, color_attr="ke", split_traces=False, **common
+    )
+    assert ke_colors["colorscale"] == "Inferno"
+
+
+def test_schema_driven_color_attributes():
+    """Field metadata should distinguish quantities, categories and vectors."""
+    from spine.data.out import RecoParticle, TruthParticle
+
+    assert out_colors.object_color_kind(RecoParticle, "length") == "continuous"
+    assert out_colors.object_color_kind(RecoParticle, "interaction_id") == "discrete"
+    assert out_colors.object_color_kind(RecoParticle, "pdg_code") == "discrete"
+    assert out_colors.object_color_kind(RecoParticle, "depositions") == "continuous"
+    assert out_colors.object_color_kind(RecoParticle, "sources") == "discrete"
+    assert out_colors.object_color_kind(RecoParticle, "chi2_per_pid") is None
+    assert out_colors.object_color_kind(RecoParticle, "start_point") is None
+    assert out_colors.object_color_kind(TruthParticle, "parent_id") == "discrete"
+    assert (
+        out_colors.object_color_kind(TruthParticle, "ancestor_pdg_code") == "discrete"
+    )
+
+    assert "length" in out_colors.colorable_attributes(RecoParticle)
+    assert "chi2_per_pid" not in out_colors.colorable_attributes(RecoParticle)
+    assert out_colors._object_class([], "reco_particles") is RecoParticle
+    assert out_colors._continuous_range([np.nan]) == (0.0, 1.0)
+    assert out_colors._continuous_range([2.0]) == (2.0, 3.0)
 
 
 def test_drawer_sources_and_split_auxiliary_traces():

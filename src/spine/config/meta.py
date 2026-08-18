@@ -6,15 +6,17 @@ including extraction, validation, and compatibility checking.
 
 import os
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .api import (
     DEFAULT_KIND,
     DEFAULT_LIST_APPEND,
     META_COMPATIBLE_WITH,
+    META_CONFLICTS_WITH,
     META_KEY,
     META_KIND,
     META_LIST_APPEND,
+    META_NAME,
     META_STRICT,
     META_VERSION,
     VALID_KINDS,
@@ -22,6 +24,81 @@ from .api import (
     VALID_STRICT_MODES,
 )
 from .errors import ConfigValidationError
+
+
+def extract_metadata(
+    config_dict: Dict[str, Any], cfg_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Extract and validate __meta__ block from config.
+
+    Parameters
+    ----------
+    config_dict : Dict[str, Any]
+        Configuration dictionary
+    cfg_path : str, optional
+        Path to config file (for metadata tracking)
+
+    Returns
+    -------
+    Dict[str, Any]
+        Metadata dict with defaults filled in
+    """
+    meta = config_dict.get(META_KEY, {})
+
+    # Validate kind
+    kind = meta.get(META_KIND, DEFAULT_KIND)
+    if kind not in VALID_KINDS:
+        warnings.warn(
+            f"Invalid __meta__.kind: '{kind}', must be one of {VALID_KINDS}. "
+            f"Using '{DEFAULT_KIND}'"
+        )
+        kind = DEFAULT_KIND
+
+    # Validate strict mode
+    strict = meta.get(META_STRICT)
+    if strict is None:
+        # Default: warn for mods, error for bundles and fragments
+        strict = "warn" if kind == "mod" else "error"
+    elif strict not in VALID_STRICT_MODES:
+        warnings.warn(
+            f"Invalid __meta__.strict: '{strict}', must be one of "
+            f"{VALID_STRICT_MODES}. Using default"
+        )
+        strict = "warn" if kind == "mod" else "error"
+
+    # Validate list_append mode
+    list_append = meta.get(META_LIST_APPEND, DEFAULT_LIST_APPEND)
+    if list_append not in VALID_LIST_APPEND_MODES:
+        warnings.warn(
+            f"Invalid __meta__.list_append: '{list_append}', must be one of "
+            f"{VALID_LIST_APPEND_MODES}. Using '{DEFAULT_LIST_APPEND}'"
+        )
+        list_append = DEFAULT_LIST_APPEND
+
+    result = {
+        **meta,  # Preserve custom metadata fields as-is
+        META_KIND: kind,
+        META_STRICT: strict,
+        META_LIST_APPEND: list_append,
+    }
+
+    # Add file path for compatibility checking
+    if cfg_path:
+        result["_file_path"] = cfg_path
+
+    return result
+
+
+def extract_modifier(metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Extract the identity and provenance used to compose a modifier."""
+    if metadata.get(META_KIND) != "mod" or not metadata.get(META_NAME):
+        return None
+
+    return {
+        META_NAME: metadata[META_NAME],
+        META_CONFLICTS_WITH: metadata.get(META_CONFLICTS_WITH, []),
+        "_file_path": metadata.get("_file_path", "<unknown>"),
+    }
 
 
 def _compare_versions(actual: str, operator: str, required: str) -> bool:
@@ -108,69 +185,6 @@ def _parse_version_constraint(constraint: str) -> Tuple[str, str]:
 
     # No operator means exact match
     return "==", constraint
-
-
-def extract_metadata(
-    config_dict: Dict[str, Any], cfg_path: Optional[str] = None
-) -> Dict[str, Any]:
-    """Extract and validate __meta__ block from config.
-
-    Parameters
-    ----------
-    config_dict : Dict[str, Any]
-        Configuration dictionary
-    cfg_path : str, optional
-        Path to config file (for metadata tracking)
-
-    Returns
-    -------
-    Dict[str, Any]
-        Metadata dict with defaults filled in
-    """
-    meta = config_dict.get(META_KEY, {})
-
-    # Validate kind
-    kind = meta.get(META_KIND, DEFAULT_KIND)
-    if kind not in VALID_KINDS:
-        warnings.warn(
-            f"Invalid __meta__.kind: '{kind}', must be one of {VALID_KINDS}. "
-            f"Using '{DEFAULT_KIND}'"
-        )
-        kind = DEFAULT_KIND
-
-    # Validate strict mode
-    strict = meta.get(META_STRICT)
-    if strict is None:
-        # Default: warn for mods, error for bundles and fragments
-        strict = "warn" if kind == "mod" else "error"
-    elif strict not in VALID_STRICT_MODES:
-        warnings.warn(
-            f"Invalid __meta__.strict: '{strict}', must be one of "
-            f"{VALID_STRICT_MODES}. Using default"
-        )
-        strict = "warn" if kind == "mod" else "error"
-
-    # Validate list_append mode
-    list_append = meta.get(META_LIST_APPEND, DEFAULT_LIST_APPEND)
-    if list_append not in VALID_LIST_APPEND_MODES:
-        warnings.warn(
-            f"Invalid __meta__.list_append: '{list_append}', must be one of "
-            f"{VALID_LIST_APPEND_MODES}. Using '{DEFAULT_LIST_APPEND}'"
-        )
-        list_append = DEFAULT_LIST_APPEND
-
-    result = {
-        **meta,  # Preserve custom metadata fields as-is
-        META_KIND: kind,
-        META_STRICT: strict,
-        META_LIST_APPEND: list_append,
-    }
-
-    # Add file path for compatibility checking
-    if cfg_path:
-        result["_file_path"] = cfg_path
-
-    return result
 
 
 def check_compatibility(
@@ -316,4 +330,42 @@ def check_compatibility(
                 f"Potential modifier conflict: Both '{parent_file}' and '{file_name}' "
                 f"extend {conflicts}. This may cause unexpected behavior.",
                 stacklevel=4,
+            )
+
+
+def _conflict_names(value: Any) -> set:
+    """Normalize supported conflicts_with forms for matching."""
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, list):
+        return set(value)
+    return set()
+
+
+def check_modifier_conflicts(
+    existing_modifiers: List[Dict[str, Any]],
+    included_modifiers: List[Dict[str, Any]],
+) -> None:
+    """Reject conflicts between modifiers from two composed subtrees.
+
+    Conflict declarations are intentionally checked in both directions so a
+    declaration only needs to appear on one of the two modifiers.
+    """
+    for existing in existing_modifiers:
+        for included in included_modifiers:
+            existing_name = existing[META_NAME]
+            included_name = included[META_NAME]
+            if included_name not in _conflict_names(
+                existing.get(META_CONFLICTS_WITH)
+            ) and existing_name not in _conflict_names(
+                included.get(META_CONFLICTS_WITH)
+            ):
+                continue
+
+            existing_path = existing.get("_file_path", "<unknown>")
+            included_path = included.get("_file_path", "<unknown>")
+            raise ConfigValidationError(
+                "Modifier conflict: "
+                f"'{existing_name}' ({existing_path}) conflicts with "
+                f"'{included_name}' ({included_path})."
             )

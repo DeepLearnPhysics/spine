@@ -82,8 +82,11 @@ class ParticleBase(OutBase):
     """
 
     # Scalar attributes
-    interaction_id: int = -1
-    chi2_pid: int = -1
+    interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="interaction", reference_space="same"),
+    )
+    chi2_pid: int = field(default=-1, metadata=FieldMetadata(enum=ParticlePID))
 
     is_primary: bool = False
     is_crt_matched: bool = False
@@ -101,7 +104,13 @@ class ParticleBase(OutBase):
     # Vector attributes
     fragment_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32, cat=True, units="instance"),
+        metadata=FieldMetadata(
+            dtype=np.int32,
+            reference="fragment",
+            reference_space="same",
+            cat=True,
+            units="instance",
+        ),
     )
 
     start_point: np.ndarray = field(
@@ -142,7 +151,9 @@ class ParticleBase(OutBase):
 
     crt_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="crthit", reference_space="external"
+        ),
     )
     crt_times: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.float32),
@@ -271,7 +282,7 @@ class RecoParticle(ParticleBase, RecoBase):
 
     ppn_ids: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(dtype=np.int32, reference="ppn", reference_space="same"),
     )
     ppn_points: np.ndarray = field(
         default_factory=lambda: np.empty((0, 3), dtype=np.float32),
@@ -375,7 +386,7 @@ class RecoParticle(ParticleBase, RecoBase):
             self.calo_ke += other.calo_ke
 
     @property
-    @stored_property
+    @stored_property(categorical=True)
     def pdg_code(self) -> int:
         """Translates the enumerated particle type to a sign-less PDG code.
 
@@ -545,10 +556,27 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
         Best-guess reconstructed momentum of the particle
     """
 
+    # Index attributes
+    id: int = field(
+        default=-1,
+        metadata=FieldMetadata(
+            index=True, reference="particle", reference_space="same"
+        ),
+    )
+
     # Scalar attributes
-    orig_interaction_id: int = -1
-    orig_parent_id: int = -1
-    orig_group_id: int = -1
+    orig_interaction_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="interaction", reference_space="external"),
+    )
+    orig_parent_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="particle", reference_space="external"),
+    )
+    orig_group_id: int = field(
+        default=-1,
+        metadata=FieldMetadata(reference="particle", reference_space="external"),
+    )
 
     reco_length: float = np.nan
 
@@ -561,7 +589,9 @@ class TruthParticle(Particle, ParticleBase, TruthBase):
     # Vector attributes
     orig_children_id: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),
-        metadata=FieldMetadata(dtype=np.int32),
+        metadata=FieldMetadata(
+            dtype=np.int32, reference="particle", reference_space="external"
+        ),
     )
     children_counts: np.ndarray = field(
         default_factory=lambda: np.empty(0, dtype=np.int32),

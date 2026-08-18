@@ -22,6 +22,7 @@ __all__ = [
     "expand_env_vars",
     "parse_value",
     "apply_collection_operation",
+    "apply_overrides_and_removals",
     "set_nested_value",
     "extract_includes_and_overrides",
 ]
@@ -362,7 +363,7 @@ def extract_includes_and_overrides(
     return includes, overrides, removals, cleaned_config
 
 
-def _apply_overrides_and_removals(
+def apply_overrides_and_removals(
     config: Dict[str, Any],
     overrides: Dict[str, Any],
     removals: List[str],

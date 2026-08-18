@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
 from plotly import graph_objs as go
+from plotly.colors import sample_colorscale
 
 from .point import scatter_points_3d
 from .utils import (
@@ -28,6 +30,9 @@ def scatter_arrows(
     hovertext: HoverTextInput = None,
     line: dict[str, Any] | None = None,
     linewidth: float = 5,
+    colorscale: str | list | None = None,
+    cmin: float | None = None,
+    cmax: float | None = None,
     name: str | None = None,
 ) -> list[go.Scatter3d | go.Cone]:
     """Converts a list of points and directions into a set of arrows.
@@ -38,9 +43,9 @@ def scatter_arrows(
         (N, 3) Array of point coordinates
     directions : np.ndarray
         (N, 3) Array of arrow direction vectors
-    length : float, default 5.0
+    length : float, default 10.0
         Length of the arrows
-    tip_ratio : float, defautl 0.05
+    tip_ratio : float, default 0.25
         Relative arrow tip size w.r.t. its full length
     color : Union[str, int, float, Sequence], optional
         Color of the arrows, either as one shared scalar value or one value
@@ -52,8 +57,24 @@ def scatter_arrows(
         Arrow trunk line property dictionary
     linewidth : float, default 2
         Width of the arrow trunk lines
+    colorscale : str or list, optional
+        Color scale used to map numeric per-arrow colors.
+    cmin : float, optional
+        Lower bound of the arrow color scale.
+    cmax : float, optional
+        Upper bound of the arrow color scale.
     name : name
         Name of the traces
+
+    Returns
+    -------
+    list[go.Scatter3d or go.Cone]
+        Arrow trunk and tip traces.
+
+    Raises
+    ------
+    ValueError
+        If per-arrow colors do not match the number of input points.
     """
     # Process color and hovertext information for the arrows
     color_trunks, hovertext_trunks = color, hovertext
@@ -90,46 +111,69 @@ def scatter_arrows(
 
         vertices = np.vstack(vertices)
 
-    traces = scatter_points_3d(
-        vertices,
-        color=color_trunks,
-        hovertext=hovertext_trunks,
-        line=line,
-        linewidth=linewidth,
-        mode="lines",
-        hovertemplate="%{text}",
-        name=name,
-        legendgroup=legendgroup,
-    )
-
-    # Process color information for the arrow tips
-    colorscale = None
-    if color is not None and isinstance(color, str):
-        colorscale = [(0, color), (1, color)]
-    else:
-        colorscale = [(0, "black"), (1, "black")]
-
-    # Intitialize the arrow tips
-    ends = points + (1 - tip_ratio / 2) * length * directions
-    directions = tip_ratio * length * directions
-    traces += [
-        go.Cone(
-            x=ends[:, 0],
-            y=ends[:, 1],
-            z=ends[:, 2],
-            u=directions[:, 0],
-            v=directions[:, 1],
-            w=directions[:, 2],
-            showscale=False,
-            showlegend=False,
-            sizemode="raw",
+    traces: list[go.Scatter3d | go.Cone] = []
+    traces.extend(
+        scatter_points_3d(
+            vertices,
+            color=color_trunks,
+            hovertext=hovertext_trunks,
+            line=line,
+            linewidth=linewidth,
             colorscale=colorscale,
-            hovertext=hovertext_arrows,
-            hovertemplate="%{hovertext}",
+            cmin=cmin,
+            cmax=cmax,
+            mode="lines",
+            hovertemplate="%{text}",
             name=name,
             legendgroup=legendgroup,
         )
-    ]
+    )
+
+    # Process color information for the arrow tips
+    # Plotly cones do not support one categorical scalar per cone. Group tips
+    # by their rendered color so shared colors retain the efficient batched
+    # representation and discrete colors cost one trace per unique color.
+    ends = points + (1 - tip_ratio / 2) * length * directions
+    directions = tip_ratio * length * directions
+    tip_colors = [color] * len(points)
+    if is_scalar_sequence(color):
+        values = np.asarray(color)
+        if values.dtype.kind in "biuf":
+            low = np.min(values) if cmin is None and len(values) else cmin
+            high = np.max(values) if cmax is None and len(values) else cmax
+            low = 0.0 if low is None else low
+            high = 1.0 if high is None else high
+            fractions = (values - low) / ((high - low) or 1.0)
+            color_map = "Viridis" if colorscale is None else colorscale
+            tip_colors = sample_colorscale(color_map, fractions)
+        else:
+            tip_colors = values.tolist()
+
+    color_groups = defaultdict(list)
+    for index, tip_color in enumerate(tip_colors):
+        rendered_color = tip_color if isinstance(tip_color, str) else "black"
+        color_groups[rendered_color].append(index)
+
+    for tip_color, indexes in color_groups.items():
+        indexes = np.asarray(indexes, dtype=np.int64)
+        traces.append(
+            go.Cone(
+                x=ends[indexes, 0],
+                y=ends[indexes, 1],
+                z=ends[indexes, 2],
+                u=directions[indexes, 0],
+                v=directions[indexes, 1],
+                w=directions[indexes, 2],
+                showscale=False,
+                showlegend=False,
+                sizemode="raw",
+                colorscale=[(0, tip_color), (1, tip_color)],
+                hovertext=[hovertext_arrows[index] for index in indexes],
+                hovertemplate="%{hovertext}",
+                name=name,
+                legendgroup=legendgroup,
+            )
+        )
 
     # Return
     return traces
