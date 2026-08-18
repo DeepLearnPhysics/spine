@@ -345,11 +345,16 @@ class ClusterGraphConstructor:
         result = defaultdict(list)
         metrics = {"ari": ari, "purity": pur, "efficiency": eff}
         with torch.no_grad():
+            # Clustering metrics are NumPy/Numba routines, so detach model outputs
+            # once before evaluating the individual batch entries and shapes.
+            node_labels = graph["node_label"].to_numpy()
+            node_preds = graph["node_pred"].to_numpy()
+
             # Loop over the batches
-            for b in range(len(graph["node_label"])):
+            for b in range(len(node_labels)):
                 # Get the node predictions and labels
-                node_label_b = graph["node_label"][b]
-                node_pred_b = graph["node_pred"][b]
+                node_label_b = node_labels[b]
+                node_pred_b = node_preds[b]
 
                 # Compute shape-agnostic metrics
                 for m, metric in metrics.items():
@@ -359,6 +364,9 @@ class ClusterGraphConstructor:
                 for s, shape in enumerate(self.shapes):
                     # Narrow down the predictions and labels to this shape
                     node_index = graph["node_clusts"][b][s]
+                    if isinstance(node_index, torch.Tensor):
+                        node_index = node_index.detach().cpu().numpy()
+
                     node_label_b_s = node_label_b[node_index]
                     node_pred_b_s = node_pred_b[node_index]
 
