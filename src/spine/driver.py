@@ -12,8 +12,8 @@ Takes care of everything in one centralized place:
 
 import inspect
 import os
+import platform
 import random
-import subprocess as sc
 import time
 import warnings
 from collections.abc import Mapping
@@ -26,6 +26,7 @@ import numpy as np
 import yaml
 
 from .ana import AnaManager
+from .banner import BANNER_SEPARATOR
 from .config import normalize_config
 from .construct import BuildManager
 from .geo import GeoManager
@@ -38,7 +39,6 @@ from .utils.conditional import TORCH_AVAILABLE, torch
 from .utils.stopwatch import StopwatchManager
 from .utils.torch import runtime
 from .utils.torch.devices import set_visible_devices
-from .version import __version__
 
 __all__ = ["Driver"]
 
@@ -124,6 +124,9 @@ class Driver:
         self.initialize_base(**driver_base, rank=rank)
         if train is not None and self.distributed and not self.ddp:
             raise ValueError("Distributed training requires `ddp: true`.")
+
+        # Report the resolved run context before initializing heavier modules.
+        self._log_startup(train is not None)
 
         # Initialize the detector geometry singleton once and for all modules
         self.initialize_geo(geo)
@@ -259,20 +262,51 @@ class Driver:
         if ana is not None:
             self.cfg["ana"] = ana
 
-        # Log environment information
-        logger.info("SPINE version: %s\n", __version__)
-
-        visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-        logger.info("$CUDA_VISIBLE_DEVICES=%s\n", visible_devices)
-
-        system_info = sc.getstatusoutput("uname -a")[1]
-        logger.info("Configuration processed at: %s\n", system_info)
-
-        # Log configuration
-        logger.info(yaml.dump(self.cfg, default_flow_style=None, sort_keys=False))
-
         # Return updated configuration
         return base, io, geo, model, train, validation, build, post, ana
+
+    def _log_startup(self, training: bool) -> None:
+        """Log the resolved runtime context and complete configuration.
+
+        The command-line identity banner is intentionally absent here so that
+        programmatic construction of :class:`Driver` remains visually compact.
+        Rank-aware logging suppresses this report on non-primary workers.
+
+        Parameters
+        ----------
+        training : bool
+            Whether the resolved configuration contains a training regimen.
+        """
+        # Describe the effective compute target rather than merely echoing the
+        # raw CUDA visibility environment variable.
+        if self.world_size > 0:
+            device_index = 0 if self.rank is None else self.rank
+            device = f"cuda:{device_index}"
+            visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+            if visible_devices is not None:
+                device += f" (CUDA_VISIBLE_DEVICES={visible_devices})"
+        else:
+            device = "cpu"
+
+        runtime_lines = [
+            f"Mode:          {'training' if training else 'inference'}",
+            f"Host:          {platform.node() or 'unknown'}",
+            f"Python:        {platform.python_version()}",
+            f"Device:        {device}",
+            f"World size:    {max(1, self.world_size)}",
+            f"Seed:          {self.seed}",
+        ]
+        if self.distributed:
+            runtime_lines.insert(5, f"Rank:          {self.rank}")
+
+        config = yaml.dump(self.cfg, default_flow_style=False, sort_keys=False).rstrip()
+        logger.info(
+            "Runtime\n-------\n%s\n\nResolved configuration\n"
+            "----------------------\n%s\n\n%s\n",
+            "\n".join(runtime_lines),
+            config,
+            BANNER_SEPARATOR,
+        )
 
     def normalize_seed_config(self, base: dict[str, Any], io: dict[str, Any]) -> None:
         """Normalize driver and sampler seed configuration in place.

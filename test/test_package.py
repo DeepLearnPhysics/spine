@@ -9,14 +9,18 @@ from types import ModuleType
 import pytest
 
 import spine
-from spine.banner import ascii_logo
+from spine.banner import ASCII_LOGO, BANNER_SEPARATOR, format_banner
 from spine.version import __version__
 
 
 def test_top_level_exports_and_banner():
     """The top-level package should expose version metadata and banner text."""
     assert spine.__version__ == __version__
-    assert "██████████" in ascii_logo
+    assert "██████████" in ASCII_LOGO
+    banner = format_banner()
+    assert f"SPINE {__version__}" in banner
+    assert "DeepLearnPhysics Collaboration" in banner
+    assert banner.rstrip().endswith(BANNER_SEPARATOR)
     assert "Driver" in spine.__all__
 
 

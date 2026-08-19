@@ -130,11 +130,11 @@ def test_driver_import_contract():
     """Driver should remain importable from the package root."""
     from spine import Driver as RootDriver
     from spine import __version__
-    from spine.banner import ascii_logo
+    from spine.banner import ASCII_LOGO
 
     assert RootDriver is Driver
     assert isinstance(__version__, str)
-    assert "██████████" in ascii_logo
+    assert "██████████" in ASCII_LOGO
     assert "Central SPINE driver" in Driver.__doc__
 
 
@@ -142,17 +142,11 @@ def test_process_config_normalizes_and_logs(monkeypatch):
     """process_config should normalize seeds, sampler config and stored cfg."""
     drv = bare_driver()
     levels: list[str] = []
-    infos: list[tuple[object, ...]] = []
-
     monkeypatch.setattr(
         driver_mod.logger, "setLevel", lambda level: levels.append(level)
     )
-    monkeypatch.setattr(driver_mod.logger, "info", lambda *args: infos.append(args))
     monkeypatch.setattr(driver_mod, "set_visible_devices", lambda world_size, gpus: 2)
     monkeypatch.setattr(driver_mod.time, "time", lambda: 123.4)
-    monkeypatch.setattr(
-        driver_mod.sc, "getstatusoutput", lambda cmd: (0, "test-kernel")
-    )
 
     input_base = {"verbosity": "debug", "seed": -1, "gpus": [0, 1]}
     input_io = {"loader": {"sampler": "random"}}
@@ -186,8 +180,47 @@ def test_process_config_normalizes_and_logs(monkeypatch):
         "post": post,
         "ana": ana,
     }
-    assert any("test-kernel" in args for args in infos)
-    assert not any("██████████" in str(args) for args in infos)
+
+
+def test_log_startup_reports_runtime_without_cli_banner(monkeypatch):
+    """Driver startup logs should delimit runtime and configuration details."""
+    drv = bare_driver()
+    drv.cfg = {"base": {"seed": 123}, "io": {"reader": {"name": "hdf5"}}}
+    drv.world_size = 0
+    drv.rank = None
+    drv.distributed = False
+    drv.seed = 123
+    infos: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(driver_mod.logger, "info", lambda *args: infos.append(args))
+    monkeypatch.setattr(driver_mod.platform, "node", lambda: "test-host")
+    monkeypatch.setattr(driver_mod.platform, "python_version", lambda: "3.12.0")
+
+    drv._log_startup(training=False)
+
+    message, runtime, config, separator = infos[0]
+    assert "Runtime\n-------" in message
+    assert "Resolved configuration" in message
+    assert "Mode:          inference" in runtime
+    assert "Host:          test-host" in runtime
+    assert "Python:        3.12.0" in runtime
+    assert "Device:        cpu" in runtime
+    assert "seed: 123" in config
+    assert separator == "=" * 60
+    assert "██████████" not in str(infos)
+
+    # Exercise the accelerator and distributed additions to the same report.
+    drv.world_size = 4
+    drv.rank = 2
+    drv.distributed = True
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3,4,5")
+    drv._log_startup(training=True)
+
+    _message, runtime, _config, _separator = infos[1]
+    assert "Mode:          training" in runtime
+    assert "Device:        cuda:2 (CUDA_VISIBLE_DEVICES=2,3,4,5)" in runtime
+    assert "World size:    4" in runtime
+    assert "Rank:          2" in runtime
 
 
 def test_process_config_validates_required_io_and_seed(monkeypatch):
@@ -217,10 +250,6 @@ def test_process_config_reuses_one_generated_seed(monkeypatch):
     monkeypatch.setattr(driver_mod.time, "time", lambda: next(time_values))
     monkeypatch.setattr(driver_mod, "set_visible_devices", lambda world_size, gpus: 0)
     monkeypatch.setattr(driver_mod.logger, "setLevel", lambda level: None)
-    monkeypatch.setattr(driver_mod.logger, "info", lambda *args: None)
-    monkeypatch.setattr(
-        driver_mod.sc, "getstatusoutput", lambda cmd: (0, "test-kernel")
-    )
 
     base, io, *_ = drv.process_config(
         io={"loader": {"sampler": {"name": "random"}}},
@@ -579,6 +608,11 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
     monkeypatch.setattr(driver_mod, "StopwatchManager", FakeWatchManager)
     monkeypatch.setattr(Driver, "process_config", process_config)
     monkeypatch.setattr(Driver, "initialize_base", initialize_base)
+    monkeypatch.setattr(
+        Driver,
+        "_log_startup",
+        lambda self, training: calls.append(("log_startup", training)),
+    )
     monkeypatch.setattr(Driver, "initialize_io", initialize_io)
     monkeypatch.setattr(
         driver_mod.GeoManager,
@@ -615,6 +649,7 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
     assert drv.builder == "builder"
     assert drv.post == "post"
     assert drv.ana == "ana"
+    assert ("log_startup", True) in calls
     assert ("geo", {"detector": "dummy"}) in calls
     assert any(call[0] == "model" for call in calls)
     assert any(call[0] == "build" for call in calls)
@@ -656,6 +691,7 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
             )
 
         monkeypatch.setattr(Driver, "initialize_base", initialize_base)
+        monkeypatch.setattr(Driver, "_log_startup", lambda self, training: None)
         monkeypatch.setattr(Driver, "initialize_io", initialize_io)
 
     configure(({}, {}, None, None, {}, None, None, None, None))

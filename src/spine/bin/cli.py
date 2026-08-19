@@ -9,21 +9,10 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from warnings import warn
 
-from spine.banner import ascii_logo
+from spine.banner import format_banner
 from spine.config import load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
-
-
-def format_banner() -> str:
-    """Build the CLI banner string.
-
-    Returns
-    -------
-    str
-        SPINE ASCII logo followed by a blank separator line.
-    """
-    return f"\n{ascii_logo}\n"
 
 
 def main(
@@ -92,9 +81,11 @@ def main(
         Convert a training configuration to deterministic inference before
         applying command-line overrides.
     """
-    # Print the banner before configuration loading starts, since loading may
-    # trigger download/cache messages and warnings.
-    print(format_banner(), end="")
+    # Identify the application before configuration loading, which may itself
+    # trigger download/cache messages or validation warnings.
+    print(format_banner(get_version()), end="")
+    print("\nStartup\n-------")
+    print(f"Configuration: {config}\n")
 
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
