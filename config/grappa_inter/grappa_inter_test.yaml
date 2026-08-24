@@ -121,6 +121,8 @@ model:
           target: inter_primary
           loss: ce
           balance_loss: true
+          use_closest: true
+          secondary_label: 0
         orient:
           name: orient
           loss: ce
