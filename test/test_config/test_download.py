@@ -128,7 +128,9 @@ class TestDownloadUtilities:
         download_file(url, output_path)
 
         captured = capsys.readouterr()
-        assert "Progress: 50%" in captured.out
+        assert "Resource:      https://example.com/file.txt" in captured.out
+        assert f"Destination:   {output_path}" in captured.out
+        assert "Progress:      50%" in captured.out
 
     @patch("urllib.request.urlretrieve")
     def test_download_file_wraps_http_error(self, mock_retrieve, tmp_path):
@@ -209,13 +211,15 @@ class TestDownloadUtilities:
         mock_download.assert_not_called()
 
     @patch("spine.config.download.download_file")
-    def test_download_from_url_downloads_if_missing(self, mock_download, tmp_path):
+    def test_download_from_url_downloads_if_missing(
+        self, mock_download, tmp_path, capsys
+    ):
         """Test that missing files are downloaded."""
         url = "https://example.com/model.ckpt"
         cache_dir = tmp_path / "cache"
 
         # Mock the download
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             path.write_text("downloaded")
 
         mock_download.side_effect = fake_download
@@ -225,6 +229,8 @@ class TestDownloadUtilities:
         # Should have downloaded
         mock_download.assert_called_once()
         assert Path(result).exists()
+        assert mock_download.call_args.kwargs["display_path"] == Path(result)
+        assert "Status:        downloaded" in capsys.readouterr().out
 
     @patch("spine.config.download.download_file")
     def test_download_from_url_sets_shared_cache_permissions(
@@ -234,7 +240,7 @@ class TestDownloadUtilities:
         url = "https://example.com/model.ckpt"
         cache_dir = tmp_path / "cache"
 
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             path.write_text("downloaded")
 
         mock_download.side_effect = fake_download
@@ -381,7 +387,9 @@ class TestDownloadUtilities:
 
         with patch("spine.config.download.download_file") as mock_download:
             mock_download.side_effect = (
-                lambda _url, path, expected_hash=None: path.write_text("downloaded")
+                lambda _url, path, expected_hash=None, **kwargs: path.write_text(
+                    "downloaded"
+                )
             )
             download_from_url(url, cache_dir=cache_dir, max_wait_seconds=120)
 
@@ -462,7 +470,9 @@ class TestDownloadUtilities:
 
         with patch("spine.config.download.download_file") as mock_download:
             mock_download.side_effect = (
-                lambda _url, path, expected_hash=None: path.write_text("downloaded")
+                lambda _url, path, expected_hash=None, **kwargs: path.write_text(
+                    "downloaded"
+                )
             )
             result = download_from_url(url, cache_dir=cache_dir)
 
@@ -506,7 +516,7 @@ class TestDownloadUtilities:
         result = _validate_cached_file(file_path, expected_hash=expected_hash)
 
         assert result is True
-        assert "Using cached file" in capsys.readouterr().out
+        assert f"Resource:      {file_path} (cached)" in capsys.readouterr().out
 
     def test_validate_cached_file_handles_oserror(self, tmp_path, monkeypatch, capsys):
         """Test validation errors fall back to re-download behavior."""
@@ -520,7 +530,9 @@ class TestDownloadUtilities:
         result = _validate_cached_file(file_path, expected_hash="abc")
 
         assert result is False
-        assert "Error validating cached file" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert f"Resource:      {file_path}" in output
+        assert "cache error: bad read; downloading" in output
 
     def test_validate_cached_file_reports_permission_error(self, tmp_path, monkeypatch):
         """Test unreadable cached files raise actionable permission errors."""
@@ -562,7 +574,7 @@ model:
         cache_dir.mkdir()
         weights_file = cache_dir / url_to_filename("https://example.com/model.ckpt")
 
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             path.write_text("model weights")
 
         mock_download.side_effect = fake_download
@@ -589,7 +601,7 @@ model:
         cache_dir = tmp_path / "weights"
         cache_dir.mkdir()
 
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             path.write_text("model weights")
 
         mock_download.side_effect = fake_download
@@ -639,7 +651,7 @@ base:
         cache_dir = tmp_path / "weights"
         cache_dir.mkdir()
 
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             path.write_text("weights")
 
         mock_download.side_effect = fake_download
@@ -657,7 +669,7 @@ def _download_worker(url, cache_dir, worker_id, result_queue):
     try:
         time.sleep(0.1 * worker_id)
 
-        def fake_download(url, path, expected_hash=None):
+        def fake_download(url, path, expected_hash=None, **kwargs):
             time.sleep(0.5)
             path.write_text(f"downloaded by worker {worker_id}")
 

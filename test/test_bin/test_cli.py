@@ -18,16 +18,17 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     captured = {}
 
     monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
-    monkeypatch.setattr(
-        cli_module,
-        "load_config_file",
-        lambda cfg_path: {
+
+    def load_config(cfg_path):
+        print("Resource:      /cache/model.ckpt (cached)")
+        return {
             "base": {},
             "train": {},
             "io": {"reader": {"file_list": "stale.txt"}, "writer": {}},
             "model": {},
-        },
-    )
+        }
+
+    monkeypatch.setattr(cli_module, "load_config_file", load_config)
     monkeypatch.setattr(cli_module, "parse_value", lambda value: int(value))
     monkeypatch.setattr(
         cli_module,
@@ -83,6 +84,10 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert "DeepLearnPhysics Collaboration" in output
     assert "Startup\n-------" in output
     assert f"Configuration: {config_path}" in output
+    assert (
+        f"Configuration: {config_path}\n"
+        "Resource:      /cache/model.ckpt (cached)\n\n"
+    ) in output
 
 
 def test_main_updates_loader_dataset(monkeypatch, tmp_path):

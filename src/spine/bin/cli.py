@@ -85,13 +85,17 @@ def main(
     # trigger download/cache messages or validation warnings.
     print(format_banner(get_version()), end="")
     print("\nStartup\n-------")
-    print(f"Configuration: {config}\n")
+    print(f"Configuration: {config}")
 
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
 
     # Load the configuration file using the advanced loader
     cfg = load_config_file(cfg_file)
+
+    # Resource-resolution messages belong to the startup section. Close it
+    # explicitly before runtime initialization begins.
+    print()
 
     # If there is no base block, build one
     if "base" not in cfg:

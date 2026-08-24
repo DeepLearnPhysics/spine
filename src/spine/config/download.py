@@ -116,6 +116,8 @@ def download_file(
     output_path: Path,
     expected_hash: Optional[str] = None,
     hash_algorithm: str = "sha256",
+    *,
+    display_path: Optional[Path] = None,
 ) -> None:
     """Download a file from a URL with progress reporting.
 
@@ -129,6 +131,9 @@ def download_file(
         Expected hash of downloaded file for validation
     hash_algorithm : str, optional
         Hash algorithm to use for validation (default: sha256)
+    display_path : Path, optional
+        User-facing destination to report when ``output_path`` is a temporary
+        staging path.
 
     Raises
     ------
@@ -139,15 +144,16 @@ def download_file(
     ValueError
         If downloaded file hash doesn't match expected hash
     """
-    print(f"Downloading: {url}")
-    print(f"Destination: {output_path}")
+    destination = output_path if display_path is None else display_path
+    print(f"Resource:      {url}")
+    print(f"Destination:   {destination}")
 
     try:
         # Download with progress reporting
         def progress_hook(count, block_size, total_size):
             if total_size > 0:
                 percent = min(100, count * block_size * 100 // total_size)
-                sys.stdout.write(f"\rProgress: {percent}% ")
+                sys.stdout.write(f"\rProgress:      {percent}%")
                 sys.stdout.flush()
 
         urllib.request.urlretrieve(url, output_path, reporthook=progress_hook)
@@ -172,7 +178,7 @@ def download_file(
                 f"Got:      {actual_hash}\n"
                 f"File has been removed. Please try again."
             )
-        print(f"✓ Hash validated: {actual_hash[:16]}...")
+        print(f"Hash:          {actual_hash[:16]}... (verified)")
 
 
 def download_from_url(
@@ -309,14 +315,19 @@ def download_from_url(
             os.close(temp_fd)  # Close fd, we'll use the path
 
             # Download the file
-            download_file(url, temp_path, expected_hash)
+            download_file(
+                url,
+                temp_path,
+                expected_hash,
+                display_path=output_path,
+            )
             _chmod_best_effort(temp_path, CACHE_FILE_MODE)
 
             # Atomically move to final location (overwrites if exists)
             temp_path.replace(output_path)
             _chmod_best_effort(output_path, CACHE_FILE_MODE)
 
-            print(f"✓ Download complete: {output_path}")
+            print("Status:        downloaded")
             return str(output_path.absolute())
 
         except Exception:
@@ -365,16 +376,16 @@ def _validate_cached_file(
 
         # If no hash expected, just check existence
         if not expected_hash:
-            print(f"✓ Using cached file: {file_path}")
+            print(f"Resource:      {file_path} (cached)")
             return True
 
         # Validate hash
         actual_hash = compute_file_hash(file_path)
         if actual_hash == expected_hash:
-            print(f"✓ Using cached file: {file_path}")
+            print(f"Resource:      {file_path} (cached)")
             return True
         else:
-            print("⚠ Cached file hash mismatch, will re-download...")
+            print(f"Resource:      {file_path} (cache hash mismatch; downloading)")
             try:
                 file_path.unlink()
             except OSError:
@@ -391,7 +402,7 @@ def _validate_cached_file(
         ) from e
 
     except OSError as e:
-        print(f"⚠ Error validating cached file: {e}, will re-download...")
+        print(f"Resource:      {file_path} (cache error: {e}; downloading)")
         return False
 
 
