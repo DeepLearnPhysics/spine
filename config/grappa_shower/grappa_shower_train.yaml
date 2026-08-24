@@ -53,6 +53,7 @@ model:
     coord_label: coord_label
   loss_input:
     clust_label: data
+    coord_label: coord_label
 
   modules:
     grappa:
@@ -117,6 +118,7 @@ model:
       node_loss:
         name: shower_primary
         high_purity: true
+        use_closest: true
         use_group_pred: true
       edge_loss:
         name: channel
