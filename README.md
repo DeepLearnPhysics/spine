@@ -10,9 +10,9 @@
 
 The Scalable Particle Imaging with Neural Embeddings (SPINE) package leverages state-of-the-art Machine Learning (ML) algorithms -- in particular Deep Neural Networks (DNNs) -- to reconstruct particle imaging detector data. This package was primarily developed for Liquid Argon Time-Projection Chamber (LArTPC) data and relies on Convolutional Neural Networks (CNNs) for pixel-level feature extraction and Graph Neural Networks (GNNs) for superstructure formation. The schematic below breaks down the full end-to-end reconstruction flow.
 
-For full SPINE workflows, the recommended runtime is the published SPINE container image released alongside each SPINE version. Use the release-tagged image `ghcr.io/deeplearnphysics/spine:<release>` when reproducibility matters. When in doubt, use `ghcr.io/deeplearnphysics/spine:latest` or omit the tag entirely, which is equivalent in Docker-style image references. Docker is the most direct path on workstations and servers; Apptainer/Singularity is the preferred path on HPC systems that do not allow Docker. A local `pip` installation is mainly intended for post-processing, analysis, visualization, docs, or lightweight development.
-
 ![Full chain](https://raw.githubusercontent.com/DeepLearnPhysics/spine/main/docs/source/_static/img/spine-chain-alpha.png)
+
+For full SPINE workflows, the recommended runtime is the published SPINE container image released alongside each SPINE version. Use the release-tagged image `ghcr.io/deeplearnphysics/spine:<release>` when reproducibility matters. When in doubt, use `ghcr.io/deeplearnphysics/spine:latest` or omit the tag entirely, which is equivalent in Docker-style image references. Docker is the most direct path on workstations and servers; Apptainer/Singularity is the preferred path on HPC systems that do not allow Docker. A local `pip` installation is mainly intended for post-processing, analysis, visualization, docs, or lightweight development.
 
 ## Installation
 

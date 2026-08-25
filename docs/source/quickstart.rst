@@ -3,7 +3,72 @@ Quick Start
 
 .. rst-class:: lead
 
-This guide covers the standard way to run SPINE. For full reconstruction workflows, use the published SPINE container image. Run that image with Docker on local machines or with Apptainer / Singularity on HPC systems. Use an explicit release tag when you want a pinned runtime; when in doubt, use ``latest`` or omit the tag entirely. Local Python-only installs are more appropriate for post-processing, analysis, and visualization tasks.
+This guide covers the standard ways to run SPINE. Install the Python package
+locally for data inspection, post-processing, analysis, and visualization. For
+full reconstruction and training workflows, use the published SPINE container
+image with Docker on local machines or Apptainer / Singularity on HPC systems.
+Use an explicit release tag when you want a pinned runtime; when in doubt, use
+``latest`` or omit the tag entirely.
+
+.. _inspect-existing-output:
+
+Inspect Existing SPINE Output
+-----------------------------
+
+Install the core Python package from PyPI:
+
+.. code-block:: bash
+
+   python -m pip install spine
+
+To run the visualization example below, include the ``viz`` extra:
+
+.. code-block:: bash
+
+   python -m pip install "spine[viz]"
+
+Suppose ``spine_output.h5`` contains reconstructed particles and the supporting
+``points`` and ``depositions`` products. Save the following as ``inspect.yaml``:
+
+.. code-block:: yaml
+
+   base:
+     iterations: -1
+
+   io:
+     reader:
+       name: hdf5
+       file_keys: /path/to/spine_output.h5
+       keep_open: false
+
+   build:
+     mode: reco
+     units: cm
+     fragments: false
+     particles: true
+     interactions: false
+
+The driver can then load and prepare any selected entry for visualization:
+
+.. code-block:: python
+
+   from spine.config import load_config_file
+   from spine.driver import Driver
+   from spine.vis import Drawer
+
+   cfg = load_config_file("inspect.yaml")
+   data = Driver(cfg).process(entry=0)
+
+   drawer = Drawer(data, draw_mode="reco")
+   fig = drawer.get("particles")
+   fig.show()
+
+The HDF5 reader reconstructs the serialized particle records. The ``build``
+block additionally reconnects each particle to its long-form point,
+deposition, and index arrays, which are required by consumers such as
+:class:`spine.vis.Drawer`. Enable ``interactions`` or ``fragments`` when those
+object families are present and needed; interaction construction also requires
+``particles: true``.
 
 Run SPINE In The Container
 --------------------------
@@ -34,12 +99,14 @@ Run a configuration with Docker:
 
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:latest \
-       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
+       spine --config /workspace/config/full_chain/full_chain_regression.yaml \
+       --source /workspace/input.root
 
    # Or use a pinned release
    docker run --gpus all -v $(pwd):/workspace \
      ghcr.io/deeplearnphysics/spine:<release> \
-       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
+       spine --config /workspace/config/full_chain/full_chain_regression.yaml \
+       --source /workspace/input.root
 
 On Apple Silicon macOS systems, add ``--platform=linux/amd64`` to ``docker
 run`` when using the published SPINE image:
@@ -48,7 +115,8 @@ run`` when using the published SPINE image:
 
     docker run --platform=linux/amd64 --gpus all -v $(pwd):/workspace \
        ghcr.io/deeplearnphysics/spine:<release> \
-          spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
+          spine --config /workspace/config/full_chain/full_chain_regression.yaml \
+          --source /workspace/input.root
 
 For Jupyter notebook/lab use specifically, avoid the Docker Desktop
 combination of Apple Virtualization Framework **with** Rosetta enabled. Apple
@@ -62,11 +130,13 @@ Run the same configuration with Apptainer:
 
     # Latest published image
    apptainer exec --nv spine_latest.sif \
-       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
+       spine --config /workspace/config/full_chain/full_chain_regression.yaml \
+       --source /workspace/input.root
 
    # Or use a pinned release
    apptainer exec --nv spine_<release>.sif \
-       spine --config /workspace/config/uresnet/uresnet_train.yaml --source /workspace/data.h5
+       spine --config /workspace/config/full_chain/full_chain_regression.yaml \
+       --source /workspace/input.root
 
 Run SPINE From Python
 ---------------------
@@ -81,22 +151,10 @@ If you want to inspect one entry interactively, start a shell in the container f
 
    # On Apple Silicon macOS, add --platform=linux/amd64 before the image name.
 
-From that shell, you can open Python or Jupyter and use the same driver directly. A typical workflow is to process one entry and hand the result to :class:`spine.vis.Drawer` for visualization:
-
-.. code-block:: python
-
-   from spine.config import load_config_file
-   from spine.driver import Driver
-   from spine.vis import Drawer
-
-   cfg = load_config_file("/workspace/config/uresnet/uresnet_train.yaml")
-
-   driver = Driver(cfg)
-   data = driver.process(entry=0)
-
-   drawer = Drawer(data, draw_mode="both")
-   fig = drawer.get("particles")
-   fig.show()
+From that shell, you can open Python or Jupyter and use the reader-mode driver
+shown in :ref:`inspect-existing-output` directly. Random-access
+``process(entry=...)`` calls are intended for reader and inference workflows;
+training configurations consume their configured loader sequentially instead.
 
 The same pattern works for other object families such as ``fragments`` or ``interactions``.
 Applications that own their 3D renderer can call

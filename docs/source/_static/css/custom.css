@@ -89,6 +89,11 @@
     margin-bottom: 1.1rem;
 }
 
+/* Separate the landing-page overview from the runtime guidance below it. */
+.rst-content img.pipeline-schematic {
+    margin-bottom: 1.5rem;
+}
+
 /* Admonitions and notes */
 .rst-content .admonition,
 .rst-content .note,
