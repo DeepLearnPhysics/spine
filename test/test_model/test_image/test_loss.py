@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -47,6 +48,7 @@ def test_classification_loss_reports_classwise_metrics(image_data):
 
     assert result["accuracy"] == 1.0
     assert result["pid_count"] == 2
+    assert "pid_count_rejected" not in result
     assert torch.isfinite(result["loss"])
     result["loss"].backward()
 
@@ -103,6 +105,119 @@ def test_voxel_labels_are_reduced_over_cluster_objects(image_data):
 
     assert result["pid_count"] == 4
     assert torch.isfinite(result["loss"])
+
+
+def test_image_losses_filter_low_quality_objects(image_data):
+    """Image classification and regression use identical overlap gates."""
+    objects = ImageObjectBuilder(source="cluster")(
+        image_data,
+        object_data=image_data,
+    )
+    logits = TensorBatch(torch.zeros((4, 5)), counts=objects.counts)
+    class_result = ImageClassificationLoss(
+        5,
+        target="pid",
+        min_efficiency=0.75,
+    )(image_data, objects, logits)
+    assert class_result["count"] == 2
+    assert class_result["count_rejected"] == 2
+
+    predictions = TensorBatch(torch.zeros((4, 1)), counts=objects.counts)
+    reg_result = ImageRegressionLoss(
+        1,
+        target="momentum",
+        min_efficiency=0.75,
+    )(image_data, objects, predictions)
+    assert reg_result["count"] == 2
+    assert reg_result["count_rejected"] == 2
+
+
+def test_image_losses_report_when_quality_rejects_every_object(
+    image_data,
+    monkeypatch,
+):
+    """Zero-count objectives should retain their quality rejection count."""
+    objects = ImageObjectBuilder(source="cluster")(
+        image_data,
+        object_data=image_data,
+    )
+
+    class_loss = ImageClassificationLoss(5, target="pid", min_iou=0.0)
+    monkeypatch.setattr(
+        class_loss.quality_filter,
+        "node_mask",
+        lambda *args: np.zeros(len(objects.index_list), dtype=bool),
+    )
+    logits = TensorBatch(torch.zeros((4, 5)), counts=objects.counts)
+    class_result = class_loss(image_data, objects, logits)
+    assert class_result["count"] == 0
+    assert class_result["count_rejected"] == 4
+
+    reg_loss = ImageRegressionLoss(1, target="momentum", min_iou=0.0)
+    monkeypatch.setattr(
+        reg_loss.quality_filter,
+        "node_mask",
+        lambda *args: np.zeros(len(objects.index_list), dtype=bool),
+    )
+    predictions = TensorBatch(torch.zeros((4, 1)), counts=objects.counts)
+    reg_result = reg_loss(image_data, objects, predictions)
+    assert reg_result["count"] == 0
+    assert reg_result["count_rejected"] == 4
+
+
+def test_image_overlap_thresholds_validate_inputs(image_data):
+    """Image overlap gates require structured labels and valid class widths."""
+    with pytest.raises(ValueError, match="exactly 3 values"):
+        ImageClassificationLoss(3, min_iou=[0.5, 0.5])
+    with pytest.raises(ValueError, match="requires `num_classes`"):
+        ImageRegressionLoss(1, min_iou=[0.5])
+
+    objects = ImageObjectBuilder()(image_data)
+    prediction = TensorBatch(torch.zeros((2, 3)), counts=objects.counts)
+    with pytest.raises(TypeError, match="ClusterLabelBatch"):
+        ImageClassificationLoss(3, min_iou=0.5)([0, 1], objects, prediction)
+
+    regression = TensorBatch(torch.zeros((2, 1)), counts=objects.counts)
+    with pytest.raises(TypeError, match="ClusterLabelBatch"):
+        ImageRegressionLoss(1, min_iou=0.5)([0.0, 1.0], objects, regression)
+
+
+def test_image_regression_supports_class_dependent_overlap_thresholds(image_data):
+    """Regression gates may vary by a separate categorical truth field."""
+    objects = ImageObjectBuilder(source="cluster")(
+        image_data,
+        object_data=image_data,
+    )
+    predictions = TensorBatch(torch.zeros((4, 1)), counts=objects.counts)
+    thresholds = [0.0, 0.0, 0.75, 0.75, 0.0]
+
+    result = ImageRegressionLoss(
+        1,
+        target="momentum",
+        min_efficiency=thresholds,
+        quality_num_classes=5,
+    )(image_data, objects, predictions)
+
+    assert result["count"] == 2
+
+
+def test_image_overlap_quality_classes_must_be_scalar(image_data):
+    """Vector-valued fields cannot index class-dependent thresholds."""
+    objects = ImageObjectBuilder(source="cluster")(
+        image_data,
+        object_data=image_data,
+    )
+    predictions = TensorBatch(torch.zeros((4, 1)), counts=objects.counts)
+    loss = ImageRegressionLoss(
+        1,
+        target="momentum",
+        min_iou=[0.0, 0.0, 0.0],
+        quality_target="vertex",
+        quality_num_classes=3,
+    )
+
+    with pytest.raises(ValueError, match="scalar IDs"):
+        loss(image_data, objects, predictions)
 
 
 def test_ancestor_targets_use_root_particle_pid(image_data):
@@ -254,6 +369,8 @@ def test_structured_and_batched_targets_validate_required_shape(image_data):
 
     with pytest.raises(ValueError, match="named target"):
         ImageClassificationLoss(3)(image_data, objects, prediction)
+    with pytest.raises(TypeError, match="must be named fields"):
+        ImageClassificationLoss(3, target=0)(image_data, objects, prediction)
     with pytest.raises(ValueError, match="one row per image object"):
         ImageClassificationLoss(3)(
             TensorBatch(torch.tensor([0]), counts=[1]),

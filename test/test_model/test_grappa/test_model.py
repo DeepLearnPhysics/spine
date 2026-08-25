@@ -137,6 +137,42 @@ def test_grappa_loss_routes_graph_truth_to_edge_objective():
     assert result["accuracy"] == 1.0
 
 
+def test_grappa_loss_shares_one_overlap_cache_across_objectives(graph_labels):
+    """Every objective in one forward pass should receive the same cache."""
+
+    class CaptureLoss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.cache = None
+
+        def forward(self, overlap_cache=None, **kwargs):
+            self.cache = overlap_cache
+            return {"loss": torch.tensor(0.0), "accuracy": 1.0}
+
+    loss = GrapPALoss(
+        {
+            "node_loss": {
+                "first": {"name": "class", "target": "shape"},
+                "second": {"name": "class", "target": "shape"},
+            }
+        }
+    )
+    first = CaptureLoss()
+    second = CaptureLoss()
+    loss.node_first_loss = first
+    loss.node_second_loss = second
+    prediction = TensorBatch(torch.zeros((3, 2)), counts=[2, 1])
+
+    loss(
+        graph_labels,
+        node_first_pred=prediction,
+        node_second_pred=prediction,
+    )
+
+    assert first.cache is second.cache
+    assert first.cache == {}
+
+
 def test_grappa_validates_node_graph_and_grouping_configuration():
     """GrapPA rejects ambiguous node construction and grouping settings."""
     cfg = shower_model_config()
@@ -311,6 +347,9 @@ def test_grappa_dbscan_cluster_path_and_shape_contract(
 
     model.dbscan = FakeDBSCAN()
     assert model._make_clusters(graph_labels) is graph_clusters
+
+    with pytest.raises(TypeError, match="structured labels"):
+        model._make_clusters(graph_data.to_tensor())
 
     model.graph_constructor.max_length = np.ones((5, 5))
     with pytest.raises(TypeError, match="structured cluster labels"):

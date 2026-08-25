@@ -7,7 +7,7 @@ array-only numerical primitives remain under :mod:`spine.math`.
 # Explicit public re-exports intentionally mirror submodule ``__all__`` lists.
 # pylint: disable=duplicate-code
 
-from . import direction, features, formation, graph, label, topology
+from . import direction, features, formation, graph, label, quality, topology
 from .direction import (
     cluster_dedx,
     cluster_dedx_dir,
@@ -36,9 +36,11 @@ from .label import (
     get_cluster_points_label_batch,
     get_cluster_primary_label_batch,
 )
+from .quality import ClusterOverlapBatch, get_cluster_overlap_batch
 
 __all__ = [
     "break_clusters",
+    "ClusterOverlapBatch",
     "cluster_dedx",
     "cluster_dedx_dir",
     "cluster_direction",
@@ -64,8 +66,10 @@ __all__ = [
     "get_cluster_points_label",
     "get_cluster_points_label_batch",
     "get_cluster_primary_label_batch",
+    "get_cluster_overlap_batch",
     "get_cluster_sizes",
     "graph",
     "label",
+    "quality",
     "topology",
 ]
