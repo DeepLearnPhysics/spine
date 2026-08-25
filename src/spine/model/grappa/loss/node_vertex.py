@@ -12,6 +12,10 @@ from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, IndexBatch, Meta, TensorBatch
 from spine.geo import GeoManager
 from spine.model.common.factories import loss_fn_factory
+from spine.model.common.quality import (
+    ClusterOverlapCache,
+    ClusterQualityFilter,
+)
 from spine.model.grappa.vertex import (
     decode_vertex_positions,
     vertex_position_scales,
@@ -63,6 +67,11 @@ class NodeVertexLoss(torch.nn.Module):
         normalize_positions: bool = False,
         use_anchor_points: bool = False,
         return_vertex_labels: bool = False,
+        *,
+        min_iou: float | Sequence[float] | None = None,
+        min_purity: float | Sequence[float] | None = None,
+        min_efficiency: float | Sequence[float] | None = None,
+        match_target: str = "group",
     ) -> None:
         """Initialize the vertex regression loss function.
 
@@ -82,6 +91,17 @@ class NodeVertexLoss(torch.nn.Module):
             Predict positions w.r.t. to the particle end points
         return_vertex_labels : bool, default `False`
             If `True`, return the list vertex labels (one per particle)
+        min_iou : float or sequence of float, optional
+            Minimum truth-instance IoU, shared or specified for secondary and
+            primary node targets.
+        min_purity : float or sequence of float, optional
+            Minimum predicted-cluster purity, shared or specified for secondary
+            and primary node targets.
+        min_efficiency : float or sequence of float, optional
+            Minimum truth-instance efficiency, shared or specified for
+            secondary and primary node targets.
+        match_target : str, default 'group'
+            Truth-instance field used to evaluate overlap quality.
         """
         # Initialize the parent class
         super().__init__()
@@ -92,6 +112,15 @@ class NodeVertexLoss(torch.nn.Module):
         self.normalize_positions = normalize_positions
         self.use_anchor_points = use_anchor_points
         self.return_vertex_labels = return_vertex_labels
+
+        # One policy governs both outputs of this compound objective
+        self.quality_filter = ClusterQualityFilter(
+            min_iou,
+            min_purity,
+            min_efficiency,
+            match_target=match_target,
+            num_classes=2,
+        )
 
         # Initialize the primary identification loss
         self.primary_loss = NodeClassLoss(
@@ -117,6 +146,7 @@ class NodeVertexLoss(torch.nn.Module):
         meta: Sequence[Meta] | None = None,
         start_points: TensorBatch | None = None,
         end_points: TensorBatch | None = None,
+        overlap_cache: ClusterOverlapCache | None = None,
         **kwargs: object,
     ) -> dict[str, torch.Tensor | TensorBatch | float | int]:
         """Applies the node type loss to a batch of data.
@@ -135,6 +165,8 @@ class NodeVertexLoss(torch.nn.Module):
             (C, 3) Node start positions
         end_points : TensorBatch, optional
             (C, 3) Node end positions
+        overlap_cache : ClusterOverlapCache, optional
+            Cluster overlaps shared by the objectives in one GrapPA forward.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -154,6 +186,13 @@ class NodeVertexLoss(torch.nn.Module):
             Value of the vertex regression loss
         reg_accuracy : float
             Value of the vertex regression accuracy
+        primary_count_rejected : int, optional
+            Number of otherwise valid primary-classification targets removed
+            by overlap quality.
+        reg_count_rejected : int, optional
+            Number of otherwise valid primary vertex targets removed by overlap
+            quality. Rejection counts are returned only when thresholds are
+            configured.
         """
         # Ensure that the predictions are of the expected shape, split them
         if node_pred.shape[1] != 5:
@@ -171,9 +210,6 @@ class NodeVertexLoss(torch.nn.Module):
         primary_pred = TensorBatch(primary_pred, node_pred.counts)
         vertex_pred = TensorBatch(vertex_pred, node_pred.counts)
 
-        # Compute the primary identification loss
-        result_primary = self.primary_loss(clust_label, clusts, primary_pred)
-
         # If containment or normalization are requested, ensure meta is provided
         if self.only_contained or self.normalize_positions:
             if meta is None:
@@ -187,6 +223,22 @@ class NodeVertexLoss(torch.nn.Module):
             clust_label, clusts, column="interaction_primary"
         )
         vertex_labels = get_cluster_label_batch(clust_label, clusts, column="vertex")
+
+        # Use one cluster-quality decision for both primary classification and
+        # the vertex regression attached to primary nodes.
+        quality_mask = self.quality_filter.node_mask(
+            clust_label,
+            clusts,
+            primary_ids.numpy_tensor(),
+            overlap_cache,
+        )
+        result_primary = self.primary_loss(
+            clust_label,
+            clusts,
+            primary_pred,
+            node_quality_mask=(quality_mask if self.quality_filter.active else None),
+            overlap_cache=overlap_cache,
+        )
 
         # Create a mask for valid nodes (-1 indicates invalid labels,
         # 0 indicates a secondary)
@@ -207,6 +259,13 @@ class NodeVertexLoss(torch.nn.Module):
                 )
 
             valid_mask &= contain_mask
+
+        # Count only primary vertices which pass every ordinary task-specific
+        # requirement but fail the shared overlap-quality policy.
+        count_rejected = 0
+        if self.quality_filter.active:
+            count_rejected = int(np.count_nonzero(valid_mask & ~quality_mask))
+            valid_mask &= quality_mask
 
         # If requested, normalize the target positions to the detector size
         position_scales = None
@@ -258,6 +317,8 @@ class NodeVertexLoss(torch.nn.Module):
             "reg_count": len(valid_index),
             **{f"primary_{key}": value for key, value in result_primary.items()},
         }
+        if self.quality_filter.active:
+            result["reg_count_rejected"] = count_rejected
 
         if self.return_vertex_labels:
             result["labels"] = vertex_labels

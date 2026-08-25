@@ -10,11 +10,13 @@ from spine.data import (
     IndexBatch,
     Meta,
     TensorBatch,
+    TensorSchema,
 )
 from spine.model.grappa.evaluation import edge_assignment_forest_batch
 from spine.model.grappa.loss import (
     EdgeChannelLoss,
     NodeClassLoss,
+    NodeOrientLoss,
     NodeRegressionLoss,
     NodeShowerPrimaryLoss,
     NodeVertexLoss,
@@ -155,6 +157,20 @@ def test_node_regression_loss_masks_invalid_targets(graph_labels, graph_clusters
         )
 
 
+def test_node_regression_loss_supports_vector_targets(graph_labels, graph_clusters):
+    """Vector regression applies one validity decision to each node."""
+    prediction = TensorBatch(torch.zeros((3, 3)), graph_clusters.counts)
+
+    result = NodeRegressionLoss(target="vertex")(
+        graph_labels,
+        graph_clusters,
+        prediction,
+    )
+
+    assert result["count"] == 3
+    torch.testing.assert_close(result["loss"], torch.tensor(95.0))
+
+
 def test_node_regression_loss_handles_no_valid_targets(graph_labels, graph_clusters):
     """An entirely unavailable regression target yields a neutral result."""
     graph_labels.particles["energy"].data.fill(-1.0)
@@ -169,6 +185,49 @@ def test_node_regression_loss_handles_no_valid_targets(graph_labels, graph_clust
     assert result["count"] == 0
     assert result["accuracy"] == 1.0
     torch.testing.assert_close(result["loss"], torch.tensor(0.0))
+
+
+def test_node_losses_filter_low_quality_clusters(graph_labels):
+    """Node classification and regression share overlap-quality filtering."""
+    objects = _mixed_graph_clusters()
+    class_prediction = TensorBatch(torch.zeros((3, 2)), objects.counts)
+    class_result = NodeClassLoss(
+        target="pid",
+        min_purity=[0.75, 0.75],
+    )(graph_labels, objects, class_prediction)
+    assert class_result["count"] == 1
+    assert class_result["count_rejected"] == 2
+
+    graph_labels.particles["energy"].data[1] = 6.0
+    reg_prediction = TensorBatch(torch.zeros((3, 1)), objects.counts)
+    reg_result = NodeRegressionLoss(
+        target="energy",
+        min_purity=[0.75, 0.75],
+        quality_num_classes=2,
+    )(graph_labels, objects, reg_prediction)
+    assert reg_result["count"] == 1
+    assert reg_result["count_rejected"] == 2
+
+
+def test_node_overlap_thresholds_validate_class_counts(graph_labels, graph_clusters):
+    """Node threshold vectors must match the classification domain."""
+    with pytest.raises(ValueError, match="requires `num_classes`"):
+        NodeRegressionLoss(target="energy", min_iou=[0.5])
+
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="exactly 2 values"):
+        NodeClassLoss(target="pid", min_iou=[0.5])(
+            graph_labels,
+            graph_clusters,
+            prediction,
+        )
+    with pytest.raises(ValueError, match="align with clusters"):
+        NodeClassLoss(target="pid")(
+            graph_labels,
+            graph_clusters,
+            prediction,
+            node_quality_mask=np.array([True]),
+        )
 
 
 def test_vertex_loss_validates_inputs(graph_labels, graph_clusters):
@@ -266,6 +325,20 @@ def _edge_inputs():
     )
 
     return edge_index, edge_pred
+
+
+def _mixed_graph_clusters():
+    """Return two impure clusters and one pure cluster."""
+    return IndexBatch(
+        [
+            np.array([0, 2], dtype=np.int64),
+            np.array([1, 3], dtype=np.int64),
+            np.array([4, 5], dtype=np.int64),
+        ],
+        spans=[4, 2],
+        counts=[2, 1],
+        single_counts=[2, 2, 2],
+    )
 
 
 def _add_particle_fields(graph_labels, **fields):
@@ -548,6 +621,60 @@ def test_shower_primary_truth_group_purity(
     assert result["count"] == 3
 
 
+def test_shower_primary_filters_low_quality_fragments(graph_labels):
+    """Specialized shower-primary targets use the shared overlap policy."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 1, 0],
+        group_primary=[1, 0, 1],
+    )
+    objects = _mixed_graph_clusters()
+    prediction = TensorBatch(torch.zeros((3, 2)), objects.counts)
+
+    result = NodeShowerPrimaryLoss(min_purity=[0.75, 0.75])(
+        graph_labels,
+        objects,
+        prediction,
+    )
+
+    assert result["count"] == 1
+    assert result["count_rejected"] == 2
+
+
+def test_node_orientation_filters_low_quality_tracks(graph_labels):
+    """Track orientation retains only clusters with trustworthy associations."""
+    _add_particle_fields(
+        graph_labels,
+        particle=[0, 1, 0],
+        shape=[1, 1, 1],
+    )
+    objects = _mixed_graph_clusters()
+    prediction = TensorBatch(torch.tensor([[0.0, 1.0]] * 3), objects.counts)
+    starts = TensorBatch(torch.zeros((3, 3)), objects.counts)
+    ends = TensorBatch(torch.tensor([[1.0, 0.0, 0.0]] * 3), objects.counts)
+    coord_label = TensorBatch(
+        torch.tensor([[0.0, 0.0, 0.0, 1.0, 0.0, 0.0]] * 3),
+        counts=[2, 1],
+        coord_cols=np.arange(6),
+        schema=TensorSchema(
+            coordinate_groups={"start": (0, 1, 2), "end": (3, 4, 5)},
+        ),
+    )
+
+    result = NodeOrientLoss(min_purity=[0.75, 0.75])(
+        graph_labels,
+        coord_label,
+        objects,
+        prediction,
+        starts,
+        ends,
+    )
+
+    assert result["count"] == 1
+    assert result["count_rejected"] == 2
+    assert result["accuracy"] == 1.0
+
+
 def test_vertex_loss_checks_containment_per_event(
     graph_labels,
     graph_clusters,
@@ -625,3 +752,48 @@ def test_vertex_loss_normalizes_anchor_points(graph_labels, graph_clusters):
     )
 
     assert torch.isfinite(result["loss"])
+
+
+def test_vertex_loss_shares_quality_mask_across_both_tasks(graph_labels):
+    """Primary classification and vertex regression reject the same fragments."""
+    objects = _mixed_graph_clusters()
+    prediction = TensorBatch(torch.zeros((3, 5)), objects.counts)
+
+    result = NodeVertexLoss(
+        only_contained=False,
+        min_purity=[0.75, 0.75],
+    )(graph_labels, objects, prediction)
+
+    assert result["primary_count"] == 1
+    assert result["primary_count_rejected"] == 2
+    assert result["reg_count"] == 1
+    assert result["reg_count_rejected"] == 0
+
+
+def test_edge_channel_filters_low_quality_endpoints(graph_labels):
+    """Edge supervision requires both endpoint clusters to pass quality gates."""
+    _add_particle_fields(graph_labels, group=[0, 1, 0])
+    objects = _mixed_graph_clusters()
+    edge_index, edge_pred = _edge_inputs()
+
+    result = EdgeChannelLoss(
+        target="group",
+        min_purity=[0.75, 0.75],
+    )(graph_labels, objects, edge_index, edge_pred)
+    assert result["count"] == 0
+    assert result["count_rejected"] == 2
+
+    result = EdgeChannelLoss(
+        target="group",
+        mode="forest",
+        min_purity=0.75,
+    )(graph_labels, objects, edge_index, edge_pred)
+    assert result["count"] == 0
+    assert result["count_rejected"] == 2
+
+    with pytest.raises(ValueError, match="require scalar"):
+        EdgeChannelLoss(
+            target="group",
+            mode="forest",
+            min_purity=[0.75, 0.75],
+        )

@@ -16,11 +16,25 @@ from spine.utils.conditional import TORCH_AVAILABLE
 from ..cases import FULL_CHAIN_REGRESSION_CONFIG
 
 FULL_CHAIN_REFERENCE = (
-    (4.777881622314453, 0.9742614181115755),
-    (2.7037878036499023, 0.9495003823904554),
-    (3.4835681915283203, 0.9762163855539899),
+    (4.770995140075684, 0.9757392506238908),
+    (2.667616844177246, 0.9509786432600207),
+    (3.3565175533294678, 0.9776052744428787),
 )
 FULL_CHAIN_REFERENCE_ATOL = 1.0e-5
+
+
+def test_full_chain_particle_target_quality_policy() -> None:
+    """Apply IoU rejection only to predicted full-chain particle targets."""
+    cfg = load_config_file(str(FULL_CHAIN_REGRESSION_CONFIG), download=False)
+    loss_cfg = cfg["model"]["modules"]["grappa_inter_loss"]["node_loss"]
+
+    for task in ("type", "primary"):
+        assert loss_cfg[task]["min_iou"] == 0.5
+        assert loss_cfg[task]["match_target"] == "group"
+
+    # IoU now owns ambiguous-fragment rejection for particle primary targets.
+    assert "use_closest" not in loss_cfg["primary"]
+    assert "secondary_label" not in loss_cfg["primary"]
 
 
 @pytest.fixture(name="cuda_available")

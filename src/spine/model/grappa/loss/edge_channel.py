@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -10,6 +11,10 @@ import torch
 from spine.cluster.label import get_cluster_label_batch
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
+from spine.model.common.quality import (
+    ClusterOverlapCache,
+    ClusterQualityFilter,
+)
 from spine.model.common.weighting import get_class_weights
 from spine.model.grappa.evaluation import (
     edge_assignment_batch,
@@ -52,6 +57,11 @@ class EdgeChannelLoss(torch.nn.Module):
         loss: str | dict[str, Any] = "ce",
         balance_loss: bool = False,
         high_purity: bool = False,
+        *,
+        min_iou: float | Sequence[float] | None = None,
+        min_purity: float | Sequence[float] | None = None,
+        min_efficiency: float | Sequence[float] | None = None,
+        match_target: str | None = None,
     ) -> None:
         """Initialize the primary identification loss function.
 
@@ -74,6 +84,18 @@ class EdgeChannelLoss(torch.nn.Module):
         high_purity : bool, default False
             Only apply loss to nodes which belong to a sensible group, i.e.
             one with exactly one shower primary in it (not 0, not > 1)
+        min_iou : float or sequence of float, optional
+            Minimum IoU required of both endpoint clusters. A sequence provides
+            separate requirements for OFF and ON edges, in that order.
+        min_purity : float or sequence of float, optional
+            Minimum purity required of both endpoint clusters, shared or
+            specified for the OFF and ON edge classes.
+        min_efficiency : float or sequence of float, optional
+            Minimum efficiency required of both endpoint clusters, shared or
+            specified for the OFF and ON edge classes.
+        match_target : str, optional
+            Truth-instance field used to evaluate endpoint quality. Defaults
+            to the edge aggregation ``target``.
         """
         # Initialize the parent class
         super().__init__()
@@ -86,9 +108,23 @@ class EdgeChannelLoss(torch.nn.Module):
         self.balance_loss = balance_loss
         self.high_purity = high_purity
 
+        # Apply the same overlap policy to both endpoints of a supervised edge
+        self.quality_filter = ClusterQualityFilter(
+            min_iou,
+            min_purity,
+            min_efficiency,
+            match_target=match_target or target,
+            num_classes=2,
+        )
+
         if self.high_purity and self.target != "group":
             raise ValueError(
                 "The `high_purity` flag is only valid when building shower groups."
+            )
+        if self.mode == "forest" and self.quality_filter.class_dependent:
+            raise ValueError(
+                "Forest edge losses require scalar overlap thresholds because "
+                "the edge classes are defined by the target spanning tree."
             )
 
         # Set the loss
@@ -101,6 +137,7 @@ class EdgeChannelLoss(torch.nn.Module):
         edge_index: EdgeIndexBatch,
         edge_pred: TensorBatch,
         true_edge_index: EdgeIndexBatch | None = None,
+        overlap_cache: ClusterOverlapCache | None = None,
         **kwargs: object,
     ) -> dict[str, torch.Tensor | float | int]:
         """Applies the edge channel loss to a batch of data.
@@ -117,6 +154,8 @@ class EdgeChannelLoss(torch.nn.Module):
             (E, 2) Edge prediction logits (binary output)
         true_edge_index : EdgeIndexBatch
             (2, E') True reference sparse incidence matrix
+        overlap_cache : ClusterOverlapCache, optional
+            Cluster overlaps shared by the objectives in one GrapPA forward.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -128,6 +167,10 @@ class EdgeChannelLoss(torch.nn.Module):
             Value of the edge-wise classification accuracy
         count : int
             Number of edges the loss was applied to
+        count_rejected : int, optional
+            Number of otherwise valid edges removed because at least one
+            endpoint failed overlap quality. Only returned when thresholds are
+            configured.
         """
         # Start to build a mask of valid edges. Check that the group ID
         # of both clusters edge joins has a valid group ID
@@ -154,8 +197,26 @@ class EdgeChannelLoss(torch.nn.Module):
             # For each group, find the most likely spanning tree, label the
             # edges in the tree as 1. For all other edges, apply loss only if
             # in separate groups. If undirected, also assign symmetric path
+            forest_group_ids = group_ids
+            if self.quality_filter.active:
+                # Give each rejected node a unique group before constructing
+                # the forest. This prevents a valid target path from using an
+                # endpoint that will subsequently be removed from the loss.
+                node_quality_mask = self.quality_filter.node_mask(
+                    clust_label,
+                    clusts,
+                    cache=overlap_cache,
+                )
+                forest_ids = group_ids.numpy_tensor().copy()
+                invalid_index = np.where(~node_quality_mask)[0]
+                next_id = int(np.max(forest_ids, initial=-1)) + 1
+                forest_ids[invalid_index] = next_id + np.arange(len(invalid_index))
+                forest_group_ids = TensorBatch(forest_ids, group_ids.counts)
+
             edge_assn, valid_mask_mst = edge_assignment_forest_batch(
-                edge_index, edge_pred.to_numpy(), group_ids
+                edge_index,
+                edge_pred.to_numpy(),
+                forest_group_ids,
             )
             valid_mask &= valid_mask_mst.numpy_tensor()
 
@@ -174,6 +235,20 @@ class EdgeChannelLoss(torch.nn.Module):
 
         else:
             raise ValueError(f"Loss mode not recognized: {self.mode}")
+
+        # An edge is trustworthy only when both endpoint clusters satisfy the
+        # requested policy. Class-dependent thresholds use the ON/OFF target.
+        count_rejected = 0
+        if self.quality_filter.active:
+            edge_quality_mask = self.quality_filter.edge_mask(
+                clust_label,
+                clusts,
+                edge_index,
+                edge_assn.numpy_tensor(),
+                overlap_cache,
+            )
+            count_rejected = int(np.count_nonzero(valid_mask & ~edge_quality_mask))
+            valid_mask &= edge_quality_mask
 
         # Apply the mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
@@ -203,4 +278,8 @@ class EdgeChannelLoss(torch.nn.Module):
             )
             acc /= len(valid_index)
 
-        return {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        if self.quality_filter.active:
+            result["count_rejected"] = count_rejected
+
+        return result

@@ -26,6 +26,7 @@ from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.model.common.factories import final_factory
+from spine.model.common.quality import ClusterOverlapCache
 from spine.model.grappa.evaluation import (
     node_assignment_batch,
     node_assignment_score_batch,
@@ -620,8 +621,9 @@ class GrapPA(torch.nn.Module):
 
         Parameters
         ----------
-        data : ClusterLabelBatch
-            Structured labels used to build clusters on the fly
+        data : ClusterLabelBatch or TensorBatch
+            Structured labels used to build clusters, or a plain tensor batch
+            when each selected voxel is represented as an individual node.
         coord_label : TensorBatch, optional
             (P, 1 + 2*D + 2) Tensor of label points
 
@@ -629,6 +631,12 @@ class GrapPA(torch.nn.Module):
         -------
         clusts : IndexBatch
             (C, N_c, N_{c,i}) Cluster indexes
+
+        Raises
+        ------
+        TypeError
+            If cluster or DBSCAN fragmentation is requested with a plain
+            ``TensorBatch``, which does not carry semantic or instance labels.
         """
         if self.node_source == "voxel":
             # Represent each selected voxel as a singleton graph node. With
@@ -660,14 +668,18 @@ class GrapPA(torch.nn.Module):
                 default=np.empty(0, dtype=np.int64),
             )
 
+        # All non-voxel fragmentation paths require the named semantic and
+        # instance fields provided by structured cluster labels. Besides making
+        # that runtime contract explicit, this narrows the type below.
+        if not isinstance(data, ClusterLabelBatch):
+            raise TypeError("Label clustering requires structured labels.")
+
         if self.dbscan is not None:
             # Use the DBSCAN fragmenter to build the clusters
             seg_label = data.shapes
             clusts, _ = self.dbscan(data.to_tensor_batch(), seg_label, coord_label)
         else:
             # Use the label tensor to build the clusters
-            if not isinstance(data, ClusterLabelBatch):  # pragma: no cover
-                raise TypeError("Label clustering requires structured labels.")
             clusts = form_clusters_batch(
                 data.to_numpy(),
                 self.node_min_size,
@@ -997,6 +1009,10 @@ class GrapPALoss(torch.nn.Module):
         """
         # Loop and apply the losses
         result: dict[str, Any] = {}
+
+        # Objectives often match the same clusters to the same truth field.
+        # Cache those geometrical overlaps for the duration of this forward.
+        overlap_cache: ClusterOverlapCache = {}
         num_losses = 0
         total_loss: torch.Tensor | None = None
         total_accuracy = 0.0
@@ -1022,6 +1038,7 @@ class GrapPALoss(torch.nn.Module):
                     coord_label=coord_label,
                     true_edge_index=graph_label,
                     iteration=iteration,
+                    overlap_cache=overlap_cache,
                     **output,
                     **extra,
                 )

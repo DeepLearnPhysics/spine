@@ -49,6 +49,14 @@ def graph_labels(graph_data):
         coord_cols=np.arange(1, 4),
     )
     particles = {
+        "group": TensorBatch(
+            np.array([0, 1, 0], dtype=np.int64),
+            counts=np.array([2, 1], dtype=np.int64),
+        ),
+        "pid": TensorBatch(
+            np.array([0, 1, 0], dtype=np.int64),
+            counts=np.array([2, 1], dtype=np.int64),
+        ),
         "shape": TensorBatch(
             np.array([0, 1, 1], dtype=np.int64),
             counts=np.array([2, 1], dtype=np.int64),

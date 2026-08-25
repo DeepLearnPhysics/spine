@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -13,6 +14,10 @@ from spine.cluster.label import (
 )
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
+from spine.model.common.quality import (
+    ClusterOverlapCache,
+    ClusterQualityFilter,
+)
 from spine.model.common.weighting import get_class_weights
 from spine.model.grappa.evaluation import node_purity_mask_batch
 
@@ -52,6 +57,11 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         high_purity: bool = False,
         use_closest: bool = False,
         use_group_pred: bool = False,
+        *,
+        min_iou: float | Sequence[float] | None = None,
+        min_purity: float | Sequence[float] | None = None,
+        min_efficiency: float | Sequence[float] | None = None,
+        match_target: str = "group",
     ) -> None:
         """Initialize the EM shower primary identification loss function.
 
@@ -69,6 +79,17 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             point of the shower as the primary (more robust to fragment breaks)
         use_group_pred : bool, default False
             Use predicted group to check for high purity
+        min_iou : float or sequence of float, optional
+            Minimum truth-instance IoU, shared or specified for secondary and
+            primary shower fragments.
+        min_purity : float or sequence of float, optional
+            Minimum predicted-cluster purity, shared or specified for secondary
+            and primary shower fragments.
+        min_efficiency : float or sequence of float, optional
+            Minimum truth-instance efficiency, shared or specified for
+            secondary and primary shower fragments.
+        match_target : str, default 'group'
+            Truth-instance field used to evaluate overlap quality.
         """
         # Initialize the parent class
         super().__init__()
@@ -78,6 +99,15 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         self.high_purity = high_purity
         self.use_closest = use_closest
         self.use_group_pred = use_group_pred
+
+        # The binary quality classes follow the secondary/primary target IDs
+        self.quality_filter = ClusterQualityFilter(
+            min_iou,
+            min_purity,
+            min_efficiency,
+            match_target=match_target,
+            num_classes=2,
+        )
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
@@ -89,6 +119,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         node_pred: TensorBatch,
         coord_label: TensorBatch | None = None,
         group_pred: TensorBatch | None = None,
+        overlap_cache: ClusterOverlapCache | None = None,
         **kwargs: object,
     ) -> dict[str, torch.Tensor | float | int]:
         """Applies the shower primary loss to a batch of data.
@@ -105,6 +136,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             (P, 1 + D + 8) Label start, end, time and shape for each point
         group_pred : TensorBatch, optional
             (C) Predicted group to which each node belongs to
+        overlap_cache : ClusterOverlapCache, optional
+            Cluster overlaps shared by the objectives in one GrapPA forward.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -116,6 +149,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             Value of the node-wise classification accuracy
         count : int
             Number of nodes the loss was applied to
+        count_rejected : int, optional
+            Number of otherwise valid shower fragments removed by overlap
+            quality. Only returned when thresholds are configured.
         """
         # Create a mask for valid nodes (-1 indicates an invalid primary ID)
         primary_ids = get_cluster_label_batch(
@@ -138,6 +174,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
                 clust_label, coord_label, clusts, primary_ids
             )
 
+            # A group without a usable reference point has no primary target.
+            valid_mask &= primary_ids.numpy_tensor() > -1
+
         # If requested, remove groups that do not contain exactly one primary
         if self.high_purity:
             # Fetch the group IDs
@@ -149,6 +188,19 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
                 group_ids = get_cluster_label_batch(clust_label, clusts, column="group")
 
             valid_mask &= node_purity_mask_batch(group_ids, primary_ids)
+
+        # Exclude fragments whose truth-instance match is not sufficiently
+        # pure, efficient or complete for a stable primary target.
+        count_rejected = 0
+        if self.quality_filter.active:
+            quality_mask = self.quality_filter.node_mask(
+                clust_label,
+                clusts,
+                primary_ids.numpy_tensor(),
+                overlap_cache,
+            )
+            count_rejected = int(np.count_nonzero(valid_mask & ~quality_mask))
+            valid_mask &= quality_mask
 
         # Apply the valid mask and convert the labels to a torch.Tensor
         valid_index = np.where(valid_mask)[0]
@@ -178,4 +230,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             )
             acc /= len(valid_index)
 
-        return {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        if self.quality_filter.active:
+            result["count_rejected"] = count_rejected
+
+        return result

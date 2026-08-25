@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,10 @@ from spine.cluster.label import get_cluster_label_batch
 from spine.constants import TRACK_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
+from spine.model.common.quality import (
+    ClusterOverlapCache,
+    ClusterQualityFilter,
+)
 
 __all__ = ["NodeOrientLoss"]
 
@@ -43,16 +48,44 @@ class NodeOrientLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("orientation",)
 
-    def __init__(self, loss: str | dict[str, Any] = "ce") -> None:
+    def __init__(
+        self,
+        loss: str | dict[str, Any] = "ce",
+        *,
+        min_iou: float | Sequence[float] | None = None,
+        min_purity: float | Sequence[float] | None = None,
+        min_efficiency: float | Sequence[float] | None = None,
+        match_target: str = "particle",
+    ) -> None:
         """Initialize the node orientation loss function.
 
         Parameters
         ----------
         loss : str, default 'ce'
             Name of the loss function to apply
+        min_iou : float or sequence of float, optional
+            Minimum truth-particle IoU, shared or specified for the backward
+            and forward orientation targets.
+        min_purity : float or sequence of float, optional
+            Minimum predicted-cluster purity, shared or specified for the two
+            orientation targets.
+        min_efficiency : float or sequence of float, optional
+            Minimum truth-particle efficiency, shared or specified for the two
+            orientation targets.
+        match_target : str, default 'particle'
+            Truth-instance field used to evaluate overlap quality.
         """
         # Initialize the parent class
         super().__init__()
+
+        # Configure optional cluster-quality filtering
+        self.quality_filter = ClusterQualityFilter(
+            min_iou,
+            min_purity,
+            min_efficiency,
+            match_target=match_target,
+            num_classes=2,
+        )
 
         # Set the loss
         self.loss_fn = loss_fn_factory(loss, functional=True)
@@ -65,6 +98,7 @@ class NodeOrientLoss(torch.nn.Module):
         node_pred: TensorBatch,
         start_points: TensorBatch,
         end_points: TensorBatch,
+        overlap_cache: ClusterOverlapCache | None = None,
         **kwargs: object,
     ) -> dict[str, torch.Tensor | float | int]:
         """Applies the node orientation loss to a batch of data.
@@ -84,6 +118,8 @@ class NodeOrientLoss(torch.nn.Module):
             (C, 3) Start point features associated with each node
         end_points : TensorBatch
             (C, 3) End point features associated with each node
+        overlap_cache : ClusterOverlapCache, optional
+            Cluster overlaps shared by the objectives in one GrapPA forward.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -95,6 +131,9 @@ class NodeOrientLoss(torch.nn.Module):
             Value of the node-wise orientation accuracy
         count : int
             Number of nodes the loss was applied to
+        count_rejected : int, optional
+            Number of otherwise valid track nodes removed by overlap quality.
+            Only returned when thresholds are configured.
         """
         # Fetch the true particle associations and the shape
         part_ids = get_cluster_label_batch(clust_label, clusts, column="particle")
@@ -130,6 +169,28 @@ class NodeOrientLoss(torch.nn.Module):
         node_assn = torch.sign(torch.sum(true_dirs * feat_dirs, dim=1)).long()
         node_assn = (node_assn + 1) // 2
 
+        # Class-dependent thresholds refer to the resulting orientation label.
+        count_rejected = 0
+        if self.quality_filter.active:
+            # The orientation label exists only for valid track nodes. Expand
+            # it to cluster order before applying a class-dependent policy.
+            classes = np.full(len(clusts.index_list), -1, dtype=np.int64)
+            classes[valid_index] = node_assn.detach().cpu().numpy()
+            quality_mask = self.quality_filter.node_mask(
+                clust_label,
+                clusts,
+                classes,
+                overlap_cache,
+            )
+
+            # Filter the NumPy indexes and their aligned Torch targets together.
+            keep = quality_mask[valid_index]
+            count_rejected = int(np.count_nonzero(~keep))
+            valid_index = valid_index[keep]
+            node_assn = node_assn[
+                torch.as_tensor(keep, dtype=torch.bool, device=node_assn.device)
+            ]
+
         # Compute the loss
         node_pred_tensor = node_pred.torch_tensor()[valid_index]
         loss = self.loss_fn(node_pred_tensor, node_assn, reduction="sum")
@@ -142,4 +203,8 @@ class NodeOrientLoss(torch.nn.Module):
             acc = float(torch.sum(torch.argmax(node_pred_tensor, dim=1) == node_assn))
             acc /= len(valid_index)
 
-        return {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
+        if self.quality_filter.active:
+            result["count_rejected"] = count_rejected
+
+        return result

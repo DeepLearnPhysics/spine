@@ -426,13 +426,15 @@ model:
           target: pid
           loss: ce
           balance_loss: true
+          min_iou: 0.5
+          match_target: group
         primary:
           name: class
           target: inter_primary
           loss: ce
           balance_loss: true
-          use_closest: true
-          secondary_label: 0
+          min_iou: 0.5
+          match_target: group
         orient:
           name: orient
           loss: ce
