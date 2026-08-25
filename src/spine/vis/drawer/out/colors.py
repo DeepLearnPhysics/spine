@@ -296,7 +296,8 @@ def build_object_colors(
             if is_depositions(attr):
                 for i, ht in enumerate(hovertext):
                     hovertext[i] = [
-                        ht[j] + dep_tostr(value) for j, value in enumerate(values[i])
+                        ht[j] + dep_tostr(value, attr_name)
+                        for j, value in enumerate(values[i])
                     ]
             elif is_sources(attr):
                 for i, ht in enumerate(hovertext):

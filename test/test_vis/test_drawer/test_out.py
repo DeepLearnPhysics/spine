@@ -99,6 +99,32 @@ def test_drawer_preserves_hover_attr_order():
     assert hovertext.index("<br>Is primary:") < hovertext.index("<br>Shape:")
 
 
+def test_drawer_labels_multiple_deposition_hover_attributes():
+    """Point-wise deposition fields should retain distinct hover labels."""
+    particle = RecoParticle(
+        id=0,
+        index=np.array([0, 1], dtype=np.int32),
+        depositions=np.array([1.0, 2.0], dtype=np.float32),
+        depositions_q=np.array([3.0, 4.0], dtype=np.float32),
+    )
+    data = {
+        "points": np.zeros((2, 3), dtype=np.float32),
+        "depositions": particle.depositions,
+        "reco_particles": [particle],
+    }
+
+    figure = Drawer(data, draw_mode="reco").get(
+        "particles",
+        attr=["depositions", "depositions_q"],
+        color_attr="depositions",
+    )
+    hovertext = figure.data[0].text[0]
+
+    assert "<br>Depositions: 1.000" in hovertext
+    assert "<br>Depositions q: 3.000" in hovertext
+    assert "<br>Deposition:" not in hovertext
+
+
 def test_drawer_draws_reco_particles_with_auxiliary_traces():
     """Drawer should combine object, raw, endpoint, and direction traces."""
     particle = RecoParticle(
@@ -210,7 +236,10 @@ def test_drawer_low_level_format_helpers():
     assert out_formatting.is_depositions("depositions")
     assert out_formatting.is_sources("sources")
     assert out_formatting.tostr("PID", 3) == "<br>PID: 3"
-    assert out_formatting.dep_tostr(1.234).startswith("<br>Deposition")
+    assert out_formatting.dep_tostr(1.234) == "<br>Deposition: 1.234"
+    assert (
+        out_formatting.dep_tostr(1.234, "Depositions q") == "<br>Depositions q: 1.234"
+    )
     assert out_formatting.src_tostr(np.array([2, 3])) == "<br>Module, TPC: 2, 3"
 
 

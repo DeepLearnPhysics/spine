@@ -149,20 +149,22 @@ def format_hover_value(obj: Any, attr: str, value: Any) -> Any:
     return value
 
 
-def dep_tostr(value: float) -> str:
+def dep_tostr(value: float, name: str = "Deposition") -> str:
     """Format one deposition value for point-wise hovertext.
 
     Parameters
     ----------
     value : float
         Deposition value to display.
+    name : str, default "Deposition"
+        Display name of the deposition field.
 
     Returns
     -------
     str
         HTML fragment suitable for Plotly hovertext.
     """
-    return f"<br>Deposition: {value:0.3f}"
+    return f"<br>{name}: {value:0.3f}"
 
 
 def src_tostr(value: np.ndarray) -> str:
