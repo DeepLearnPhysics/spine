@@ -68,7 +68,8 @@ The script can also read either a small YAML file containing a top-level
 `keys` list or an existing SPINE configuration containing `io.writer.keys`:
 
 ```bash
-python3 bin/output/output_litify.py full.h5 lite.h5 --config litify.yaml
+python3 bin/output/output_litify.py full.h5 lite.h5 \
+  --config production.yaml
 ```
 
 Use `--mode fixed_only` to discard every variable-length object attribute.

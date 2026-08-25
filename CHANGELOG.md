@@ -1,39 +1,44 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0] - 2026-08-25
 
 ### Added
-- **Shower-start dE/dx diagnostic**: Implement the shower analyzer with
-  configurable spherical and direction-aware kernels, scalar or scanned
-  neighborhood radii, reconstructed/truth point representations, and stable
-  per-object CSV output.
-- **Structured data-class reference**: Generate source-driven API pages that
-  separate stored fields, computed properties, and methods, group inherited
-  members by their declaring class, and expose defaults, types, units, and
-  other SPINE field metadata without hard-coded member lists.
-- **Documentation concepts**: Add pipeline-architecture and data-model guides
-  alongside API pages for the new calibration, clustering, logging, and physics
-  package boundaries.
+- **Interaction vertex prediction**: Generalize the UResNet point-proposal decoder to support particle-point and interaction-vertex heads, either with independent decoders or a shared decoder, and provide maintained particle-only, vertex-only, and combined train/test configurations.
+- **Full-chain vertexing**: Add configurable PPN- and GrapPA-based interaction vertex reducers, publish one selected `interaction_vertices` prediction per interaction, and populate reconstructed interaction vertices during object construction when the prediction is available.
+- **Cluster-quality supervision**: Compute matched-instance IoU, purity, and efficiency and expose optional scalar or per-class thresholds across GrapPA node, edge, classification, regression, orientation, primary, and vertex losses as well as image classification and regression losses. Rejected targets use the existing ignore convention and report `count_rejected`.
+- **Full-chain quality policy**: Apply a conservative `min_iou: 0.5` default to full-chain particle PID and primary classification while leaving standalone GrapPA configurations unrestricted unless explicitly configured.
+- **Robust label adaptation**: Rework full-chain instance-label propagation around deterministic geometric fronts, coordinate-alignment validation, and optional distance weighting, with ambiguous assignments left unsupervised.
+- **Grouped graph construction**: Add Numba-accelerated grouped radius graphs and connected-component helpers for building disjoint instance graphs in one pass, alongside benchmarked dense and spatial-hash construction paths.
+- **Restored model capabilities**: Rehabilitate SPICE fragment construction and GrapPA voxel encoders under their owning model packages, with maintained configuration coverage and full-chain integration contracts.
+- **Inference configuration conversion**: Add `spine.config.to_inference_config` and the CLI `--inference` option to convert training configurations into deterministic inference jobs before applying command-line overrides.
+- **Shower-start dE/dx diagnostic**: Implement the shower analyzer with configurable spherical and direction-aware kernels, scalar or scanned neighborhood radii, reconstructed/truth point representations, and stable per-object CSV output.
+- **Structured data-class reference**: Generate source-driven API pages that separate stored fields, computed properties, and methods, group inherited members by their declaring class, and expose defaults, types, units, and other SPINE field metadata without hard-coded member lists.
+- **Documentation concepts**: Add pipeline-architecture and data-model guides alongside API pages for the new calibration, clustering, logging, and physics package boundaries.
+- **Local inspection quick start**: Document core and visualization `pip` installs and provide a tested HDF5 reader/build workflow that produces drawable reconstructed particles without requiring a model runtime.
 
 ### Changed
-- **Warning-strict documentation**: Rebuild autosummary output from scratch and
-  require warning-free Sphinx builds in CI and Read the Docs, with one aligned
-  dependency set for local and hosted builds.
-- **Optional dependency extras**: Keep focused visualization and development
-  extras; remove the empty `core`, incomplete `model`, overly narrow
-  `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime
-  remains provided by the released container or a manual compatible-stack
-  installation.
+- **Production-stable milestone**: Mark SPINE as production/stable and establish the documented package boundaries and configuration contracts as the public baseline for the 1.x release series.
+- **Focused package ownership**: Reduce `spine.utils` to genuinely shared cross-layer helpers. Move cluster formation, features, directions, topology, and graph operations to `spine.cluster`; physical reconstruction routines and CSDA data to `spine.physics`; loggers and CSV output to `spine.logging`; configuration transforms to `spine.config`; and optimizer, Graph-SPICE, SPICE, and GrapPA utilities to their owning model packages.
+- **Point-proposal architecture**: Replace the narrowly coupled PPN/vertex implementations with typed generic proposal-decoder contracts while keeping existing UResNet PPN configurations valid without modification.
+- **Primary supervision**: Select the uniquely closest eligible shower and interaction fragment to the true start or vertex as primary and demote other broken pieces, avoiding multiple positive primary targets from one object.
+- **Graph and matching utilities**: Expand `spine.math.graph` and `spine.math.match` with typed, publicly documented graph construction, connected-component, and overlap-matching interfaces used by clustering and supervision.
+- **Startup presentation**: Consolidate the full banner under CLI execution, group runtime and resolved-configuration information consistently, and place weight download/cache messages within the startup section.
+- **Warning-strict documentation**: Rebuild autosummary output from scratch and require warning-free Sphinx builds in CI and Read the Docs, with one aligned dependency set for local and hosted builds.
+- **Documentation landing pages**: Align the README and Read the Docs opening narrative around the reconstruction schematic while keeping the hosted documentation concise and task-oriented.
+- **Optional dependency extras**: Keep focused visualization and development extras; remove the empty `core`, incomplete `model`, overly narrow `tensorboard`, and misleading `all` extras. The platform-sensitive ML runtime remains provided by the released container or a manual compatible-stack installation.
+- **Quality and typing standards**: Bring the reorganized clustering, physics, logging, parser, and model code under the repository's formatting, linting, type-hint, documentation, and complete statement-coverage expectations.
 
 ### Fixed
-- **Container optional dependencies**: Install the declared visualization extra
-  in release images and test that Dockerfiles cannot reference undefined
-  package extras.
-- **Visualization module namespace**: Ensure ``spine.vis.scene`` and the other
-  documented visualization package attributes cannot be shadowed by modules
-  leaked through wildcard convenience exports.
-- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager`
-  importable without PyTorch by avoiding eager optimizer implementation imports.
+- **Graph-SPICE evaluation portability**: Evaluate Graph-SPICE metrics on the correct backend and restore fragment-production behavior required by model and full-chain consumers.
+- **Label-front ambiguity**: Prevent arbitrary propagation through fronts reached equally by incompatible labels, distinguish face, edge, and corner neighbors when distance weighting is enabled, and preserve CPU/Torch input contracts without repeated GPU scalar operations.
+- **Interaction construction**: Consume learned interaction-vertex products when present while retaining the established fallback and allowing explicit vertex post-processing to overwrite the result.
+- **Container optional dependencies**: Install the declared visualization extra in release images and test that Dockerfiles cannot reference undefined package extras.
+- **Visualization module namespace**: Ensure `spine.vis.scene` and the other documented visualization package attributes cannot be shadowed by modules leaked through wildcard convenience exports.
+- **Core-only imports**: Keep `Driver`, `spine.main`, and `ModelManager` importable without PyTorch by avoiding eager optimizer implementation imports.
+- **Documentation portability**: Keep strict HTML and EPUB builds warning-free, exclude unsupported favicon assets from EPUB, and use packaged image assets consistently across the README and hosted documentation.
+
+### Removed
+- **Obsolete utility namespaces**: Remove the legacy globals, clustering, GNN, inference, logging, and Torch-script utility modules after migrating retained functionality to canonical packages. Shared optical, ghost, and minimal PPN helpers remain in `spine.utils` because they serve multiple subsystems.
 
 ## [0.17.3] - 2026-08-18
 

@@ -35,11 +35,8 @@ jobs:
     - name: Run tests
       run: |
         pip install pytest pytest-cov
-        # Install package in development mode for tests
-        pip install -e .
-        # Run basic import and utility tests that don't require external data
-        python -m pytest test/test_conditional_imports.py test/test_utils/ -v -x
-        # Skip other tests that require external data files or heavy dependencies
+        # Exercise the same dependency-free contract as the core CI matrix.
+        python -m pytest test/test_conditional_imports.py -v -x
 
     - name: Build packages (Python 3.10 only)
       if: matrix.python-version == '3.10'
