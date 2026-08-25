@@ -1,11 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.1] - 2026-08-25
 
 ### Fixed
-- **Deposition hover labels**: Preserve each point-wise deposition field name
-  in hover text so selecting fields such as `depositions` and `depositions_q`
-  does not produce a redundant generic `Deposition` entry.
+- **Deposition hover labels**: Preserve each point-wise deposition field name in hover text so selecting fields such as `depositions` and `depositions_q` does not produce a redundant generic `Deposition` entry.
 
 ## [1.0.0] - 2026-08-25
 
