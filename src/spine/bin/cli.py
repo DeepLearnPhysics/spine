@@ -31,6 +31,8 @@ def main(
     weight_path: str | None,
     weight_list: str | None,
     config_overrides: list[str] | None,
+    val_source: list[str] | None = None,
+    val_source_list: str | None = None,
     resume: bool | None = None,
     inference: bool = False,
 ) -> None:
@@ -74,6 +76,10 @@ def main(
         the model weights
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
+    val_source : list[str], optional
+        List of paths to validation input files
+    val_source_list : str, optional
+        Path to a text file containing validation data file paths
     resume : bool, optional
         Command-line override for complete training-state restoration. ``None``
         leaves resume selection to the configuration and automatic defaults.
@@ -104,6 +110,13 @@ def main(
     # Propagate the configuration parent directory to enable relative paths
     parent_path = str(pathlib.Path(cfg_file).parent)
     cfg["base"]["parent_path"] = parent_path
+
+    if val_source is not None and val_source_list is not None:
+        raise ValueError("--val-source and --val-source-list are mutually exclusive.")
+    if inference and (val_source is not None or val_source_list is not None):
+        raise ValueError(
+            "--val-source and --val-source-list cannot be used with --inference."
+        )
 
     # Convert the loaded training configuration before applying explicit CLI
     # overrides, so command-line arguments remain authoritative.
@@ -137,6 +150,19 @@ def main(
                 cfg["io"]["loader"]["dataset"][io_key] = io_value
             else:
                 raise KeyError("Must specify `loader` or `reader` in the `io` block.")
+
+    # Override validation sources independently of the training input. Remove
+    # the alternate selector because validation requires exactly one of them.
+    if val_source is not None or val_source_list is not None:
+        validation = cfg.setdefault("validation", {})
+        if not isinstance(validation, dict):
+            raise TypeError("The `validation` block must be a mapping.")
+        if val_source is not None:
+            validation["file_keys"] = val_source
+            validation.pop("file_list", None)
+        else:
+            validation["file_list"] = val_source_list
+            validation.pop("file_keys", None)
 
     # Override the output configuration if provided
     writer = cfg["io"].get("writer")
@@ -263,6 +289,19 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         help="Path to a text file containing a list of data file paths",
     )
 
+    # Add mutually exclusive validation source inputs
+    val_source_group = parser.add_mutually_exclusive_group()
+    val_source_group.add_argument(
+        "--val-source",
+        nargs="+",
+        type=str,
+        help="List of paths to validation input files",
+    )
+    val_source_group.add_argument(
+        "--val-source-list",
+        help="Path to a text file containing validation data file paths",
+    )
+
     # Add output arguments
     parser.add_argument("-o", "--output", help="Path to the output file")
     parser.add_argument("--output-dir", help="Path to the output directory")
@@ -366,6 +405,8 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         weight_path=args.weight_path,
         weight_list=args.weight_list,
         config_overrides=args.config_overrides,
+        val_source=args.val_source,
+        val_source_list=args.val_source_list,
         resume=args.resume,
         inference=args.inference,
     )

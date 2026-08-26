@@ -130,6 +130,145 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+@pytest.mark.parametrize(
+    ("val_source", "val_source_list", "expected_key", "expected_value"),
+    [
+        (["val_a.root", "val_b.root"], None, "file_keys", ["val_a.root", "val_b.root"]),
+        (None, "validation.txt", "file_list", "validation.txt"),
+    ],
+)
+def test_main_overrides_validation_source(
+    monkeypatch,
+    tmp_path,
+    val_source,
+    val_source_list,
+    expected_key,
+    expected_value,
+):
+    """Validation CLI inputs should replace the configured file selector."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "io": {"loader": {"dataset": {"file_keys": ["train.root"]}}},
+            "model": {},
+            "train": {},
+            "validation": {
+                "file_keys": ["stale.root"],
+                "file_list": "stale.txt",
+                "fraction": 0.5,
+            },
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        val_source=val_source,
+        val_source_list=val_source_list,
+    )
+
+    validation = captured["cfg"]["validation"]
+    assert validation[expected_key] == expected_value
+    alternate_key = "file_list" if expected_key == "file_keys" else "file_keys"
+    assert alternate_key not in validation
+    assert validation["fraction"] == 0.5
+
+
+def test_main_rejects_validation_source_for_inference(monkeypatch, tmp_path):
+    """Validation-only source flags should not be accepted in inference mode."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {"io": {"reader": {}}, "model": {}},
+    )
+
+    with pytest.raises(ValueError, match="cannot be used with --inference"):
+        cli_module.main(
+            config=str(config_path),
+            source=None,
+            source_list=None,
+            output=None,
+            output_dir=None,
+            output_suffix=None,
+            n=None,
+            nskip=None,
+            entry_list=None,
+            skip_entry_list=None,
+            log_dir=None,
+            weight_prefix=None,
+            weight_path=None,
+            weight_list=None,
+            config_overrides=None,
+            val_source=["validation.root"],
+            inference=True,
+        )
+
+
+def test_main_validates_validation_source_overrides(monkeypatch, tmp_path):
+    """Direct callers should receive clear validation-source errors."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "io": {"loader": {"dataset": {"file_keys": ["train.root"]}}},
+            "model": {},
+            "validation": "invalid",
+        },
+    )
+
+    common = {
+        "config": str(config_path),
+        "source": None,
+        "source_list": None,
+        "output": None,
+        "output_dir": None,
+        "output_suffix": None,
+        "n": None,
+        "nskip": None,
+        "entry_list": None,
+        "skip_entry_list": None,
+        "log_dir": None,
+        "weight_prefix": None,
+        "weight_path": None,
+        "weight_list": None,
+        "config_overrides": None,
+    }
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        cli_module.main(
+            **common,
+            val_source=["validation.root"],
+            val_source_list="validation.txt",
+        )
+    with pytest.raises(TypeError, match="`validation` block must be a mapping"):
+        cli_module.main(**common, val_source=["validation.root"])
+
+
 def test_main_converts_to_inference_before_cli_overrides(monkeypatch, tmp_path):
     """The inference transform should run before authoritative CLI inputs."""
     config_path = tmp_path / "train.yaml"
@@ -437,6 +576,8 @@ def test_cli_entry_point_paths(monkeypatch):
                 config="config.yaml",
                 source=["input.root"],
                 source_list=None,
+                val_source=["validation.root"],
+                val_source_list=None,
                 output="out.h5",
                 output_dir="outputs",
                 output_suffix="processed",
@@ -489,6 +630,8 @@ def test_cli_entry_point_paths(monkeypatch):
     assert len(main_calls) == 1
     assert main_calls[0]["config"] == "config.yaml"
     assert main_calls[0]["source"] == ["input.root"]
+    assert main_calls[0]["val_source"] == ["validation.root"]
+    assert main_calls[0]["val_source_list"] is None
     assert main_calls[0]["output_dir"] == "outputs"
     assert main_calls[0]["output_suffix"] == "processed"
 

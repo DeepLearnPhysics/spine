@@ -312,8 +312,16 @@ validation:
 ```
 
 Validation inherits the training loader's schema, batching, collation and
-worker settings while disabling augmentation and random sampling. Joint and
-mixed datasets provide both of their validation sources explicitly:
+worker settings while disabling augmentation and random sampling.
+
+For a non-composite dataset, the validation input can be selected independently
+from the command line with `--val-source` or `--val-source-list`:
+
+```bash
+spine -c config.yaml --source-list train.txt --val-source-list validation.txt
+```
+
+Joint and mixed datasets provide both of their validation sources explicitly:
 
 ```yaml
 validation:
