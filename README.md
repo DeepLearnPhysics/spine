@@ -275,6 +275,31 @@ Key configuration parameters you may want to modify:
 * `train` - training instruction block
 * `gpus` - GPU IDs to use (leave empty '' for CPU)
 
+Launch-dependent training resources can be overridden directly without
+changing the experiment configuration:
+
+```bash
+spine -c config/uresnet/uresnet_train.yaml \
+  --source-list train.txt \
+  --val-source-list validation.txt \
+  --world-size 4 \
+  --minibatch-size 64 \
+  --num-workers 8 \
+  --epochs 25 \
+  --log-dir logs/uresnet \
+  --tensorboard
+```
+
+`--batch-size` sets the global loader batch size, while `--minibatch-size`
+sets the per-process/GPU size; the two options are mutually exclusive. An
+external distributed launcher remains responsible for multi-node execution,
+and its `WORLD_SIZE` must agree with an explicit `--world-size`. Use
+`--tensorboard-dir` to override the default `<log-dir>/tensorboard` location.
+Use `-n` or `--num-entries` to limit the input dataset and `--skip-entries` to
+skip entries at its beginning. The historical `--nskip` spelling remains an
+alias. Training duration can be selected with mutually exclusive `--epochs` or
+`--iterations`, which map to the corresponding driver settings under `base`.
+
 Training instructions live in a top-level `train` block. Configurations using
 the historical `base.train` location remain supported with a migration warning.
 Validation is optional and runs at every configured checkpoint boundary, before

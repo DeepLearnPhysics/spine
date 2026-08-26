@@ -131,6 +131,178 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("batch_size", "minibatch_size", "expected_key", "expected_value"),
+    [
+        (128, None, "batch_size", 128),
+        (None, 32, "minibatch_size", 32),
+    ],
+)
+@pytest.mark.parametrize(
+    ("epochs", "iterations", "duration_key", "duration_value"),
+    [
+        (12.5, None, "epochs", 12.5),
+        (None, 100, "iterations", 100),
+    ],
+)
+def test_main_applies_runtime_resource_overrides(
+    monkeypatch,
+    tmp_path,
+    batch_size,
+    minibatch_size,
+    expected_key,
+    expected_value,
+    epochs,
+    iterations,
+    duration_key,
+    duration_value,
+):
+    """Resource flags should update their canonical configuration paths."""
+    config_path = tmp_path / "train.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {
+                "epochs": 2.0,
+                "iterations": 20,
+                "tensorboard": {"flush_secs": 5},
+            },
+            "io": {
+                "loader": {
+                    "dataset": {"file_keys": ["train.root"]},
+                    "batch_size": 16,
+                    "minibatch_size": 4,
+                }
+            },
+            "model": {},
+            "train": {},
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir="logs",
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        world_size=4,
+        batch_size=batch_size,
+        minibatch_size=minibatch_size,
+        num_workers=8,
+        epochs=epochs,
+        iterations=iterations,
+        tensorboard=True,
+        tensorboard_dir="tb",
+    )
+
+    cfg = captured["cfg"]
+    assert cfg["base"]["world_size"] == 4
+    assert cfg["base"][duration_key] == duration_value
+    alternate_duration = "iterations" if duration_key == "epochs" else "epochs"
+    assert alternate_duration not in cfg["base"]
+    assert cfg["base"]["log_dir"] == "logs"
+    assert cfg["base"]["tensorboard"] == {"flush_secs": 5, "log_dir": "tb"}
+    assert cfg["io"]["loader"][expected_key] == expected_value
+    alternate_key = "minibatch_size" if expected_key == "batch_size" else "batch_size"
+    assert alternate_key not in cfg["io"]["loader"]
+    assert cfg["io"]["loader"]["num_workers"] == 8
+
+
+def test_main_disables_tensorboard(monkeypatch, tmp_path):
+    """The negative TensorBoard flag should replace existing writer options."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {"tensorboard": {"flush_secs": 5}},
+            "io": {"reader": {}},
+            "model": {},
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        tensorboard=False,
+    )
+
+    assert captured["cfg"]["base"]["tensorboard"] is False
+
+
+def test_main_enables_tensorboard_with_custom_directory(monkeypatch, tmp_path):
+    """Enabling TensorBoard with a directory should replace a false setting."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {"tensorboard": False},
+            "io": {"reader": {}},
+            "model": {},
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        tensorboard=True,
+        tensorboard_dir="tb",
+    )
+
+    assert captured["cfg"]["base"]["tensorboard"] == {"log_dir": "tb"}
+
+
+@pytest.mark.parametrize(
     ("val_source", "val_source_list", "expected_key", "expected_value"),
     [
         (["val_a.root", "val_b.root"], None, "file_keys", ["val_a.root", "val_b.root"]),
@@ -267,6 +439,49 @@ def test_main_validates_validation_source_overrides(monkeypatch, tmp_path):
         )
     with pytest.raises(TypeError, match="`validation` block must be a mapping"):
         cli_module.main(**common, val_source=["validation.root"])
+
+
+def test_main_validates_runtime_resource_overrides(monkeypatch, tmp_path):
+    """Invalid combinations and launcher mismatches should fail clearly."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {"base": {}, "io": {"reader": {}}, "model": {}},
+    )
+    common = {
+        "config": str(config_path),
+        "source": None,
+        "source_list": None,
+        "output": None,
+        "output_dir": None,
+        "output_suffix": None,
+        "n": None,
+        "nskip": None,
+        "entry_list": None,
+        "skip_entry_list": None,
+        "log_dir": None,
+        "weight_prefix": None,
+        "weight_path": None,
+        "weight_list": None,
+        "config_overrides": None,
+    }
+
+    with pytest.raises(ValueError, match="batch-size.*mutually exclusive"):
+        cli_module.main(**common, batch_size=8, minibatch_size=4)
+    with pytest.raises(ValueError, match="epochs.*mutually exclusive"):
+        cli_module.main(**common, epochs=2.0, iterations=10)
+    with pytest.raises(ValueError, match="tensorboard-dir.*no-tensorboard"):
+        cli_module.main(**common, tensorboard=False, tensorboard_dir="tb")
+    with pytest.raises(KeyError, match="require an `io.loader` block"):
+        cli_module.main(**common, num_workers=4)
+
+    monkeypatch.setenv("RANK", "0")
+    monkeypatch.setenv("WORLD_SIZE", "8")
+    with pytest.raises(ValueError, match="conflicts with launcher WORLD_SIZE=8"):
+        cli_module.main(**common, world_size=4)
 
 
 def test_main_converts_to_inference_before_cli_overrides(monkeypatch, tmp_path):
@@ -578,10 +793,18 @@ def test_cli_entry_point_paths(monkeypatch):
                 source_list=None,
                 val_source=["validation.root"],
                 val_source_list=None,
+                world_size=4,
+                batch_size=None,
+                minibatch_size=32,
+                num_workers=8,
+                epochs=None,
+                iterations=100,
+                tensorboard=True,
+                tensorboard_dir="tb",
                 output="out.h5",
                 output_dir="outputs",
                 output_suffix="processed",
-                iterations=2,
+                num_entries=2,
                 nskip=1,
                 entry_list="entries.txt",
                 skip_entry_list="skip.txt",
@@ -632,6 +855,14 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["source"] == ["input.root"]
     assert main_calls[0]["val_source"] == ["validation.root"]
     assert main_calls[0]["val_source_list"] is None
+    assert main_calls[0]["world_size"] == 4
+    assert main_calls[0]["minibatch_size"] == 32
+    assert main_calls[0]["num_workers"] == 8
+    assert main_calls[0]["epochs"] is None
+    assert main_calls[0]["iterations"] == 100
+    assert main_calls[0]["n"] == 2
+    assert main_calls[0]["tensorboard"] is True
+    assert main_calls[0]["tensorboard_dir"] == "tb"
     assert main_calls[0]["output_dir"] == "outputs"
     assert main_calls[0]["output_suffix"] == "processed"
 

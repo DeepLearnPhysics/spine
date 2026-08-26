@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Production training CLI overrides**: Add first-class options for world size, global or per-process batch size, loader workers, epochs or driver iterations, and TensorBoard logging so launch-dependent resources can be selected without modifying experiment YAML.
+
+### Changed
+- **Dataset-entry option naming**: Keep `-n` as the input dataset limit, give it the accurate long name `--num-entries`, add `--skip-entries` with the historical `--nskip` spelling retained as an alias, and use `--iterations` for the mutually exclusive driver-duration alternative to `--epochs`.
+
 ## [1.0.2] - 2026-08-26
 
 ### Added

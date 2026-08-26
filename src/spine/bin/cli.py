@@ -33,6 +33,14 @@ def main(
     config_overrides: list[str] | None,
     val_source: list[str] | None = None,
     val_source_list: str | None = None,
+    world_size: int | None = None,
+    batch_size: int | None = None,
+    minibatch_size: int | None = None,
+    num_workers: int | None = None,
+    epochs: float | None = None,
+    iterations: int | None = None,
+    tensorboard: bool | None = None,
+    tensorboard_dir: str | None = None,
     resume: bool | None = None,
     inference: bool = False,
 ) -> None:
@@ -59,7 +67,7 @@ def main(
     n : int, optional
         Number of iterations to run
     nskip : int, optional
-        Number of iterations to skip
+        Number of dataset entries to skip
     entry_list : str, optional
         Path to a text file containing a list of entries to process
     skip_entry_list : str, optional
@@ -80,6 +88,22 @@ def main(
         List of paths to validation input files
     val_source_list : str, optional
         Path to a text file containing validation data file paths
+    world_size : int, optional
+        Number of local processes/devices to use
+    batch_size : int, optional
+        Global loader batch size
+    minibatch_size : int, optional
+        Per-process loader batch size
+    num_workers : int, optional
+        Number of data-loader worker processes
+    epochs : float, optional
+        Number of training epochs
+    iterations : int, optional
+        Number of driver iterations to run
+    tensorboard : bool, optional
+        Whether to enable TensorBoard scalar logging
+    tensorboard_dir : str, optional
+        TensorBoard output directory, relative to ``log_dir`` when not absolute
     resume : bool, optional
         Command-line override for complete training-state restoration. ``None``
         leaves resume selection to the configuration and automatic defaults.
@@ -113,6 +137,12 @@ def main(
 
     if val_source is not None and val_source_list is not None:
         raise ValueError("--val-source and --val-source-list are mutually exclusive.")
+    if batch_size is not None and minibatch_size is not None:
+        raise ValueError("--batch-size and --minibatch-size are mutually exclusive.")
+    if epochs is not None and iterations is not None:
+        raise ValueError("--epochs and --iterations are mutually exclusive.")
+    if tensorboard is False and tensorboard_dir is not None:
+        raise ValueError("--tensorboard-dir cannot be used with --no-tensorboard.")
     if inference and (val_source is not None or val_source_list is not None):
         raise ValueError(
             "--val-source and --val-source-list cannot be used with --inference."
@@ -164,6 +194,39 @@ def main(
             validation["file_list"] = val_source_list
             validation.pop("file_keys", None)
 
+    # Override runtime and loader resource settings. Batch shape and worker
+    # count are loader properties, while process count and duration belong to
+    # the driver base configuration.
+    if world_size is not None:
+        cfg["base"]["world_size"] = world_size
+    if epochs is not None:
+        cfg["base"]["epochs"] = epochs
+        cfg["base"].pop("iterations", None)
+    elif iterations is not None:
+        cfg["base"]["iterations"] = iterations
+        cfg["base"].pop("epochs", None)
+
+    loader_overrides = {
+        "batch_size": batch_size,
+        "minibatch_size": minibatch_size,
+        "num_workers": num_workers,
+    }
+    if any(value is not None for value in loader_overrides.values()):
+        loader = cfg["io"].get("loader")
+        if loader is None:
+            raise KeyError(
+                "--batch-size, --minibatch-size, and --num-workers require "
+                "an `io.loader` block."
+            )
+        if batch_size is not None:
+            loader["batch_size"] = batch_size
+            loader.pop("minibatch_size", None)
+        elif minibatch_size is not None:
+            loader["minibatch_size"] = minibatch_size
+            loader.pop("batch_size", None)
+        if num_workers is not None:
+            loader["num_workers"] = num_workers
+
     # Override the output configuration if provided
     writer = cfg["io"].get("writer")
     if writer is not None:
@@ -182,6 +245,18 @@ def main(
     # Override logging and weight storage paths if provided
     if log_dir is not None:
         cfg["base"]["log_dir"] = log_dir
+
+    if tensorboard is not None:
+        if tensorboard is False:
+            cfg["base"]["tensorboard"] = False
+        elif not isinstance(cfg["base"].get("tensorboard"), dict):
+            cfg["base"]["tensorboard"] = True
+    if tensorboard_dir is not None:
+        tensorboard_cfg = cfg["base"].get("tensorboard")
+        if not isinstance(tensorboard_cfg, dict):
+            tensorboard_cfg = {}
+            cfg["base"]["tensorboard"] = tensorboard_cfg
+        tensorboard_cfg["log_dir"] = tensorboard_dir
 
     if weight_prefix is not None:
         train_cfg = cfg.get("train", cfg["base"].get("train"))
@@ -227,7 +302,13 @@ def main(
     # This handles multi-node training where each process sees 1 GPU but is part
     # of a larger distributed group
     if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-        cfg["base"]["world_size"] = int(os.environ["WORLD_SIZE"])
+        launcher_world_size = int(os.environ["WORLD_SIZE"])
+        if world_size is not None and world_size != launcher_world_size:
+            raise ValueError(
+                f"--world-size={world_size} conflicts with launcher "
+                f"WORLD_SIZE={launcher_world_size}."
+            )
+        cfg["base"]["world_size"] = launcher_world_size
         cfg["base"]["distributed"] = True
 
     # For actual training/inference, we need the main functionality
@@ -309,12 +390,22 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         "--output-suffix", help="Suffix to append to generated output file names"
     )
 
-    # Add entry and skip arguments
+    # Add dataset entry and skip arguments
     parser.add_argument(
-        "-n", "--iterations", type=int, help="Number of iterations to run"
+        "-n",
+        "--num-entries",
+        dest="num_entries",
+        type=int,
+        help="Number of dataset entries to load",
     )
 
-    parser.add_argument("--nskip", type=int, help="Number of iterations to skip")
+    parser.add_argument(
+        "--skip-entries",
+        "--nskip",
+        dest="nskip",
+        type=int,
+        help="Number of dataset entries to skip",
+    )
 
     parser.add_argument(
         "--entry-list",
@@ -329,6 +420,41 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
     # Add logging and weight storage arguments
     parser.add_argument(
         "--log-dir", help="Path to the directory for storing the training log"
+    )
+
+    # Add launch-resource and training-duration arguments
+    parser.add_argument(
+        "--world-size",
+        type=int,
+        help="Number of local processes/devices (multi-node launchers set WORLD_SIZE)",
+    )
+    batch_group = parser.add_mutually_exclusive_group()
+    batch_group.add_argument(
+        "--batch-size", type=int, help="Global data-loader batch size"
+    )
+    batch_group.add_argument(
+        "--minibatch-size", type=int, help="Per-process/GPU data-loader batch size"
+    )
+    parser.add_argument(
+        "--num-workers", type=int, help="Number of data-loader worker processes"
+    )
+    duration_group = parser.add_mutually_exclusive_group()
+    duration_group.add_argument(
+        "--epochs", type=float, help="Number of training epochs"
+    )
+    duration_group.add_argument(
+        "--iterations", type=int, help="Number of driver iterations to run"
+    )
+
+    parser.add_argument(
+        "--tensorboard",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable TensorBoard scalar logging; use --no-tensorboard to disable",
+    )
+    parser.add_argument(
+        "--tensorboard-dir",
+        help="TensorBoard directory (defaults to <log-dir>/tensorboard)",
     )
 
     parser.add_argument(
@@ -396,7 +522,7 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         output=args.output,
         output_dir=args.output_dir,
         output_suffix=args.output_suffix,
-        n=args.iterations,
+        n=args.num_entries,
         nskip=args.nskip,
         entry_list=args.entry_list,
         skip_entry_list=args.skip_entry_list,
@@ -407,6 +533,14 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         config_overrides=args.config_overrides,
         val_source=args.val_source,
         val_source_list=args.val_source_list,
+        world_size=args.world_size,
+        batch_size=args.batch_size,
+        minibatch_size=args.minibatch_size,
+        num_workers=args.num_workers,
+        epochs=args.epochs,
+        iterations=args.iterations,
+        tensorboard=args.tensorboard,
+        tensorboard_dir=args.tensorboard_dir,
         resume=args.resume,
         inference=args.inference,
     )
