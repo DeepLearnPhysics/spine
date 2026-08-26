@@ -1,12 +1,14 @@
 # Changelog
 
+## [1.0.2] - 2026-08-26
+
+### Added
+- **Validation source CLI overrides**: Add mutually exclusive `--val-source` and `--val-source-list` options for selecting non-composite validation inputs independently of training data.
+
 ## [1.0.1] - 2026-08-25
 
 ### Fixed
 - **Deposition hover labels**: Preserve each point-wise deposition field name in hover text so selecting fields such as `depositions` and `depositions_q` does not produce a redundant generic `Deposition` entry.
-
-### Added
-- **Validation source CLI overrides**: Add mutually exclusive `--val-source` and `--val-source-list` options for selecting non-composite validation inputs independently of training data.
 
 ## [1.0.0] - 2026-08-25
 
