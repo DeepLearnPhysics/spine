@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.3] - 2026-08-26
 
 ### Added
 - **Production training CLI overrides**: Add first-class options for world size, global or per-process batch size, loader workers, epochs or driver iterations, and TensorBoard logging so launch-dependent resources can be selected without modifying experiment YAML.
