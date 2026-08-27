@@ -42,6 +42,17 @@ def test_barycenter_flash_matcher_validates_reporting_and_quality_parameters():
     with pytest.raises(ValueError, match="candidate_distance"):
         BarycenterFlashMatcher(report_mode="all")
 
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        BarycenterFlashMatcher(report_mode="best_per_flash", candidate_distance=-1.0)
+
+    with pytest.raises(ValueError, match="unique spatial axes"):
+        BarycenterFlashMatcher(report_mode="best_per_flash", dimensions=(1, 1))
+
+    with pytest.raises(ValueError, match="one value per"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash", position_errors=(1.0, 2.0, 3.0, 4.0)
+        )
+
     with pytest.raises(ValueError, match="position_errors"):
         BarycenterFlashMatcher(report_mode="best_per_flash", position_errors=0.0)
 
@@ -54,6 +65,11 @@ def test_barycenter_flash_matcher_validates_reporting_and_quality_parameters():
     with pytest.raises(ValueError, match="Optical detector geometry"):
         BarycenterFlashMatcher(report_mode="best_per_flash", angle_error=10.0)
 
+    with pytest.raises(ValueError, match="angle_error"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash", angle_error=0.0, optical=object()
+        )
+
     with pytest.raises(ValueError, match="light_charge_bounds"):
         BarycenterFlashMatcher(
             report_mode="best_per_flash", light_charge_bounds=(2.0, 1.0)
@@ -62,6 +78,19 @@ def test_barycenter_flash_matcher_validates_reporting_and_quality_parameters():
     with pytest.raises(ValueError, match="light_model_cfg"):
         BarycenterFlashMatcher(
             report_mode="best_per_flash", light_charge_bounds=(0.25, 3.0)
+        )
+
+    with pytest.raises(ValueError, match="light_charge_bounds"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash", light_charge_bounds=(np.nan, 1.0)
+        )
+
+    with pytest.raises(ValueError, match="charge_scale"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash",
+            light_charge_bounds=(0.25, 3.0),
+            light_model_cfg="minimal.cfg",
+            charge_scale=0.0,
         )
 
 
@@ -109,6 +138,16 @@ def test_barycenter_flash_matcher_rejects_best_match_above_distance():
     assert matcher.get_matches([interaction], [flash]) == []
 
 
+def test_barycenter_flash_matcher_best_modes_skip_empty_candidate_sets():
+    interaction = FakeInteraction([[0.0, 0.0, 0.0]])
+    flash = FakeFlash([0.0, 10.0, 10.0], [0.0, 0.1, 0.1])
+    matcher = BarycenterFlashMatcher(
+        report_mode="best_per_interaction", candidate_distance=1.0
+    )
+
+    assert matcher.get_matches([interaction], [flash]) == []
+
+
 def test_barycenter_flash_matcher_filters_inputs():
     matcher = BarycenterFlashMatcher(
         report_mode="best_per_flash", time_window=(0.0, 1.0)
@@ -123,6 +162,10 @@ def test_barycenter_flash_matcher_filters_inputs():
 
     matcher = BarycenterFlashMatcher(report_mode="best_per_flash", min_inter_size=2)
     assert matcher.get_matches([interaction], [flash]) == []
+
+    matcher = BarycenterFlashMatcher(report_mode="best_per_flash")
+    invalid = FakeInteraction([[np.nan, 0.0, 0.0]], depositions=[1.0])
+    assert matcher.get_matches([invalid], [flash]) == []
 
 
 def test_barycenter_flash_matcher_reports_all_and_uses_charge_weighting():
@@ -179,6 +222,17 @@ def test_barycenter_flash_matcher_applies_optional_chi2_cut():
 
     assert len(accepted.get_matches([interaction], [flash])) == 1
     assert rejected.get_matches([interaction], [flash]) == []
+
+
+def test_barycenter_flash_matcher_rejects_nonfinite_chi2():
+    matcher = BarycenterFlashMatcher(
+        report_mode="all", candidate_distance=2.0, position_errors=1.0e-300
+    )
+    interaction = FakeInteraction([[0.0, 0.0, 0.0]])
+    flash = FakeFlash([0.0, 1.0, 0.0], [0.0, 0.1, 0.1])
+
+    with np.errstate(over="ignore"):
+        assert matcher.get_matches([interaction], [flash]) == []
 
 
 def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
@@ -257,6 +311,74 @@ def test_barycenter_flash_matcher_can_propagate_all_charge_points(monkeypatch):
     np.testing.assert_allclose(weights, [1.0, 3.0])
 
 
+def test_barycenter_flash_matcher_rejects_invalid_light_hypothesis(monkeypatch):
+    class FakeLightModel:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_hypothesis(self, points, weights=None):
+            return np.asarray([0.0, np.nan])
+
+    monkeypatch.setattr(
+        "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
+    )
+    matcher = BarycenterFlashMatcher(
+        report_mode="all",
+        candidate_distance=1.0,
+        light_charge_bounds=(0.5, 1.5),
+        light_model_cfg="minimal.cfg",
+    )
+    interaction = FakeInteraction([[0.0, 0.0, 0.0]])
+    flash = FakeFlash([0.0, 0.0, 0.0], [0.0, 0.1, 0.1])
+
+    assert matcher.get_matches([interaction], [flash]) == []
+
+
+def test_barycenter_flash_matcher_validates_charge_observables():
+    matcher = BarycenterFlashMatcher(report_mode="best_per_flash")
+
+    with pytest.raises(ValueError, match="shape"):
+        matcher._charge_observables(FakeInteraction([[0.0, 1.0]]))
+
+    interaction = FakeInteraction([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    interaction.depositions = np.asarray([1.0])
+    with pytest.raises(ValueError, match="one value per point"):
+        matcher._charge_observables(interaction)
+
+    unweighted = BarycenterFlashMatcher(
+        report_mode="best_per_flash", charge_weighted=False
+    )
+    center, _, _ = unweighted._charge_observables(
+        FakeInteraction([[0.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+    )
+    np.testing.assert_allclose(center, [0.0, 1.0, 0.0])
+
+    invalid = FakeInteraction([[np.nan, 0.0, 0.0]], depositions=[1.0])
+    assert matcher._charge_observables(invalid) is None
+
+
+def test_barycenter_flash_matcher_rejects_degenerate_angular_candidate():
+    class FakeOpticalVolume:
+        positions = np.asarray([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+        det_ids = None
+
+    class FakeOptical:
+        global_index = False
+        num_volumes = 1
+        volumes = [FakeOpticalVolume()]
+
+    matcher = BarycenterFlashMatcher(
+        report_mode="all",
+        candidate_distance=1.0,
+        angle_error=30.0,
+        optical=FakeOptical(),
+    )
+    interaction = FakeInteraction([[0.0, 0.0, 0.0]])
+    flash = FakeFlash([0.0, 0.0, 0.0], [0.0, 0.1, 0.1], pe_per_ch=[1.0, 1.0])
+
+    assert matcher.get_matches([interaction], [flash]) == []
+
+
 def test_barycenter_flash_matcher_adds_pca_angle_to_chi2():
     class FakeOpticalVolume:
         positions = np.array(
@@ -303,3 +425,72 @@ def test_barycenter_flash_matcher_rejects_ambiguous_pca_axis():
     weights = np.ones(4, dtype=np.float64)
 
     assert BarycenterFlashMatcher._principal_axis(points, weights) is None
+
+    assert BarycenterFlashMatcher._principal_axis(points[:2], [0.0, 0.0]) is None
+    assert BarycenterFlashMatcher._principal_axis(np.zeros((2, 2)), np.ones(2)) is None
+
+
+def test_barycenter_flash_matcher_optical_axis_geometry_paths():
+    positions = np.asarray([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+    flash = FakeFlash([0.0, 0.0, 0.0], [0.0, 0.1, 0.1], pe_per_ch=[1.0, 2.0])
+
+    class GlobalOptical:
+        global_index = True
+        det_ids = None
+
+    optical = GlobalOptical()
+    optical.positions = positions
+    matcher = BarycenterFlashMatcher(
+        report_mode="best_per_flash", angle_error=1.0, optical=optical
+    )
+    assert matcher._optical_axis(flash) is not None
+
+    flash.pe_per_ch = np.ones(1)
+    with pytest.raises(ValueError, match="detector geometry"):
+        matcher._optical_axis(flash)
+
+    class LocalVolume:
+        det_ids = np.asarray([0, 0, 1])
+
+    volume = LocalVolume()
+    volume.positions = positions
+
+    class LocalOptical:
+        global_index = False
+        num_volumes = 1
+        volumes = [volume]
+
+    matcher = BarycenterFlashMatcher(
+        report_mode="best_per_flash", angle_error=1.0, optical=LocalOptical()
+    )
+    flash.pe_per_ch = np.asarray([1.0, 2.0, 3.0])
+    assert matcher._optical_axis(flash) is not None
+
+    flash.pe_per_ch = np.ones(2)
+    with pytest.raises(ValueError, match="channel mapping"):
+        matcher._optical_axis(flash)
+
+    flash.volume_id = 2
+    with pytest.raises(ValueError, match="volume ID"):
+        matcher._optical_axis(flash)
+
+
+def test_barycenter_flash_matcher_empty_distributed_light_source(monkeypatch):
+    class FakeLightModel:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(
+        "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
+    )
+    matcher = BarycenterFlashMatcher(
+        report_mode="best_per_flash",
+        light_charge_bounds=(0.5, 1.5),
+        light_model_cfg="minimal.cfg",
+        light_model_use_points=True,
+    )
+    interaction = FakeInteraction([[np.nan, 0.0, 0.0]], depositions=[0.0])
+
+    hypothesis = matcher._light_hypothesis(interaction, np.zeros(3))
+
+    assert np.isnan(hypothesis[0])

@@ -290,6 +290,9 @@ def test_opt0finder_light_model_queries_normalized_source(monkeypatch, tmp_path)
     with pytest.raises(ValueError, match="one value per point"):
         model.get_response([[1.0, 2.0, 3.0]], weights=[1.0, 2.0])
 
+    with pytest.raises(ValueError, match="non-negative"):
+        model.get_response([[1.0, 2.0, 3.0]], weights=[-1.0])
+
 
 def test_likelihood_flash_matcher_uses_default_detector_specs(monkeypatch, tmp_path):
     basedir = tmp_path / "fmatch"
