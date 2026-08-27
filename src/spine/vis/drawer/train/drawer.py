@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import partial
 from typing import Any, cast
 
@@ -30,7 +31,7 @@ class TrainDrawer:
         paper: bool = False,
         alpha: float = 0.5,
         train_prefix: str = "train",
-        val_prefix: str = "inference",
+        val_prefix: str | Iterable[str] = ("inference", "validation"),
         separator: str = ":",
     ) -> None:
         """Initialize the training-history drawer.
@@ -48,8 +49,10 @@ class TrainDrawer:
             Opacity of the plotted traces.
         train_prefix : str, default ``"train"``
             Filename prefix identifying training logs.
-        val_prefix : str, default ``"inference"``
-            Filename prefix identifying validation logs.
+        val_prefix : str or iterable of str, default ``("inference", "validation")``
+            Filename prefix or prefixes identifying validation logs. Both
+            standalone inference and on-the-fly validation are discovered by
+            default.
         separator : str, default ``":"``
             Character used to separate acceptable metric aliases.
         """

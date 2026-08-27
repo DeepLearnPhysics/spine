@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, and let `TrainDrawer` discover standalone inference and on-the-fly validation logs together.
+
 ## [1.0.4] - 2026-08-26
 
 ### Fixed

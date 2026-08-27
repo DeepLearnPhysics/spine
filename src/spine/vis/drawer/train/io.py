@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import os
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
@@ -92,7 +93,10 @@ def get_training_df(
 
 
 def get_validation_df(
-    log_dir: str, keys: list[str], val_prefix: str, separator: str
+    log_dir: str,
+    keys: list[str],
+    val_prefix: str | Iterable[str],
+    separator: str,
 ) -> pd.DataFrame:
     """Summarize validation logs into means and standard errors per iteration.
 
@@ -102,8 +106,8 @@ def get_validation_df(
         Directory containing one model's validation logs.
     keys : List[str]
         Metrics to extract from the logs.
-    val_prefix : str
-        Filename prefix identifying validation logs.
+    val_prefix : str or iterable of str
+        Filename prefix or prefixes identifying validation logs.
     separator : str
         Character used to separate acceptable metric aliases.
 
@@ -118,10 +122,24 @@ def get_validation_df(
         val_data[f"{key_name}_mean"] = []
         val_data[f"{key_name}_err"] = []
 
-    log_files = np.array(glob.glob(f"{log_dir}/{val_prefix}*"))
+    prefixes = [val_prefix] if isinstance(val_prefix, str) else list(val_prefix)
+    log_files = sorted(
+        {
+            log_file
+            for prefix in prefixes
+            for log_file in glob.glob(f"{log_dir}/{prefix}*")
+        }
+    )
+    validation_dfs: dict[int, list[pd.DataFrame]] = {}
     for log_file in log_files:
-        df = pd.read_csv(log_file)
         iteration = int(os.path.basename(log_file).split("-")[-1].split(".")[0])
+        validation_dfs.setdefault(iteration, []).append(pd.read_csv(log_file))
+
+    for iteration in sorted(validation_dfs):
+        # Distributed runs produce one file per process. Treat all files at a
+        # checkpoint boundary as one validation distribution regardless of
+        # whether they came from inference or on-the-fly validation.
+        df = pd.concat(validation_dfs[iteration], ignore_index=True)
         val_data["iter"].append(iteration - 1)
         # Validation files contain one distribution per checkpoint; summarize
         # each requested metric by mean and standard error.
@@ -131,10 +149,5 @@ def get_validation_df(
             err = df[key].std() / np.sqrt(len(df[key]))
             val_data[f"{key_name}_mean"].append(mean)
             val_data[f"{key_name}_err"].append(err)
-
-    # Keep the final frame ordered by iteration regardless of the glob order.
-    order = np.argsort(val_data["iter"])
-    for key, value in val_data.items():
-        val_data[key] = [value[i] for i in order]
 
     return pd.DataFrame(val_data)

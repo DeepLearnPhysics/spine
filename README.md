@@ -359,11 +359,15 @@ validation:
 
 Use source names `larcv` and `hdf5` instead for a mixed dataset. Joint
 validation retains the overlay distribution but uses repeatable sequential
-primary/secondary pairing. Validation scalar outputs are logged with a
-`val_` prefix and stored in the checkpoint with early-stopping and
-best-checkpoint state. When `best_checkpoint` is enabled, an improving
-snapshot is atomically copied to `<weight_prefix>-best.ckpt` with its own
-checksum. Set `best_checkpoint.path` to choose another stable destination.
+primary/secondary pairing. Each checkpoint pass writes its validation batches
+to a dedicated `validation_log-<next_iteration>.csv`, analogous to the
+`inference_log-*` files produced by standalone validation. Aggregate validation
+scalars are emitted to TensorBoard with a `val_` prefix and stored in the
+checkpoint with early-stopping and best-checkpoint state. `TrainDrawer`
+discovers both validation-log forms by default. When `best_checkpoint` is
+enabled, an improving snapshot is atomically copied to
+`<weight_prefix>-best.ckpt` with its own checksum. Set `best_checkpoint.path`
+to choose another stable destination.
 
 Learning-rate schedulers default to `interval: step`, preserving the
 historical update after every optimizer step. `interval: checkpoint` advances

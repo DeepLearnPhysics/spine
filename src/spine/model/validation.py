@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import datetime
 from numbers import Real
 from typing import Any
 
 import numpy as np
 
 from spine.io import IOManager
+from spine.logging import LogManager, logger
 from spine.utils.conditional import torch
+from spine.utils.stopwatch import StopwatchManager
 from spine.utils.torch import runtime
 
 from .manager import ModelManager
@@ -356,6 +360,11 @@ class ValidationManager:
         world_size: int,
         distributed: bool,
         seed: int,
+        log_dir: str | None = None,
+        prefix_log: bool = False,
+        overwrite_log: bool = False,
+        csv_buffer_size: int = 1,
+        log_step: int = 1,
     ) -> None:
         """Build a validation loader and optional validation policies.
 
@@ -382,6 +391,17 @@ class ValidationManager:
             Whether validation data and metrics are distributed across ranks.
         seed : int
             Fixed seed used for deterministic joint overlay selection.
+        log_dir : str, optional
+            Directory in which to write checkpoint validation log segments.
+            If omitted, validation CSV logging is disabled.
+        prefix_log : bool, default False
+            Prefix validation log names with the input-derived stem.
+        overwrite_log : bool, default False
+            Allow an existing validation log segment to be overwritten.
+        csv_buffer_size : int, default 1
+            Buffer size forwarded to the validation CSV logger.
+        log_step : int, default 1
+            Number of validation batches between stdout summaries.
 
         Raises
         ------
@@ -412,6 +432,13 @@ class ValidationManager:
         )
         self.model = model
         self.distributed = distributed
+        self.rank = rank
+        self.log_dir = log_dir
+        self.prefix_log = prefix_log
+        self.overwrite_log = overwrite_log
+        self.csv_buffer_size = csv_buffer_size
+        self.log_step = log_step
+        self.main_process = rank is None or rank == 0
         assert self.io.loader is not None
         self.num_iterations = max(1, math.ceil(fraction * len(self.io.loader)))
 
@@ -680,13 +707,15 @@ class ValidationManager:
             dataset.pop(key, None)
         dataset.update(source)
 
-    def run(self, iteration: int) -> dict[str, float]:
+    def run(self, iteration: int, epoch: float | None = None) -> dict[str, float]:
         """Evaluate and average scalar outputs over validation batches.
 
         Parameters
         ----------
         iteration : int
             Current training iteration forwarded to time-dependent losses.
+        epoch : float, optional
+            Current training epoch recorded alongside validation batches.
 
         Returns
         -------
@@ -705,16 +734,61 @@ class ValidationManager:
             sampler.set_epoch(0)
         self.io.reset_loader()
 
+        # Each checkpoint validation pass mirrors a standalone inference run
+        # in its own log segment. The filename boundary is the next training
+        # iteration, matching checkpoint resume and TrainDrawer conventions.
+        log_manager = self.initialize_log(iteration)
+        watch = StopwatchManager()
+        watch.initialize(["iteration", "model"])
+        if self.main_process:
+            logger.info(
+                "Training iteration %d complete; starting validation (%d batch%s).",
+                iteration,
+                self.num_iterations,
+                "" if self.num_iterations == 1 else "es",
+            )
+
         # Accumulate scalar outputs and ignore structured predictions
         totals: dict[str, float] = {}
         counts: dict[str, int] = {}
-        for _ in range(self.num_iterations):
-            result = self.model.evaluate(self.io.load(), iteration)
-            for key, value in result.items():
-                scalar = self.to_scalar(value)
-                if scalar is not None:
-                    totals[key] = totals.get(key, 0.0) + scalar
-                    counts[key] = counts.get(key, 0) + 1
+        try:
+            for val_iteration in range(self.num_iterations):
+                watch.start("iteration")
+                data = self.io.load()
+                watch.start("model")
+                result = self.model.evaluate(data, iteration)
+                watch.stop("model")
+                data.update(result)
+                if hasattr(self.io, "watch"):
+                    watch.update(self.io.watch)
+                watch.stop("iteration")
+
+                if log_manager is not None:
+                    log_row = log_manager.append(data, watch, val_iteration, epoch)
+                    if ((val_iteration + 1) % self.log_step) == 0:
+                        log_manager.log_stdout_summary(
+                            log_row,
+                            data,
+                            watch,
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            val_iteration,
+                            epoch,
+                            model_train=False,
+                            rank=self.rank,
+                            distributed=self.distributed,
+                            main_process=self.main_process,
+                            mode="validation",
+                            total_iterations=self.num_iterations,
+                        )
+
+                for key, value in result.items():
+                    scalar = self.to_scalar(value)
+                    if scalar is not None:
+                        totals[key] = totals.get(key, 0.0) + scalar
+                        counts[key] = counts.get(key, 0) + 1
+        finally:
+            if log_manager is not None:
+                log_manager.close()
 
         if not totals:
             raise RuntimeError("Validation did not produce any scalar metrics.")
@@ -730,7 +804,34 @@ class ValidationManager:
                 torch.distributed.all_reduce(reduced)
                 totals[key], counts[key] = reduced.tolist()
 
-        return {key: total / counts[key] for key, total in totals.items()}
+        metrics = {key: total / counts[key] for key, total in totals.items()}
+        if self.main_process:
+            summary = ", ".join(
+                f"{key}={value:.6g}" for key, value in sorted(metrics.items())
+            )
+            logger.info(
+                "Validation complete at training iteration %d: %s.",
+                iteration,
+                summary,
+            )
+        return metrics
+
+    def initialize_log(self, iteration: int) -> LogManager | None:
+        """Create the inference-style log segment for one validation pass."""
+        if getattr(self, "log_dir", None) is None:
+            return None
+        if self.log_dir and not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir, exist_ok=True)
+
+        suffix = "" if not self.distributed else f"_proc{self.rank}"
+        log_name = f"validation{suffix}_log-{iteration + 1:07d}.csv"
+        if self.prefix_log:
+            log_name = self.io.format_log_name(log_name, self.log_dir)
+        return LogManager(
+            os.path.join(self.log_dir, log_name),
+            overwrite=self.overwrite_log,
+            buffer_size=self.csv_buffer_size,
+        )
 
     def update_early_stopping(self, metrics: Mapping[str, float]) -> bool:
         """Update early stopping after a validation pass.

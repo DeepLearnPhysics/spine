@@ -691,6 +691,11 @@ class Driver:
             world_size=self.world_size,
             distributed=self.distributed,
             seed=self.seed,
+            log_dir=self.log_dir,
+            prefix_log=self.prefix_log,
+            overwrite_log=self.overwrite_log,
+            csv_buffer_size=self.csv_buffer_size,
+            log_step=self.log_step,
         )
 
     def initialize_builder(self, build: Mapping[str, Any] | None = None) -> None:
@@ -956,12 +961,13 @@ class Driver:
                     validation_metrics = None
                     promote_best = False
                     if self.validation is not None:
-                        validation_metrics = self.validation.run(iteration)
-                        data.update(
+                        validation_metrics = self.validation.run(iteration, epoch)
+                        self.log_manager.append_tensorboard(
                             {
                                 f"val_{key}": value
                                 for key, value in validation_metrics.items()
-                            }
+                            },
+                            iteration,
                         )
                         promote_best = self.validation.update_best_checkpoint(
                             validation_metrics
@@ -972,6 +978,12 @@ class Driver:
                         validation_state = self.validation.checkpoint_state(
                             validation_metrics
                         )
+                        if self.main_process:
+                            logger.info(
+                                "Returning to training iteration %d for "
+                                "checkpoint finalization.",
+                                iteration,
+                            )
 
                     # Checkpoint-bound schedulers advance before their state is saved.
                     self.model.step_checkpoint_scheduler(validation_metrics)

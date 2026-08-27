@@ -217,6 +217,8 @@ class LogManager:
         rank: int | None,
         distributed: bool,
         main_process: bool,
+        mode: str | None = None,
+        total_iterations: int | None = None,
     ) -> None:
         """Emit the human-readable iteration summary to stdout.
 
@@ -242,8 +244,14 @@ class LogManager:
             Whether distributed synchronization is active.
         main_process : bool
             Whether this process should print shared headers and blank lines.
+        mode : str, optional
+            Explicit processing mode shown in the timing header. By default,
+            this is inferred as training or inference from ``model_train``.
+        total_iterations : int, optional
+            Total number of iterations in a bounded pass, used to show
+            validation progress.
         """
-        proc = "train" if model_train else "inference"
+        proc = mode or ("train" if model_train else "inference")
         device = "GPU" if rank is not None else "CPU"
         keys = [f"Time ({proc})", f"{device} memory", "Loss", "Accuracy"]
         widths = [20, 20, 9, 9]
@@ -256,7 +264,12 @@ class LogManager:
                 [f"{keys[i]:<{widths[i]}}" for i in range(len(keys))]
             )
             separator = "  |" + "+".join(["-" * (w + 1) for w in widths])
-            msg = f"Iter. {iteration} (epoch {epoch_value:.3f}) @ {tstamp}\n"
+            iter_label = f"Iter. {iteration}"
+            if mode == "validation":
+                iter_label = f"Val. {iteration + 1}"
+                if total_iterations is not None:
+                    iter_label += f"/{total_iterations}"
+            msg = f"{iter_label} (epoch {epoch_value:.3f}) @ {tstamp}\n"
             msg += header + "|\n"
             msg += separator + "|"
             logger.info(msg)

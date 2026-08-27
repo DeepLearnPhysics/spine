@@ -24,6 +24,10 @@ def test_train_drawer_finds_keys_and_loads_logs(tmp_path):
         log_dir / "train-2.csv", index=False
     )
     pd.DataFrame({"acc": [0.5, 0.7]}).to_csv(log_dir / "inference-2.csv", index=False)
+    pd.DataFrame({"acc": [0.7, 0.9]}).to_csv(log_dir / "validation-4.csv", index=False)
+    pd.DataFrame({"acc": [0.9, 1.1]}).to_csv(
+        log_dir / "validation_proc1-4.csv", index=False
+    )
 
     drawer = TrainDrawer(str(tmp_path), interactive=True)
     drawer.initialize_matplotlib(False)
@@ -34,7 +38,8 @@ def test_train_drawer_finds_keys_and_loads_logs(tmp_path):
 
     assert (key, key_name) == ("fallback", "loss")
     assert train_df["loss"].tolist() == [3.0, 2.0, 1.0]
-    assert val_df["accuracy_mean"].tolist() == [0.6]
+    assert val_df["iter"].tolist() == [1, 3]
+    assert val_df["accuracy_mean"].tolist() == [0.6, 0.9]
     assert drawer.log_dir == str(log_dir)
     with pytest.raises(KeyError, match="Could not find"):
         drawer.find_key({"loss": []}, "missing")

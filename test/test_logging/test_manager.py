@@ -286,6 +286,40 @@ def test_log_manager_optional_branches(monkeypatch, tmp_path):
     assert infos[-1] == ""
 
 
+def test_log_manager_labels_bounded_validation_progress(monkeypatch):
+    """Validation summaries should be distinct from inference output."""
+    infos: list[str] = []
+    monkeypatch.setattr(
+        log_manager_mod.logger,
+        "info",
+        lambda msg, *args: infos.append(msg % args if args else msg),
+    )
+
+    LogManager.log_stdout_summary(
+        {
+            "cpu_mem": 4.0,
+            "cpu_mem_perc": 50.0,
+            "gpu_mem": 0.0,
+            "gpu_mem_perc": 0.0,
+            "model_time": 1.0,
+        },
+        {"loss": 1.25, "accuracy": 0.5},
+        FakeWatchManager(),
+        "2026-01-01 00:00:00",
+        iteration=1,
+        epoch=0.5,
+        model_train=False,
+        rank=None,
+        distributed=False,
+        main_process=True,
+        mode="validation",
+        total_iterations=4,
+    )
+
+    assert any("Val. 2/4" in msg for msg in infos)
+    assert any("Time (validation)" in msg for msg in infos)
+
+
 def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypatch):
     """Non-main distributed ranks should not print headers directly."""
     infos: list[str] = []

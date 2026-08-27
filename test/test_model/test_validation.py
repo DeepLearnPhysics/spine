@@ -11,6 +11,7 @@ import spine.model.validation as validation_mod
 from spine.model import ValidationManager
 from spine.model.validation import BestCheckpoint, EarlyStopping
 from spine.utils.conditional import TORCH_AVAILABLE
+from spine.utils.stopwatch import StopwatchManager
 
 
 def ordinary_loader() -> dict:
@@ -222,7 +223,9 @@ def test_best_checkpoint_tracks_and_restores_progress():
         BestCheckpoint(path=1)
 
 
-def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
+def test_validation_manager_runs_fraction_logs_and_updates_stopping(
+    monkeypatch, tmp_path
+):
     """Validation should average scalar outputs over the deterministic fraction."""
 
     class FakeLoader:
@@ -236,6 +239,7 @@ def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
             self.loader = FakeLoader()
             self.values = iter([1.0, 3.0, 9.0, 12.0])
             self.closed = False
+            self.watch = StopwatchManager()
 
         def __len__(self):
             return 4
@@ -244,7 +248,8 @@ def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
             self.values = iter([1.0, 3.0, 9.0, 12.0])
 
         def load(self):
-            return {"value": next(self.values)}
+            value = next(self.values)
+            return {"index": np.array([int(value)]), "value": value}
 
         def close(self):
             self.closed = True
@@ -272,16 +277,32 @@ def test_validation_manager_runs_fraction_and_updates_stopping(monkeypatch):
         world_size=0,
         distributed=False,
         seed=1,
+        log_dir=str(tmp_path),
     )
 
-    metrics = manager.run(iteration=2)
+    metrics = manager.run(iteration=2, epoch=0.75)
     assert metrics == {"loss": 4.0}
+    log = tmp_path / "validation_log-0000003.csv"
+    log_df = np.genfromtxt(log, delimiter=",", names=True)
+    assert log_df.shape == (2,)
+    assert log_df["iter"].tolist() == [0.0, 1.0]
+    assert log_df["epoch"].tolist() == [0.75, 0.75]
+    assert log_df["loss"].tolist() == [3.0, 5.0]
     assert manager.update_best_checkpoint(metrics)
     assert not manager.update_best_checkpoint(metrics)
     assert not manager.update_early_stopping(metrics)
     state = manager.checkpoint_state(metrics)
     assert state["metrics"] == metrics
     assert state["best_checkpoint"]["best"] == 4.0
+
+    manager.log_dir = None
+    manager.model.evaluate = lambda *_args: {"prediction": [1, 2]}
+    with pytest.raises(RuntimeError, match="did not produce any scalar"):
+        manager.run(iteration=3)
+    manager.early_stopping = None
+    manager.best_checkpoint = None
+    assert not manager.update_early_stopping(metrics)
+    assert not manager.update_best_checkpoint(metrics)
     manager.close()
     assert manager.io.closed
 
@@ -321,6 +342,38 @@ def test_validation_manager_validates_runtime_options(monkeypatch):
         ValidationManager(
             {"file_keys": "val.root", "best_checkpoint": "invalid"}, **kwargs
         )
+
+
+def test_validation_log_uses_distributed_and_input_prefixes(monkeypatch, tmp_path):
+    """Validation log names should mirror ordinary driver naming options."""
+    calls = []
+    manager = object.__new__(ValidationManager)
+    manager.log_dir = None
+    manager.distributed = True
+    manager.rank = 2
+    manager.prefix_log = True
+    manager.overwrite_log = True
+    manager.csv_buffer_size = 8
+    manager.io = SimpleNamespace(
+        format_log_name=lambda name, _directory: f"sample_{name}"
+    )
+    monkeypatch.setattr(
+        validation_mod,
+        "LogManager",
+        lambda path, **kwargs: calls.append((path, kwargs)) or "logger",
+    )
+
+    assert manager.initialize_log(9) is None
+    manager.log_dir = str(tmp_path / "logs")
+    log_manager = manager.initialize_log(9)
+
+    assert log_manager == "logger"
+    assert calls == [
+        (
+            str(tmp_path / "logs" / "sample_validation_proc2_log-0000010.csv"),
+            {"overwrite": True, "buffer_size": 8},
+        )
+    ]
 
 
 def test_validation_source_configuration_errors():

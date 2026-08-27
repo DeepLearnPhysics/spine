@@ -859,6 +859,11 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
     drv.world_size = 2
     drv.distributed = True
     drv.seed = 7
+    drv.log_dir = "logs"
+    drv.prefix_log = True
+    drv.overwrite_log = True
+    drv.csv_buffer_size = 8
+    drv.log_step = 4
     monkeypatch.setattr(
         driver_mod,
         "ValidationManager",
@@ -875,6 +880,11 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
         "world_size": 2,
         "distributed": True,
         "seed": 7,
+        "log_dir": "logs",
+        "prefix_log": True,
+        "overwrite_log": True,
+        "csv_buffer_size": 8,
+        "log_step": 4,
     }
 
 
@@ -1319,8 +1329,8 @@ def test_run_validates_before_checkpoint_and_stops_early():
         best_checkpoint = SimpleNamespace(path="best.ckpt")
 
         @staticmethod
-        def run(iteration):
-            calls.append(("validate", iteration))
+        def run(iteration, epoch):
+            calls.append(("validate", iteration, epoch))
             return {"loss": 2.0}
 
         @staticmethod
@@ -1351,7 +1361,12 @@ def test_run_validates_before_checkpoint_and_stops_early():
     drv.world_size = 0
     drv.cfg = {"base": {}, "train": {}}
     drv.ana = None
-    drv.log_manager = SimpleNamespace(close=lambda: calls.append("log_close"))
+    drv.log_manager = SimpleNamespace(
+        append_tensorboard=lambda metrics, iteration: calls.append(
+            ("tensorboard", dict(metrics), iteration)
+        ),
+        close=lambda: calls.append("log_close"),
+    )
     drv.io = SimpleNamespace(
         has_loader=True,
         iter_per_epoch=1,
@@ -1366,15 +1381,16 @@ def test_run_validates_before_checkpoint_and_stops_early():
 
     drv.run()
 
-    assert calls[0] == ("validate", 0)
-    assert calls[1] == ("select_best", {"loss": 2.0})
-    assert calls[3] == ("scheduler", {"loss": 2.0})
-    assert calls[4][0] == "save"
-    assert calls[4][3]["metrics"] == {"loss": 2.0}
-    assert calls[4][4]["config"] == drv.cfg
-    assert calls[4][4]["runtime_state"]["ranks"][0]["rank"] == 0
-    assert calls[5] == ("best", "snapshot-0.ckpt", "best.ckpt")
-    assert calls[6] == ("log", {"loss": 1.0, "val_loss": 2.0})
+    assert calls[0] == ("validate", 0, 1.0)
+    assert calls[1] == ("tensorboard", {"val_loss": 2.0}, 0)
+    assert calls[2] == ("select_best", {"loss": 2.0})
+    assert calls[4] == ("scheduler", {"loss": 2.0})
+    assert calls[5][0] == "save"
+    assert calls[5][3]["metrics"] == {"loss": 2.0}
+    assert calls[5][4]["config"] == drv.cfg
+    assert calls[5][4]["runtime_state"]["ranks"][0]["rank"] == 0
+    assert calls[6] == ("best", "snapshot-0.ckpt", "best.ckpt")
+    assert calls[7] == ("log", {"loss": 1.0})
     assert calls[-3:] == ["log_close", "validation_close", "io_close"]
     assert ("start", "save") in FakeModel.watch.calls
     assert ("stop", "save") in FakeModel.watch.calls
