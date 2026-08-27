@@ -10,6 +10,7 @@ import pytest
 import spine.logging.manager as log_manager_mod
 from spine.logging import LogManager
 from spine.logging.manager import get_first_entry
+from spine.utils.stopwatch import StopwatchManager
 
 
 class FakeTime:
@@ -129,6 +130,38 @@ def test_log_manager_collects_and_writes_scalars(monkeypatch, tmp_path):
     assert ("flag", 1, 1) in tb_scalars
     manager.close()
     assert writers[0].closed is True
+
+
+def test_log_manager_preserves_timer_columns_before_first_measurement(tmp_path):
+    """Aggregated model-save columns should remain stable across first use."""
+    watch = StopwatchManager()
+    watch.initialize("iteration")
+    model_watch = StopwatchManager()
+    model_watch.initialize("save")
+    watch.start("iteration")
+    watch.stop("iteration")
+    watch.update(model_watch, "model")
+    manager = LogManager(str(tmp_path / "log.csv"))
+
+    first = manager.append({"index": np.array([0])}, watch, iteration=0)
+    assert np.isnan(first["model_save_time"])
+    assert np.isnan(first["model_save_time_cpu"])
+    assert np.isnan(first["model_save_time_sum"])
+    assert np.isnan(first["model_save_time_sum_cpu"])
+
+    watch.start("iteration")
+    model_watch.start("save")
+    watch.stop("iteration")
+    model_watch.stop("save")
+    watch.update(model_watch, "model")
+    second = manager.append({"index": np.array([1])}, watch, iteration=1)
+    manager.close()
+
+    assert second["model_save_time"] >= 0.0
+    lines = (tmp_path / "log.csv").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 3
+    assert len(lines[0].split(",")) == len(lines[1].split(","))
+    assert len(lines[0].split(",")) == len(lines[2].split(","))
 
 
 def test_log_manager_tensorboard_paths(monkeypatch, tmp_path):

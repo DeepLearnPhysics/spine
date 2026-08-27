@@ -171,17 +171,23 @@ def test_stopwatch_and_manager_state_machine(monkeypatch):
         watch.stop = Time(1.0, 1.0)
     with pytest.raises(ValueError, match="not been started"):
         watch.pause = Time(1.0, 1.0)
+    assert np.isnan(watch.time.wall) and np.isnan(watch.time.cpu)
+    assert np.isnan(watch.time_sum.wall) and np.isnan(watch.time_sum.cpu)
+
+    watch.start = Time(1.0, 1.0)
+    assert watch.running and not watch.paused
     with pytest.raises(ValueError, match="not been stopped"):
         _ = watch.time
     with pytest.raises(ValueError, match="not been stopped"):
         _ = watch.time_sum
-
-    watch.start = Time(1.0, 1.0)
-    assert watch.running and not watch.paused
     with pytest.raises(ValueError, match="Cannot restart"):
         watch.start = Time(2.0, 2.0)
     watch.pause = Time(3.0, 4.0)
     assert watch.paused and not watch.running
+    with pytest.raises(ValueError, match="not been stopped"):
+        _ = watch.time
+    with pytest.raises(ValueError, match="not been stopped"):
+        _ = watch.time_sum
     watch.start = Time(5.0, 6.0)
     watch.stop = Time(8.0, 10.0)
     assert watch.time == Time(5.0, 7.0)

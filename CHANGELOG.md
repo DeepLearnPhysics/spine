@@ -4,6 +4,7 @@
 
 ### Fixed
 - **Container TensorBoard runtime**: Restore TensorBoard to the full SPINE image and verify its PyTorch summary-writer integration during image construction.
+- **Checkpoint timing lifecycle**: Initialize model-save timing only when checkpoints are configured and represent not-yet-measured stopwatch values as stable `NaN` timing columns.
 
 ## [1.0.3] - 2026-08-26
 

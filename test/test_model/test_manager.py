@@ -182,6 +182,7 @@ def make_bare_manager(**attributes):
         "input_dict": {},
         "loss_dict": None,
         "time_dependent": False,
+        "watch": FakeWatchManager(),
     }
     defaults.update(attributes)
     for name, value in defaults.items():
@@ -280,6 +281,7 @@ def test_initialize_train_validates_save_cadence(monkeypatch, tmp_path):
         },
     )
     assert manager.save_step == 5
+    assert ("initialize", "save") in manager.watch.calls
     assert manager.lr_scheduler is scheduler
     assert manager.lr_scheduler_interval == "checkpoint"
     assert manager.lr_scheduler_monitor == "loss"
@@ -297,6 +299,7 @@ def test_initialize_train_selects_resume_mode_from_weight_path():
 
     manager.initialize_train(optimizer={"name": "Adam"})
 
+    assert ("initialize", "save") not in manager.watch.calls
     assert manager.resume_training
     assert manager.restore_optimizer
     assert not manager.strict_resume

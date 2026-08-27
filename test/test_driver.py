@@ -11,6 +11,7 @@ import pytest
 import spine.driver as driver_mod
 import spine.io.manager as io_manager_mod
 from spine.driver import Driver
+from spine.utils.stopwatch import StopwatchManager
 
 
 class FakeTime:
@@ -1377,6 +1378,83 @@ def test_run_validates_before_checkpoint_and_stops_early():
     assert calls[-3:] == ["log_close", "validation_close", "io_close"]
     assert ("start", "save") in FakeModel.watch.calls
     assert ("stop", "save") in FakeModel.watch.calls
+
+
+def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path):
+    """An ordinary row followed by a save should retain one CSV schema."""
+    drv = bare_driver()
+    drv.watch = StopwatchManager()
+    drv.watch.initialize(["iteration", "model"])
+
+    class FakeModel:
+        train = True
+        start_iteration = 0
+        start_epoch = 0.0
+        distributed = False
+        device = "cpu"
+        watch = StopwatchManager()
+        watch.initialize(["forward", "backward", "save"])
+
+        def __call__(self, _data, **_kwargs):
+            self.watch.start(["forward", "backward"])
+            self.watch.stop(["forward", "backward"])
+            return {"loss": 1.0}
+
+        @staticmethod
+        def should_save(iteration):
+            return iteration == 1
+
+        @staticmethod
+        def step_checkpoint_scheduler(_metrics):
+            return None
+
+        @staticmethod
+        def save_state(*_args, **_kwargs):
+            return "snapshot-1.ckpt"
+
+    io_watch = StopwatchManager()
+    drv.model = FakeModel()
+    drv.validation = None
+    drv.builder = None
+    drv.post = None
+    drv.ana = None
+    drv.iterations = 2
+    drv.epochs = None
+    drv.main_process = True
+    drv.distributed = False
+    drv.rank = None
+    drv.world_size = 0
+    drv.cfg = {"base": {}, "train": {}}
+    drv.log_dir = str(tmp_path)
+    drv.prefix_log = False
+    drv.overwrite_log = False
+    drv.csv_buffer_size = 1
+    drv.tensorboard_cfg = None
+    drv.log_step = 1000
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=1,
+        watch=io_watch,
+        prepare_iteration=lambda _iteration: None,
+        load=lambda *_args: {"index": np.array([0])},
+        unwrap=lambda data: data,
+        write=lambda *_args: None,
+        checkpoint_state=lambda next_iteration: {"next_iteration": next_iteration},
+        dataset_provenance=lambda: {"files": ["train.root"]},
+        close=lambda: None,
+    )
+
+    drv.run()
+
+    lines = (
+        (tmp_path / "train_log-0000000.csv").read_text(encoding="utf-8").splitlines()
+    )
+    assert len(lines) == 3
+    rows = [line.split(",") for line in lines]
+    assert len(rows[0]) == len(rows[1]) == len(rows[2])
+    save_index = rows[0].index("model_save_time")
+    assert rows[1][save_index] == "nan"
+    assert float(rows[2][save_index]) >= 0.0
 
 
 def test_apply_filter_resets_loader_iterator():

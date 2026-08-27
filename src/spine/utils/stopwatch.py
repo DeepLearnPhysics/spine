@@ -171,8 +171,11 @@ class Stopwatch:
     @property
     def time(self):
         """Time between the last start and the last stop."""
-        # Check that the watch was stopped
+        # An initialized watch has no measurement yet. Preserve that state as
+        # an undefined value while still rejecting reads of active watches.
         if self._stop == Time():
+            if self._start == Time() and self._pause == Time():
+                return Time(float("nan"), float("nan"))
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._time
@@ -180,8 +183,10 @@ class Stopwatch:
     @property
     def time_sum(self):
         """Sum of times between all watch starts en stops."""
-        # Check that the watch was stopped
+        # Match ``time`` for an initialized watch with no completed interval.
         if self._stop == Time():
+            if self._start == Time() and self._pause == Time():
+                return Time(float("nan"), float("nan"))
             raise ValueError("Cannot get time of watch that has not been stopped.")
 
         return self._total

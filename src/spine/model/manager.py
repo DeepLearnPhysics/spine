@@ -150,7 +150,7 @@ class ModelManager:
         self.watch = StopwatchManager()
         self.watch.initialize("forward")
         if self.train:
-            self.watch.initialize(["backward", "save"])
+            self.watch.initialize("backward")
 
         # If anomaly detection is requested, set it
         if detect_anomaly:
@@ -308,6 +308,8 @@ class ModelManager:
             if iter_per_epoch is None:
                 raise ValueError("`save_epoch` requires `iter_per_epoch`.")
             self.save_step = max(1, int(save_epoch * iter_per_epoch))
+        if self.save_step is not None:
+            self.watch.initialize("save")
 
         # Make a directory for the weight files, if need be
         save_dir = os.path.dirname(weight_prefix)
