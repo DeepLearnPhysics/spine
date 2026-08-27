@@ -123,6 +123,9 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69
     assert output.count(separator) == 2
+    train_summary = output.index("Iter. 0 (epoch 1.000)")
+    checkpoint = output.index("CHECKPOINT\nTraining iteration: 0")
+    assert train_summary < checkpoint
 
 
 @pytest.mark.model

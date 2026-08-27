@@ -20,11 +20,13 @@ class LogManager:
 
     The manager writes one flat scalar row to CSV on every call and can mirror
     numeric entries to TensorBoard. It also owns the human-readable progress
-    table printed periodically during training or inference.
+    table printed periodically during training or inference, along with the
+    checkpoint and validation lifecycle messages which surround those tables.
     """
 
-    STDOUT_WIDTHS = (20, 20, 9, 9)
-    STDOUT_RANK_WIDTH = 5
+    # Column widths shared by all human-readable iteration tables
+    STDOUT_WIDTHS: tuple[int, ...] = (20, 20, 9, 9)
+    STDOUT_RANK_WIDTH: int = 5
 
     def __init__(
         self,
@@ -210,11 +212,124 @@ class LogManager:
 
     @staticmethod
     def stdout_table_width(distributed: bool = False) -> int:
-        """Return the rendered width of an iteration-summary table."""
+        """Return the rendered width of an iteration-summary table.
+
+        Parameters
+        ----------
+        distributed : bool, default False
+            Whether the table includes the leading process-rank column.
+
+        Returns
+        -------
+        int
+            Number of characters occupied by one complete table row.
+        """
         widths = list(LogManager.STDOUT_WIDTHS)
         if distributed:
             widths.insert(0, LogManager.STDOUT_RANK_WIDTH)
+
+        # Account for the left margin and each column delimiter
         return 4 + sum(widths) + 2 * (len(widths) - 1) + 1
+
+    @staticmethod
+    def log_checkpoint_start(
+        iteration: int,
+        epoch: float,
+        validation_batches: int | None,
+        distributed: bool = False,
+    ) -> None:
+        """Open a human-readable checkpoint progress section.
+
+        The section remains open while optional validation and checkpoint
+        serialization run. :meth:`log_checkpoint_complete` closes it only
+        after the checkpoint has been persisted successfully.
+
+        Parameters
+        ----------
+        iteration : int
+            Training iteration associated with the checkpoint.
+        epoch : float
+            Training progress, expressed in epochs.
+        validation_batches : int, optional
+            Number of validation batches scheduled at this boundary. ``None``
+            indicates that on-the-fly validation is disabled.
+        distributed : bool, default False
+            Whether progress tables include a process-rank column.
+        """
+        # Match the section boundary to the associated progress-table width
+        separator = "=" * LogManager.stdout_table_width(distributed)
+        validation_label = (
+            "disabled" if validation_batches is None else str(validation_batches)
+        )
+
+        logger.info(
+            "%s\n"
+            "CHECKPOINT\n"
+            "Training iteration: %d\n"
+            "Epoch:              %.3f\n"
+            "Validation batches: %s\n",
+            separator,
+            iteration,
+            epoch,
+            validation_label,
+        )
+
+    @staticmethod
+    def log_validation_start() -> None:
+        """Mark the start of validation within an open checkpoint section."""
+        logger.info("VALIDATION START\n")
+
+    @staticmethod
+    def log_validation_complete(metrics: Mapping[str, float]) -> None:
+        """Render aggregate validation metrics inside a checkpoint section.
+
+        Parameters
+        ----------
+        metrics : mapping[str, float]
+            Globally reduced scalar validation metrics.
+        """
+        # Align metric values while retaining deterministic alphabetical order
+        key_width = max(map(len, metrics))
+        summary = "\n".join(
+            f"  {key:<{key_width}}: {value:.6g}"
+            for key, value in sorted(metrics.items())
+        )
+
+        logger.info("VALIDATION COMPLETE\nMetrics:\n%s\n", summary)
+
+    @staticmethod
+    def log_checkpoint_saving() -> None:
+        """Mark serialization within an open checkpoint progress section.
+
+        This message is emitted before persistence begins so a long-running
+        checkpoint write is distinguishable from a stalled process.
+        """
+        logger.info("Saving checkpoint...\n")
+
+    @staticmethod
+    def log_checkpoint_complete(
+        checkpoint_path: str,
+        distributed: bool = False,
+        best_path: str | None = None,
+    ) -> None:
+        """Close a checkpoint section with its persisted output paths.
+
+        Parameters
+        ----------
+        checkpoint_path : str
+            Path of the checkpoint produced at this training boundary.
+        distributed : bool, default False
+            Whether progress tables include a process-rank column.
+        best_path : str, optional
+            Stable best-checkpoint path updated by this save, if any.
+        """
+        separator = "=" * LogManager.stdout_table_width(distributed)
+        completion = f"Checkpoint saved: {checkpoint_path}"
+        if best_path is not None:
+            completion += f"\nBest checkpoint updated: {best_path}"
+
+        # A missing closing boundary therefore signals an incomplete save
+        logger.info("%s\n%s\n", completion, separator)
 
     @staticmethod
     def log_stdout_summary(
@@ -262,6 +377,7 @@ class LogManager:
             Total number of iterations in a bounded pass, used to show
             validation progress.
         """
+        # Resolve the table layout before rendering its shared header
         proc = mode or ("train" if model_train else "inference")
         device = "GPU" if rank is not None else "CPU"
         keys = [f"Time ({proc})", f"{device} memory", "Loss", "Accuracy"]
@@ -269,6 +385,7 @@ class LogManager:
         if distributed:
             keys = ["Rank"] + keys
             widths = [LogManager.STDOUT_RANK_WIDTH] + widths
+
         if main_process:
             epoch_value = -1.0 if epoch is None else epoch
             header = "  | " + "| ".join(
@@ -284,6 +401,8 @@ class LogManager:
             msg += header + "|\n"
             msg += separator + "|"
             logger.info(msg)
+
+        # Keep distributed process rows associated with the same header
         if distributed:
             runtime.distributed_barrier()
 
@@ -309,6 +428,7 @@ class LogManager:
         if distributed:
             values = [f"{rank}"] + values
 
+        # Render the local process row, then gather it for ordered rank output
         msg = "  | " + "| ".join(
             [f"{values[i]:<{widths[i]}}" for i in range(len(keys))]
         )

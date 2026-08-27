@@ -322,6 +322,40 @@ def test_log_manager_labels_bounded_validation_progress(monkeypatch):
     assert LogManager.stdout_table_width(distributed=True) == 76
 
 
+def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
+    """Checkpoint presentation should be owned by the logging package."""
+    infos: list[str] = []
+    monkeypatch.setattr(
+        log_manager_mod.logger,
+        "info",
+        lambda msg, *args: infos.append(msg % args if args else msg),
+    )
+
+    LogManager.log_checkpoint_start(12, 1.5, 4)
+    LogManager.log_validation_start()
+    LogManager.log_validation_complete({"loss": 0.25, "accuracy": 0.9})
+    LogManager.log_checkpoint_saving()
+    LogManager.log_checkpoint_complete(
+        "snapshot-12.ckpt",
+        best_path="snapshot-best.ckpt",
+    )
+    LogManager.log_checkpoint_start(13, 1.6, None, distributed=True)
+
+    output = "\n".join(infos)
+    assert "CHECKPOINT\nTraining iteration: 12" in output
+    assert "Validation batches: 4" in output
+    assert "VALIDATION START" in output
+    assert "VALIDATION COMPLETE\nMetrics:" in output
+    assert "  accuracy: 0.9" in output
+    assert "  loss    : 0.25" in output
+    assert "Saving checkpoint..." in output
+    assert "Checkpoint saved: snapshot-12.ckpt" in output
+    assert "Best checkpoint updated: snapshot-best.ckpt" in output
+    assert "Validation batches: disabled" in output
+    assert len(infos[0].splitlines()[0]) == 69
+    assert len(infos[-1].splitlines()[0]) == 76
+
+
 def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypatch):
     """Non-main distributed ranks should not print headers directly."""
     infos: list[str] = []

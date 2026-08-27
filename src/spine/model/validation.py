@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from spine.io import IOManager
-from spine.logging import LogManager, logger
+from spine.logging import LogManager
 from spine.utils.conditional import torch
 from spine.utils.stopwatch import StopwatchManager
 from spine.utils.torch import runtime
@@ -744,7 +744,7 @@ class ValidationManager:
         main_process = getattr(self, "main_process", rank is None or rank == 0)
         log_step = getattr(self, "log_step", 1)
         if main_process:
-            logger.info("VALIDATION START\n")
+            LogManager.log_validation_start()
 
         # Accumulate scalar outputs and ignore structured predictions
         totals: dict[str, float] = {}
@@ -804,30 +804,23 @@ class ValidationManager:
 
         metrics = {key: total / counts[key] for key, total in totals.items()}
         if main_process:
-            key_width = max(map(len, metrics))
-            summary = "\n".join(
-                f"  {key:<{key_width}}: {value:.6g}"
-                for key, value in sorted(metrics.items())
-            )
-            logger.info(
-                "VALIDATION COMPLETE\n" "Metrics:\n%s\n",
-                summary,
-            )
+            LogManager.log_validation_complete(metrics)
         return metrics
 
     def initialize_log(self, iteration: int) -> LogManager | None:
         """Create the inference-style log segment for one validation pass."""
-        if getattr(self, "log_dir", None) is None:
+        log_dir = getattr(self, "log_dir", None)
+        if log_dir is None:
             return None
-        if self.log_dir and not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir, exist_ok=True)
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
 
         suffix = "" if not self.distributed else f"_proc{self.rank}"
         log_name = f"validation{suffix}_log-{iteration + 1:07d}.csv"
         if self.prefix_log:
-            log_name = self.io.format_log_name(log_name, self.log_dir)
+            log_name = self.io.format_log_name(log_name, log_dir)
         return LogManager(
-            os.path.join(self.log_dir, log_name),
+            os.path.join(log_dir, log_name),
             overwrite=self.overwrite_log,
             buffer_size=self.csv_buffer_size,
         )

@@ -65,6 +65,10 @@ def cdist_fast(v1: Any, v2: Any, metric: str = "euclidean") -> Any:
 class _TensorLike(Protocol):
     """Tensor interface required by scalar-output conversion."""
 
+    def dim(self) -> int:
+        """Return the number of tensor dimensions."""
+        ...  # pragma: no cover - typing protocol
+
     def numel(self) -> int:
         """Return the number of tensor elements."""
         ...  # pragma: no cover - typing protocol

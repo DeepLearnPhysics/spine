@@ -952,32 +952,28 @@ class Driver:
                 # Checkpoint boundaries are driver-owned so all ranks can
                 # validate before rank zero serializes the live weights.
                 stop_training = False
-                if (
+                should_checkpoint = (
                     self.model is not None
                     and self.model.train
                     and self.model.should_save(iteration)
-                ):
-                    checkpoint_separator = "=" * LogManager.stdout_table_width(
-                        self.distributed
-                    )
+                )
+                if should_checkpoint:
+                    # Present the completed training step before entering the
+                    # checkpoint section. The authoritative CSV row is still
+                    # appended afterward so it includes checkpoint timings.
+                    self.log_stdout(data, tstamp, iteration, epoch)
+
                     if self.main_process:
                         validation_batches = (
-                            "disabled"
+                            None
                             if self.validation is None
-                            else str(
-                                getattr(self.validation, "num_iterations", "enabled")
-                            )
+                            else self.validation.num_iterations
                         )
-                        logger.info(
-                            "%s\n"
-                            "CHECKPOINT\n"
-                            "Training iteration: %d\n"
-                            "Epoch:              %.3f\n"
-                            "Validation batches: %s\n",
-                            checkpoint_separator,
+                        LogManager.log_checkpoint_start(
                             iteration,
                             epoch,
                             validation_batches,
+                            self.distributed,
                         )
 
                     validation_state = None
@@ -1022,7 +1018,7 @@ class Driver:
 
                     if self.main_process:
                         # Retain model-owned save timing around serialization
-                        logger.info("Saving checkpoint...\n")
+                        LogManager.log_checkpoint_saving()
                         self.model.watch.start("save")
                         datasets = {"train": self.io.dataset_provenance()}
                         if self.validation is not None:
@@ -1045,13 +1041,20 @@ class Driver:
                             self.model.save_best_state(checkpoint_path, best_path)
                         self.model.watch.stop("save")
                         self.watch.update(self.model.watch, "model")
-                        completion = f"Checkpoint saved: {checkpoint_path}"
-                        if promote_best:
-                            completion += f"\nBest checkpoint updated: {best_path}"
-                        logger.info("%s\n%s\n", completion, checkpoint_separator)
+                        LogManager.log_checkpoint_complete(
+                            checkpoint_path,
+                            self.distributed,
+                            best_path if promote_best else None,
+                        )
 
                 # Log the output
-                self.log(data, tstamp, iteration, epoch)
+                self.log(
+                    data,
+                    tstamp,
+                    iteration,
+                    epoch,
+                    stdout=not should_checkpoint,
+                )
 
                 # Release the memory for the next iteration
                 data = None
@@ -1254,6 +1257,7 @@ class Driver:
         tstamp: str,
         iteration: int,
         epoch: float | None = None,
+        stdout: bool = True,
     ) -> None:
         """Log relevant information to CSV files and stdout.
 
@@ -1267,6 +1271,9 @@ class Driver:
             Iteration counter
         epoch : float
             Progress in the training process in number of epochs
+        stdout : bool, default True
+            Whether to emit the human-readable iteration summary. Checkpoint
+            rows may print this summary before their CSV row is finalized.
         """
         # Check that the log manager is not being used before initialization
         if self.log_manager is None:
@@ -1274,19 +1281,37 @@ class Driver:
 
         log_row = self.log_manager.append(data, self.watch, iteration, epoch)
 
-        if self.should_log_stdout(iteration):
-            self.log_manager.log_stdout_summary(
-                log_row,
-                data,
-                self.watch,
-                tstamp,
-                iteration,
-                epoch,
-                model_train=self.model is not None and self.model.train,
-                rank=self.rank,
-                distributed=self.distributed,
-                main_process=self.main_process,
-            )
+        if stdout:
+            self.log_stdout(data, tstamp, iteration, epoch, log_row)
+
+    def log_stdout(
+        self,
+        data: dict[str, Any],
+        tstamp: str,
+        iteration: int,
+        epoch: float | None = None,
+        log_row: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Emit an iteration summary without writing a structured log row."""
+        if not self.should_log_stdout(iteration):
+            return
+        if self.log_manager is None:
+            raise RuntimeError("The log manager must be initialized before logging.")
+        if log_row is None:
+            log_row = self.log_manager.collect(data, self.watch, iteration, epoch)
+
+        self.log_manager.log_stdout_summary(
+            log_row,
+            data,
+            self.watch,
+            tstamp,
+            iteration,
+            epoch,
+            model_train=self.model is not None and self.model.train,
+            rank=self.rank,
+            distributed=self.distributed,
+            main_process=self.main_process,
+        )
 
     def should_log_stdout(self, iteration: int) -> bool:
         """Return ``True`` when a formatted stdout summary should be emitted."""

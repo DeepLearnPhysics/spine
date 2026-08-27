@@ -1202,7 +1202,7 @@ def test_run_loop_resets_loader_logs_and_closes():
     drv.process = lambda entry=None, iteration=None, epoch=None: calls.append(
         ("process", entry, iteration, epoch)
     ) or {"index": iteration}
-    drv.log = lambda data, tstamp, iteration, epoch: calls.append(
+    drv.log = lambda data, tstamp, iteration, epoch, **_kwargs: calls.append(
         ("log", data["index"], iteration, epoch)
     )
 
@@ -1251,7 +1251,7 @@ def test_run_resumes_epoch_progress_across_batch_size_change():
     )
     drv.initialize_log = lambda: None
     drv.process = lambda **kwargs: epochs.append(kwargs["epoch"]) or {}
-    drv.log = lambda *_args: None
+    drv.log = lambda *_args, **_kwargs: None
 
     drv.run()
 
@@ -1327,6 +1327,7 @@ def test_run_validates_before_checkpoint_and_stops_early():
     class FakeValidation:
         io = SimpleNamespace(dataset_provenance=lambda: {"files": ["validation.root"]})
         best_checkpoint = SimpleNamespace(path="best.ckpt")
+        num_iterations = 1
 
         @staticmethod
         def run(iteration, epoch):
@@ -1377,20 +1378,22 @@ def test_run_validates_before_checkpoint_and_stops_early():
     )
     drv.initialize_log = lambda: None
     drv.process = lambda **kwargs: {"loss": 1.0}
-    drv.log = lambda data, *_args: calls.append(("log", dict(data)))
+    drv.log_stdout = lambda data, *_args: calls.append(("stdout", dict(data)))
+    drv.log = lambda data, *_args, **_kwargs: calls.append(("log", dict(data)))
 
     drv.run()
 
-    assert calls[0] == ("validate", 0, 1.0)
-    assert calls[1] == ("tensorboard", {"val_loss": 2.0}, 0)
-    assert calls[2] == ("select_best", {"loss": 2.0})
-    assert calls[4] == ("scheduler", {"loss": 2.0})
-    assert calls[5][0] == "save"
-    assert calls[5][3]["metrics"] == {"loss": 2.0}
-    assert calls[5][4]["config"] == drv.cfg
-    assert calls[5][4]["runtime_state"]["ranks"][0]["rank"] == 0
-    assert calls[6] == ("best", "snapshot-0.ckpt", "best.ckpt")
-    assert calls[7] == ("log", {"loss": 1.0})
+    assert calls[0] == ("stdout", {"loss": 1.0})
+    assert calls[1] == ("validate", 0, 1.0)
+    assert calls[2] == ("tensorboard", {"val_loss": 2.0}, 0)
+    assert calls[3] == ("select_best", {"loss": 2.0})
+    assert calls[5] == ("scheduler", {"loss": 2.0})
+    assert calls[6][0] == "save"
+    assert calls[6][3]["metrics"] == {"loss": 2.0}
+    assert calls[6][4]["config"] == drv.cfg
+    assert calls[6][4]["runtime_state"]["ranks"][0]["rank"] == 0
+    assert calls[7] == ("best", "snapshot-0.ckpt", "best.ckpt")
+    assert calls[8] == ("log", {"loss": 1.0})
     assert calls[-3:] == ["log_close", "validation_close", "io_close"]
     assert ("start", "save") in FakeModel.watch.calls
     assert ("stop", "save") in FakeModel.watch.calls
@@ -1446,7 +1449,7 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     drv.overwrite_log = False
     drv.csv_buffer_size = 1
     drv.tensorboard_cfg = None
-    drv.log_step = 1000
+    drv.log_step = 1
     drv.io = SimpleNamespace(
         has_loader=True,
         iter_per_epoch=1,
@@ -1478,6 +1481,9 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     assert "Saving checkpoint..." in output
     assert "Checkpoint saved: snapshot-1.ckpt" in output
     assert output.count("=" * 69) == 2
+    train_summary = output.index("Iter. 1 (epoch 2.000)")
+    checkpoint = output.index("CHECKPOINT\nTraining iteration: 1")
+    assert train_summary < checkpoint
 
 
 def test_apply_filter_resets_loader_iterator():
