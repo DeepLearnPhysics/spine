@@ -186,10 +186,10 @@ def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
     class FakeLightModel:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
-            self.positions = []
+            self.calls = []
 
-        def get_response(self, position):
-            self.positions.append(np.asarray(position))
+        def get_response(self, points, weights=None):
+            self.calls.append((np.asarray(points), weights))
             return 0.5
 
     monkeypatch.setattr(
@@ -215,7 +215,43 @@ def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
     assert matches[0][1] is accepted
     assert matches[0][2].light_charge_ratio == pytest.approx(1.0)
     assert matcher.light_model.kwargs["algorithm"] == "SemiAnalyticalModel"
-    assert len(matcher.light_model.positions) == 1
+    assert len(matcher.light_model.calls) == 1
+    np.testing.assert_allclose(matcher.light_model.calls[0][0], [0.0, 0.0, 0.0])
+    assert matcher.light_model.calls[0][1] is None
+
+
+def test_barycenter_flash_matcher_can_propagate_all_charge_points(monkeypatch):
+    class FakeLightModel:
+        def __init__(self, **kwargs):
+            self.calls = []
+
+        def get_response(self, points, weights=None):
+            self.calls.append((np.asarray(points), np.asarray(weights)))
+            return 0.5
+
+    monkeypatch.setattr(
+        "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
+    )
+    matcher = BarycenterFlashMatcher(
+        report_mode="all",
+        candidate_distance=1.0,
+        light_charge_bounds=(0.5, 1.5),
+        light_model_cfg="minimal.cfg",
+        light_model_use_points=True,
+        charge_scale=2.0,
+    )
+    interaction = FakeInteraction(
+        [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0], [np.nan, 2.0, 0.0]],
+        depositions=[1.0, 3.0, 2.0],
+    )
+    flash = FakeFlash([0.0, 0.5, 0.0], [0.0, 0.1, 0.1], total_pe=2.0)
+
+    matches = matcher.get_matches([interaction], [flash])
+
+    assert len(matches) == 1
+    points, weights = matcher.light_model.calls[0]
+    np.testing.assert_allclose(points, [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]])
+    np.testing.assert_allclose(weights, [1.0, 3.0])
 
 
 def test_barycenter_flash_matcher_adds_pca_angle_to_chi2():

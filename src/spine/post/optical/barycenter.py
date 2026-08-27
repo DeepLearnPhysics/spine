@@ -10,7 +10,7 @@ import numpy as np
 
 from spine.constants.physics import LAR_WION_MEV
 
-from .likelihood import OpT0FinderLightModel
+from .opt0finder import OpT0FinderLightModel
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,7 @@ class BarycenterFlashMatcher:
         light_charge_bounds: Sequence[float] | None = None,
         light_model_cfg: str | None = None,
         light_model_algorithm: str = "SemiAnalyticalModel",
+        light_model_use_points: bool = False,
         charge_scale: float = 0.65 / LAR_WION_MEV,
         detector: str | None = None,
         parent_path: str | None = None,
@@ -146,6 +147,11 @@ class BarycenterFlashMatcher:
         light_model_algorithm : str, default 'SemiAnalyticalModel'
             OpT0Finder flash-hypothesis algorithm used to predict the effective
             PE response at the charge barycenter
+        light_model_use_points : bool, default False
+            Propagate a deposition-weighted point cloud through the optical
+            model instead of collapsing the interaction to its charge
+            barycenter. This is more faithful for extended interactions but may
+            be substantially more expensive
         charge_scale : float, default 0.65 / LAR_WION_MEV
             Conversion from one calibrated deposition unit to charge quanta.
             The default assumes MeV depositions, a 23.6-eV argon ionization
@@ -276,6 +282,7 @@ class BarycenterFlashMatcher:
         self.chi2_floor = chi2_floor
         self.optical = optical
         self.light_charge_bounds = bounds
+        self.light_model_use_points = light_model_use_points
         self.charge_scale = charge_scale
         self.light_model = light_model
 
@@ -362,7 +369,10 @@ class BarycenterFlashMatcher:
         light_responses = None
         if self.light_model is not None:
             light_responses = np.asarray(
-                [self.light_model.get_response(center) for center in charge_centers],
+                [
+                    self._light_response(inter, center)
+                    for inter, center in zip(interactions, charge_centers)
+                ],
                 dtype=np.float64,
             )
 
@@ -544,9 +554,50 @@ class BarycenterFlashMatcher:
         float
             Sum of positive finite depositions in the interaction
         """
+        points = np.asarray(interaction.points, dtype=np.float64)
         depositions = np.asarray(interaction.depositions, dtype=np.float64)
-        valid = np.isfinite(depositions) & (depositions > 0.0)
+        valid = (
+            np.all(np.isfinite(points), axis=1)
+            & np.isfinite(depositions)
+            & (depositions > 0.0)
+        )
         return float(np.sum(depositions[valid]))
+
+    def _light_response(self, interaction: Any, center: np.ndarray) -> float:
+        """Evaluate the configured light model for one interaction.
+
+        The default evaluates a single unit-photon source at the charge
+        barycenter. In distributed mode, every finite point with a positive
+        deposition is propagated and its relative photon yield is taken to be
+        proportional to that deposition.
+
+        Parameters
+        ----------
+        interaction : Interaction
+            Interaction providing points and calibrated depositions
+        center : np.ndarray
+            (3) Charge barycenter used by the collapsed approximation
+
+        Returns
+        -------
+        float
+            Effective optical response, in PE per emitted photon
+        """
+        assert self.light_model is not None
+        if not self.light_model_use_points:
+            return self.light_model.get_response(center)
+
+        points = np.asarray(interaction.points, dtype=np.float64)
+        depositions = np.asarray(interaction.depositions, dtype=np.float64)
+        valid = (
+            np.all(np.isfinite(points), axis=1)
+            & np.isfinite(depositions)
+            & (depositions > 0.0)
+        )
+        if not np.any(valid):
+            return np.nan
+
+        return self.light_model.get_response(points[valid], depositions[valid])
 
     def _optical_axis(self, flash: Any) -> np.ndarray | None:
         """Compute the PE-squared weighted principal optical YZ axis.

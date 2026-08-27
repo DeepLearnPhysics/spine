@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from spine.post.optical import likelihood as likelihood_mod
+from spine.post.optical import opt0finder as opt0finder_mod
 
 
 class FakeVector:
@@ -104,13 +105,16 @@ class FakeLightPath:
 class FakeHypothesisAlgorithm:
     def __init__(self):
         self.config = None
+        self.qclusters = []
 
     def Configure(self, cfg):
         self.config = cfg
 
     def GetEstimate(self, qcluster):
+        self.qclusters.append(qcluster)
         if qcluster.payload and isinstance(qcluster.payload[0], FakeQPoint):
-            return SimpleNamespace(pe_v=[0.1, 0.2])
+            total = sum(point.q for point in qcluster.payload)
+            return SimpleNamespace(pe_v=[0.1 * total, 0.2 * total])
         return SimpleNamespace(pe_v=[qcluster.idx + 1.0, qcluster.idx + 2.0])
 
 
@@ -196,7 +200,7 @@ def configure_fake_backend(monkeypatch, tmp_path):
     monkeypatch.setenv("LD_LIBRARY_PATH", "")
     monkeypatch.delenv("FMATCH_DATADIR", raising=False)
     fake = FakeFlashMatch()
-    monkeypatch.setattr(likelihood_mod, "get_flashmatch", lambda: fake)
+    monkeypatch.setattr(opt0finder_mod, "get_flashmatch", lambda: fake)
     return fake, cfg
 
 
@@ -227,7 +231,7 @@ def test_likelihood_flash_matcher_backend_validation(monkeypatch, tmp_path):
         likelihood_mod.LikelihoodFlashMatcher(cfg="missing.cfg", detector="demo")
 
     (basedir / "dat" / "detector_specs_demo.cfg").write_text("detector")
-    monkeypatch.setattr(likelihood_mod, "get_flashmatch", lambda: FakeFlashMatch())
+    monkeypatch.setattr(opt0finder_mod, "get_flashmatch", lambda: FakeFlashMatch())
     with pytest.raises(FileNotFoundError, match="flash-matcher"):
         likelihood_mod.LikelihoodFlashMatcher(cfg="missing.cfg", detector="demo")
 
@@ -236,7 +240,7 @@ def test_get_flashmatch_loads_optional_module(monkeypatch):
     fake = SimpleNamespace(flashmatch=FakeFlashMatch())
     monkeypatch.setitem(sys.modules, "flashmatch", fake)
 
-    assert likelihood_mod.get_flashmatch() is fake.flashmatch
+    assert opt0finder_mod.get_flashmatch() is fake.flashmatch
 
 
 def test_likelihood_flash_matcher_initializes_backend(monkeypatch, tmp_path):
@@ -260,22 +264,29 @@ def test_likelihood_flash_matcher_initializes_backend(monkeypatch, tmp_path):
     }
 
 
-def test_opt0finder_light_model_queries_unit_point(monkeypatch, tmp_path):
+def test_opt0finder_light_model_queries_normalized_source(monkeypatch, tmp_path):
     fake, cfg = configure_fake_backend(monkeypatch, tmp_path)
 
-    model = likelihood_mod.OpT0FinderLightModel(
+    model = opt0finder_mod.OpT0FinderLightModel(
         cfg=str(cfg), detector="demo", algorithm="SemiAnalyticalModel"
     )
-    response = model.get_response([1.0, 2.0, 3.0])
+    response = model.get_response(
+        [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], weights=[1.0, 3.0]
+    )
 
     assert response == pytest.approx(0.3)
     assert fake.hypothesis.config == {
         "key": "flashmatch::FMParams",
         "name": "SemiAnalyticalModel",
     }
+    qcluster = fake.hypothesis.qclusters[-1]
+    assert [point.q for point in qcluster.payload] == pytest.approx([0.25, 0.75])
 
-    with pytest.raises(ValueError, match="finite 3-vector"):
+    with pytest.raises(ValueError, match="finite shape"):
         model.get_response([1.0, np.nan, 3.0])
+
+    with pytest.raises(ValueError, match="one value per point"):
+        model.get_response([[1.0, 2.0, 3.0]], weights=[1.0, 2.0])
 
 
 def test_likelihood_flash_matcher_uses_default_detector_specs(monkeypatch, tmp_path):
@@ -288,7 +299,7 @@ def test_likelihood_flash_matcher_uses_default_detector_specs(monkeypatch, tmp_p
     monkeypatch.setenv("FMATCH_BASEDIR", str(basedir))
     monkeypatch.setenv("LD_LIBRARY_PATH", "")
     fake = FakeFlashMatch()
-    monkeypatch.setattr(likelihood_mod, "get_flashmatch", lambda: fake)
+    monkeypatch.setattr(opt0finder_mod, "get_flashmatch", lambda: fake)
 
     likelihood_mod.LikelihoodFlashMatcher(cfg=str(cfg), detector=None)
 
