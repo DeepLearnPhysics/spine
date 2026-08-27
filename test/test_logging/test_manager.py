@@ -318,6 +318,8 @@ def test_log_manager_labels_bounded_validation_progress(monkeypatch):
 
     assert any("Val. 2/4" in msg for msg in infos)
     assert any("Time (validation)" in msg for msg in infos)
+    assert LogManager.stdout_table_width() == 69
+    assert LogManager.stdout_table_width(distributed=True) == 76
 
 
 def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypatch):

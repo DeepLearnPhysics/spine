@@ -979,10 +979,17 @@ class Driver:
                             validation_metrics
                         )
                         if self.main_process:
+                            separator = "=" * LogManager.stdout_table_width(
+                                self.distributed
+                            )
                             logger.info(
-                                "Returning to training iteration %d for "
-                                "checkpoint finalization.",
+                                "%s\n"
+                                "CHECKPOINT FINALIZATION\n"
+                                "Training iteration: %d\n"
+                                "%s\n",
+                                separator,
                                 iteration,
+                                separator,
                             )
 
                     # Checkpoint-bound schedulers advance before their state is saved.

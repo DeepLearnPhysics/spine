@@ -741,11 +741,20 @@ class ValidationManager:
         watch = StopwatchManager()
         watch.initialize(["iteration", "model"])
         if self.main_process:
+            separator = "=" * LogManager.stdout_table_width(self.distributed)
+            epoch_label = "n/a" if epoch is None else f"{epoch:.3f}"
             logger.info(
-                "Training iteration %d complete; starting validation (%d batch%s).",
+                "%s\n"
+                "VALIDATION START\n"
+                "Training iteration: %d\n"
+                "Epoch:              %s\n"
+                "Batches:            %d\n"
+                "%s\n",
+                separator,
                 iteration,
+                epoch_label,
                 self.num_iterations,
-                "" if self.num_iterations == 1 else "es",
+                separator,
             )
 
         # Accumulate scalar outputs and ignore structured predictions
@@ -806,13 +815,22 @@ class ValidationManager:
 
         metrics = {key: total / counts[key] for key, total in totals.items()}
         if self.main_process:
-            summary = ", ".join(
-                f"{key}={value:.6g}" for key, value in sorted(metrics.items())
+            separator = "=" * LogManager.stdout_table_width(self.distributed)
+            key_width = max(map(len, metrics))
+            summary = "\n".join(
+                f"  {key:<{key_width}}: {value:.6g}"
+                for key, value in sorted(metrics.items())
             )
             logger.info(
-                "Validation complete at training iteration %d: %s.",
+                "%s\n"
+                "VALIDATION COMPLETE\n"
+                "Training iteration: %d\n"
+                "Metrics:\n%s\n"
+                "%s\n",
+                separator,
                 iteration,
                 summary,
+                separator,
             )
         return metrics
 

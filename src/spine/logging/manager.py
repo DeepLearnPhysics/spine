@@ -23,6 +23,9 @@ class LogManager:
     table printed periodically during training or inference.
     """
 
+    STDOUT_WIDTHS = (20, 20, 9, 9)
+    STDOUT_RANK_WIDTH = 5
+
     def __init__(
         self,
         file_name: str,
@@ -206,6 +209,14 @@ class LogManager:
                 self.tb_logger.add_scalar(key, float(value), iteration)
 
     @staticmethod
+    def stdout_table_width(distributed: bool = False) -> int:
+        """Return the rendered width of an iteration-summary table."""
+        widths = list(LogManager.STDOUT_WIDTHS)
+        if distributed:
+            widths.insert(0, LogManager.STDOUT_RANK_WIDTH)
+        return 4 + sum(widths) + 2 * (len(widths) - 1) + 1
+
+    @staticmethod
     def log_stdout_summary(
         log_row: Mapping[str, Any],
         data: Mapping[str, Any],
@@ -254,10 +265,10 @@ class LogManager:
         proc = mode or ("train" if model_train else "inference")
         device = "GPU" if rank is not None else "CPU"
         keys = [f"Time ({proc})", f"{device} memory", "Loss", "Accuracy"]
-        widths = [20, 20, 9, 9]
+        widths = list(LogManager.STDOUT_WIDTHS)
         if distributed:
             keys = ["Rank"] + keys
-            widths = [5] + widths
+            widths = [LogManager.STDOUT_RANK_WIDTH] + widths
         if main_process:
             epoch_value = -1.0 if epoch is None else epoch
             header = "  | " + "| ".join(
