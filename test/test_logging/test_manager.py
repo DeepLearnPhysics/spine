@@ -356,6 +356,106 @@ def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
     assert len(infos[-1].splitlines()[0]) == 76
 
 
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (
+            {
+                "monitor": "loss",
+                "mode": "min",
+                "value": 0.5,
+                "previous_best": None,
+                "min_delta": 0.01,
+                "improved": True,
+                "bad_checks": 0,
+                "patience": 3,
+                "stopping": False,
+            },
+            ["initial best", "Previous best   : n/a", "Patience        : 0/3 (reset)"],
+        ),
+        (
+            {
+                "monitor": "loss",
+                "mode": "min",
+                "value": 0.4,
+                "previous_best": 0.5,
+                "min_delta": 0.01,
+                "improved": True,
+                "bad_checks": 0,
+                "patience": 3,
+                "stopping": False,
+            },
+            [
+                "improved",
+                "Change from best: -0.1",
+                "Patience        : 0/3 (reset)",
+            ],
+        ),
+        (
+            {
+                "monitor": "loss",
+                "mode": "min",
+                "value": 0.6,
+                "previous_best": 0.5,
+                "min_delta": 0.01,
+                "improved": False,
+                "bad_checks": 2,
+                "patience": 3,
+                "stopping": False,
+            },
+            [
+                "no improvement",
+                "Change from best: +0.1",
+                "Patience        : 2/3 (1 check remaining)",
+            ],
+        ),
+        (
+            {
+                "monitor": "score",
+                "mode": "max",
+                "value": 0.4,
+                "previous_best": 0.5,
+                "min_delta": 0.0,
+                "improved": False,
+                "bad_checks": 3,
+                "patience": 3,
+                "stopping": True,
+            },
+            ["stopping", "Patience        : 3/3 (exhausted)"],
+        ),
+        (
+            {
+                "monitor": "score",
+                "mode": "max",
+                "value": 0.4,
+                "previous_best": 0.5,
+                "min_delta": 0.0,
+                "improved": False,
+                "bad_checks": 1,
+                "patience": 0,
+                "stopping": True,
+            },
+            ["stopping", "none (stops on first non-improvement)"],
+        ),
+    ],
+)
+def test_log_manager_formats_early_stopping(monkeypatch, status, expected):
+    """Early-stopping output should explain comparison and patience state."""
+    infos: list[str] = []
+    monkeypatch.setattr(
+        log_manager_mod.logger,
+        "info",
+        lambda msg, *args: infos.append(msg % args if args else msg),
+    )
+
+    LogManager.log_early_stopping(status)
+
+    output = "\n".join(infos)
+    assert "EARLY STOPPING" in output
+    for text in expected:
+        assert text in output
+
+
 def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypatch):
     """Non-main distributed ranks should not print headers directly."""
     infos: list[str] = []

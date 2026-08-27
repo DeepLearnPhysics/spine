@@ -291,9 +291,11 @@ def test_validation_manager_runs_fraction_logs_and_updates_stopping(
     assert manager.update_best_checkpoint(metrics)
     assert not manager.update_best_checkpoint(metrics)
     assert not manager.update_early_stopping(metrics)
+    assert manager.update_early_stopping(metrics)
     state = manager.checkpoint_state(metrics)
     assert state["metrics"] == metrics
     assert state["best_checkpoint"]["best"] == 4.0
+    assert state["early_stopping"]["bad_checks"] == 1
 
     manager.log_dir = None
     manager.model.evaluate = lambda *_args: {"prediction": [1, 2]}

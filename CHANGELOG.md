@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Early-stopping progress**: Report the monitored validation value, change from the previous best, minimum delta, status, and patience progress inside each checkpoint section.
+
 ### Fixed
 - **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, let `TrainDrawer` discover standalone inference and on-the-fly validation logs together, and present each completed training step before its bounded validation and checkpoint section.
 

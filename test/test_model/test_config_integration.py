@@ -95,7 +95,11 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     cfg["train"]["weight_prefix"] = str(log_dir / "snapshot")
     cfg["train"].pop("save_epoch", None)
     cfg["train"]["save_step"] = 1
-    cfg["validation"] = {"file_keys": larcv_data, "fraction": 0.01}
+    cfg["validation"] = {
+        "file_keys": larcv_data,
+        "fraction": 0.01,
+        "early_stopping": {"monitor": "loss", "patience": 2},
+    }
 
     with caplog.at_level("INFO", logger="spine"):
         Driver(cfg).run()
@@ -119,6 +123,10 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert "Time (validation)" in output
     assert "VALIDATION COMPLETE\nMetrics:" in output
     assert "  loss" in output
+    assert "EARLY STOPPING" in output
+    assert "Monitor         : loss (min)" in output
+    assert "Status          : initial best" in output
+    assert "Patience        : 0/2 (reset)" in output
     assert "Saving checkpoint..." in output
     assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69

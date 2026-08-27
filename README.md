@@ -367,7 +367,9 @@ checkpoint with early-stopping and best-checkpoint state. `TrainDrawer`
 discovers both validation-log forms by default. When `best_checkpoint` is
 enabled, an improving snapshot is atomically copied to
 `<weight_prefix>-best.ckpt` with its own checksum. Set `best_checkpoint.path`
-to choose another stable destination.
+to choose another stable destination. When early stopping is enabled, each
+validation summary reports the monitored value, change from the previous best,
+minimum delta, and patience progress.
 
 Learning-rate schedulers default to `interval: step`, preserving the
 historical update after every optimizer step. `interval: checkpoint` advances

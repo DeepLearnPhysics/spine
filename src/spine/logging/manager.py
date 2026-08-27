@@ -298,6 +298,75 @@ class LogManager:
         logger.info("VALIDATION COMPLETE\nMetrics:\n%s\n", summary)
 
     @staticmethod
+    def log_early_stopping(status: Mapping[str, Any]) -> None:
+        """Render progress for an updated early-stopping policy.
+
+        Parameters
+        ----------
+        status : mapping[str, Any]
+            Structured policy update containing the monitored value, previous
+            best, improvement threshold, patience progress and stop decision.
+        """
+        monitor = status["monitor"]
+        mode = status["mode"]
+        value = float(status["value"])
+        previous_best = status["previous_best"]
+        min_delta = float(status["min_delta"])
+        improved = bool(status["improved"])
+        bad_checks = int(status["bad_checks"])
+        patience = int(status["patience"])
+        stopping = bool(status["stopping"])
+
+        # Describe the comparison against the value used by the policy
+        if previous_best is None:
+            best_label = "n/a"
+            change_label = "n/a"
+            state_label = "initial best"
+        else:
+            previous_best = float(previous_best)
+            best_label = f"{previous_best:.6g}"
+            change_label = f"{value - previous_best:+.6g}"
+            if stopping:
+                state_label = "stopping"
+            elif improved:
+                state_label = "improved"
+            else:
+                state_label = "no improvement"
+
+        # Explain how the updated counter relates to configured patience
+        if patience == 0:
+            patience_label = "none (stops on first non-improvement)"
+        elif stopping:
+            patience_label = f"{bad_checks}/{patience} (exhausted)"
+        elif improved:
+            patience_label = f"{bad_checks}/{patience} (reset)"
+        else:
+            remaining = max(0, patience - bad_checks)
+            patience_label = (
+                f"{bad_checks}/{patience} ({remaining} check"
+                f"{'s' if remaining != 1 else ''} remaining)"
+            )
+
+        logger.info(
+            "EARLY STOPPING\n"
+            "  Monitor         : %s (%s)\n"
+            "  Current         : %.6g\n"
+            "  Previous best   : %s\n"
+            "  Change from best: %s\n"
+            "  Minimum delta   : %.6g\n"
+            "  Status          : %s\n"
+            "  Patience        : %s\n",
+            monitor,
+            mode,
+            value,
+            best_label,
+            change_label,
+            min_delta,
+            state_label,
+            patience_label,
+        )
+
+    @staticmethod
     def log_checkpoint_saving() -> None:
         """Mark serialization within an open checkpoint progress section.
 

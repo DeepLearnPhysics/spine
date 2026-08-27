@@ -841,7 +841,36 @@ class ValidationManager:
         """
         if self.early_stopping is None:
             return False
-        return self.early_stopping.update(metrics)
+
+        policy = self.early_stopping
+        previous_best = policy.best
+        should_stop = policy.update(metrics)
+        value = float(metrics[policy.monitor])
+        improved = _metric_improved(
+            value,
+            previous_best,
+            policy.mode,
+            policy.min_delta,
+        )
+
+        rank = getattr(self, "rank", None)
+        main_process = getattr(self, "main_process", rank is None or rank == 0)
+        if main_process:
+            LogManager.log_early_stopping(
+                {
+                    "monitor": policy.monitor,
+                    "mode": policy.mode,
+                    "value": value,
+                    "previous_best": previous_best,
+                    "min_delta": policy.min_delta,
+                    "improved": improved,
+                    "bad_checks": policy.bad_checks,
+                    "patience": policy.patience,
+                    "stopping": should_stop,
+                }
+            )
+
+        return should_stop
 
     def update_best_checkpoint(self, metrics: Mapping[str, float]) -> bool:
         """Update and select the best checkpoint observed so far.
