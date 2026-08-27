@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 __all__ = ["OpT0FinderLightModel", "get_flashmatch", "load_flashmatch_config"]
 
@@ -130,8 +130,8 @@ class OpT0FinderLightModel:
 
     def get_response(
         self,
-        points: Sequence[float] | Sequence[Sequence[float]],
-        weights: Sequence[float] | None = None,
+        points: ArrayLike,
+        weights: ArrayLike | None = None,
     ) -> float:
         """Return the total predicted PE per emitted photon.
 
