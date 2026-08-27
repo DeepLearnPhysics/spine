@@ -1594,3 +1594,12 @@ def test_log_requires_initialized_log_manager():
 
     with pytest.raises(RuntimeError, match="log manager"):
         drv.log({"index": 0}, "2026-01-01 00:00:00", iteration=0)
+
+    # A suppressed stdout step should not require an initialized backend.
+    drv.log_step = 2
+    drv.log_stdout({"index": 0}, "2026-01-01 00:00:00", iteration=0)
+
+    # An emitted stdout step must still fail clearly without that backend.
+    drv.log_step = 1
+    with pytest.raises(RuntimeError, match="log manager"):
+        drv.log_stdout({"index": 0}, "2026-01-01 00:00:00", iteration=0)
