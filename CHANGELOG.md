@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
-- **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, and let `TrainDrawer` discover standalone inference and on-the-fly validation logs together.
+- **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, let `TrainDrawer` discover standalone inference and on-the-fly validation logs together, and present validation and checkpoint saving as one bounded stdout section.
 
 ## [1.0.4] - 2026-08-26
 

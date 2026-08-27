@@ -111,16 +111,18 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert {"loss", "accuracy"} <= set(validation_df.columns)
 
     output = "\n".join(caplog.messages)
-    assert "VALIDATION START\nTraining iteration: 0" in output
+    assert "CHECKPOINT\nTraining iteration: 0" in output
     assert "Epoch:              1.000" in output
-    assert "Batches:            1" in output
+    assert "Validation batches: 1" in output
+    assert "VALIDATION START" in output
     assert "Val. 1/1" in output
     assert "Time (validation)" in output
-    assert "VALIDATION COMPLETE\nTraining iteration: 0\nMetrics:" in output
+    assert "VALIDATION COMPLETE\nMetrics:" in output
     assert "  loss" in output
-    assert "CHECKPOINT FINALIZATION\nTraining iteration: 0" in output
+    assert "Saving checkpoint..." in output
+    assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69
-    assert output.count(separator) == 6
+    assert output.count(separator) == 2
 
 
 @pytest.mark.model

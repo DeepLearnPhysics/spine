@@ -1396,7 +1396,7 @@ def test_run_validates_before_checkpoint_and_stops_early():
     assert ("stop", "save") in FakeModel.watch.calls
 
 
-def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path):
+def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     """An ordinary row followed by a save should retain one CSV schema."""
     drv = bare_driver()
     drv.watch = StopwatchManager()
@@ -1460,7 +1460,8 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path):
         close=lambda: None,
     )
 
-    drv.run()
+    with caplog.at_level("INFO", logger="spine"):
+        drv.run()
 
     lines = (
         (tmp_path / "train_log-0000000.csv").read_text(encoding="utf-8").splitlines()
@@ -1471,6 +1472,12 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path):
     save_index = rows[0].index("model_save_time")
     assert rows[1][save_index] == "nan"
     assert float(rows[2][save_index]) >= 0.0
+    output = "\n".join(caplog.messages)
+    assert "CHECKPOINT\nTraining iteration: 1" in output
+    assert "Validation batches: disabled" in output
+    assert "Saving checkpoint..." in output
+    assert "Checkpoint saved: snapshot-1.ckpt" in output
+    assert output.count("=" * 69) == 2
 
 
 def test_apply_filter_resets_loader_iterator():

@@ -957,6 +957,29 @@ class Driver:
                     and self.model.train
                     and self.model.should_save(iteration)
                 ):
+                    checkpoint_separator = "=" * LogManager.stdout_table_width(
+                        self.distributed
+                    )
+                    if self.main_process:
+                        validation_batches = (
+                            "disabled"
+                            if self.validation is None
+                            else str(
+                                getattr(self.validation, "num_iterations", "enabled")
+                            )
+                        )
+                        logger.info(
+                            "%s\n"
+                            "CHECKPOINT\n"
+                            "Training iteration: %d\n"
+                            "Epoch:              %.3f\n"
+                            "Validation batches: %s\n",
+                            checkpoint_separator,
+                            iteration,
+                            epoch,
+                            validation_batches,
+                        )
+
                     validation_state = None
                     validation_metrics = None
                     promote_best = False
@@ -978,19 +1001,6 @@ class Driver:
                         validation_state = self.validation.checkpoint_state(
                             validation_metrics
                         )
-                        if self.main_process:
-                            separator = "=" * LogManager.stdout_table_width(
-                                self.distributed
-                            )
-                            logger.info(
-                                "%s\n"
-                                "CHECKPOINT FINALIZATION\n"
-                                "Training iteration: %d\n"
-                                "%s\n",
-                                separator,
-                                iteration,
-                                separator,
-                            )
 
                     # Checkpoint-bound schedulers advance before their state is saved.
                     self.model.step_checkpoint_scheduler(validation_metrics)
@@ -1012,6 +1022,7 @@ class Driver:
 
                     if self.main_process:
                         # Retain model-owned save timing around serialization
+                        logger.info("Saving checkpoint...\n")
                         self.model.watch.start("save")
                         datasets = {"train": self.io.dataset_provenance()}
                         if self.validation is not None:
@@ -1034,6 +1045,10 @@ class Driver:
                             self.model.save_best_state(checkpoint_path, best_path)
                         self.model.watch.stop("save")
                         self.watch.update(self.model.watch, "model")
+                        completion = f"Checkpoint saved: {checkpoint_path}"
+                        if promote_best:
+                            completion += f"\nBest checkpoint updated: {best_path}"
+                        logger.info("%s\n%s\n", completion, checkpoint_separator)
 
                 # Log the output
                 self.log(data, tstamp, iteration, epoch)

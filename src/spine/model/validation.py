@@ -744,21 +744,7 @@ class ValidationManager:
         main_process = getattr(self, "main_process", rank is None or rank == 0)
         log_step = getattr(self, "log_step", 1)
         if main_process:
-            separator = "=" * LogManager.stdout_table_width(self.distributed)
-            epoch_label = "n/a" if epoch is None else f"{epoch:.3f}"
-            logger.info(
-                "%s\n"
-                "VALIDATION START\n"
-                "Training iteration: %d\n"
-                "Epoch:              %s\n"
-                "Batches:            %d\n"
-                "%s\n",
-                separator,
-                iteration,
-                epoch_label,
-                self.num_iterations,
-                separator,
-            )
+            logger.info("VALIDATION START\n")
 
         # Accumulate scalar outputs and ignore structured predictions
         totals: dict[str, float] = {}
@@ -818,22 +804,14 @@ class ValidationManager:
 
         metrics = {key: total / counts[key] for key, total in totals.items()}
         if main_process:
-            separator = "=" * LogManager.stdout_table_width(self.distributed)
             key_width = max(map(len, metrics))
             summary = "\n".join(
                 f"  {key:<{key_width}}: {value:.6g}"
                 for key, value in sorted(metrics.items())
             )
             logger.info(
-                "%s\n"
-                "VALIDATION COMPLETE\n"
-                "Training iteration: %d\n"
-                "Metrics:\n%s\n"
-                "%s\n",
-                separator,
-                iteration,
+                "VALIDATION COMPLETE\n" "Metrics:\n%s\n",
                 summary,
-                separator,
             )
         return metrics
 
