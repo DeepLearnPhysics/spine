@@ -1,20 +1,14 @@
-"""Module which supports likelihood-based flash matchin (OpT0Finder)."""
+"""Module which supports likelihood-based flash matching with OpT0Finder."""
 
 from __future__ import annotations
 
-import os
 import re
-import sys
-from importlib import import_module
 from typing import Any
 
 import numexpr as ne
 import numpy as np
 
-
-def get_flashmatch() -> Any:
-    """Load the optional OpT0Finder Python bindings at runtime."""
-    return import_module("flashmatch").flashmatch
+from . import opt0finder
 
 
 class LikelihoodFlashMatcher:
@@ -101,45 +95,10 @@ class LikelihoodFlashMatcher:
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         """
-        # Add OpT0finder python interface to the python path
-        basedir = os.getenv("FMATCH_BASEDIR")
-        if basedir is None:
-            raise ValueError(
-                "You need to source OpT0Finder's configure.sh or set the "
-                "FMATCH_BASEDIR environment variable before running flash "
-                "matching."
-            )
-        sys.path.append(os.path.join(basedir, "python"))
-
-        # Add the OpT0Finder library to the dynamic link loader
-        lib_path = os.path.join(basedir, "build/lib")
-        os.environ["LD_LIBRARY_PATH"] = f"{lib_path}:{os.environ['LD_LIBRARY_PATH']}"
-
-        # Add the OpT0Finder data directory if it is not yet set
-        if "FMATCH_DATADIR" not in os.environ:
-            os.environ["FMATCH_DATADIR"] = os.path.join(basedir, "dat")
-
-        # Load up the detector specifications
-        if detector is None:
-            det_cfg = os.path.join(basedir, "dat/detector_specs.cfg")
-        else:
-            det_cfg = os.path.join(basedir, f"dat/detector_specs_{detector}.cfg")
-
-        if not os.path.isfile(det_cfg):
-            raise FileNotFoundError(
-                f"Cannot file detector specification file: {det_cfg}."
-            )
-
-        flashmatch = get_flashmatch()
-        flashmatch.DetectorSpecs.GetME(det_cfg)
-
-        # Fetch and initialize the OpT0Finder configuration
-        if parent_path is not None and not os.path.isfile(cfg):
-            cfg = os.path.join(parent_path, cfg)
-        if not os.path.isfile(cfg):
-            raise FileNotFoundError(f"Cannot find flash-matcher config: {cfg}")
-
-        fm_cfg = flashmatch.CreateFMParamsFromFile(cfg)
+        # Load the shared detector description and algorithm configuration
+        flashmatch, fm_cfg = opt0finder.load_flashmatch_config(
+            cfg, detector, parent_path
+        )
         self.fm_cfg = fm_cfg
 
         # Initialize The OpT0Finder flash match manager
@@ -157,7 +116,7 @@ class LikelihoodFlashMatcher:
         if self.hypothesis is not None:
             return
 
-        flashmatch = get_flashmatch()
+        flashmatch = opt0finder.get_flashmatch()
         algo_name = self.hypothesis_algorithm_name
         if algo_name is None:
             manager_cfg = self.fm_cfg.get["flashmatch::FMParams"]("FlashMatchManager")
@@ -318,7 +277,7 @@ class LikelihoodFlashMatcher:
            List of OpT0Finder flashmatch::QCluster_t objects
         """
         # Loop over the interactions
-        flashmatch = get_flashmatch()
+        flashmatch = opt0finder.get_flashmatch()
         qcluster_v = []
         for idx, inter in enumerate(interactions):
             # Produce a mask to remove negative value points (can happen)
@@ -368,7 +327,7 @@ class LikelihoodFlashMatcher:
             List of flashmatch::Flash_t objects
         """
         # Loop over the optical flashes
-        flashmatch = get_flashmatch()
+        flashmatch = opt0finder.get_flashmatch()
         flash_v = []
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
@@ -436,7 +395,7 @@ class LikelihoodFlashMatcher:
         flashmatch::QCluster_t or np.ndarray
             QCluster object
         """
-        flashmatch = get_flashmatch()
+        flashmatch = opt0finder.get_flashmatch()
         if self.qcluster_v is None:
             raise ValueError("self.qcluster_v is None")
 
@@ -465,7 +424,7 @@ class LikelihoodFlashMatcher:
         flashmatch::Flash or np.ndarray
             Flash object
         """
-        flashmatch = get_flashmatch()
+        flashmatch = opt0finder.get_flashmatch()
         if self.flash_v is None:
             raise ValueError("self.flash_v is None")
 

@@ -45,6 +45,7 @@ class FlashMatchProcessor(PostBase):
         truth_point_mode: str = "points",
         truth_dep_mode: str = "depositions",
         parent_path: str | None = None,
+        volume_report_mode: str = "all",
         merge: Mapping[str, Any] | None = None,
         update_flashes: bool = False,
         store_hypotheses: bool = False,
@@ -74,6 +75,13 @@ class FlashMatchProcessor(PostBase):
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
+        volume_report_mode : str, default 'all'
+            Policy used to combine matches reported in distinct optical
+            volumes. ``'all'`` retains every match and combines their measured
+            PE; ``'brightest'`` retains only the match with the largest flash
+            PE. Combining ``'brightest'`` with the barycenter matcher's
+            ``report_mode='best_per_interaction'`` reproduces SBND's reporting
+            policy
         merge : dict, optional
             Flash merging configuration
         update_flashes : bool, default False
@@ -124,6 +132,11 @@ class FlashMatchProcessor(PostBase):
 
         # Initialize the flash matching algorithm
         self.method = method
+        if volume_report_mode not in ("all", "brightest"):
+            raise ValueError(
+                "The `volume_report_mode` must be one of 'all' or 'brightest'."
+            )
+        self.volume_report_mode = volume_report_mode
         self.store_all_hypotheses = store_all_hypotheses
         self.store_hypotheses = store_hypotheses or store_all_hypotheses
         self.hypothesis_key = hypothesis_key
@@ -133,7 +146,12 @@ class FlashMatchProcessor(PostBase):
             )
 
         if method == "barycenter":
-            self.matcher = BarycenterFlashMatcher(**kwargs)
+            self.matcher = BarycenterFlashMatcher(
+                optical=self.geo.optical,
+                detector=self.geo.name.lower(),
+                parent_path=self.parent_path,
+                **kwargs,
+            )
 
         elif method == "likelihood":
             self.matcher = LikelihoodFlashMatcher(
@@ -217,6 +235,7 @@ class FlashMatchProcessor(PostBase):
             flash_times = defaultdict(list)
             flash_scores = defaultdict(list)
             hypothesis_ids = defaultdict(list)
+            matches_to_store = []
             for volume_id in np.unique(volume_ids):
                 # Get the list of flashes associated with this optical volume
                 flashes_v = []
@@ -346,49 +365,61 @@ class FlashMatchProcessor(PostBase):
                             hypothesis_ids[inter.id].append(hypothesis.id)
                         num_hypothesis_matches[inter.id] += 1
 
-                # Store flash information
+                # Resolve cropped interaction IDs after matching, but defer
+                # storage until matches from every optical volume are available
                 for inter_v, flash, match in matches:
-                    # Get the interaction that matches the cropped version
                     inter = interactions[inter_v.id]
+                    matches_to_store.append((inter, flash, match))
 
-                    # Get the flash hypothesis (if the matcher produces one)
-                    hypo_pe, score = -1.0, -1.0
-                    if np.isscalar(match):
-                        score = float(np.asarray(match, dtype=np.float64).item())
-                    else:
-                        match_obj: Any = match
-                        if hasattr(match_obj, "hypothesis"):
-                            match_pe = np.asarray(
-                                list(match_obj.hypothesis), dtype=np.float32
-                            )
-                            hypo_pe = float(np.sum(match_pe))
-                        if hasattr(match_obj, "score"):
-                            score = float(match_obj.score)
+            # Optionally reproduce SBND's cross-volume reporting policy by
+            # retaining only the match associated with the brightest flash
+            if self.volume_report_mode == "brightest":
+                brightest_matches = {}
+                for inter, flash, match in matches_to_store:
+                    current = brightest_matches.get(inter.id)
+                    if current is None or flash.total_pe > current[1].total_pe:
+                        brightest_matches[inter.id] = (inter, flash, match)
+                matches_to_store = list(brightest_matches.values())
 
-                    # Update
-                    if not inter.is_flash_matched:
-                        inter.is_flash_matched = True
-                        inter.flash_total_pe = float(flash.total_pe)
-                        inter.flash_hypo_pe = hypo_pe
-                    else:
-                        inter.flash_total_pe += float(flash.total_pe)
-                        inter.flash_hypo_pe += hypo_pe
+            # Store the selected flash information on the full interactions
+            for inter, flash, match in matches_to_store:
+                # Get the flash hypothesis, if the matcher produces one
+                hypo_pe, score = -1.0, -1.0
+                if np.isscalar(match):
+                    score = float(np.asarray(match, dtype=np.float64).item())
+                else:
+                    match_obj: Any = match
+                    hypothesis = getattr(match_obj, "hypothesis", None)
+                    if hypothesis is not None:
+                        match_pe = np.asarray(list(hypothesis), dtype=np.float32)
+                        hypo_pe = float(np.sum(match_pe))
+                    if hasattr(match_obj, "score"):
+                        score = float(match_obj.score)
 
-                    if self.merger is not None and not self.update_flashes:
-                        orig_flashes = [
-                            data[self.flash_key][i] for i in orig_ids[flash.id]
-                        ]
-                        flash_ids[inter.id].extend([f.id for f in orig_flashes])
-                        flash_volume_ids[inter.id].extend(
-                            [f.volume_id for f in orig_flashes]
-                        )
-                        flash_times[inter.id].extend([f.time for f in orig_flashes])
-                        flash_scores[inter.id].extend([score for _ in orig_flashes])
-                    else:
-                        flash_ids[inter.id].append(int(flash.id))
-                        flash_volume_ids[inter.id].append(int(flash.volume_id))
-                        flash_times[inter.id].append(float(flash.time))
-                        flash_scores[inter.id].append(score)
+                # Update the aggregate light information
+                if not inter.is_flash_matched:
+                    inter.is_flash_matched = True
+                    inter.flash_total_pe = float(flash.total_pe)
+                    inter.flash_hypo_pe = hypo_pe
+                else:
+                    inter.flash_total_pe += float(flash.total_pe)
+                    inter.flash_hypo_pe += hypo_pe
+
+                # Preserve associations to the original flashes when matching
+                # was performed with a transient merged flash collection
+                if self.merger is not None and not self.update_flashes:
+                    orig_flashes = [data[self.flash_key][i] for i in orig_ids[flash.id]]
+                    flash_ids[inter.id].extend([f.id for f in orig_flashes])
+                    flash_volume_ids[inter.id].extend(
+                        [f.volume_id for f in orig_flashes]
+                    )
+                    flash_times[inter.id].extend([f.time for f in orig_flashes])
+                    flash_scores[inter.id].extend([score for _ in orig_flashes])
+                else:
+                    flash_ids[inter.id].append(int(flash.id))
+                    flash_volume_ids[inter.id].append(int(flash.volume_id))
+                    flash_times[inter.id].append(float(flash.time))
+                    flash_scores[inter.id].append(score)
 
             # Cast list attributes to numpy arrays
             for inter_id in flash_ids:

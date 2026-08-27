@@ -3,98 +3,321 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
+from spine.constants.physics import LAR_WION_MEV
 
-class BarycenterFlashMatcher:
-    """Matches interactions and flashes by matching the charge barycenter of
-    TPC interactions with the light barycenter of optical flashes.
+from .opt0finder import OpT0FinderLightModel
+
+
+@dataclass(frozen=True)
+class BarycenterMatchResult:
+    """Transient quality information for one interaction--flash match.
+
+    The flash-matching processor persists :attr:`score` in the matched
+    interaction. The remaining quantities are kept here to make the matching
+    decision inspectable without expanding the interaction data structure.
+
+    Attributes
+    ----------
+    score : float
+        Match quality, defined as the reciprocal of :attr:`chi2` after applying
+        the configured numerical floor. Larger values represent better matches
+    chi2 : float
+        Sum of the configured spatial and PCA-angle chi-squared terms
+    distance : float
+        Euclidean distance between the charge and flash barycenters in the
+        configured matching dimensions, in cm
+    angle : float
+        Acute angle between the charge and optical principal YZ axes, in
+        degrees. This is ``NaN`` when the angle term is disabled
+    charge_center : np.ndarray
+        (3) Deposition-weighted charge barycenter in detector coordinates, in cm
+    charge_width : np.ndarray
+        (3) Deposition-weighted RMS charge width along each detector axis, in cm
+    light_charge_ratio : float
+        Ratio of flash-inferred photons to interaction charge quanta. This is
+        ``NaN`` when the optional light/charge compatibility cut is disabled
+    hypothesis : np.ndarray, optional
+        Per-channel PE predicted from the interaction charge and optical
+        response. This is ``None`` when light/charge compatibility is disabled
     """
 
-    # List of valid matching methods
-    _match_methods = ("threshold", "best")
+    score: float
+    chi2: float
+    distance: float
+    angle: float
+    charge_center: np.ndarray
+    charge_width: np.ndarray
+    light_charge_ratio: float
+    hypothesis: np.ndarray | None
+
+
+class BarycenterFlashMatcher:
+    """Match interactions and flashes using their spatial barycenters.
+
+    The matcher first applies the configured interaction and flash selections.
+    It then compares each surviving pair using a spatial chi-squared, with an
+    optional term for the angle between their principal YZ axes. Pairs above
+    ``max_chi2`` are rejected when that cut is configured. The reporting mode
+    then retains all surviving pairs, the best interaction per flash or the
+    best flash per interaction.
+    """
+
+    # List of valid candidate reporting policies
+    _report_modes = ("all", "best_per_flash", "best_per_interaction")
 
     def __init__(
         self,
-        match_method: str = "threshold",
+        report_mode: str = "all",
         dimensions: Sequence[int] = (1, 2),
-        charge_weighted: bool = False,
+        charge_weighted: bool = True,
         time_window: Sequence[float] | None = None,
         first_flash_only: bool = False,
         min_inter_size: int | None = None,
         min_flash_pe: float | None = None,
-        match_distance: float | None = None,
+        candidate_distance: float | None = None,
+        position_errors: float | Sequence[float] = 1.0,
+        angle_error: float | None = None,
+        max_chi2: float | None = None,
+        chi2_floor: float = 1.0e-6,
+        optical: Any | None = None,
+        light_charge_bounds: Sequence[float] | None = None,
+        light_model_cfg: str | None = None,
+        light_model_algorithm: str = "SemiAnalyticalModel",
+        light_model_use_points: bool = False,
+        charge_scale: float = 0.65 / LAR_WION_MEV,
+        detector: str | None = None,
+        parent_path: str | None = None,
     ) -> None:
-        """Initialize the barycenter flash matcher.
+        r"""Initialize the barycenter flash matcher.
 
         Parameters
         ----------
-        match_method : str, default 'threshold'
-            Matching method (one of 'threshold' or 'best')
-            - 'threshold': If the two barycenters are within some distance, match
-            - 'best': For each flash, pick the best matched interaction
+        report_mode : str, default 'all'
+            Policy used to report pairs which pass the candidate selections:
+
+            - ``'all'`` retains every surviving interaction--flash pair
+            - ``'best_per_flash'`` retains the lowest-chi-squared interaction
+              for each flash
+            - ``'best_per_interaction'`` retains the lowest-chi-squared flash
+              for each interaction
         dimensions : Sequence[int], default (1, 2)
-            Dimensions involved in the distance computation
-        charge_weighted : bool, default False
-            Use interaction pixel charge information to weight the centroid
+            Detector-coordinate dimensions included in the spatial distance
+            and chi-squared. By convention, 0, 1 and 2 correspond to X, Y and Z
+        charge_weighted : bool, default True
+            Use calibrated interaction depositions to weight the charge center,
+            width and PCA. If ``False``, give all valid points equal weight
         time_window : Sequence[float], optional
-            List of [min, max] values of optical flash times to consider
+            Minimum and maximum optical flash times to consider, in microseconds
         first_flash_only : bool, default False
-            Only try to match the first flash in the time window
+            Only attempt to match the first flash surviving the flash selections
         min_inter_size : int, optional
-            Minimum number of voxel in an interaction to consider it
+            Minimum number of voxels required in an interaction
         min_flash_pe : float, optional
-            Minimum number of total PE in a flash to consider it
-        match_distance : float, optional
-            If a threshold is used, specifies the acceptable distance
+            Minimum total number of PE required in a flash
+        candidate_distance : float, optional
+            Maximum Euclidean barycenter distance in the configured dimensions,
+            in cm. Required in ``all`` mode and optional in either best mode
+        position_errors : float or Sequence[float], default 1.0
+            Position uncertainties used in the chi-squared, in cm. A scalar is
+            shared by all matched dimensions. A sequence may provide one value
+            per matched dimension or one value for each of X, Y and Z
+        angle_error : float, optional
+            PCA-angle uncertainty used in the chi-squared, in degrees. If
+            omitted, the angle term is disabled and optical geometry is unused
+        max_chi2 : float, optional
+            Maximum chi-squared for an interaction--flash pair to be accepted.
+            If omitted, no chi-squared acceptance cut is applied
+        chi2_floor : float, default 1.e-6
+            Strictly positive numerical floor applied when converting
+            chi-squared to score. This limits the maximum score to the
+            reciprocal of this value without changing the reported chi-squared
+        optical : OptDetector, optional
+            Optical detector geometry used to map per-channel PE to detector
+            positions. Required when ``angle_error`` is set
+        light_charge_bounds : Sequence[float], optional
+            Inclusive lower and upper bounds on the ratio of flash-inferred
+            photons to interaction charge quanta. If omitted, no optical model
+            is initialized and no light/charge compatibility cut is applied
+        light_model_cfg : str, optional
+            OpT0Finder configuration containing ``light_model_algorithm``.
+            Required when ``light_charge_bounds`` is set. The file may contain
+            only the selected algorithm block; a full flash-matching manager
+            configuration is not required
+        light_model_algorithm : str, default 'SemiAnalyticalModel'
+            OpT0Finder flash-hypothesis algorithm used to predict the effective
+            PE response at the charge barycenter
+        light_model_use_points : bool, default False
+            Propagate a deposition-weighted point cloud through the optical
+            model instead of collapsing the interaction to its charge
+            barycenter. This is more faithful for extended interactions but may
+            be substantially more expensive
+        charge_scale : float, default 0.65 / LAR_WION_MEV
+            Conversion from one calibrated deposition unit to charge quanta.
+            The default assumes MeV depositions, a 23.6-eV argon ionization
+            work function and a MIP recombination factor of 0.65
+        detector : str, optional
+            Detector name used to select the OpT0Finder detector specification
+        parent_path : str, optional
+            Parent analysis-configuration directory used to resolve a relative
+            ``light_model_cfg`` path
+
+        Notes
+        -----
+        For a pair with coordinate residuals :math:`\Delta_i` and optional PCA
+        angle :math:`\theta`, the quality is
+
+        .. math::
+
+            \chi^2 = \sum_i \left(\frac{\Delta_i}{\sigma_i}\right)^2
+            + \left(\frac{\theta}{\sigma_\theta}\right)^2,
+            \qquad S = \frac{1}{\max(\chi^2, \chi^2_{\mathrm{floor}})}.
+
+        The final angle term is omitted when ``angle_error`` is ``None``.
         """
-        # Check validity of key parameters
-        if match_method not in self._match_methods:
+        # Check the reporting-mode requirements
+        if report_mode not in self._report_modes:
             raise ValueError(
-                "Barycenter flash matching method not recognized: "
-                f"{match_method}. Must be one of {self._match_methods}."
+                "Barycenter flash reporting mode not recognized: "
+                f"{report_mode}. Must be one of {self._report_modes}."
             )
 
-        if match_method == "threshold" and match_distance is None:
+        if report_mode == "all" and candidate_distance is None:
             raise ValueError(
-                "When using the `threshold` method, must specify the "
-                "`match_distance` parameter."
+                "When using the `all` reporting mode, must specify the "
+                "`candidate_distance` parameter."
             )
 
-        # Store the flash matching parameters
-        self.match_method = match_method
-        self.dims = dimensions
+        if candidate_distance is not None and (
+            not np.isfinite(candidate_distance) or candidate_distance < 0.0
+        ):
+            raise ValueError("`candidate_distance` must be finite and non-negative.")
+
+        # Validate and normalize the dimensions involved in spatial matching
+        dims = np.asarray(dimensions, dtype=np.int64)
+        if (
+            dims.ndim != 1
+            or len(dims) == 0
+            or len(np.unique(dims)) != len(dims)
+            or np.any((dims < 0) | (dims > 2))
+        ):
+            raise ValueError(
+                "`dimensions` must contain unique spatial axes selected from 0, 1, 2."
+            )
+
+        # Normalize the position errors to one value per matched dimension
+        errors = np.asarray(position_errors, dtype=np.float64)
+        if errors.ndim == 0:
+            errors = np.full(len(dims), errors.item(), dtype=np.float64)
+        elif errors.shape == (3,):
+            errors = errors[dims]
+        elif errors.shape != (len(dims),):
+            raise ValueError(
+                "`position_errors` must be a scalar, have one value per "
+                "matched dimension, or have three spatial values."
+            )
+        if np.any(~np.isfinite(errors)) or np.any(errors <= 0.0):
+            raise ValueError("`position_errors` must be finite and strictly positive.")
+
+        # The quality cut is optional, but must define a valid chi-squared range
+        if max_chi2 is not None and (not np.isfinite(max_chi2) or max_chi2 < 0.0):
+            raise ValueError("`max_chi2` must be finite and non-negative.")
+
+        # Keep the reciprocal score finite for exact or numerically tiny matches
+        if not np.isfinite(chi2_floor) or chi2_floor <= 0.0:
+            raise ValueError("`chi2_floor` must be finite and strictly positive.")
+
+        # The angular term requires both a valid uncertainty and optical geometry
+        if angle_error is not None:
+            if not np.isfinite(angle_error) or angle_error <= 0.0:
+                raise ValueError("`angle_error` must be finite and strictly positive.")
+            if optical is None:
+                raise ValueError(
+                    "Optical detector geometry is required when `angle_error` is set."
+                )
+
+        # The light/charge constraint is optional and owns the only external
+        # OpT0Finder dependency in barycenter matching
+        bounds = None
+        light_model = None
+        if light_charge_bounds is not None:
+            bounds = np.asarray(light_charge_bounds, dtype=np.float64)
+            if (
+                bounds.shape != (2,)
+                or np.any(~np.isfinite(bounds))
+                or bounds[0] < 0.0
+                or bounds[0] > bounds[1]
+            ):
+                raise ValueError(
+                    "`light_charge_bounds` must contain finite, ordered, "
+                    "non-negative lower and upper bounds."
+                )
+            if light_model_cfg is None:
+                raise ValueError(
+                    "`light_model_cfg` is required when `light_charge_bounds` "
+                    "is configured."
+                )
+            if not np.isfinite(charge_scale) or charge_scale <= 0.0:
+                raise ValueError("`charge_scale` must be finite and strictly positive.")
+
+            light_model = OpT0FinderLightModel(
+                cfg=light_model_cfg,
+                detector=detector,
+                parent_path=parent_path,
+                algorithm=light_model_algorithm,
+            )
+
+        # Store the normalized flash-matching parameters
+        self.report_mode = report_mode
+        self.dims = dims
         self.charge_weighted = charge_weighted
         self.time_window = time_window
         self.first_flash_only = first_flash_only
         self.min_inter_size = min_inter_size
         self.min_flash_pe = min_flash_pe
-        self.match_distance = match_distance
+        self.candidate_distance = candidate_distance
+        self.position_errors = errors
+        self.angle_error = angle_error
+        self.max_chi2 = max_chi2
+        self.chi2_floor = chi2_floor
+        self.optical = optical
+        self.light_charge_bounds = bounds
+        self.light_model_use_points = light_model_use_points
+        self.charge_scale = charge_scale
+        self.light_model = light_model
 
     def get_matches(
         self, interactions: Sequence[Any], flashes: Sequence[Any]
-    ) -> list[tuple[Any, Any, float]]:
-        """Makes [interaction, flash] pairs that have compatible barycenters.
+    ) -> list[tuple[Any, Any, BarycenterMatchResult]]:
+        """Build interaction--flash pairs with compatible barycenters.
+
+        Invalid or non-positive deposition weights are excluded from the charge
+        observables. A candidate is also excluded when its distance or
+        chi-squared is non-finite, or when an enabled PCA term cannot be
+        constructed from either footprint. The geometric distance cut is
+        applied before the optional full chi-squared cut.
 
         Parameters
         ----------
         interactions : Sequence[RecoInteraction | TruthInteraction]
-            List of interactions
+            Interactions to consider for matching
         flashes : Sequence[Flash]
-            List of optical flashes
+            Optical flashes to consider for matching
 
         Returns
         -------
-        list[tuple[Interaction, Flash, float]]
-            List of [interaction, flash, distance] triplets
+        list[tuple[Interaction, Flash, BarycenterMatchResult]]
+            Accepted interaction, flash and match-quality triplets
         """
+        # Convert the input sequences to lists for indexing and length checks
         interactions = list(interactions)
         flashes = list(flashes)
 
-        # Restrict the flashes to those that fit the selection criteria.
-        # Skip if there are no valid flashes
+        # Restrict the flashes to those that fit the selection criteria
         if self.time_window is not None:
             t1, t2 = self.time_window
             flashes = [f for f in flashes if (f.time > t1 and f.time < t2)]
@@ -105,61 +328,373 @@ class BarycenterFlashMatcher:
         if len(flashes) == 0:
             return []
 
-        # If requested, restrict the list of flashes to match to the first one
+        # If requested, only match the first flash that survived selection
         if self.first_flash_only:
             flashes = [flashes[0]]
 
-        # Restrict the interactions to those that fit the selection criterion.
-        # Skip if there are no valid interactions
+        # Restrict interactions to those that fit the size selection
         if self.min_inter_size is not None:
             interactions = [
-                inter for inter in interactions if inter.size > self.min_inter_size
+                inter
+                for inter in interactions
+                if len(inter.points) > self.min_inter_size
             ]
 
         if len(interactions) == 0:
             return []
 
-        # Get the flash centroids
-        op_centroids = np.empty((len(flashes), len(self.dims)))
-        op_widths = np.empty((len(flashes), len(self.dims)))
-        dims = list(self.dims)
-        for i, f in enumerate(flashes):
-            op_centroids[i] = f.center[dims]
-            op_widths[i] = f.width[dims]
+        # Build charge observables once per interaction. Interactions with no
+        # usable points or charge cannot form a barycenter match
+        valid_interactions = []
+        charge_centers = []
+        charge_widths = []
+        charge_axes = []
+        charge_totals = []
+        for inter in interactions:
+            observables = self._charge_observables(inter)
+            if observables is None:
+                continue
+            center, width, axis = observables
+            valid_interactions.append(inter)
+            charge_centers.append(center)
+            charge_widths.append(width)
+            charge_axes.append(axis)
+            charge_totals.append(self._charge_total(inter))
 
-        # Get interactions centroids
-        int_centroids = np.empty((len(interactions), len(self.dims)))
-        for i, inter in enumerate(interactions):
-            if not self.charge_weighted:
-                int_centroids[i] = np.mean(inter.points[:, self.dims], axis=0)
+        if len(valid_interactions) == 0:
+            return []
 
-            else:
-                int_centroids[i] = np.sum(
-                    inter.depositions[:, None] * inter.points[:, self.dims], axis=0
-                )
-                int_centroids[i] /= np.sum(inter.depositions)
+        interactions = valid_interactions
+        int_centroids = np.asarray(charge_centers)[:, self.dims]
+        op_centroids = np.asarray([f.center[self.dims] for f in flashes])
 
-        # Compute the flash to interaction distance matrix
+        # The optical hypothesis depends only on the interaction, so evaluate
+        # the external model once before considering individual flashes
+        light_hypotheses = None
+        if self.light_model is not None:
+            light_hypotheses = [
+                self._light_hypothesis(inter, center)
+                for inter, center in zip(interactions, charge_centers)
+            ]
+
+        # Compute the flash-to-interaction distance matrix
         dist_mat = np.linalg.norm(
             op_centroids[:, None, :] - int_centroids[None, :, :], axis=2
         )
 
-        # Produce matches
-        matches = []
-        if self.match_method == "best":
-            # For each flash, select the best match, save attributes
-            for i, f in enumerate(flashes):
-                best_match = int(np.argmin(dist_mat[i]))
-                dist = dist_mat[i, best_match]
-                if self.match_distance is not None and dist > self.match_distance:
-                    continue
-                matches.append((interactions[best_match], f, dist))
+        # Compute all candidate qualities. The distance threshold remains a
+        # geometric selection; the returned score is consistently 1 / chi2
+        results: dict[tuple[int, int], BarycenterMatchResult] = {}
+        for i, flash in enumerate(flashes):
+            optical_axis = None
+            if self.angle_error is not None:
+                optical_axis = self._optical_axis(flash)
 
-        elif self.match_method == "threshold":
-            # Find all compatible pairs
-            valid_pairs = np.vstack(np.where(dist_mat <= self.match_distance)).T
+            for j, _ in enumerate(interactions):
+                distance = float(dist_mat[i, j])
+                if not np.isfinite(distance) or (
+                    self.candidate_distance is not None
+                    and distance > self.candidate_distance
+                ):
+                    continue
+
+                # Form the spatial chi-squared in the requested dimensions
+                delta = op_centroids[i] - int_centroids[j]
+                chi2 = float(np.sum(np.square(delta / self.position_errors)))
+
+                # Add the acute PCA-angle contribution when it is enabled
+                angle = np.nan
+                if self.angle_error is not None:
+                    charge_axis = charge_axes[j]
+                    if charge_axis is None or optical_axis is None:
+                        continue
+                    cosine = np.clip(abs(np.dot(charge_axis, optical_axis)), 0.0, 1.0)
+                    angle = float(np.degrees(np.arccos(cosine)))
+                    chi2 += (angle / self.angle_error) ** 2
+
+                if not np.isfinite(chi2):
+                    continue
+
+                # Optionally reject candidates which pass the geometric cut but
+                # are incompatible under the full spatial and angular metric
+                if self.max_chi2 is not None and chi2 > self.max_chi2:
+                    continue
+
+                # Infer the emitted photons from the point response and require
+                # consistency with the calibrated interaction charge
+                light_charge_ratio = np.nan
+                hypothesis = None
+                if self.light_model is not None:
+                    assert light_hypotheses is not None
+                    assert self.light_charge_bounds is not None
+                    charge = charge_totals[j] * self.charge_scale
+                    hypothesis = light_hypotheses[j] * charge
+                    hypothesis_pe = float(np.sum(hypothesis))
+                    if (
+                        not np.isfinite(hypothesis_pe)
+                        or hypothesis_pe <= 0.0
+                        or not np.isfinite(charge)
+                        or charge <= 0.0
+                    ):
+                        continue
+                    light_charge_ratio = float(flash.total_pe / hypothesis_pe)
+                    lower, upper = self.light_charge_bounds
+                    if (
+                        not np.isfinite(light_charge_ratio)
+                        or light_charge_ratio < lower
+                        or light_charge_ratio > upper
+                    ):
+                        continue
+
+                # Match OpT0Finder's chi-squared-mode convention while keeping
+                # exact or numerically tiny matches finite
+                score = 1.0 / max(chi2, self.chi2_floor)
+                results[(i, j)] = BarycenterMatchResult(
+                    score=score,
+                    chi2=chi2,
+                    distance=distance,
+                    angle=angle,
+                    charge_center=charge_centers[j],
+                    charge_width=charge_widths[j],
+                    light_charge_ratio=light_charge_ratio,
+                    hypothesis=hypothesis,
+                )
+
+        # Dispatch the accepted candidates according to the reporting mode
+        matches = []
+        if self.report_mode == "best_per_flash":
+            # For each flash, select the lowest-chi-squared interaction
+            for i, f in enumerate(flashes):
+                candidates = [
+                    (j, results[(i, j)])
+                    for j in range(len(interactions))
+                    if (i, j) in results
+                ]
+                if len(candidates) == 0:
+                    continue
+                best_match, result = min(candidates, key=lambda item: item[1].chi2)
+                matches.append((interactions[best_match], f, result))
+
+        elif self.report_mode == "best_per_interaction":
+            # For each interaction, independently select its best flash. This
+            # allows multiple interactions to report the same flash
+            for j, interaction in enumerate(interactions):
+                candidates = [
+                    (i, results[(i, j)])
+                    for i in range(len(flashes))
+                    if (i, j) in results
+                ]
+                if len(candidates) == 0:
+                    continue
+                best_match, result = min(candidates, key=lambda item: item[1].chi2)
+                matches.append((interaction, flashes[best_match], result))
+
+        elif self.report_mode == "all":
             matches = [
-                (interactions[j], flashes[i], dist_mat[i, j]) for i, j in valid_pairs
+                (interactions[j], flashes[i], result)
+                for (i, j), result in results.items()
             ]
 
         return matches
+
+    def _charge_observables(
+        self, interaction: Any
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None] | None:
+        """Compute the charge center, RMS width and principal YZ axis.
+
+        Parameters
+        ----------
+        interaction : Interaction
+            Interaction containing an ``(N, 3)`` point array and one calibrated
+            deposition value per point
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray, np.ndarray], optional
+            Three-dimensional charge center, three-dimensional RMS width and
+            two-dimensional principal YZ axis. The axis is ``None`` for a
+            degenerate YZ footprint. The full result is ``None`` when no valid
+            points remain after selection
+        """
+        points = np.asarray(interaction.points, dtype=np.float64)
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError("Interaction points must have shape (N, 3).")
+
+        # Keep only finite points and, when requested, positive finite weights
+        valid = np.all(np.isfinite(points), axis=1)
+        if self.charge_weighted:
+            weights = np.asarray(interaction.depositions, dtype=np.float64)
+            if weights.shape != (len(points),):
+                raise ValueError(
+                    "Interaction depositions must have one value per point."
+                )
+            valid &= np.isfinite(weights) & (weights > 0.0)
+            weights = weights[valid]
+        else:
+            weights = np.ones(np.count_nonzero(valid), dtype=np.float64)
+
+        points = points[valid]
+        if len(points) == 0:
+            return None
+
+        # Compute the weighted first and second spatial moments
+        total = np.sum(weights)
+        center = np.sum(weights[:, None] * points, axis=0) / total
+        variance = np.sum(weights[:, None] * np.square(points - center), axis=0) / total
+        width = np.sqrt(np.maximum(variance, 0.0))
+        axis = self._principal_axis(points[:, (1, 2)], weights)
+        return center, width, axis
+
+    def _charge_total(self, interaction: Any) -> float:
+        """Return the positive finite calibrated deposition sum.
+
+        Parameters
+        ----------
+        interaction : Interaction
+            Interaction carrying the calibrated deposition values
+
+        Returns
+        -------
+        float
+            Sum of positive finite depositions in the interaction
+        """
+        points = np.asarray(interaction.points, dtype=np.float64)
+        depositions = np.asarray(interaction.depositions, dtype=np.float64)
+        valid = (
+            np.all(np.isfinite(points), axis=1)
+            & np.isfinite(depositions)
+            & (depositions > 0.0)
+        )
+        return float(np.sum(depositions[valid]))
+
+    def _light_hypothesis(self, interaction: Any, center: np.ndarray) -> np.ndarray:
+        """Evaluate the configured per-channel light response.
+
+        The default evaluates a single unit-photon source at the charge
+        barycenter. In distributed mode, every finite point with a positive
+        deposition is propagated and its relative photon yield is taken to be
+        proportional to that deposition.
+
+        Parameters
+        ----------
+        interaction : Interaction
+            Interaction providing points and calibrated depositions
+        center : np.ndarray
+            (3) Charge barycenter used by the collapsed approximation
+
+        Returns
+        -------
+        np.ndarray
+            Per-channel effective optical response, in PE per emitted photon
+        """
+        assert self.light_model is not None
+        if not self.light_model_use_points:
+            return self.light_model.get_hypothesis(center)
+
+        points = np.asarray(interaction.points, dtype=np.float64)
+        depositions = np.asarray(interaction.depositions, dtype=np.float64)
+        valid = (
+            np.all(np.isfinite(points), axis=1)
+            & np.isfinite(depositions)
+            & (depositions > 0.0)
+        )
+        if not np.any(valid):
+            return np.asarray([np.nan], dtype=np.float64)
+
+        return self.light_model.get_hypothesis(points[valid], depositions[valid])
+
+    def _optical_axis(self, flash: Any) -> np.ndarray | None:
+        """Compute the PE-squared weighted principal optical YZ axis.
+
+        Parameters
+        ----------
+        flash : Flash
+            Optical flash containing a volume ID and one PE value per optical
+            readout channel
+
+        Returns
+        -------
+        np.ndarray, optional
+            (2) Unit vector along the principal YZ axis, or ``None`` when the
+            optical footprint is degenerate
+        """
+        # Select either the global detector index or this flash's local volume
+        assert self.optical is not None, "Optical geometry is required for PCA."
+        volume_id = int(flash.volume_id)
+        if self.optical.global_index:
+            positions = np.asarray(self.optical.positions, dtype=np.float64)
+            det_ids = self.optical.det_ids
+        else:
+            if volume_id < 0 or volume_id >= self.optical.num_volumes:
+                raise ValueError(f"Invalid optical volume ID: {volume_id}.")
+            volume = self.optical.volumes[volume_id]
+            positions = np.asarray(volume.positions, dtype=np.float64)
+            det_ids = volume.det_ids
+
+        # Aggregate channels that share a physical optical detector
+        pe_per_ch = np.asarray(flash.pe_per_ch, dtype=np.float64)
+        if det_ids is None:
+            if len(pe_per_ch) != len(positions):
+                raise ValueError(
+                    "Flash PE vector does not match the optical detector geometry."
+                )
+            pe_per_det = pe_per_ch
+        else:
+            det_ids = np.asarray(det_ids, dtype=np.int64)
+            if len(pe_per_ch) != len(det_ids):
+                raise ValueError(
+                    "Flash PE vector does not match the optical channel mapping."
+                )
+            pe_per_det = np.bincount(
+                det_ids, weights=pe_per_ch, minlength=len(positions)
+            )[: len(positions)]
+
+        # Match SBND's footprint construction: merge collocated detectors, then
+        # square their aggregate PE before forming the optical PCA.
+        yz, inverse = np.unique(positions[:, (1, 2)], axis=0, return_inverse=True)
+        pe_per_pos = np.bincount(inverse, weights=pe_per_det, minlength=len(yz))
+        valid = (
+            np.all(np.isfinite(yz), axis=1)
+            & np.isfinite(pe_per_pos)
+            & (pe_per_pos > 0.0)
+        )
+        return self._principal_axis(yz[valid], np.square(pe_per_pos[valid]))
+
+    @staticmethod
+    def _principal_axis(points: np.ndarray, weights: np.ndarray) -> np.ndarray | None:
+        """Return the principal axis of a weighted two-dimensional footprint.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            (N, 2) Two-dimensional point coordinates
+        weights : np.ndarray
+            (N) Non-negative point weights
+
+        Returns
+        -------
+        np.ndarray, optional
+            (2) Unit eigenvector associated with the largest covariance
+            eigenvalue, or ``None`` when the footprint is degenerate
+        """
+        if len(points) < 2:
+            return None
+
+        total = np.sum(weights)
+        if not np.isfinite(total) or total <= 0.0:
+            return None
+
+        # Build the weighted covariance matrix about the weighted center
+        center = np.sum(weights[:, None] * points, axis=0) / total
+        centered = points - center
+        covariance = (centered * weights[:, None]).T @ centered / total
+        if not np.all(np.isfinite(covariance)) or np.allclose(covariance, 0.0):
+            return None
+
+        # The principal direction is the eigenvector of largest variance
+        values, vectors = np.linalg.eigh(covariance)
+        if values[-1] <= 0.0 or np.isclose(values[-1], values[-2]):
+            return None
+
+        axis = vectors[:, -1]
+        return axis / np.linalg.norm(axis)

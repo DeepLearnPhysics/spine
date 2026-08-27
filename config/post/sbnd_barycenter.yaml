@@ -1,0 +1,73 @@
+__meta__:
+  description: Run SBND-style barycenter flash matching on a SPINE HDF5 file
+
+base:
+  world_size: 0
+  iterations: -1
+  seed: 0
+  dtype: float32
+  unwrap: false
+  log_dir: logs
+  prefix_log: true
+  overwrite_log: true
+  log_step: 1
+  split_output: true
+
+geo:
+  detector: sbnd
+  tag: sbndv2-6
+
+io:
+  reader:
+    name: hdf5
+    # Set this to the input SPINE HDF5 path before running.
+    file_keys: null
+
+  writer:
+    name: hdf5
+    file_name: sbnd_barycenter_output.h5
+    overwrite: true
+    keys:
+      - run_info
+      - meta
+      - points
+      - depositions
+      - sources
+      - reco_particles
+      - reco_interactions
+      - flashes
+
+build:
+  fragments: false
+  particles: true
+  interactions: true
+  mode: reco
+  units: cm
+
+post:
+  flash_match:
+    flash_key: flashes
+    run_mode: reco
+
+    # Match each SBND TPC independently, then reproduce the reference module's
+    # policy of retaining the brighter of its two reported TPC-side flashes.
+    volume: tpc
+    method: barycenter
+    report_mode: best_per_interaction
+    volume_report_mode: brightest
+
+    # SBND TPCPMTBarycenterMatching defaults for simulation. For data, the
+    # reference configuration uses an 11-cm X uncertainty instead of 9 cm.
+    dimensions: [0, 1, 2]
+    candidate_distance: 100.0
+    position_errors: [9.0, 21.0, 25.0]
+    angle_error: 27.0
+    time_window: [-5.0, 5.0]
+    charge_weighted: true
+
+    # Query only the production SemiAnalyticalModel block. Its ChannelToUse
+    # mask restricts the response to reconstructed SBND PMT channels.
+    light_charge_bounds: [0.25, 3.0]
+    light_model_cfg: !path flashmatch/sbnd_semianalytical_250408.cfg
+    light_model_algorithm: SemiAnalyticalModel
+    light_model_use_points: false
