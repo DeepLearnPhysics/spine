@@ -137,6 +137,14 @@ def test_flash_match_processor_validates_volume():
     with pytest.raises(ValueError, match="volume"):
         FlashMatchProcessor(flash_key="flashes", volume="bad")
 
+    with pytest.raises(ValueError, match="volume_report_mode"):
+        FlashMatchProcessor(
+            flash_key="flashes",
+            volume="module",
+            method="barycenter",
+            volume_report_mode="bad",
+        )
+
 
 def test_flash_match_processor_validates_method_and_initializes_likelihood():
     processor = FlashMatchProcessor(
@@ -264,6 +272,26 @@ def test_flash_match_processor_accumulates_multiple_matches():
 
     assert inter.flash_total_pe == 15.0
     assert inter.flash_hypo_pe == -2.0
+
+
+def test_flash_match_processor_keeps_brightest_cross_volume_match():
+    processor = FlashMatchProcessor(
+        flash_key="flashes",
+        volume="module",
+        method="barycenter",
+        volume_report_mode="brightest",
+    )
+    inter = make_interaction(sources=((0, 0), (1, 0)))
+    flashes = [
+        make_flash(id=0, volume_id=0, total_pe=10.0),
+        make_flash(id=1, volume_id=1, total_pe=20.0),
+    ]
+
+    processor.process({"flashes": flashes, "reco_interactions": [inter]})
+
+    assert inter.flash_total_pe == 20.0
+    assert inter.flash_ids.tolist() == [1]
+    assert inter.flash_volume_ids.tolist() == [1]
 
 
 def test_flash_match_processor_returns_updated_flashes_when_requested():
