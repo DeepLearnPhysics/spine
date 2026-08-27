@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
 
@@ -15,6 +16,145 @@ import numpy as np
 def get_flashmatch() -> Any:
     """Load the optional OpT0Finder Python bindings at runtime."""
     return import_module("flashmatch").flashmatch
+
+
+def load_flashmatch_config(
+    cfg: str, detector: str | None, parent_path: str | None = None
+) -> tuple[Any, Any]:
+    """Load an OpT0Finder configuration and detector description.
+
+    This performs only the common environment, detector and configuration
+    setup. In particular, it does not construct a flash-matching manager, so a
+    configuration containing only one flash-hypothesis algorithm is sufficient
+    for callers which only need an optical response prediction.
+
+    Parameters
+    ----------
+    cfg : str
+        Path to an OpT0Finder configuration file
+    detector : str, optional
+        Detector suffix used to select ``detector_specs_<detector>.cfg``. If
+        omitted, the generic ``detector_specs.cfg`` file is used
+    parent_path : str, optional
+        Parent analysis-configuration directory used to resolve a relative
+        ``cfg`` path
+
+    Returns
+    -------
+    tuple[module, flashmatch::PSet]
+        Loaded Python interface and parsed OpT0Finder configuration
+    """
+    # Add the OpT0Finder Python interface and shared library to their loaders
+    basedir = os.getenv("FMATCH_BASEDIR")
+    if basedir is None:
+        raise ValueError(
+            "You need to source OpT0Finder's configure.sh or set the "
+            "FMATCH_BASEDIR environment variable before running flash "
+            "matching."
+        )
+    python_path = os.path.join(basedir, "python")
+    if python_path not in sys.path:
+        sys.path.append(python_path)
+
+    lib_path = os.path.join(basedir, "build/lib")
+    loader_path = os.environ.get("LD_LIBRARY_PATH", "")
+    if lib_path not in loader_path.split(":"):
+        os.environ["LD_LIBRARY_PATH"] = (
+            f"{lib_path}:{loader_path}" if loader_path else lib_path
+        )
+
+    # OpT0Finder uses its data directory to resolve auxiliary model resources
+    if "FMATCH_DATADIR" not in os.environ:
+        os.environ["FMATCH_DATADIR"] = os.path.join(basedir, "dat")
+
+    # Load the detector geometry shared by all OpT0Finder algorithms
+    filename = "detector_specs.cfg"
+    if detector is not None:
+        filename = f"detector_specs_{detector}.cfg"
+    det_cfg = os.path.join(basedir, "dat", filename)
+    if not os.path.isfile(det_cfg):
+        raise FileNotFoundError(f"Cannot find detector specification file: {det_cfg}.")
+
+    flashmatch = get_flashmatch()
+    flashmatch.DetectorSpecs.GetME(det_cfg)
+
+    # Resolve the algorithm configuration relative to the parent YAML file
+    if parent_path is not None and not os.path.isfile(cfg):
+        cfg = os.path.join(parent_path, cfg)
+    if not os.path.isfile(cfg):
+        raise FileNotFoundError(f"Cannot find flash-matcher config: {cfg}")
+
+    return flashmatch, flashmatch.CreateFMParamsFromFile(cfg)
+
+
+class OpT0FinderLightModel:
+    """Query one OpT0Finder flash-hypothesis algorithm at a spatial point.
+
+    The model evaluates a unit-photon ``QPoint_t`` and sums the resulting
+    per-channel PE prediction. The result is therefore an effective detector
+    response in PE per emitted photon, including the channel masks and optical
+    efficiencies configured in the selected hypothesis algorithm.
+    """
+
+    def __init__(
+        self,
+        cfg: str,
+        detector: str | None,
+        parent_path: str | None = None,
+        algorithm: str = "SemiAnalyticalModel",
+    ) -> None:
+        """Initialize a standalone OpT0Finder light-response model.
+
+        Parameters
+        ----------
+        cfg : str
+            OpT0Finder configuration containing the selected algorithm block.
+            A full ``FlashMatchManager`` configuration is not required
+        detector : str, optional
+            Detector to use for the optical detector specifications
+        parent_path : str, optional
+            Parent directory used to resolve a relative ``cfg`` path
+        algorithm : str, default 'SemiAnalyticalModel'
+            Name of the OpT0Finder flash-hypothesis algorithm to query
+        """
+        flashmatch, fm_cfg = load_flashmatch_config(cfg, detector, parent_path)
+        hypothesis = flashmatch.FlashHypothesisFactory.get().create(
+            algorithm, algorithm
+        )
+        algo_cfg = fm_cfg.get["flashmatch::FMParams"](algorithm)
+        hypothesis.Configure(algo_cfg)
+
+        self.flashmatch = flashmatch
+        self.hypothesis = hypothesis
+        self.algorithm = algorithm
+
+    def get_response(self, position: Sequence[float]) -> float:
+        """Return the total predicted PE per photon emitted at a point.
+
+        Parameters
+        ----------
+        position : Sequence[float]
+            Three-dimensional detector coordinate, in cm
+
+        Returns
+        -------
+        float
+            Total predicted PE per emitted photon. A non-finite or non-positive
+            response indicates that the point cannot support a light estimate
+        """
+        point = np.asarray(position, dtype=np.float64)
+        if point.shape != (3,) or not np.all(np.isfinite(point)):
+            raise ValueError("Light-model position must be a finite 3-vector.")
+
+        # A unit QPoint makes the summed prediction an effective visibility
+        qcluster = self.flashmatch.QCluster_t()
+        qcluster.push_back(
+            self.flashmatch.QPoint_t(
+                float(point[0]), float(point[1]), float(point[2]), 1.0
+            )
+        )
+        estimate = self.hypothesis.GetEstimate(qcluster)
+        return float(np.sum(np.asarray(list(estimate.pe_v), dtype=np.float64)))
 
 
 class LikelihoodFlashMatcher:
@@ -101,45 +241,8 @@ class LikelihoodFlashMatcher:
         parent_path : str, optional
             Path to the parent configuration file (allows for relative paths)
         """
-        # Add OpT0finder python interface to the python path
-        basedir = os.getenv("FMATCH_BASEDIR")
-        if basedir is None:
-            raise ValueError(
-                "You need to source OpT0Finder's configure.sh or set the "
-                "FMATCH_BASEDIR environment variable before running flash "
-                "matching."
-            )
-        sys.path.append(os.path.join(basedir, "python"))
-
-        # Add the OpT0Finder library to the dynamic link loader
-        lib_path = os.path.join(basedir, "build/lib")
-        os.environ["LD_LIBRARY_PATH"] = f"{lib_path}:{os.environ['LD_LIBRARY_PATH']}"
-
-        # Add the OpT0Finder data directory if it is not yet set
-        if "FMATCH_DATADIR" not in os.environ:
-            os.environ["FMATCH_DATADIR"] = os.path.join(basedir, "dat")
-
-        # Load up the detector specifications
-        if detector is None:
-            det_cfg = os.path.join(basedir, "dat/detector_specs.cfg")
-        else:
-            det_cfg = os.path.join(basedir, f"dat/detector_specs_{detector}.cfg")
-
-        if not os.path.isfile(det_cfg):
-            raise FileNotFoundError(
-                f"Cannot file detector specification file: {det_cfg}."
-            )
-
-        flashmatch = get_flashmatch()
-        flashmatch.DetectorSpecs.GetME(det_cfg)
-
-        # Fetch and initialize the OpT0Finder configuration
-        if parent_path is not None and not os.path.isfile(cfg):
-            cfg = os.path.join(parent_path, cfg)
-        if not os.path.isfile(cfg):
-            raise FileNotFoundError(f"Cannot find flash-matcher config: {cfg}")
-
-        fm_cfg = flashmatch.CreateFMParamsFromFile(cfg)
+        # Load the shared detector description and algorithm configuration
+        flashmatch, fm_cfg = load_flashmatch_config(cfg, detector, parent_path)
         self.fm_cfg = fm_cfg
 
         # Initialize The OpT0Finder flash match manager

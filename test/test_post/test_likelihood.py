@@ -44,6 +44,17 @@ class FakeQCluster:
         self.payload.append(other)
         return self
 
+    def push_back(self, point):
+        self.payload.append(point)
+
+
+class FakeQPoint:
+    def __init__(self, x, y, z, q):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.q = q
+
 
 class FakeFlash:
     def __init__(self):
@@ -98,6 +109,8 @@ class FakeHypothesisAlgorithm:
         self.config = cfg
 
     def GetEstimate(self, qcluster):
+        if qcluster.payload and isinstance(qcluster.payload[0], FakeQPoint):
+            return SimpleNamespace(pe_v=[0.1, 0.2])
         return SimpleNamespace(pe_v=[qcluster.idx + 1.0, qcluster.idx + 2.0])
 
 
@@ -158,6 +171,9 @@ class FakeFlashMatch:
 
     def QCluster_t(self):
         return FakeQCluster()
+
+    def QPoint_t(self, x, y, z, q):
+        return FakeQPoint(x, y, z, q)
 
     def Flash_t(self):
         return FakeFlash()
@@ -242,6 +258,24 @@ def test_likelihood_flash_matcher_initializes_backend(monkeypatch, tmp_path):
         "key": "flashmatch::FMParams",
         "name": "LightPath",
     }
+
+
+def test_opt0finder_light_model_queries_unit_point(monkeypatch, tmp_path):
+    fake, cfg = configure_fake_backend(monkeypatch, tmp_path)
+
+    model = likelihood_mod.OpT0FinderLightModel(
+        cfg=str(cfg), detector="demo", algorithm="SemiAnalyticalModel"
+    )
+    response = model.get_response([1.0, 2.0, 3.0])
+
+    assert response == pytest.approx(0.3)
+    assert fake.hypothesis.config == {
+        "key": "flashmatch::FMParams",
+        "name": "SemiAnalyticalModel",
+    }
+
+    with pytest.raises(ValueError, match="finite 3-vector"):
+        model.get_response([1.0, np.nan, 3.0])
 
 
 def test_likelihood_flash_matcher_uses_default_detector_specs(monkeypatch, tmp_path):

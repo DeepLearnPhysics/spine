@@ -146,7 +146,12 @@ class FlashMatchProcessor(PostBase):
             )
 
         if method == "barycenter":
-            self.matcher = BarycenterFlashMatcher(optical=self.geo.optical, **kwargs)
+            self.matcher = BarycenterFlashMatcher(
+                optical=self.geo.optical,
+                detector=self.geo.name.lower(),
+                parent_path=self.parent_path,
+                **kwargs,
+            )
 
         elif method == "likelihood":
             self.matcher = LikelihoodFlashMatcher(

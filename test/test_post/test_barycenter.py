@@ -54,6 +54,16 @@ def test_barycenter_flash_matcher_validates_reporting_and_quality_parameters():
     with pytest.raises(ValueError, match="Optical detector geometry"):
         BarycenterFlashMatcher(report_mode="best_per_flash", angle_error=10.0)
 
+    with pytest.raises(ValueError, match="light_charge_bounds"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash", light_charge_bounds=(2.0, 1.0)
+        )
+
+    with pytest.raises(ValueError, match="light_model_cfg"):
+        BarycenterFlashMatcher(
+            report_mode="best_per_flash", light_charge_bounds=(0.25, 3.0)
+        )
+
 
 def test_barycenter_flash_matcher_finds_best_match():
     matcher = BarycenterFlashMatcher(report_mode="best_per_flash")
@@ -168,6 +178,44 @@ def test_barycenter_flash_matcher_applies_optional_chi2_cut():
 
     assert len(accepted.get_matches([interaction], [flash])) == 1
     assert rejected.get_matches([interaction], [flash]) == []
+
+
+def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
+    monkeypatch,
+):
+    class FakeLightModel:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.positions = []
+
+        def get_response(self, position):
+            self.positions.append(np.asarray(position))
+            return 0.5
+
+    monkeypatch.setattr(
+        "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
+    )
+    matcher = BarycenterFlashMatcher(
+        report_mode="all",
+        candidate_distance=1.0,
+        light_charge_bounds=(0.5, 1.5),
+        light_model_cfg="minimal.cfg",
+        charge_scale=2.0,
+        detector="demo",
+    )
+    interaction = FakeInteraction(
+        [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]], depositions=[1.0, 1.0]
+    )
+    accepted = FakeFlash([0.0, 0.0, 0.0], [0.0, 0.1, 0.1], total_pe=2.0)
+    rejected = FakeFlash([0.0, 0.0, 0.0], [0.0, 0.1, 0.1], total_pe=8.0)
+
+    matches = matcher.get_matches([interaction], [accepted, rejected])
+
+    assert len(matches) == 1
+    assert matches[0][1] is accepted
+    assert matches[0][2].light_charge_ratio == pytest.approx(1.0)
+    assert matcher.light_model.kwargs["algorithm"] == "SemiAnalyticalModel"
+    assert len(matcher.light_model.positions) == 1
 
 
 def test_barycenter_flash_matcher_adds_pca_angle_to_chi2():

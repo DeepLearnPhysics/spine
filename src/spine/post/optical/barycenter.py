@@ -8,6 +8,10 @@ from typing import Any
 
 import numpy as np
 
+from spine.constants.physics import LAR_WION_MEV
+
+from .likelihood import OpT0FinderLightModel
+
 
 @dataclass(frozen=True)
 class BarycenterMatchResult:
@@ -34,6 +38,9 @@ class BarycenterMatchResult:
         (3) Deposition-weighted charge barycenter in detector coordinates, in cm
     charge_width : np.ndarray
         (3) Deposition-weighted RMS charge width along each detector axis, in cm
+    light_charge_ratio : float
+        Ratio of flash-inferred photons to interaction charge quanta. This is
+        ``NaN`` when the optional light/charge compatibility cut is disabled
     """
 
     score: float
@@ -42,6 +49,7 @@ class BarycenterMatchResult:
     angle: float
     charge_center: np.ndarray
     charge_width: np.ndarray
+    light_charge_ratio: float
 
 
 class BarycenterFlashMatcher:
@@ -73,6 +81,12 @@ class BarycenterFlashMatcher:
         max_chi2: float | None = None,
         chi2_floor: float = 1.0e-6,
         optical: Any | None = None,
+        light_charge_bounds: Sequence[float] | None = None,
+        light_model_cfg: str | None = None,
+        light_model_algorithm: str = "SemiAnalyticalModel",
+        charge_scale: float = 0.65 / LAR_WION_MEV,
+        detector: str | None = None,
+        parent_path: str | None = None,
     ) -> None:
         r"""Initialize the barycenter flash matcher.
 
@@ -120,6 +134,27 @@ class BarycenterFlashMatcher:
         optical : OptDetector, optional
             Optical detector geometry used to map per-channel PE to detector
             positions. Required when ``angle_error`` is set
+        light_charge_bounds : Sequence[float], optional
+            Inclusive lower and upper bounds on the ratio of flash-inferred
+            photons to interaction charge quanta. If omitted, no optical model
+            is initialized and no light/charge compatibility cut is applied
+        light_model_cfg : str, optional
+            OpT0Finder configuration containing ``light_model_algorithm``.
+            Required when ``light_charge_bounds`` is set. The file may contain
+            only the selected algorithm block; a full flash-matching manager
+            configuration is not required
+        light_model_algorithm : str, default 'SemiAnalyticalModel'
+            OpT0Finder flash-hypothesis algorithm used to predict the effective
+            PE response at the charge barycenter
+        charge_scale : float, default 0.65 / LAR_WION_MEV
+            Conversion from one calibrated deposition unit to charge quanta.
+            The default assumes MeV depositions, a 23.6-eV argon ionization
+            work function and a MIP recombination factor of 0.65
+        detector : str, optional
+            Detector name used to select the OpT0Finder detector specification
+        parent_path : str, optional
+            Parent analysis-configuration directory used to resolve a relative
+            ``light_model_cfg`` path
 
         Notes
         -----
@@ -195,6 +230,37 @@ class BarycenterFlashMatcher:
                     "Optical detector geometry is required when `angle_error` is set."
                 )
 
+        # The light/charge constraint is optional and owns the only external
+        # OpT0Finder dependency in barycenter matching
+        bounds = None
+        light_model = None
+        if light_charge_bounds is not None:
+            bounds = np.asarray(light_charge_bounds, dtype=np.float64)
+            if (
+                bounds.shape != (2,)
+                or np.any(~np.isfinite(bounds))
+                or bounds[0] < 0.0
+                or bounds[0] > bounds[1]
+            ):
+                raise ValueError(
+                    "`light_charge_bounds` must contain finite, ordered, "
+                    "non-negative lower and upper bounds."
+                )
+            if light_model_cfg is None:
+                raise ValueError(
+                    "`light_model_cfg` is required when `light_charge_bounds` "
+                    "is configured."
+                )
+            if not np.isfinite(charge_scale) or charge_scale <= 0.0:
+                raise ValueError("`charge_scale` must be finite and strictly positive.")
+
+            light_model = OpT0FinderLightModel(
+                cfg=light_model_cfg,
+                detector=detector,
+                parent_path=parent_path,
+                algorithm=light_model_algorithm,
+            )
+
         # Store the normalized flash-matching parameters
         self.report_mode = report_mode
         self.dims = dims
@@ -209,6 +275,9 @@ class BarycenterFlashMatcher:
         self.max_chi2 = max_chi2
         self.chi2_floor = chi2_floor
         self.optical = optical
+        self.light_charge_bounds = bounds
+        self.charge_scale = charge_scale
+        self.light_model = light_model
 
     def get_matches(
         self, interactions: Sequence[Any], flashes: Sequence[Any]
@@ -269,6 +338,7 @@ class BarycenterFlashMatcher:
         charge_centers = []
         charge_widths = []
         charge_axes = []
+        charge_totals = []
         for inter in interactions:
             observables = self._charge_observables(inter)
             if observables is None:
@@ -278,6 +348,7 @@ class BarycenterFlashMatcher:
             charge_centers.append(center)
             charge_widths.append(width)
             charge_axes.append(axis)
+            charge_totals.append(self._charge_total(inter))
 
         if len(valid_interactions) == 0:
             return []
@@ -285,6 +356,15 @@ class BarycenterFlashMatcher:
         interactions = valid_interactions
         int_centroids = np.asarray(charge_centers)[:, self.dims]
         op_centroids = np.asarray([f.center[self.dims] for f in flashes])
+
+        # The effective optical response depends only on the interaction
+        # barycenter, so evaluate the external model once per interaction
+        light_responses = None
+        if self.light_model is not None:
+            light_responses = np.asarray(
+                [self.light_model.get_response(center) for center in charge_centers],
+                dtype=np.float64,
+            )
 
         # Compute the flash-to-interaction distance matrix
         dist_mat = np.linalg.norm(
@@ -329,6 +409,30 @@ class BarycenterFlashMatcher:
                 if self.max_chi2 is not None and chi2 > self.max_chi2:
                     continue
 
+                # Infer the emitted photons from the point response and require
+                # consistency with the calibrated interaction charge
+                light_charge_ratio = np.nan
+                if self.light_model is not None:
+                    assert light_responses is not None
+                    assert self.light_charge_bounds is not None
+                    response = light_responses[j]
+                    charge = charge_totals[j] * self.charge_scale
+                    if (
+                        not np.isfinite(response)
+                        or response <= 0.0
+                        or not np.isfinite(charge)
+                        or charge <= 0.0
+                    ):
+                        continue
+                    light_charge_ratio = float(flash.total_pe / response / charge)
+                    lower, upper = self.light_charge_bounds
+                    if (
+                        not np.isfinite(light_charge_ratio)
+                        or light_charge_ratio < lower
+                        or light_charge_ratio > upper
+                    ):
+                        continue
+
                 # Match OpT0Finder's chi-squared-mode convention while keeping
                 # exact or numerically tiny matches finite
                 score = 1.0 / max(chi2, self.chi2_floor)
@@ -339,6 +443,7 @@ class BarycenterFlashMatcher:
                     angle=angle,
                     charge_center=charge_centers[j],
                     charge_width=charge_widths[j],
+                    light_charge_ratio=light_charge_ratio,
                 )
 
         # Dispatch the accepted candidates according to the reporting mode
@@ -425,6 +530,23 @@ class BarycenterFlashMatcher:
         width = np.sqrt(np.maximum(variance, 0.0))
         axis = self._principal_axis(points[:, (1, 2)], weights)
         return center, width, axis
+
+    def _charge_total(self, interaction: Any) -> float:
+        """Return the positive finite calibrated deposition sum.
+
+        Parameters
+        ----------
+        interaction : Interaction
+            Interaction carrying the calibrated deposition values
+
+        Returns
+        -------
+        float
+            Sum of positive finite depositions in the interaction
+        """
+        depositions = np.asarray(interaction.depositions, dtype=np.float64)
+        valid = np.isfinite(depositions) & (depositions > 0.0)
+        return float(np.sum(depositions[valid]))
 
     def _optical_axis(self, flash: Any) -> np.ndarray | None:
         """Compute the PE-squared weighted principal optical YZ axis.
