@@ -32,3 +32,13 @@ def test_dockerfiles_reference_declared_optional_dependencies():
         "Dockerfiles reference undefined package extras: "
         f"{sorted(referenced - declared)}"
     )
+
+
+def test_spine_image_installs_and_verifies_tensorboard():
+    """The full training image should include its TensorBoard integration."""
+    dockerfile = (ROOT_DIR / "docker" / "spine" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"tensorboard>=2.10.0"' in dockerfile
+    assert "from torch.utils.tensorboard import SummaryWriter" in dockerfile

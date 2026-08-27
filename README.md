@@ -523,7 +523,13 @@ tensorboard --logdir logs/train_run/tb
 
 SPINE still writes its CSV log alongside TensorBoard output. TensorBoard
 requires the `tensorboard` Python package to be installed in the runtime
-environment.
+environment. It is included in the released SPINE image. To inspect event files
+from a lightweight local environment without installing SPINE, use:
+
+```bash
+pip install tensorboard
+tensorboard --logdir /path/to/logs
+```
 
 ### Recording network output or running analysis
 Documentation for analysis tools and output formatting is available in the main documentation at https://spine.readthedocs.io/latest/.

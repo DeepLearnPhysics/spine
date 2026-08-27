@@ -118,9 +118,11 @@ RUN HDF5_DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial \
 # Install notebook tooling for tutorials and lightweight in-container analysis.
 # - jupyterlab: Modern notebook/lab interface
 # - notebook: Classic notebook UI and `jupyter notebook` command
+# - tensorboard: Scalar monitoring for SPINE training jobs
 RUN pip install --no-cache-dir \
     jupyterlab \
-    notebook
+    notebook \
+    "tensorboard>=2.10.0"
 
 # Build OpT0Finder for likelihood-based flash matching. Pin both the release
 # tag and resolved commit so rebuilds do not silently move if a tag is updated.
@@ -188,7 +190,7 @@ RUN pip install --no-cache-dir --no-build-isolation .[viz]
 
 # Verify that the default container environment and the explicit fallback setup
 # recipe both provide the compiled dependency imports SPINE needs at runtime.
-RUN python -c "import ROOT, larcv, spine; print('container runtime imports ok')"
+RUN python -c "import ROOT, larcv, spine; from torch.utils.tensorboard import SummaryWriter; print('container runtime imports ok')"
 RUN /opt/spine/check-env.sh
 RUN env -u ROOTSYS -u LARCV_BASEDIR -u LARCV_BUILDDIR -u LARCV_LIBDIR \
     -u LARCV_PYTHONDIR -u LARCV_INCDIR -u LARCV_BINDIR -u LARCV_COREDIR \
