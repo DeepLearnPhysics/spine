@@ -41,6 +41,9 @@ class BarycenterMatchResult:
     light_charge_ratio : float
         Ratio of flash-inferred photons to interaction charge quanta. This is
         ``NaN`` when the optional light/charge compatibility cut is disabled
+    hypothesis : np.ndarray, optional
+        Per-channel PE predicted from the interaction charge and optical
+        response. This is ``None`` when light/charge compatibility is disabled
     """
 
     score: float
@@ -50,6 +53,7 @@ class BarycenterMatchResult:
     charge_center: np.ndarray
     charge_width: np.ndarray
     light_charge_ratio: float
+    hypothesis: np.ndarray | None
 
 
 class BarycenterFlashMatcher:
@@ -364,17 +368,14 @@ class BarycenterFlashMatcher:
         int_centroids = np.asarray(charge_centers)[:, self.dims]
         op_centroids = np.asarray([f.center[self.dims] for f in flashes])
 
-        # The effective optical response depends only on the interaction
-        # barycenter, so evaluate the external model once per interaction
-        light_responses = None
+        # The optical hypothesis depends only on the interaction, so evaluate
+        # the external model once before considering individual flashes
+        light_hypotheses = None
         if self.light_model is not None:
-            light_responses = np.asarray(
-                [
-                    self._light_response(inter, center)
-                    for inter, center in zip(interactions, charge_centers)
-                ],
-                dtype=np.float64,
-            )
+            light_hypotheses = [
+                self._light_hypothesis(inter, center)
+                for inter, center in zip(interactions, charge_centers)
+            ]
 
         # Compute the flash-to-interaction distance matrix
         dist_mat = np.linalg.norm(
@@ -422,19 +423,21 @@ class BarycenterFlashMatcher:
                 # Infer the emitted photons from the point response and require
                 # consistency with the calibrated interaction charge
                 light_charge_ratio = np.nan
+                hypothesis = None
                 if self.light_model is not None:
-                    assert light_responses is not None
+                    assert light_hypotheses is not None
                     assert self.light_charge_bounds is not None
-                    response = light_responses[j]
                     charge = charge_totals[j] * self.charge_scale
+                    hypothesis = light_hypotheses[j] * charge
+                    hypothesis_pe = float(np.sum(hypothesis))
                     if (
-                        not np.isfinite(response)
-                        or response <= 0.0
+                        not np.isfinite(hypothesis_pe)
+                        or hypothesis_pe <= 0.0
                         or not np.isfinite(charge)
                         or charge <= 0.0
                     ):
                         continue
-                    light_charge_ratio = float(flash.total_pe / response / charge)
+                    light_charge_ratio = float(flash.total_pe / hypothesis_pe)
                     lower, upper = self.light_charge_bounds
                     if (
                         not np.isfinite(light_charge_ratio)
@@ -454,6 +457,7 @@ class BarycenterFlashMatcher:
                     charge_center=charge_centers[j],
                     charge_width=charge_widths[j],
                     light_charge_ratio=light_charge_ratio,
+                    hypothesis=hypothesis,
                 )
 
         # Dispatch the accepted candidates according to the reporting mode
@@ -563,8 +567,8 @@ class BarycenterFlashMatcher:
         )
         return float(np.sum(depositions[valid]))
 
-    def _light_response(self, interaction: Any, center: np.ndarray) -> float:
-        """Evaluate the configured light model for one interaction.
+    def _light_hypothesis(self, interaction: Any, center: np.ndarray) -> np.ndarray:
+        """Evaluate the configured per-channel light response.
 
         The default evaluates a single unit-photon source at the charge
         barycenter. In distributed mode, every finite point with a positive
@@ -580,12 +584,12 @@ class BarycenterFlashMatcher:
 
         Returns
         -------
-        float
-            Effective optical response, in PE per emitted photon
+        np.ndarray
+            Per-channel effective optical response, in PE per emitted photon
         """
         assert self.light_model is not None
         if not self.light_model_use_points:
-            return self.light_model.get_response(center)
+            return self.light_model.get_hypothesis(center)
 
         points = np.asarray(interaction.points, dtype=np.float64)
         depositions = np.asarray(interaction.depositions, dtype=np.float64)
@@ -595,9 +599,9 @@ class BarycenterFlashMatcher:
             & (depositions > 0.0)
         )
         if not np.any(valid):
-            return np.nan
+            return np.asarray([np.nan], dtype=np.float64)
 
-        return self.light_model.get_response(points[valid], depositions[valid])
+        return self.light_model.get_hypothesis(points[valid], depositions[valid])
 
     def _optical_axis(self, flash: Any) -> np.ndarray | None:
         """Compute the PE-squared weighted principal optical YZ axis.

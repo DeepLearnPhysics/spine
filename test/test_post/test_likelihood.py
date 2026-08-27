@@ -273,13 +273,15 @@ def test_opt0finder_light_model_queries_normalized_source(monkeypatch, tmp_path)
     response = model.get_response(
         [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], weights=[1.0, 3.0]
     )
+    qcluster = fake.hypothesis.qclusters[-1]
+    hypothesis = model.get_hypothesis([1.0, 2.0, 3.0])
 
     assert response == pytest.approx(0.3)
+    np.testing.assert_allclose(hypothesis, [0.1, 0.2])
     assert fake.hypothesis.config == {
         "key": "flashmatch::FMParams",
         "name": "SemiAnalyticalModel",
     }
-    qcluster = fake.hypothesis.qclusters[-1]
     assert [point.q for point in qcluster.payload] == pytest.approx([0.25, 0.75])
 
     with pytest.raises(ValueError, match="finite shape"):

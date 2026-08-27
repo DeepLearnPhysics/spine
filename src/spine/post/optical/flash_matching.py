@@ -389,10 +389,9 @@ class FlashMatchProcessor(PostBase):
                     score = float(np.asarray(match, dtype=np.float64).item())
                 else:
                     match_obj: Any = match
-                    if hasattr(match_obj, "hypothesis"):
-                        match_pe = np.asarray(
-                            list(match_obj.hypothesis), dtype=np.float32
-                        )
+                    hypothesis = getattr(match_obj, "hypothesis", None)
+                    if hypothesis is not None:
+                        match_pe = np.asarray(list(hypothesis), dtype=np.float32)
                         hypo_pe = float(np.sum(match_pe))
                     if hasattr(match_obj, "score"):
                         score = float(match_obj.score)

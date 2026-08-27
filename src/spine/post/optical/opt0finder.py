@@ -151,6 +151,30 @@ class OpT0FinderLightModel:
             Total predicted PE per emitted photon. A non-finite or non-positive
             response indicates that the source cannot support a light estimate
         """
+        return float(np.sum(self.get_hypothesis(points, weights)))
+
+    def get_hypothesis(
+        self,
+        points: ArrayLike,
+        weights: ArrayLike | None = None,
+    ) -> np.ndarray:
+        """Return the per-channel predicted PE per emitted photon.
+
+        Parameters
+        ----------
+        points : Sequence[float] or Sequence[Sequence[float]]
+            One ``(3)`` point or an ``(N, 3)`` point cloud in detector
+            coordinates, in cm
+        weights : Sequence[float], optional
+            Non-negative relative photon yield at each point. If omitted, all
+            points receive equal weight. The weights are normalized internally
+            so their absolute scale does not affect the hypothesis
+
+        Returns
+        -------
+        np.ndarray
+            Per-channel predicted PE for one emitted photon
+        """
         point_array = np.asarray(points, dtype=np.float64)
         if point_array.shape == (3,):
             point_array = point_array[None, :]
@@ -194,4 +218,4 @@ class OpT0FinderLightModel:
             )
 
         estimate = self.hypothesis.GetEstimate(qcluster)
-        return float(np.sum(np.asarray(list(estimate.pe_v), dtype=np.float64)))
+        return np.asarray(list(estimate.pe_v), dtype=np.float64)

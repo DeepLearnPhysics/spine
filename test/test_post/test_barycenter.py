@@ -78,6 +78,7 @@ def test_barycenter_flash_matcher_finds_best_match():
     assert result.distance == pytest.approx(0.0)
     assert result.chi2 == pytest.approx(0.0)
     assert result.score == pytest.approx(1.0e6)
+    assert result.hypothesis is None
 
 
 def test_barycenter_flash_matcher_finds_best_flash_per_interaction():
@@ -188,9 +189,9 @@ def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
             self.kwargs = kwargs
             self.calls = []
 
-        def get_response(self, points, weights=None):
+        def get_hypothesis(self, points, weights=None):
             self.calls.append((np.asarray(points), weights))
-            return 0.5
+            return np.asarray([0.2, 0.3])
 
     monkeypatch.setattr(
         "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
@@ -214,6 +215,7 @@ def test_barycenter_flash_matcher_applies_optional_light_charge_cut(
     assert len(matches) == 1
     assert matches[0][1] is accepted
     assert matches[0][2].light_charge_ratio == pytest.approx(1.0)
+    np.testing.assert_allclose(matches[0][2].hypothesis, [0.8, 1.2])
     assert matcher.light_model.kwargs["algorithm"] == "SemiAnalyticalModel"
     assert len(matcher.light_model.calls) == 1
     np.testing.assert_allclose(matcher.light_model.calls[0][0], [0.0, 0.0, 0.0])
@@ -225,9 +227,9 @@ def test_barycenter_flash_matcher_can_propagate_all_charge_points(monkeypatch):
         def __init__(self, **kwargs):
             self.calls = []
 
-        def get_response(self, points, weights=None):
+        def get_hypothesis(self, points, weights=None):
             self.calls.append((np.asarray(points), np.asarray(weights)))
-            return 0.5
+            return np.asarray([0.2, 0.3])
 
     monkeypatch.setattr(
         "spine.post.optical.barycenter.OpT0FinderLightModel", FakeLightModel
@@ -249,6 +251,7 @@ def test_barycenter_flash_matcher_can_propagate_all_charge_points(monkeypatch):
     matches = matcher.get_matches([interaction], [flash])
 
     assert len(matches) == 1
+    np.testing.assert_allclose(matches[0][2].hypothesis, [1.6, 2.4])
     points, weights = matcher.light_model.calls[0]
     np.testing.assert_allclose(points, [[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]])
     np.testing.assert_allclose(weights, [1.0, 3.0])
