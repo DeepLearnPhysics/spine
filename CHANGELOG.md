@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.4] - 2026-08-26
 
 ### Fixed
 - **Container TensorBoard runtime**: Restore TensorBoard to the full SPINE image and verify its PyTorch summary-writer integration during image construction.
