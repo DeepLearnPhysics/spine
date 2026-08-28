@@ -2091,6 +2091,21 @@ def generate_object_list(cls, sizes):
     return [ObjectList([cls() for _ in range(s)], cls()) for s in sizes]
 
 
+def test_hdf5_writer_persists_post_processor_provenance(hdf5_output):
+    """Cumulative post-processing provenance should round-trip independently."""
+    writer = HDF5Writer(hdf5_output, overwrite=True)
+    writer.set_post_processors(("first", "second"))
+    writer({"index": np.asarray([0]), "value": np.asarray([[1.0]])}, cfg={})
+    with pytest.raises(RuntimeError, match="before the first write"):
+        writer.set_post_processors(("late",))
+    writer.finalize()
+    writer.close()
+
+    reader = HDF5Reader(hdf5_output, build_classes=False)
+    assert reader.post_processors == ("first", "second")
+    reader.close()
+
+
 def test_hdf5_writer_v2_uses_offsets_and_preserves_derived_fields(hdf5_output):
     """V2 should flatten variable fields while retaining advertised summaries."""
     particle = RecoParticle(

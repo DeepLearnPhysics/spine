@@ -742,6 +742,7 @@ class Driver:
         """
         self.post = None
         if post is None:
+            self.io.set_post_processors(())
             return
 
         if self.model is not None and not self.unwrap:
@@ -753,6 +754,7 @@ class Driver:
             post_list=self.io.post_list,
             parent_path=self.parent_path,
         )
+        self.io.set_post_processors(self.post.module_names)
 
     def initialize_ana(self, ana: Mapping[str, Any] | None = None) -> None:
         """Initialize analysis scripts.

@@ -63,4 +63,6 @@ class PostManager(ModuleManager[PostBase]):
                             f"upstream post-processor: `{post}`."
                         )
             module_names.append(spec["name"])
+
         self.modules = modules
+        self.module_names = tuple(module_names)

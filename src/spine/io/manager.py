@@ -259,13 +259,22 @@ class IOManager:
             self.reader.num_chunks if self.columnar else len(self.reader)
         )
 
-        # Post-processors already run on the input file, if available from the reader
-        # metadata, are recorded here for use by the driver when determining which
-        # post-processor information is already available.
-        # TODO: this only works with two runs in a row, not 3 and above.
-        self.post_list = None
-        if self.reader.cfg is not None and "post" in self.reader.cfg:
-            self.post_list = tuple(self.reader.cfg["post"])
+        # Prefer cumulative provenance. Legacy files fall back to their stored
+        # configuration, preserving the historical two-generation behavior.
+        self.post_list = getattr(self.reader, "post_processors", None)
+        if (
+            self.post_list is None
+            and self.reader.cfg is not None
+            and "post" in self.reader.cfg
+        ):
+            post_cfg = self.reader.cfg["post"]
+            if isinstance(post_cfg, Mapping):
+                self.post_list = tuple(
+                    spec.get("name", key) if isinstance(spec, Mapping) else key
+                    for key, spec in post_cfg.items()
+                )
+            else:
+                self.post_list = tuple(post_cfg)
 
     def _initialize_writer(
         self,
@@ -304,6 +313,22 @@ class IOManager:
         self.writer = writer_factory(
             writer, prefix=self.output_prefix, split=split_output
         )
+
+    def set_post_processors(self, post_processors: tuple[str, ...]) -> None:
+        """Merge and propagate cumulative post-processing provenance.
+
+        Parameters
+        ----------
+        post_processors : tuple[str, ...]
+            Canonical processor names configured for the current run.
+        """
+        upstream = self.post_list or ()
+        self.post_list = tuple(dict.fromkeys((*upstream, *post_processors)))
+
+        # Not every writer persists provenance (for example staged caches).
+        setter = getattr(self.writer, "set_post_processors", None)
+        if setter is not None:
+            setter(self.post_list)
 
     def _harmonize_iteration_count(self) -> None:
         """Convert iteration/epoch configuration into explicit iterations.

@@ -29,6 +29,34 @@ def _read_hdf5_entry(path, queue):
     reader.close()
 
 
+@pytest.mark.parametrize("payload", [1, "value: invalid", "[valid, 2]"])
+def test_hdf5_reader_rejects_malformed_post_provenance(tmp_path, payload):
+    """Post-processing provenance must be encoded as a string list."""
+    path = tmp_path / "malformed.h5"
+    with h5py.File(path, "w") as out_file:
+        out_file.create_group("info").attrs["post_processors"] = payload
+
+    reader = object.__new__(HDF5Reader)
+    reader.file_paths = [str(path)]
+    with pytest.raises(TypeError, match="post_processors"):
+        reader.process_post_processors()
+
+
+def test_hdf5_reader_rejects_conflicting_post_provenance(tmp_path):
+    """Multi-file inputs must not merge histories which apply only to a subset."""
+    paths = [tmp_path / "first.h5", tmp_path / "second.h5"]
+    for path, names in zip(paths, (("first",), ("second",))):
+        with h5py.File(path, "w") as out_file:
+            out_file.create_group("info").attrs["post_processors"] = yaml.dump(
+                list(names)
+            )
+
+    reader = object.__new__(HDF5Reader)
+    reader.file_paths = [str(path) for path in paths]
+    with pytest.raises(ValueError, match="different post-processing provenance"):
+        reader.process_post_processors()
+
+
 def test_hdf5_reader(hdf5_data):
     """Tests the loading of an HDF5 file."""
     # Get the list of tree keys in the HDF5 file

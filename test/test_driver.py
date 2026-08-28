@@ -598,6 +598,7 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
             iter_per_epoch=2,
             post_list=("previous",),
             log_prefix="input",
+            set_post_processors=lambda names: calls.append(("post_processors", names)),
         )
 
     class FakeModel:
@@ -627,14 +628,14 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
         "BuildManager",
         lambda **kwargs: calls.append(("build", kwargs)) or "builder",
     )
-    monkeypatch.setattr(
-        driver_mod,
-        "PostManager",
-        lambda post, post_list, parent_path: calls.append(
-            ("post", (post, post_list, parent_path))
-        )
-        or "post",
-    )
+
+    class FakePostManager:
+        module_names = ("canonical",)
+
+        def __init__(self, post, post_list, parent_path):
+            calls.append(("post", (post, post_list, parent_path)))
+
+    monkeypatch.setattr(driver_mod, "PostManager", FakePostManager)
     monkeypatch.setattr(
         driver_mod,
         "AnaManager",
@@ -648,13 +649,14 @@ def test_driver_constructor_initializes_optional_managers(monkeypatch):
 
     assert drv.model is not None
     assert drv.builder == "builder"
-    assert drv.post == "post"
+    assert isinstance(drv.post, FakePostManager)
     assert drv.ana == "ana"
     assert ("log_startup", True) in calls
     assert ("geo", {"detector": "dummy"}) in calls
     assert any(call[0] == "model" for call in calls)
     assert any(call[0] == "build" for call in calls)
     assert any(call[0] == "post" for call in calls)
+    assert ("post_processors", ("canonical",)) in calls
     assert any(call[0] == "ana" for call in calls)
 
 
@@ -689,6 +691,7 @@ def test_driver_constructor_validates_model_dependent_modes(monkeypatch):
                 iter_per_epoch=1,
                 post_list=(),
                 log_prefix="input",
+                set_post_processors=lambda names: None,
             )
 
         monkeypatch.setattr(Driver, "initialize_base", initialize_base)

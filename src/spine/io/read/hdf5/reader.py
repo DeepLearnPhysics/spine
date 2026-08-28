@@ -284,6 +284,9 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         # Process the configuration used to produce the HDF5 file
         self.cfg = self.process_cfg()
 
+        # Process cumulative post-processing provenance, when available
+        self.post_processors = self.process_post_processors()
+
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
 
@@ -511,6 +514,56 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             return None
 
         return cfg
+
+    def process_post_processors(self) -> tuple[str, ...] | None:
+        """Return cumulative post-processing provenance from the input files.
+
+        Files written before this metadata was introduced return ``None``;
+        :class:`IOManager` then falls back to their stored configuration. For
+        multi-file inputs, all recorded histories must agree because taking a
+        union could claim that products exist in files where they do not.
+
+        Returns
+        -------
+        tuple[str, ...] or None
+            Ordered processor names, or ``None`` for legacy files.
+
+        Raises
+        ------
+        TypeError
+            If the stored attribute is malformed.
+        ValueError
+            If the input files record different histories.
+        """
+        histories: list[tuple[str, ...] | None] = []
+        for path in self.file_paths:
+            with h5py.File(path, "r") as in_file:
+                assert "info" in in_file, "HDF5 file missing 'info' group."
+                payload = in_file["info"].attrs.get("post_processors")
+
+            if payload is None:
+                histories.append(None)
+                continue
+            if not isinstance(payload, str):
+                raise TypeError(
+                    "HDF5 file 'post_processors' attribute must be a string."
+                )
+            decoded = yaml.safe_load(payload)
+            if not isinstance(decoded, list) or not all(
+                isinstance(name, str) for name in decoded
+            ):
+                raise TypeError(
+                    "HDF5 file 'post_processors' attribute must decode to a "
+                    "list of strings."
+                )
+            histories.append(tuple(decoded))
+
+        history = histories[0]
+        if any(candidate != history for candidate in histories[1:]):
+            raise ValueError(
+                "Input HDF5 files record different post-processing provenance."
+            )
+        return history
 
     def process_version(self) -> str:
         """Return the SPINE software release which produced the first file.

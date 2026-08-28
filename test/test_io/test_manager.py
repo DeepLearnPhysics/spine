@@ -154,6 +154,46 @@ def test_io_manager_initializes_reader_writer_and_iterations(monkeypatch):
     assert writer_calls == [({"name": "hdf5"}, "input_a--input_b", False)]
 
 
+def test_io_manager_merges_cumulative_post_provenance(monkeypatch):
+    """Reader provenance should supersede cfg and extend without duplicates."""
+    reader = FakeReader()
+    reader.post_processors = ("first", "shared")
+    recorded: list[tuple[str, ...]] = []
+    writer = SimpleNamespace(set_post_processors=recorded.append)
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+    monkeypatch.setattr(manager_mod, "writer_factory", lambda *args, **kwargs: writer)
+
+    manager = IOManager(
+        reader={"name": "hdf5"},
+        writer={"name": "hdf5"},
+    )
+    manager.set_post_processors(("shared", "third"))
+
+    assert manager.post_list == ("first", "shared", "third")
+    assert recorded == [("first", "shared", "third")]
+
+
+@pytest.mark.parametrize(
+    ("post_cfg", "expected"),
+    [
+        ({"custom_alias": {"name": "canonical"}}, ("canonical",)),
+        ({"plain": None}, ("plain",)),
+        (["first", "second"], ("first", "second")),
+    ],
+)
+def test_io_manager_canonicalizes_legacy_post_provenance(
+    monkeypatch, post_cfg, expected
+):
+    """Legacy cfg fallback should seed provenance with canonical names."""
+    reader = FakeReader()
+    reader.cfg = {"post": post_cfg}
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: reader)
+
+    manager = IOManager(reader={"name": "hdf5"})
+
+    assert manager.post_list == expected
+
+
 def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
     """Loader setup should pass through runtime context and optional unwrap."""
     calls: list[dict[str, object]] = []

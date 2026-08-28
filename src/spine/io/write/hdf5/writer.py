@@ -182,6 +182,7 @@ class HDF5Writer(
         self._handle_pid: int | None = None
         self._file_handles: dict[int, h5py.File] = {}
         self._cfg: dict[str, Any] | None = None
+        self._post_processors: tuple[str, ...] | None = None
         self._initialized_file_ids: set[int] = set()
         self._completed_file_ids: set[int] = set()
         self._entries_since_flush_by_file_id: dict[int, int] = {}
@@ -359,6 +360,10 @@ class HDF5Writer(
                 out_file["info"].attrs["complete"] = False
                 if self._cfg is not None:
                     out_file["info"].attrs["cfg"] = yaml.dump(self._cfg)
+                if self._post_processors is not None:
+                    out_file["info"].attrs["post_processors"] = yaml.dump(
+                        list(self._post_processors)
+                    )
                 assert (
                     self.type_dict is not None
                 ), "Cannot initialize an output file before data types are known."
@@ -604,6 +609,20 @@ class HDF5Writer(
 
         # Mark file(s) as ready for use
         self.ready = True
+
+    def set_post_processors(self, post_processors: tuple[str, ...] | None) -> None:
+        """Set cumulative post-processing provenance for newly created files.
+
+        Parameters
+        ----------
+        post_processors : tuple[str, ...] or None
+            Ordered canonical names of processors materialized in the output.
+        """
+        if self.ready:
+            raise RuntimeError(
+                "Post-processing provenance must be set before the first write."
+            )
+        self._post_processors = post_processors
 
     def with_source_provenance(self, data: dict[str, Any]) -> dict[str, Any]:
         """Return a data dictionary augmented with persisted source provenance.
