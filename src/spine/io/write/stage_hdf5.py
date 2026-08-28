@@ -65,6 +65,7 @@ class StageHDF5Writer(HDF5Writer):
         keep_open: bool = True,
         flush_frequency: int | None = None,
         overwrite: bool = False,
+        overwrite_stage: bool = False,
     ) -> None:
         """Initialize the stage-cache writer.
 
@@ -108,6 +109,11 @@ class StageHDF5Writer(HDF5Writer):
             `None`, only flush on explicit requests or close/finalize.
         overwrite : bool, default False
             If `True`, replace the entire cache file if it already exists.
+        overwrite_stage : bool, default False
+            If `True`, replace a completed stage with the configured name on
+            first use while preserving all sibling stages. Incomplete stages
+            are always rebuilt automatically when a new writer session first
+            encounters them.
 
         Notes
         -----
@@ -144,6 +150,7 @@ class StageHDF5Writer(HDF5Writer):
         self.lite = lite
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
+        self.overwrite_stage = overwrite_stage
         # StageHDF5Writer reuses V1 serialization helpers but owns a distinct
         # container schema. Pin the inherited version attribute explicitly so
         # future changes to the flat-writer default cannot alter stage caches.
@@ -165,6 +172,7 @@ class StageHDF5Writer(HDF5Writer):
         self._initialized_files: set[str] = set()
         self._stage_states: dict[str, StageHDF5Writer.StageState] = {}
         self._completed_stages: dict[str, set[str]] = defaultdict(set)
+        self._active_stages: set[tuple[str, str]] = set()
         self._known_files: set[str] = set()
 
         if overwrite and os.path.exists(self.file_name):
@@ -186,7 +194,12 @@ class StageHDF5Writer(HDF5Writer):
                 "through the standard writer call path."
             )
 
-        self.write_stage(self.stage, data, cfg=cfg)
+        self.write_stage(
+            self.stage,
+            data,
+            cfg=cfg,
+            overwrite_stage=self.overwrite_stage,
+        )
 
     def finalize(self) -> None:
         """Mark the configured stage as complete across touched cache files."""
@@ -573,9 +586,30 @@ class StageHDF5Writer(HDF5Writer):
         stages = out_file["stages"]
         assert isinstance(stages, h5py.Group), "'stages' must be an HDF5 group."
 
-        if stage in stages and overwrite_stage:
-            del stages[stage]
-            self._completed_stages[file_path].discard(stage)
+        # Recovery and explicit replacement apply only when this writer first
+        # encounters a file-stage pair. Later batches append to the active
+        # incomplete stage normally, even when overwrite_stage is configured.
+        stage_key = (file_path, stage)
+        first_use = stage_key not in self._active_stages
+        if stage in stages:
+            stage_group = stages[stage]
+            assert isinstance(
+                stage_group, h5py.Group
+            ), f"Stage '{stage}' is expected to be a group, got {type(stage_group)}."
+            info = stage_group.get("info")
+            complete = bool(
+                isinstance(info, h5py.Group) and info.attrs.get("complete", False)
+            )
+
+            replace = (first_use and not complete) or (overwrite_stage and complete)
+            if replace:
+                del stages[stage]
+                self._completed_stages[file_path].discard(stage)
+            elif complete:
+                raise RuntimeError(
+                    f"Stage '{stage}' is already complete in '{file_path}'. "
+                    "Set overwrite_stage=True to rebuild it."
+                )
 
         if stage not in stages:
             # A new stage owns its metadata and a complete V1 product schema
@@ -592,19 +626,13 @@ class StageHDF5Writer(HDF5Writer):
             self.event_dtype = state.event_dtype
             self.initialize_region_datasets(stage_group, state.type_dict)
             state.event_dtype = self.event_dtype
+            self._active_stages.add(stage_key)
             return stage_group
 
         stage_group = stages[stage]
         assert isinstance(
             stage_group, h5py.Group
         ), f"Stage '{stage}' is expected to be a group, got {type(stage_group)}."
-
-        if stage not in self._stage_states:
-            raise RuntimeError(
-                f"Stage '{stage}' already exists in '{self.file_name}'. Reopening and "
-                "appending an existing stage across writer sessions is not supported "
-                "in this first pass. Pass overwrite_stage=True to rebuild it."
-            )
 
         # Reopened stages may refresh metadata but remain incomplete until finalized
         if "info" in stage_group and attrs is not None:
@@ -614,6 +642,7 @@ class StageHDF5Writer(HDF5Writer):
             stage_group["info"].attrs["cfg"] = yaml.dump(cfg)
 
         stage_group["info"].attrs["complete"] = False
+        self._active_stages.add(stage_key)
         return stage_group
 
     def write_stage(
@@ -649,7 +678,7 @@ class StageHDF5Writer(HDF5Writer):
         # Normalize once and establish the stage schema from its first batch
         normalized, _ = self._prepare_batch(data)
         state = self._stage_states.get(stage)
-        if state is None or overwrite_stage:
+        if state is None:
             state = self._create_stage_state(stage, normalized)
 
         # Temporarily project the inherited flat writer onto this stage schema
@@ -707,6 +736,9 @@ class StageHDF5Writer(HDF5Writer):
             writer instance.
         """
         for file_path in sorted(self._known_files):
+            if (file_path, stage) not in self._active_stages:
+                continue
+
             out_file, should_close = self._open_handle(file_path)
             try:
                 stages = out_file["stages"]

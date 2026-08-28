@@ -427,6 +427,22 @@ def test_io_manager_iteration_unwrap_write_and_close(monkeypatch):
         "close",
     ]
 
+    writer_calls.clear()
+    manager.writer = FakeWriter()
+    manager.close(finalize=False)
+    assert writer_calls == ["close"]
+
+    class FailingWriter(FakeWriter):
+        def finalize(self):
+            writer_calls.append("finalize")
+            raise RuntimeError("finalize failed")
+
+    writer_calls.clear()
+    manager.writer = FailingWriter()
+    with pytest.raises(RuntimeError, match="finalize failed"):
+        manager.close()
+    assert writer_calls == ["finalize", "close"]
+
     manager.writer = None
     assert not manager.has_writer
     manager.write({"index": 1}, {})

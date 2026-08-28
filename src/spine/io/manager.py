@@ -739,11 +739,21 @@ class IOManager:
         self.writer(data, cfg)
         self.watch.stop("write")
 
-    def close(self) -> None:
-        """Finalize and close the output writer, if any."""
+    def close(self, finalize: bool = True) -> None:
+        """Close the output writer, finalizing only a successful run.
+
+        Parameters
+        ----------
+        finalize : bool, default True
+            If `True`, mark writer outputs complete before closing them. Failed
+            runs pass `False` so partial outputs remain recoverable.
+        """
         if self.writer is not None:
-            self.writer.finalize()
-            self.writer.close()
+            try:
+                if finalize:
+                    self.writer.finalize()
+            finally:
+                self.writer.close()
 
     def apply_filter(
         self,

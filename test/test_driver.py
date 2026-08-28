@@ -1272,9 +1272,9 @@ def test_run_loop_cleans_up_on_processing_failure():
         has_loader=False,
         iter_per_epoch=1,
         prepare_iteration=lambda iteration: calls.append("prepare"),
-        close=lambda: calls.append("io_close"),
+        close=lambda **kwargs: calls.append(("io_close", kwargs)),
     )
-    calls: list[str] = []
+    calls: list[object] = []
     drv.initialize_log = lambda: calls.append("initialize_log")
 
     def fail_process(**kwargs):
@@ -1292,7 +1292,7 @@ def test_run_loop_cleans_up_on_processing_failure():
         "process",
         "ana_close",
         "log_close",
-        "io_close",
+        ("io_close", {"finalize": False}),
     ]
 
 

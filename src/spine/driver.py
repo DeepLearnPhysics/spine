@@ -906,6 +906,7 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
+        success = False
         try:
             # Get the iteration start (if model exists)
             start_iteration = 0
@@ -1065,11 +1066,19 @@ class Driver:
                         epoch,
                     )
                     break
+            success = True
         finally:
-            self.cleanup()
+            self.cleanup(finalize_writer=success)
 
-    def cleanup(self) -> None:
-        """Close output resources owned by the driver."""
+    def cleanup(self, finalize_writer: bool = True) -> None:
+        """Close resources and finalize writer output after successful work.
+
+        Parameters
+        ----------
+        finalize_writer : bool, default True
+            If `True`, mark writer output complete before closing it. Exception
+            paths pass `False` so partial output remains explicitly incomplete.
+        """
         if self.ana is not None:
             self.ana.close()
         if self.log_manager is not None:
@@ -1078,7 +1087,10 @@ class Driver:
         if validation is not None:
             validation.close()
         if hasattr(self, "io"):
-            self.io.close()
+            if finalize_writer:
+                self.io.close()
+            else:
+                self.io.close(finalize=False)
 
     def reduce_training_metrics(self, data: dict[str, Any]) -> None:
         """Average scalar training outputs across distributed ranks in place.

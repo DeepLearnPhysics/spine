@@ -1375,8 +1375,8 @@ def test_stage_hdf5_writer_stage_group_existing_paths_and_flush(tmp_path):
         assert "cfg" in info
 
 
-def test_stage_hdf5_writer_rejects_reopen_existing_stage_across_sessions(tmp_path):
-    """Appending to an existing stage from a new writer session should fail."""
+def test_stage_hdf5_writer_recovers_incomplete_stage_across_sessions(tmp_path):
+    """A new writer should rebuild only the incomplete stage it owns."""
     path = tmp_path / "cache.h5"
     batch = {
         "index": np.asarray([0]),
@@ -1386,23 +1386,67 @@ def test_stage_hdf5_writer_rejects_reopen_existing_stage_across_sessions(tmp_pat
         "dummy_data": [np.asarray([[1.0, 2.0]])],
     }
     writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage("upstream", batch)
+    writer.finalize_stage("upstream")
     writer.write_stage("deghosting", batch)
     writer.close()
 
     writer = StageHDF5Writer(str(path))
-    normalized, _ = writer._prepare_batch(batch)
-    state = writer._create_stage_state("deghosting", normalized)
-    out_file, should_close = writer._open_handle(str(path))
-    try:
-        del writer._stage_states["deghosting"]
-        with pytest.raises(
-            RuntimeError, match="Reopening and appending an existing stage"
-        ):
-            writer._ensure_stage_group(out_file, str(path), "deghosting", state)
-    finally:
-        if should_close:
-            out_file.close()
+    replacement = dict(batch)
+    replacement["index"] = np.asarray([1])
+    replacement["dummy_data"] = [np.asarray([[3.0, 4.0]])]
+    writer.write_stage("deghosting", replacement)
+    writer.finalize_stage("deghosting")
     writer.close()
+
+    with h5py.File(path, "r") as out_file:
+        stages = out_file["stages"]
+        assert len(stages["upstream"]["events"]) == 1
+        np.testing.assert_array_equal(
+            stages["upstream"]["dummy_data"][:], np.asarray([[1.0, 2.0]])
+        )
+        assert len(stages["deghosting"]["events"]) == 1
+        np.testing.assert_array_equal(
+            stages["deghosting"]["dummy_data"][:], np.asarray([[3.0, 4.0]])
+        )
+        assert stages["deghosting"]["info"].attrs["complete"]
+
+
+def test_stage_hdf5_writer_configured_overwrite_is_one_time(tmp_path):
+    """Driver-facing overwrite should replace a complete stage only once."""
+    path = tmp_path / "cache.h5"
+    batch = {
+        "index": np.asarray([0]),
+        "source_file_name": np.asarray(["source.root"]),
+        "source_file_size": np.asarray([10]),
+        "source_file_mtime_ns": np.asarray([20]),
+        "dummy_data": [np.asarray([[1.0, 2.0]])],
+    }
+    writer = StageHDF5Writer(str(path), stage="deghosting", overwrite=True)
+    writer(batch)
+    writer.finalize()
+    writer.close()
+
+    writer = StageHDF5Writer(str(path), stage="deghosting")
+    with pytest.raises(RuntimeError, match="already complete"):
+        writer(batch)
+    writer.close()
+
+    writer = StageHDF5Writer(str(path), stage="deghosting", overwrite_stage=True)
+    for index, values in ((1, [3.0, 4.0]), (2, [5.0, 6.0])):
+        replacement = dict(batch)
+        replacement["index"] = np.asarray([index])
+        replacement["dummy_data"] = [np.asarray([values])]
+        writer(replacement)
+    writer.finalize()
+    writer.close()
+
+    with h5py.File(path, "r") as out_file:
+        stage = out_file["stages"]["deghosting"]
+        assert len(stage["events"]) == 2
+        np.testing.assert_array_equal(
+            stage["dummy_data"][:], np.asarray([[3.0, 4.0], [5.0, 6.0]])
+        )
 
 
 def test_stage_hdf5_writer_keep_open_false_closes_in_write_finalize_and_list(tmp_path):
@@ -1434,6 +1478,10 @@ def test_stage_hdf5_writer_finalize_and_list_ignore_missing_stage(tmp_path):
     }
     writer.write_stage("deghosting", batch)
     writer.finalize_stage("graph_spice")
+
+    missing_path = sorted(writer._known_files)[0]
+    del writer._handles[missing_path]["stages"]["deghosting"]
+    writer.finalize_stage("deghosting")
     assert writer.list_stages() == ("deghosting",)
     writer.close()
 
