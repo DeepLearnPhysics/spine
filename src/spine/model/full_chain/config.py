@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["StageConfig", "build_chain_plan"]
+__all__ = ["StageConfig", "build_chain_plan", "get_chain_inputs"]
 
 
 @dataclass(frozen=True)
@@ -28,6 +28,45 @@ class StageConfig:
     provider: str
     config: dict[str, Any]
     loss_config: dict[str, Any] | None = None
+
+
+def get_chain_inputs(chain: dict[str, Any]) -> frozenset[str]:
+    """Return canonical products declared as external chain inputs.
+
+    Parameters
+    ----------
+    chain : dict
+        Native ordered-stage configuration.
+
+    Returns
+    -------
+    frozenset of str
+        Product names supplied by the caller before provider execution.
+
+    Raises
+    ------
+    TypeError
+        If the chain or input collection has an invalid type.
+    ValueError
+        If inputs are used with the legacy schema or contain invalid names.
+    """
+    if not isinstance(chain, dict):
+        raise TypeError("Full-chain `chain` configuration must be a mapping.")
+
+    if "inputs" not in chain:
+        return frozenset()
+    if "stages" not in chain:
+        raise ValueError("Full-chain `inputs` require the native `stages` schema.")
+
+    inputs = chain["inputs"]
+    if not isinstance(inputs, (list, tuple)):
+        raise TypeError("Full-chain `inputs` must be a list of product names.")
+    if not all(isinstance(name, str) and name for name in inputs):
+        raise ValueError("Full-chain input names must be nonempty strings.")
+    if len(set(inputs)) != len(inputs):
+        raise ValueError("Full-chain input names must be unique.")
+
+    return frozenset(inputs)
 
 
 def _new_chain_plan(
@@ -390,9 +429,11 @@ def build_chain_plan(
     """
     if not isinstance(chain, dict):
         raise TypeError("Full-chain `chain` configuration must be a mapping.")
+    get_chain_inputs(chain)
+
     # Presence of `stages` unambiguously selects the native ordered schema.
     if "stages" in chain:
-        unknown = set(chain).difference({"stages"})
+        unknown = set(chain).difference({"inputs", "stages"})
         if unknown:
             names = ", ".join(sorted(unknown))
             raise ValueError(f"Native chain configuration has unknown keys: {names}.")

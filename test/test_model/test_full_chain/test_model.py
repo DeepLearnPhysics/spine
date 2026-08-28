@@ -15,6 +15,7 @@ from spine.model.full_chain import (
     FullChain,
     FullChainLoss,
     PointBatch,
+    get_chain_inputs,
     process_chain_config,
 )
 from spine.model.full_chain.config import build_chain_plan
@@ -247,6 +248,43 @@ def test_native_plan_resolves_used_and_loss_blocks() -> None:
     assert plan[0].loss_config == {"loss": "ce"}
 
 
+def test_native_plan_accepts_declared_external_inputs() -> None:
+    """Ordered chains should expose caller-owned products to validation."""
+    chain = {
+        "inputs": ["seg_pred", "fragment_clusts"],
+        "stages": [{"name": "external", "provider": "test"}],
+    }
+
+    assert get_chain_inputs(chain) == frozenset({"seg_pred", "fragment_clusts"})
+    assert build_chain_plan(chain, {})[0].name == "external"
+
+
+@pytest.mark.parametrize(
+    ("chain", "error", "message"),
+    [
+        ({"inputs": ["seg_pred"]}, ValueError, "require.*native.*stages"),
+        ({"inputs": "seg_pred", "stages": [{}]}, TypeError, "must be a list"),
+        ({"inputs": [1], "stages": [{}]}, ValueError, "nonempty strings"),
+        ({"inputs": [""], "stages": [{}]}, ValueError, "nonempty strings"),
+        (
+            {"inputs": ["seg_pred", "seg_pred"], "stages": [{}]},
+            ValueError,
+            "must be unique",
+        ),
+    ],
+)
+def test_native_plan_rejects_malformed_external_inputs(chain, error, message):
+    """External input declarations should remain explicit and unambiguous."""
+    with pytest.raises(error, match=message):
+        build_chain_plan(chain, {})
+
+
+def test_chain_inputs_reject_non_mapping_config() -> None:
+    """Direct input extraction should retain the chain mapping boundary."""
+    with pytest.raises(TypeError, match="must be a mapping"):
+        get_chain_inputs([])
+
+
 @pytest.mark.parametrize(
     ("stages", "error", "message"),
     [
@@ -473,6 +511,39 @@ def test_external_provider_can_supply_multiple_capabilities() -> None:
     )
     result = chain(make_data())
     assert set(result) == {"seg_pred", "fragment_clusts", "fragment_shapes"}
+
+
+def test_full_chain_can_begin_with_cached_segmentation() -> None:
+    """A fragmentation-first chain should consume declared cached semantics."""
+    config = {
+        "stages": [
+            {
+                "name": "fragmentation",
+                "provider": "fragmentation",
+                "config": {"mode": "label"},
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="unavailable products: seg_pred"):
+        FullChain(chain=config)
+
+    chain = FullChain(chain={"inputs": ["seg_pred"], **config})
+    with pytest.raises(KeyError, match="Missing required chain product `seg_pred`"):
+        chain(data=make_data(), clust_label=make_cluster_label())
+
+    result = chain(
+        data=make_data(),
+        clust_label=make_cluster_label(),
+        seg_pred=TensorBatch(torch.zeros(4, dtype=torch.long), [4]),
+    )
+    assert [index.tolist() for index in result["fragment_clusts"].index_list] == [
+        [0, 1],
+        [2, 3],
+    ]
+    assert result["fragment_shapes"].numpy_tensor().tolist() == [
+        SHOWR_SHP,
+        TRACK_SHP,
+    ]
 
 
 def test_full_chain_publishes_final_data_adaptation_once() -> None:

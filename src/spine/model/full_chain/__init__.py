@@ -1,6 +1,6 @@
 """End-to-end reconstruction chain."""
 
-from .config import StageConfig, build_chain_plan
+from .config import StageConfig, build_chain_plan, get_chain_inputs
 from .model import MODEL_SPEC, FullChain, FullChainLoss, process_chain_config
 from .point import PointBatch
 from .registry import ProviderSpec, provider_spec, register_provider
@@ -18,6 +18,7 @@ __all__ = [
     "StageConfig",
     "ProviderSpec",
     "build_chain_plan",
+    "get_chain_inputs",
     "provider_spec",
     "register_provider",
     "process_chain_config",

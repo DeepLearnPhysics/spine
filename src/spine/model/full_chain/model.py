@@ -10,7 +10,7 @@ import torch
 from spine.data import ClusterLabelBatch, IndexBatch, RunInfo, TensorBatch
 
 from ..registry import ModelSpec
-from .config import StageConfig, build_chain_plan
+from .config import StageConfig, build_chain_plan, get_chain_inputs
 from .point import PointBatch
 from .registry import provider_spec
 from .stage import ChainLossStage, ChainStage
@@ -56,12 +56,13 @@ class FullChain(torch.nn.Module):
             Named native model and provider configuration blocks.
         """
         super().__init__()
+        self.inputs = get_chain_inputs(chain)
         self.plan = build_chain_plan(chain, modules)
         self.stages: list[ChainStage] = []
 
         # Providers register their native torch modules directly on this owner.
         # Existing attribute names are retained for checkpoint compatibility.
-        available = set(self._input_products)
+        available = set(self._input_products).union(self.inputs)
         for stage_config in self.plan:
             spec = provider_spec(stage_config.provider)
             stage = spec.stage(stage_config.name, stage_config.config, self)
@@ -104,7 +105,8 @@ class FullChain(torch.nn.Module):
         run_info : sequence of RunInfo, optional
             Event identifiers used by time-dependent calibration.
         **products : object, optional
-            Additional products consumed by externally registered providers.
+            Additional products declared through ``chain.inputs`` and consumed
+            by the configured providers.
 
         Returns
         -------
