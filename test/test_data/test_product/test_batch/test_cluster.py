@@ -9,6 +9,7 @@ from spine.data import (
     ObjectListData,
     TensorBatch,
 )
+from spine.utils.conditional import TORCH_AVAILABLE, torch
 
 
 def _cluster_batch(with_particles=True, meta=None):
@@ -208,3 +209,24 @@ def test_torch_cluster_batch_conversion_and_backend_validation():
     )
     with pytest.raises(ValueError, match="different array backend"):
         ClusterLabelBatch(data, mixed)
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE or not torch.cuda.is_available(),
+    reason="CUDA not available",
+)
+@pytest.mark.gpu
+def test_cuda_cluster_batch_expands_particle_associations():
+    """CPU batch boundaries should support association expansion on CUDA."""
+    labels = _cluster_batch().to_tensor(dtype=torch.float32, device="cuda")
+
+    assert labels.data.edges.device.type == "cpu"
+    assert labels.particle_field("pid").edges.device.type == "cpu"
+
+    voxel_pid = labels.voxel_field("pid")
+    ancestor_pid = labels.particle_field("ancestor_pid")
+
+    assert voxel_pid.device.type == "cuda"
+    assert ancestor_pid.device.type == "cuda"
+    assert torch.equal(voxel_pid.data.cpu(), torch.tensor([2, 3, 4, -1]))
+    assert torch.equal(ancestor_pid.data.cpu(), torch.tensor([2, -1, 4]))

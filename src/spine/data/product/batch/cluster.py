@@ -313,6 +313,9 @@ class ClusterLabelBatch(_ClusterLabelFieldAccessor):
             )
             valid = index >= 0
             offsets = values.edges[:-1]
+            if not indexes.is_numpy:
+                # Structural boundaries stay on CPU; lookup indexes follow data
+                offsets = offsets.to(index.device)
             global_index = index.clone() if not indexes.is_numpy else index.copy()
             global_index[valid] += offsets[indexes.batch_ids[valid]]
             output[valid] = values.data[global_index[valid]]
@@ -374,6 +377,9 @@ class ClusterLabelBatch(_ClusterLabelFieldAccessor):
 
         # Convert event-local associations into the flattened particle namespace
         particle_offsets = field.edges[:-1]
+        if not self.data.is_numpy:
+            # Structural boundaries stay on CPU; lookup indexes follow data
+            particle_offsets = particle_offsets.to(particle_index.device)
         global_index = (
             particle_index.copy() if self.data.is_numpy else particle_index.clone()
         )
