@@ -88,7 +88,7 @@ jobs:
     - name: Test CLI functionality
       run: |
         python -m spine.bin.cli --version
-        python -c "from spine.bin.cli import check_dependencies; deps = check_dependencies(); print('Dependencies:', deps)"
+        python -c "from spine.bin.info import check_dependencies; deps = check_dependencies(); print('Dependencies:', deps)"
 
   test-with-torch:
     name: Test with PyTorch Available
