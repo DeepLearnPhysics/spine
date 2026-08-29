@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import builtins
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -128,6 +127,91 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["base"]["parent_path"] == str(tmp_path)
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_keys"] is None
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
+
+
+@pytest.mark.parametrize(
+    ("dataset", "source", "source_list", "expected"),
+    [
+        (
+            {
+                "name": "mixed",
+                "larcv": {"file_keys": ["old.root"]},
+                "hdf5": {"file_list": "old.txt"},
+            },
+            ["hdf5=/cache/a.h5", "hdf5=/cache/b.h5"],
+            ["larcv=raw_files.txt"],
+            {
+                "larcv": {"file_keys": None, "file_list": "raw_files.txt"},
+                "hdf5": {
+                    "file_keys": ["/cache/a.h5", "/cache/b.h5"],
+                    "file_list": None,
+                },
+            },
+        ),
+        (
+            {
+                "name": "joint",
+                "base": {"file_keys": ["inherited.root"]},
+                "primary": {"file_list": "old.txt"},
+                "secondary": {"file_keys": ["old.root"]},
+            },
+            ["primary=/raw/main.root"],
+            ["secondary=pileup.txt"],
+            {
+                "primary": {
+                    "file_keys": ["/raw/main.root"],
+                    "file_list": None,
+                },
+                "secondary": {
+                    "file_keys": None,
+                    "file_list": "pileup.txt",
+                },
+            },
+        ),
+    ],
+)
+def test_main_updates_composite_loader_sources(
+    monkeypatch,
+    tmp_path,
+    dataset,
+    source,
+    source_list,
+    expected,
+):
+    """Qualified inputs should update their mixed or joint source blocks."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {"io": {"loader": {"dataset": dataset}}, "model": {}},
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=source,
+        source_list=source_list,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+    )
+
+    result = captured["cfg"]["io"]["loader"]["dataset"]
+    for target, target_expected in expected.items():
+        assert result[target] == target_expected
 
 
 @pytest.mark.parametrize(
@@ -867,132 +951,26 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["output_suffix"] == "processed"
 
 
-def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
-    """Version and info helpers should handle both available and missing deps."""
-    original_import = __import__
-
-    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "spine.version":
-            raise ImportError("missing")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    assert cli_module.get_version() == "unknown"
-
-    monkeypatch.setattr(cli_module, "get_version", lambda: "1.2.3")
-    original_check_dependencies = cli_module.check_dependencies
+def test_cli_parses_mixed_source_and_source_list(monkeypatch):
+    """The two source flags may coexist when values carry target names."""
+    calls = []
+    monkeypatch.setattr(cli_module, "main", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr(
-        cli_module,
-        "check_dependencies",
-        lambda: {
-            "torch": None,
-            "matplotlib": "3.8.0",
-            "plotly": None,
-            "seaborn": "0.13.0",
-            "torch-geometric": None,
-            "torch-scatter": None,
-            "torch-cluster": None,
-            "MinkowskiEngine": None,
-        },
-    )
-    cli_module.show_info()
-    output = capsys.readouterr().out
-    assert "SPINE (Scalable Particle Imaging with Neural Embeddings) v1.2.3" in output
-    assert "PyTorch not found" in output
-    assert "Visualization: Not available" in output
-
-    monkeypatch.setattr(cli_module, "check_dependencies", original_check_dependencies)
-
-    def fake_missing_dep_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name in {"torch", "matplotlib", "plotly", "seaborn", "MinkowskiEngine"}:
-            raise ImportError(name)
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", fake_missing_dep_import)
-    monkeypatch.setattr(
-        cli_module,
-        "package_version",
-        lambda name: (_ for _ in ()).throw(cli_module.PackageNotFoundError(name)),
-    )
-    deps = cli_module.check_dependencies()
-    assert deps["torch"] is None
-    assert deps["MinkowskiEngine"] is None
-    assert set(deps) == {
-        "torch",
-        "matplotlib",
-        "plotly",
-        "seaborn",
-        "torch-geometric",
-        "torch-scatter",
-        "torch-cluster",
-        "MinkowskiEngine",
-    }
-
-
-def test_get_version_and_dependency_checks_success(monkeypatch):
-    """Version lookup and dependency probes should report installed modules."""
-    from spine.version import __version__
-
-    original_import = builtins.__import__
-
-    def fake_dep_import(name, globals=None, locals=None, fromlist=(), level=0):
-        versions = {
-            "torch": "2.0.0",
-            "matplotlib": "3.8.0",
-            "plotly": "5.0.0",
-            "seaborn": "0.13.0",
-            "MinkowskiEngine": "0.5.4",
-        }
-        if name in versions:
-            module = ModuleType(name)
-            module.__version__ = versions[name]
-            return module
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", fake_dep_import)
-    monkeypatch.setattr(
-        cli_module,
-        "package_version",
-        lambda name: {
-            "torch-geometric": "2.6.0",
-            "torch-scatter": "2.1.2",
-            "torch-cluster": "1.6.3",
-            "MinkowskiEngine": "0.5.4",
-        }[name],
+        cli_module.sys,
+        "argv",
+        [
+            "spine",
+            "-c",
+            "config.yaml",
+            "--source-list",
+            "larcv=raw_files.txt",
+            "--source",
+            "hdf5=/cache/*.h5",
+        ],
     )
 
-    assert cli_module.get_version() == __version__
-    deps = cli_module.check_dependencies()
-    assert deps["torch"] == "2.0.0"
-    assert deps["matplotlib"] == "3.8.0"
-    assert deps["plotly"] == "5.0.0"
-    assert deps["seaborn"] == "0.13.0"
-    assert deps["torch-geometric"] == "2.6.0"
-    assert deps["torch-scatter"] == "2.1.2"
-    assert deps["torch-cluster"] == "1.6.3"
-    assert deps["MinkowskiEngine"] == "0.5.4"
+    cli_module.cli()
 
-
-def test_show_info_reports_available_optional_features(monkeypatch, capsys):
-    """Info output should report available model and visualization extras."""
-    monkeypatch.setattr(cli_module, "get_version", lambda: "1.2.3")
-    monkeypatch.setattr(
-        cli_module,
-        "check_dependencies",
-        lambda: {
-            "torch": "2.0.0",
-            "matplotlib": "3.8.0",
-            "plotly": "5.0.0",
-            "seaborn": None,
-            "torch-geometric": "2.6.0",
-            "torch-scatter": "2.1.2",
-            "torch-cluster": "1.6.3",
-            "MinkowskiEngine": "0.5.4",
-        },
-    )
-
-    cli_module.show_info()
-
-    output = capsys.readouterr().out
-    assert "Model stack: Available" in output
-    assert "Visualization: Available (Plotly 5.0.0)" in output
+    assert len(calls) == 1
+    assert calls[0]["source"] == ["hdf5=/cache/*.h5"]
+    assert calls[0]["source_list"] == ["larcv=raw_files.txt"]

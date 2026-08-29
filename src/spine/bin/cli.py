@@ -5,11 +5,12 @@ import argparse
 import os
 import pathlib
 import sys
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
+from textwrap import dedent
 from warnings import warn
 
 from spine.banner import format_banner
+from spine.bin.info import get_version, show_info
+from spine.bin.source import apply_source_overrides, get_input_config
 from spine.config import load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
@@ -18,7 +19,7 @@ from spine.config.operations import parse_value, set_nested_value
 def main(
     config: str,
     source: list[str] | None,
-    source_list: str | None,
+    source_list: str | list[str] | None,
     output: str | None,
     output_dir: str | None,
     output_suffix: str | None,
@@ -55,9 +56,11 @@ def main(
     config : str
         Path to the configuration file
     source : list[str], optional
-        List of paths to the input files
-    source_list : str, optional
-        Path to a text file containing a list of data file paths
+        Input paths, optionally written as ``target=path`` for a composite
+        dataset source
+    source_list : str or list[str], optional
+        Path to a text file containing data file paths, optionally qualified by
+        a composite-dataset source name. A list supports multiple targets.
     output : str, optional
         Path to the output file
     output_dir : str, optional
@@ -157,29 +160,23 @@ def main(
     if "io" not in cfg:
         raise KeyError("Configuration file must contain an `io` block.")
 
-    # Override the input command-line information into the configuration
+    # Apply source selectors separately because composite datasets route them
+    # into named source blocks rather than the dataset root.
+    apply_source_overrides(cfg["io"], source, source_list)
+
+    # Override the remaining input information into the configuration.
     io_mapping = {
-        "file_keys": source,
-        "file_list": source_list,
         "n_entry": n,
         "n_skip": nskip,
         "entry_list": entry_list,
         "skip_entry_list": skip_entry_list,
     }
-    source_override = source is not None or source_list is not None
+    input_cfg = None
     for io_key, io_value in io_mapping.items():
-        if io_value is not None or (
-            source_override and io_key in ("file_keys", "file_list")
-        ):
-            if "reader" in cfg["io"] and cfg["io"]["reader"] is not None:
-                cfg["io"]["reader"][io_key] = io_value
-            elif "loader" in cfg["io"] and cfg["io"]["loader"] is not None:
-                assert (
-                    "dataset" in cfg["io"]["loader"]
-                ), "Missing `dataset` block in `io.loader` for input configuration."
-                cfg["io"]["loader"]["dataset"][io_key] = io_value
-            else:
-                raise KeyError("Must specify `loader` or `reader` in the `io` block.")
+        if io_value is not None:
+            if input_cfg is None:
+                input_cfg, _ = get_input_config(cfg["io"])
+            input_cfg[io_key] = io_value
 
     # Override validation sources independently of the training input. Remove
     # the alternate selector because validation requires exactly one of them.
@@ -323,19 +320,31 @@ def cli() -> None:
     parser = argparse.ArgumentParser(
         description="SPINE - Scalable Particle Imaging with Neural Embeddings",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  spine --version                                Show version information
-  spine --info                                  Show system and dependency info
-  spine -c config.cfg                           Run ML training/inference with config file
-  spine -c config.cfg --set io.loader.batch_size=8    Override config parameters
-  spine -c config.cfg --set base.iterations=1000 --set io.loader.batch_size=16
-  spine -c config.cfg --set model.detect_anomaly=true Debug PyTorch issues
-  spine --help                                  Show this help message
+        epilog=dedent("""\
+            Examples:
+              spine --version
+                  Show version information.
+              spine --info
+                  Show system and dependency information.
+              spine -c config.yaml
+                  Run training or inference from a configuration file.
+              spine -c config.yaml --set io.loader.batch_size=8
+                  Override a configuration parameter.
+              spine -c config.yaml --set base.iterations=1000 \\
+                --set io.loader.batch_size=16
+                  Override multiple configuration parameters.
+              spine -c config.yaml --set model.detect_anomaly=true
+                  Enable PyTorch anomaly detection.
+              spine -c config.yaml \\
+                --source larcv=raw.root hdf5=cache.h5
+                  Override the sources of a composite dataset.
+              spine --help
+                  Show this help message.
 
-For ML training/inference, use the released SPINE container or install a
-compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
-""",
+            For ML training/inference, use the released SPINE container or
+            install a compatible PyTorch, PyG, and sparse-convolution ecosystem
+            manually.
+            """),
     )
 
     # Add a version command
@@ -359,15 +368,21 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         help="Path to the configuration file (requires torch dependencies)",
     )
 
-    # Add mutually exclusive group for source input
-    source_group = parser.add_mutually_exclusive_group()
-    source_group.add_argument(
-        "-s", "--source", nargs="+", type=str, help="List of paths to the input files"
+    # Source options may coexist when they address different composite inputs.
+    parser.add_argument(
+        "-s",
+        "--source",
+        nargs="+",
+        type=str,
+        metavar="[TARGET=]PATH",
+        help="Input paths, optionally qualified by a composite source name",
     )
-    source_group.add_argument(
+    parser.add_argument(
         "-S",
         "--source-list",
-        help="Path to a text file containing a list of data file paths",
+        nargs="+",
+        metavar="[TARGET=]LIST",
+        help="Input file lists, optionally qualified by composite source names",
     )
 
     # Add mutually exclusive validation source inputs
@@ -544,114 +559,6 @@ compatible PyTorch, PyG, and sparse-convolution ecosystem manually.
         resume=args.resume,
         inference=args.inference,
     )
-
-
-def get_version():
-    """Get SPINE version without importing heavy dependencies."""
-    try:
-        from spine.version import __version__
-
-        return __version__
-    except ImportError:
-        return "unknown"
-
-
-def show_info():
-    """Show comprehensive package and system information."""
-    print(f"SPINE (Scalable Particle Imaging with Neural Embeddings) v{get_version()}")
-    print("https://github.com/DeepLearnPhysics/spine")
-    print()
-
-    # Check and display dependency status
-    deps = check_dependencies()
-
-    print("Dependency Status:")
-    print("-" * 40)
-
-    for name, version in deps.items():
-        status = f"✓ {version}" if version else "✗ Not available"
-        print(f"{name:15}: {status}")
-
-    print(f"\nPython: {sys.version}")
-    print()
-
-    print("Available functionality:")
-    print("  Core: Mathematical operations, data handling, I/O")
-
-    model_deps = (
-        "torch",
-        "torch-geometric",
-        "torch-scatter",
-        "torch-cluster",
-        "MinkowskiEngine",
-    )
-    missing_model_deps = [name for name in model_deps if not deps[name]]
-    if not missing_model_deps:
-        print("  Model stack: Available")
-    else:
-        print(f"  Model stack: Incomplete (missing: {', '.join(missing_model_deps)})")
-
-    if deps["plotly"]:
-        print(f"  Visualization: Available (Plotly {deps['plotly']})")
-    else:
-        print("  Visualization: Not available (install with: pip install spine[viz])")
-
-    if deps["torch"] is None:
-        print("\n" + "=" * 50)
-        print("NOTICE: PyTorch not found!")
-        print("For full ML functionality, use the released SPINE container")
-        print("or install the compatible ML ecosystem manually.")
-        print("=" * 50)
-
-
-def check_dependencies():
-    """Check what optional dependencies are available."""
-    deps = {}
-
-    # Check PyTorch
-    try:
-        import torch
-
-        deps["torch"] = torch.__version__
-    except ImportError:
-        deps["torch"] = None
-
-    # Check visualization dependencies
-    try:
-        import matplotlib
-
-        deps["matplotlib"] = matplotlib.__version__
-    except ImportError:
-        deps["matplotlib"] = None
-
-    try:
-        import plotly
-
-        deps["plotly"] = plotly.__version__
-    except ImportError:
-        deps["plotly"] = None
-
-    try:
-        import seaborn
-
-        deps["seaborn"] = seaborn.__version__
-    except ImportError:
-        deps["seaborn"] = None
-
-    # Check the compiled packages needed by the complete model stack without
-    # importing them, as imports may initialize CUDA or compiled extensions.
-    for distribution in (
-        "torch-geometric",
-        "torch-scatter",
-        "torch-cluster",
-        "MinkowskiEngine",
-    ):
-        try:
-            deps[distribution] = package_version(distribution)
-        except PackageNotFoundError:
-            deps[distribution] = None
-
-    return deps
 
 
 if __name__ == "__main__":

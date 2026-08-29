@@ -262,7 +262,8 @@ class TestMainEntryPoints:
 
     def test_cli_import_and_version(self):
         """Test CLI imports and version detection works."""
-        from spine.bin.cli import check_dependencies, get_version, main
+        from spine.bin.cli import main
+        from spine.bin.info import check_dependencies, get_version
 
         assert callable(main)
 
