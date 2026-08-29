@@ -484,6 +484,62 @@ def test_main_overrides_validation_source(
     assert validation["fraction"] == 0.5
 
 
+def test_main_overrides_composite_validation_sources(monkeypatch, tmp_path):
+    """Validation CLI inputs should follow the training dataset topology."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "io": {
+                "loader": {
+                    "dataset": {
+                        "name": "mixed",
+                        "larcv": {"file_keys": ["train.root"]},
+                        "hdf5": {"file_keys": ["train.h5"]},
+                    }
+                }
+            },
+            "model": {},
+            "train": {},
+            "validation": {"fraction": 0.25},
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        val_source=["hdf5=validation.h5"],
+        val_source_list=["larcv=validation.txt"],
+    )
+
+    assert captured["cfg"]["validation"] == {
+        "fraction": 0.25,
+        "sources": {
+            "larcv": {"file_list": "validation.txt"},
+            "hdf5": {"file_keys": ["validation.h5"]},
+        },
+    }
+
+
 def test_main_rejects_validation_source_for_inference(monkeypatch, tmp_path):
     """Validation-only source flags should not be accepted in inference mode."""
     config_path = tmp_path / "config.yaml"
@@ -528,7 +584,7 @@ def test_main_validates_validation_source_overrides(monkeypatch, tmp_path):
         lambda _path: {
             "io": {"loader": {"dataset": {"file_keys": ["train.root"]}}},
             "model": {},
-            "validation": "invalid",
+            "validation": {},
         },
     )
 
@@ -555,6 +611,16 @@ def test_main_validates_validation_source_overrides(monkeypatch, tmp_path):
             val_source=["validation.root"],
             val_source_list="validation.txt",
         )
+
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "io": {"loader": {"dataset": {"file_keys": ["train.root"]}}},
+            "model": {},
+            "validation": "invalid",
+        },
+    )
     with pytest.raises(TypeError, match="`validation` block must be a mapping"):
         cli_module.main(**common, val_source=["validation.root"])
 
@@ -1002,6 +1068,10 @@ def test_cli_parses_mixed_source_and_source_list(monkeypatch):
             "larcv=raw_files.txt",
             "--source",
             "hdf5=/cache/*.h5",
+            "--val-source-list",
+            "larcv=validation.txt",
+            "--val-source",
+            "hdf5=/cache/validation.h5",
         ],
     )
 
@@ -1010,6 +1080,8 @@ def test_cli_parses_mixed_source_and_source_list(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["source"] == ["hdf5=/cache/*.h5"]
     assert calls[0]["source_list"] == ["larcv=raw_files.txt"]
+    assert calls[0]["val_source"] == ["hdf5=/cache/validation.h5"]
+    assert calls[0]["val_source_list"] == ["larcv=validation.txt"]
 
 
 def test_cli_parses_module_weights(monkeypatch):

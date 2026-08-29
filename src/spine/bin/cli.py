@@ -10,7 +10,11 @@ from warnings import warn
 
 from spine.banner import format_banner
 from spine.bin.info import get_version, show_info
-from spine.bin.source import apply_source_overrides, get_input_config
+from spine.bin.source import (
+    apply_source_overrides,
+    apply_validation_source_overrides,
+    get_input_config,
+)
 from spine.bin.weight import apply_module_weight_overrides
 from spine.config import load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
@@ -35,7 +39,7 @@ def main(
     config_overrides: list[str] | None,
     module_weight: list[str] | None = None,
     val_source: list[str] | None = None,
-    val_source_list: str | None = None,
+    val_source_list: str | list[str] | None = None,
     world_size: int | None = None,
     batch_size: int | None = None,
     minibatch_size: int | None = None,
@@ -92,9 +96,11 @@ def main(
     module_weight : list[str], optional
         Module checkpoint overrides in the form ``MODULE=PATH``
     val_source : list[str], optional
-        List of paths to validation input files
-    val_source_list : str, optional
-        Path to a text file containing validation data file paths
+        Validation paths, optionally written as ``target=path`` for a
+        composite dataset source
+    val_source_list : str or list[str], optional
+        Validation file-list paths, optionally qualified by composite-dataset
+        source names
     world_size : int, optional
         Number of local processes/devices to use
     batch_size : int, optional
@@ -142,8 +148,6 @@ def main(
     parent_path = str(pathlib.Path(cfg_file).parent)
     cfg["base"]["parent_path"] = parent_path
 
-    if val_source is not None and val_source_list is not None:
-        raise ValueError("--val-source and --val-source-list are mutually exclusive.")
     if batch_size is not None and minibatch_size is not None:
         raise ValueError("--batch-size and --minibatch-size are mutually exclusive.")
     if epochs is not None and iterations is not None:
@@ -182,18 +186,18 @@ def main(
                 input_cfg, _ = get_input_config(cfg["io"])
             input_cfg[io_key] = io_value
 
-    # Override validation sources independently of the training input. Remove
-    # the alternate selector because validation requires exactly one of them.
+    # Validation source selectors follow the training dataset topology while
+    # remaining independent of the training paths themselves.
     if val_source is not None or val_source_list is not None:
         validation = cfg.setdefault("validation", {})
         if not isinstance(validation, dict):
             raise TypeError("The `validation` block must be a mapping.")
-        if val_source is not None:
-            validation["file_keys"] = val_source
-            validation.pop("file_list", None)
-        else:
-            validation["file_list"] = val_source_list
-            validation.pop("file_keys", None)
+        apply_validation_source_overrides(
+            validation,
+            cfg["io"],
+            val_source,
+            val_source_list,
+        )
 
     # Override runtime and loader resource settings. Batch shape and worker
     # count are loader properties, while process count and duration belong to
@@ -398,17 +402,19 @@ def cli() -> None:
         help="Input file lists, optionally qualified by composite source names",
     )
 
-    # Add mutually exclusive validation source inputs
-    val_source_group = parser.add_mutually_exclusive_group()
-    val_source_group.add_argument(
+    # Validation source options use the same target-aware contract as input.
+    parser.add_argument(
         "--val-source",
         nargs="+",
         type=str,
-        help="List of paths to validation input files",
+        metavar="[TARGET=]PATH",
+        help="Validation paths, optionally qualified by a composite source name",
     )
-    val_source_group.add_argument(
+    parser.add_argument(
         "--val-source-list",
-        help="Path to a text file containing validation data file paths",
+        nargs="+",
+        metavar="[TARGET=]LIST",
+        help="Validation file lists, optionally qualified by composite source names",
     )
 
     # Add output arguments

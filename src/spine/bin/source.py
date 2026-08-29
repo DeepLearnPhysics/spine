@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 
-__all__ = ["apply_source_overrides", "get_input_config", "parse_source_overrides"]
+__all__ = [
+    "apply_source_overrides",
+    "apply_validation_source_overrides",
+    "get_input_config",
+    "parse_source_overrides",
+]
 
 
 SourceValues = str | list[str] | None
@@ -50,6 +55,9 @@ def _normalize_source_values(values: SourceValues) -> list[str]:
 def parse_source_overrides(
     source: list[str] | None,
     source_list: SourceValues,
+    *,
+    source_option: str = "--source",
+    source_list_option: str = "--source-list",
 ) -> SourceOverrides:
     """Parse flat or target-qualified input source overrides.
 
@@ -65,6 +73,10 @@ def parse_source_overrides(
     source_list : str or list[str], optional
         File-list paths written as ``path`` or ``target=path``. A string is
         accepted for compatibility with direct callers of :func:`cli.main`.
+    source_option : str, default "--source"
+        Direct-source option name used in validation errors.
+    source_list_option : str, default "--source-list"
+        File-list option name used in validation errors.
 
     Returns
     -------
@@ -84,8 +96,8 @@ def parse_source_overrides(
 
     # Split once so a qualified path may contain additional ``=`` characters.
     for option, values in (
-        ("--source", direct_values),
-        ("--source-list", list_values),
+        (source_option, direct_values),
+        (source_list_option, list_values),
     ):
         for value in values:
             target = None
@@ -106,16 +118,20 @@ def parse_source_overrides(
     qualified = [target is not None for _, target, _ in parsed]
     if any(qualified) and not all(qualified):
         raise ValueError(
-            "Qualified and unqualified --source/--source-list values cannot "
-            "be mixed."
+            f"Qualified and unqualified {source_option}/{source_list_option} "
+            "values cannot be mixed."
         )
 
     # Preserve the original mutually exclusive flat-input contract.
     if not any(qualified):
         if direct_values and list_values:
-            raise ValueError("--source and --source-list are mutually exclusive.")
+            raise ValueError(
+                f"{source_option} and {source_list_option} are mutually exclusive."
+            )
         if len(list_values) > 1:
-            raise ValueError("Unqualified --source-list accepts exactly one list file.")
+            raise ValueError(
+                f"Unqualified {source_list_option} accepts exactly one list file."
+            )
         if direct_values:
             return {None: {"file_keys": direct_values}}
         return {None: {"file_list": list_values[0]}}
@@ -125,7 +141,7 @@ def parse_source_overrides(
     for option, target, path in parsed:
         assert target is not None
         target_override = overrides.setdefault(target, {})
-        if option == "--source":
+        if option == source_option:
             target_override.setdefault("file_keys", [])
             file_keys = target_override["file_keys"]
             assert isinstance(file_keys, list)
@@ -134,11 +150,12 @@ def parse_source_overrides(
             if "file_keys" in target_override:
                 raise ValueError(
                     f"Source target '{target}' cannot be provided through both "
-                    "--source and --source-list."
+                    f"{source_option} and {source_list_option}."
                 )
             if "file_list" in target_override:
                 raise ValueError(
-                    f"Source target '{target}' has multiple --source-list values."
+                    f"Source target '{target}' has multiple "
+                    f"{source_list_option} values."
                 )
             target_override["file_list"] = path
 
@@ -277,3 +294,99 @@ def apply_source_overrides(
         # the shared base configuration.
         target_cfg["file_keys"] = override.get("file_keys")
         target_cfg["file_list"] = override.get("file_list")
+
+
+def apply_validation_source_overrides(
+    validation_cfg: MutableMapping,
+    io_cfg: MutableMapping,
+    source: list[str] | None,
+    source_list: SourceValues,
+) -> None:
+    """Apply flat or composite validation-source overrides.
+
+    Ordinary validation datasets store their selector directly in the
+    ``validation`` block. Composite validation datasets instead store named
+    selectors under ``validation.sources``. Existing named selectors are
+    retained when the CLI overrides only part of a composite source set.
+
+    Parameters
+    ----------
+    validation_cfg : MutableMapping
+        Validation configuration to update in place.
+    io_cfg : MutableMapping
+        Training I/O configuration used to identify the dataset topology.
+    source : list[str], optional
+        Direct flat or target-qualified validation paths.
+    source_list : str or list[str], optional
+        Flat or target-qualified validation file-list paths.
+
+    Raises
+    ------
+    ValueError
+        If selector syntax does not match the training dataset topology or the
+        resulting composite source set is incomplete.
+    TypeError
+        If configured composite validation sources are not inline mappings.
+    """
+    overrides = parse_source_overrides(
+        source,
+        source_list,
+        source_option="--val-source",
+        source_list_option="--val-source-list",
+    )
+    if not overrides:
+        return
+
+    input_cfg, is_dataset = get_input_config(io_cfg)
+    name_value = input_cfg.get("name") if is_dataset else None
+    dataset_name = name_value if isinstance(name_value, str) else None
+    source_keys = (
+        _COMPOSITE_SOURCE_KEYS.get(dataset_name) if dataset_name is not None else None
+    )
+
+    # Flat validation selectors live directly alongside validation policies.
+    if None in overrides:
+        if source_keys is not None:
+            raise ValueError(
+                f"The '{dataset_name}' validation dataset requires "
+                "target-qualified --val-source/--val-source-list values."
+            )
+        override = overrides[None]
+        validation_cfg.pop("sources", None)
+        validation_cfg.pop("file_keys", None)
+        validation_cfg.pop("file_list", None)
+        validation_cfg.update(override)
+        return
+
+    if source_keys is None:
+        raise ValueError(
+            "Target-qualified --val-source/--val-source-list values require an "
+            "inline joint or mixed loader dataset."
+        )
+
+    # Merge requested targets with configured validation sources, then require
+    # the exact topology consumed by the validation manager.
+    configured_sources = validation_cfg.get("sources", {})
+    if not isinstance(configured_sources, MutableMapping):
+        raise TypeError("The `validation.sources` block must be an inline mapping.")
+    merged_sources = dict(configured_sources)
+    for target, override in overrides.items():
+        assert target is not None
+        if target not in source_keys:
+            expected = ", ".join(source_keys)
+            raise ValueError(
+                f"Unknown validation source target '{target}' for "
+                f"'{dataset_name}' dataset. Expected one of: {expected}."
+            )
+        merged_sources[target] = override
+
+    if set(merged_sources) != set(source_keys):
+        expected = ", ".join(source_keys)
+        raise ValueError(
+            f"Validation sources for '{dataset_name}' dataset must provide "
+            f"exactly: {expected}."
+        )
+
+    validation_cfg.pop("file_keys", None)
+    validation_cfg.pop("file_list", None)
+    validation_cfg["sources"] = merged_sources

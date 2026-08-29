@@ -107,3 +107,127 @@ def test_input_config_rejects_external_blocks(io_cfg, message):
     """CLI input overrides require mutable inline configuration blocks."""
     with pytest.raises(TypeError, match=message):
         source_module.get_input_config(io_cfg)
+
+
+def test_apply_validation_source_overrides_for_mixed_dataset():
+    """Validation flags should populate the named composite-source schema."""
+    io_cfg = {
+        "loader": {
+            "dataset": {
+                "name": "mixed",
+                "larcv": {"file_keys": ["train.root"]},
+                "hdf5": {"file_keys": ["train.h5"]},
+            }
+        }
+    }
+    validation = {
+        "file_keys": ["stale.root"],
+        "fraction": 0.5,
+    }
+
+    source_module.apply_validation_source_overrides(
+        validation,
+        io_cfg,
+        ["hdf5=/cache/val.h5"],
+        ["larcv=validation.txt"],
+    )
+
+    assert validation == {
+        "sources": {
+            "larcv": {"file_list": "validation.txt"},
+            "hdf5": {"file_keys": ["/cache/val.h5"]},
+        },
+        "fraction": 0.5,
+    }
+
+    untouched = {}
+    source_module.apply_validation_source_overrides(untouched, {}, None, None)
+    assert untouched == {}
+
+
+def test_apply_validation_source_overrides_preserves_unmentioned_target():
+    """A qualified override should retain other configured validation sources."""
+    io_cfg = {
+        "loader": {
+            "dataset": {
+                "name": "joint",
+                "primary": {},
+                "secondary": {},
+            }
+        }
+    }
+    validation = {
+        "sources": {
+            "primary": {"file_list": "primary.txt"},
+            "secondary": {"file_list": "secondary.txt"},
+        }
+    }
+
+    source_module.apply_validation_source_overrides(
+        validation,
+        io_cfg,
+        ["primary=new.root"],
+        None,
+    )
+
+    assert validation["sources"] == {
+        "primary": {"file_keys": ["new.root"]},
+        "secondary": {"file_list": "secondary.txt"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("io_cfg", "validation", "source", "message", "error"),
+    [
+        (
+            {"loader": {"dataset": {"name": "mixed"}}},
+            {},
+            ["validation.root"],
+            "requires target-qualified",
+            ValueError,
+        ),
+        (
+            {"loader": {"dataset": {"name": "hdf5"}}},
+            {},
+            ["hdf5=validation.h5"],
+            "require an inline joint or mixed",
+            ValueError,
+        ),
+        (
+            {"loader": {"dataset": {"name": "mixed"}}},
+            {},
+            ["primary=validation.root"],
+            "Unknown validation source target",
+            ValueError,
+        ),
+        (
+            {"loader": {"dataset": {"name": "mixed"}}},
+            {},
+            ["larcv=validation.root"],
+            "must provide exactly",
+            ValueError,
+        ),
+        (
+            {"loader": {"dataset": {"name": "mixed"}}},
+            {"sources": "validation.yaml"},
+            ["larcv=validation.root"],
+            "validation.sources.*inline mapping",
+            TypeError,
+        ),
+    ],
+)
+def test_apply_validation_source_overrides_rejects_incompatible_configs(
+    io_cfg,
+    validation,
+    source,
+    message,
+    error,
+):
+    """Validation selectors must match a complete dataset topology."""
+    with pytest.raises(error, match=message):
+        source_module.apply_validation_source_overrides(
+            validation,
+            io_cfg,
+            source,
+            None,
+        )
