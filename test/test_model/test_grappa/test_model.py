@@ -173,6 +173,86 @@ def test_grappa_loss_shares_one_overlap_cache_across_objectives(graph_labels):
     assert first.cache == {}
 
 
+def test_grappa_loss_returns_and_reuses_cached_targets(
+    graph_labels,
+    graph_clusters,
+):
+    """Opt-in targets should replay node and edge supervision without truth."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0], [1]], dtype=np.int64),
+        counts=[1, 0],
+        spans=graph_clusters.counts,
+        directed=True,
+    )
+    node_pred = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    edge_pred = TensorBatch(torch.zeros((1, 2)), counts=[1, 0])
+    cfg = {
+        "node_loss": {"name": "class", "target": "pid"},
+        "edge_loss": {"name": "channel", "target": "group"},
+        "return_targets": True,
+    }
+
+    live = GrapPALoss(cfg)(
+        graph_labels,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        node_pred=node_pred,
+        edge_pred=edge_pred,
+    )
+
+    assert live["node_target"].counts.tolist() == [2, 1]
+    assert live["node_valid"].numpy_tensor().tolist() == [True, True, True]
+    assert live["edge_target"].counts.tolist() == [1, 0]
+    assert live["edge_valid"].numpy_tensor().tolist() == [True]
+
+    cached_cfg = dict(cfg)
+    cached_cfg["return_targets"] = False
+    cached = GrapPALoss(cached_cfg)(
+        clust_label=None,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        node_pred=node_pred,
+        edge_pred=edge_pred,
+        node_target=live["node_target"].to_tensor(dtype=torch.float32),
+        node_valid=live["node_valid"].to_tensor(dtype=torch.float32),
+        edge_target=live["edge_target"].to_tensor(dtype=torch.float32),
+        edge_valid=live["edge_valid"].to_tensor(dtype=torch.float32),
+    )
+
+    torch.testing.assert_close(cached["loss"], live["loss"])
+    assert cached["accuracy"] == live["accuracy"]
+
+
+def test_grappa_loss_validates_cached_target_contract(graph_labels):
+    """Cached supervision must be paired and supported by the objective."""
+    prediction = TensorBatch(torch.zeros((3, 2)), counts=[2, 1])
+    loss = GrapPALoss({"node_loss": {"name": "class", "target": "pid"}})
+    with pytest.raises(ValueError, match="requires both"):
+        loss(graph_labels, node_pred=prediction, node_target=prediction)
+
+    with pytest.raises(ValueError, match="does not support"):
+        GrapPALoss(
+            {
+                "node_loss": {"name": "vertex", "only_contained": False},
+                "return_targets": True,
+            }
+        )(graph_labels, node_pred=TensorBatch(torch.zeros((3, 5)), counts=[2, 1]))
+
+    class MissingTargetLoss(torch.nn.Module):
+        def forward(self, **kwargs):
+            return {"loss": torch.tensor(0.0), "accuracy": 1.0}
+
+    loss = GrapPALoss(
+        {
+            "node_loss": {"name": "class", "target": "pid"},
+            "return_targets": True,
+        }
+    )
+    loss.node_loss = MissingTargetLoss()
+    with pytest.raises(RuntimeError, match="did not return"):
+        loss(graph_labels, node_pred=prediction)
+
+
 def test_grappa_validates_node_graph_and_grouping_configuration():
     """GrapPA rejects ambiguous node construction and grouping settings."""
     cfg = shower_model_config()

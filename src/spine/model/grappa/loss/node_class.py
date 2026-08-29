@@ -21,6 +21,8 @@ from spine.model.common.quality import (
 )
 from spine.model.common.weighting import get_class_weights
 
+from .target import prepare_cached_target, target_tensor, validity_batch
+
 __all__ = ["NodeClassLoss"]
 
 
@@ -60,7 +62,6 @@ class NodeClassLoss(torch.nn.Module):
         weights: Sequence[float] | None = None,
         use_closest: bool = False,
         secondary_label: int | Sequence[int] = -1,
-        *,
         min_iou: float | Sequence[float] | None = None,
         min_purity: float | Sequence[float] | None = None,
         min_efficiency: float | Sequence[float] | None = None,
@@ -128,14 +129,17 @@ class NodeClassLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch,
+        clust_label: ClusterLabelBatch | None,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         coord_label: TensorBatch | None = None,
         node_quality_mask: np.ndarray | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
+        labels: TensorBatch | None = None,
+        valid_mask: TensorBatch | None = None,
+        return_target: bool = False,
         **kwargs: object,
-    ) -> dict[str, torch.Tensor | float | int]:
+    ) -> dict[str, torch.Tensor | TensorBatch | float | int]:
         """Applies the node classification loss to a batch of data.
 
         Parameters
@@ -154,6 +158,13 @@ class NodeClassLoss(torch.nn.Module):
             one validity decision for all of their output components.
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
+        labels : TensorBatch, optional
+            Cached class labels aligned with ``node_pred``. Must be supplied
+            together with ``valid_mask``.
+        valid_mask : TensorBatch, optional
+            Cached one-dimensional node validity mask.
+        return_target : bool, default False
+            If `True`, return the exact labels and mask consumed by the loss.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -169,84 +180,44 @@ class NodeClassLoss(torch.nn.Module):
             Number of otherwise valid nodes removed by overlap-quality
             filtering. Only returned when a quality mask is applied.
         """
-        # Get the class labels
-        node_assn = get_cluster_label_batch(clust_label, clusts, column=self.target)
+        # Validate that cached labels and validity mask are provided together.
+        if (labels is None) != (valid_mask is None):
+            raise ValueError(
+                "Cached labels and validity mask must be provided together."
+            )
 
-        # If requested, adjust the class labeling of particle groups by picking
-        # the node closest to the creation point as the reference target
         num_classes = node_pred.shape[1]
         self.quality_filter.validate_num_classes(num_classes)
-        if self.use_closest:
-            # Make sure that the start point labeling is provided
-            if coord_label is None:
+
+        # Reuse exact cached supervision or derive it from structured truth.
+        if labels is not None:
+            assert valid_mask is not None
+            node_assn = labels
+            valid_array = prepare_cached_target(labels, valid_mask, node_pred, "node")
+            count_rejected = 0
+            apply_quality = False
+        else:
+            if clust_label is None:
                 raise ValueError(
-                    "To use the node closest to the particle creation point "
-                    "as the reference node, must provide `coord_label`."
+                    "Node classification requires either cached supervision or "
+                    "structured cluster labels."
                 )
-
-            # Convert the default labels into a list of one value per class
-            if isinstance(self.secondary_label, int):
-                default = np.full(num_classes, self.secondary_label, dtype=int)
-            else:
-                if len(self.secondary_label) != num_classes:
-                    raise ValueError(
-                        "Must either provide a single default secondary label "
-                        "or exactly one per label class."
-                    )
-                default = np.array(self.secondary_label, dtype=int)
-
-            # Adjust the class labels
-            node_assn = get_cluster_closest_label_batch(
-                clust_label, coord_label, clusts, node_assn, default
-            )
-
-        # Check that the labels and the output tensor size are compatible
-        node_assn_array = node_assn.numpy_tensor()
-        class_mask = node_assn_array < num_classes
-        if np.any(~class_mask):
-            warn(
-                "There are class labels with a value larger than the "
-                f"size of the output logit vector ({num_classes}).",
-                RuntimeWarning,
-            )
-
-        # Record ordinary task eligibility before applying overlap quality.
-        base_valid_mask = (node_assn_array > -1) & class_mask
-        valid_mask = base_valid_mask.copy()
-        apply_quality = self.quality_filter.active or node_quality_mask is not None
-        count_rejected = 0
-
-        # Reject targets whose matched truth instance is insufficiently pure,
-        # efficient or complete under the configured quality policy.
-        if apply_quality:
-            quality_mask = self.quality_filter.node_mask(
+            node_assn, valid_array, count_rejected, apply_quality = self._build_target(
                 clust_label,
                 clusts,
-                node_assn_array,
+                coord_label,
+                num_classes,
+                node_quality_mask,
                 overlap_cache,
             )
-            if node_quality_mask is not None:
-                if len(node_quality_mask) != len(quality_mask):
-                    raise ValueError(
-                        "External node-quality mask must align with clusters."
-                    )
-                # Compound objectives may impose an additional shared mask.
-                quality_mask &= node_quality_mask
 
-            count_rejected = int(np.count_nonzero(base_valid_mask & ~quality_mask))
-            valid_mask &= quality_mask
-
-            # Convert rejected objects to the standard ignored target so all
-            # later masking and metric code follows the ordinary loss path.
-            node_assn_array = node_assn_array.copy()
-            node_assn_array[~quality_mask] = -1
-            node_assn = TensorBatch(node_assn_array, node_assn.counts)
-
-        # Create a mask for valid nodes (-1 indicates an invalid class ID)
-        # Apply the valid mask and convert the labels to a torch.Tensor
-        valid_index = np.where(valid_mask)[0]
-        node_assn = node_assn.to_tensor(dtype=torch.long, device=node_pred.device)
-        node_assn_tensor = node_assn.torch_tensor()[valid_index]
+        # From here on, cached and live targets follow the same loss path.
+        if valid_mask is None:
+            valid_mask = validity_batch(valid_array, node_assn)
+        valid_index = np.where(valid_array)[0]
+        node_assn_tensor = target_tensor(node_assn, node_pred, dtype=torch.long)[
+            valid_index
+        ]
         node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
         # Compute the loss. Balance classes if requested
@@ -291,4 +262,113 @@ class NodeClassLoss(torch.nn.Module):
         for class_id in range(num_classes):
             result[f"accuracy_class_{class_id}"] = acc_class[class_id]
 
+        # Expose the exact supervision consumed above for later caching.
+        if return_target:
+            result["target"] = node_assn
+            result["valid"] = valid_mask
+
         return result
+
+    def _build_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        coord_label: TensorBatch | None,
+        num_classes: int,
+        node_quality_mask: np.ndarray | None,
+        overlap_cache: ClusterOverlapCache | None,
+    ) -> tuple[TensorBatch, np.ndarray, int, bool]:
+        """Build node-aligned classification supervision from truth.
+
+        The method derives one class label per graph node, optionally replaces
+        group labels with closest-node labels, and combines ordinary class
+        validity with both internal and externally supplied quality masks.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Voxel-level labels containing the configured class target.
+        clusts : IndexBatch
+            Cluster-to-voxel index whose ordering defines the node axis.
+        coord_label : TensorBatch, optional
+            Particle creation points required by ``use_closest``.
+        num_classes : int
+            Width of the classification logits and valid class range.
+        node_quality_mask : np.ndarray, optional
+            Additional node-aligned mask imposed by a compound objective.
+        overlap_cache : ClusterOverlapCache, optional
+            Precomputed cluster overlaps shared across GrapPA objectives.
+
+        Returns
+        -------
+        TensorBatch
+            Integer class labels aligned with graph nodes.
+        np.ndarray
+            Boolean mask selecting nodes eligible for the loss.
+        int
+            Number of otherwise eligible nodes rejected by quality filtering.
+        bool
+            Whether either internal or external quality filtering was applied.
+        """
+        node_assn = get_cluster_label_batch(clust_label, clusts, column=self.target)
+
+        # Optionally use the node nearest each particle creation point.
+        if self.use_closest:
+            if coord_label is None:
+                raise ValueError(
+                    "To use the node closest to the particle creation point "
+                    "as the reference node, must provide `coord_label`."
+                )
+
+            if isinstance(self.secondary_label, int):
+                default = np.full(num_classes, self.secondary_label, dtype=int)
+            else:
+                if len(self.secondary_label) != num_classes:
+                    raise ValueError(
+                        "Must either provide a single default secondary label "
+                        "or exactly one per label class."
+                    )
+                default = np.array(self.secondary_label, dtype=int)
+
+            node_assn = get_cluster_closest_label_batch(
+                clust_label, coord_label, clusts, node_assn, default
+            )
+
+        node_assn_array = node_assn.to_numpy().data
+        class_mask = node_assn_array < num_classes
+        if np.any(~class_mask):
+            warn(
+                "There are class labels with a value larger than the "
+                f"size of the output logit vector ({num_classes}).",
+                RuntimeWarning,
+            )
+
+        # Record ordinary eligibility before applying overlap quality.
+        base_valid_mask = (node_assn_array > -1) & class_mask
+        valid_array = base_valid_mask.copy()
+        apply_quality = self.quality_filter.active or node_quality_mask is not None
+
+        count_rejected = 0
+        if apply_quality:
+            quality_mask = self.quality_filter.node_mask(
+                clust_label,
+                clusts,
+                node_assn_array,
+                overlap_cache,
+            )
+            if node_quality_mask is not None:
+                if len(node_quality_mask) != len(quality_mask):
+                    raise ValueError(
+                        "External node-quality mask must align with clusters."
+                    )
+                quality_mask &= node_quality_mask
+
+            count_rejected = int(np.count_nonzero(base_valid_mask & ~quality_mask))
+            valid_array &= quality_mask
+
+            # Use the standard ignored target for rejected objects.
+            node_assn_array = node_assn_array.copy()
+            node_assn_array[~quality_mask] = -1
+            node_assn = TensorBatch(node_assn_array, node_assn.counts)
+
+        return node_assn, valid_array, count_rejected, apply_quality

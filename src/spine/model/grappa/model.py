@@ -865,6 +865,7 @@ class GrapPALoss(torch.nn.Module):
           name: grappa
           modules:
             grappa_loss:
+              return_targets: true  # Optional: emit cacheable supervision
               node_loss:
                 name: <name of the node loss>
                 <dictionary of arguments to pass to the loss>
@@ -878,6 +879,13 @@ class GrapPALoss(torch.nn.Module):
     Each specific loss block can also contain multiple losses by
     providing a name key in a loss block nested below it. Each loss name of a
     specific type should be provided with a corresponding output from GrapPA.
+
+    With ``return_targets: true``, cacheable objectives additionally emit
+    ``<objective>_target`` and ``<objective>_valid`` products. A later run can
+    map those products through ``model.loss_input`` under the same parameter
+    names and omit ``clust_label``. Single objectives use the compact
+    ``node_*`` or ``edge_*`` prefixes; named heads preserve their full prefix,
+    for example ``node_type_target`` and ``node_type_valid``.
 
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
@@ -906,6 +914,7 @@ class GrapPALoss(torch.nn.Module):
         self.node_loss_keys: list[str] = []
         self.edge_loss_keys: list[str] = []
         self.global_loss_keys: list[str] = []
+        self.return_targets = False
 
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
@@ -915,6 +924,7 @@ class GrapPALoss(torch.nn.Module):
         node_loss: dict[str, Any] | None = None,
         edge_loss: dict[str, Any] | None = None,
         global_loss: dict[str, Any] | None = None,
+        return_targets: bool = False,
     ) -> None:
         """Process the loss configuration.
 
@@ -926,6 +936,9 @@ class GrapPALoss(torch.nn.Module):
             Edge loss configuration
         global_loss : Union[dict, Dict[dict]], optional
             Global loss configuration
+        return_targets : bool, default False
+            If `True`, include the exact labels and validity masks consumed by
+            each cacheable node and edge objective in the loss output.
         """
         # Check that there is at least one loss to apply
         if node_loss is None and edge_loss is None and global_loss is None:
@@ -933,6 +946,7 @@ class GrapPALoss(torch.nn.Module):
                 "Must provide at least one of `node_loss`, `edge_loss` or "
                 "`global_loss` to the GrapPA loss function."
             )
+        self.return_targets = return_targets
 
         # Initialize the node/edge/global losses
         self.process_single_loss_config("node", node_loss, node_loss_factory)
@@ -980,7 +994,7 @@ class GrapPALoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch,
+        clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
         graph_label: EdgeIndexBatch | None = None,
         iteration: int | None = None,
@@ -1028,12 +1042,37 @@ class GrapPALoss(torch.nn.Module):
                         f"Loss `{key}` requires model output `{prediction_key}`."
                     )
                 extra = {}
+                prefix = key.removesuffix("_loss")
                 generic_prediction_key = f"{t}_pred"
                 if prediction_key != generic_prediction_key:
                     extra[generic_prediction_key] = output[prediction_key]
 
+                # Cached supervision follows the same objective prefix as the
+                # prediction. Both products are required as one atomic pair.
+                target_key = f"{prefix}_target"
+                valid_key = f"{prefix}_valid"
+                has_target = target_key in output
+                has_valid = valid_key in output
+                if has_target != has_valid:
+                    raise ValueError(
+                        f"Cached objective `{prefix}` requires both `{target_key}` "
+                        f"and `{valid_key}`."
+                    )
+
+                objective = getattr(self, key)
+                cacheable = getattr(objective, "cacheable_targets", True)
+                if (has_target or self.return_targets) and not cacheable:
+                    raise ValueError(
+                        f"Objective `{prefix}` does not support the single target "
+                        "and validity-mask cache contract."
+                    )
+                if has_target:
+                    extra["labels"] = output[target_key]
+                    extra["valid_mask"] = output[valid_key]
+                extra["return_target"] = self.return_targets
+
                 # Compute the loss
-                out = getattr(self, key)(
+                out = objective(
                     clust_label=clust_label,
                     coord_label=coord_label,
                     true_edge_index=graph_label,
@@ -1042,6 +1081,12 @@ class GrapPALoss(torch.nn.Module):
                     **output,
                     **extra,
                 )
+                if self.return_targets and t in ("node", "edge"):
+                    if "target" not in out or "valid" not in out:
+                        raise RuntimeError(
+                            f"Objective `{prefix}` did not return its requested "
+                            "target and validity mask."
+                        )
 
                 # Increment the loss and accuracy
                 loss_value = out["loss"]
@@ -1054,7 +1099,6 @@ class GrapPALoss(torch.nn.Module):
                 num_losses += 1
 
                 # Update the result dictionary
-                prefix = "_".join(key.split("_")[:-1])
                 for k, v in out.items():
                     result[f"{prefix}_{k}"] = v
 

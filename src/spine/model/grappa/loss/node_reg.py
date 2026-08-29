@@ -16,6 +16,8 @@ from spine.model.common.quality import (
     ClusterQualityFilter,
 )
 
+from .target import prepare_cached_target, target_tensor, validity_batch
+
 __all__ = ["NodeRegressionLoss"]
 
 
@@ -51,7 +53,6 @@ class NodeRegressionLoss(torch.nn.Module):
         self,
         target: str,
         loss: str | dict[str, Any] = "mse",
-        *,
         min_iou: float | Sequence[float] | None = None,
         min_purity: float | Sequence[float] | None = None,
         min_efficiency: float | Sequence[float] | None = None,
@@ -107,12 +108,15 @@ class NodeRegressionLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch,
+        clust_label: ClusterLabelBatch | None,
         clusts: IndexBatch,
         node_pred: TensorBatch,
         overlap_cache: ClusterOverlapCache | None = None,
+        labels: TensorBatch | None = None,
+        valid_mask: TensorBatch | None = None,
+        return_target: bool = False,
         **kwargs: object,
-    ) -> dict[str, torch.Tensor | float | int]:
+    ) -> dict[str, torch.Tensor | TensorBatch | float | int]:
         """Applies the node regression loss to a batch of data.
 
         Parameters
@@ -125,6 +129,13 @@ class NodeRegressionLoss(torch.nn.Module):
             (C, N_d) Node prediction
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
+        labels : TensorBatch, optional
+            Cached regression labels aligned with ``node_pred``. Must be
+            supplied together with ``valid_mask``.
+        valid_mask : TensorBatch, optional
+            Cached one-dimensional node validity mask.
+        return_target : bool, default False
+            If `True`, return the exact labels and mask consumed by the loss.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -140,47 +151,37 @@ class NodeRegressionLoss(torch.nn.Module):
             Number of otherwise valid nodes removed by overlap-quality
             filtering. Only returned when thresholds are configured.
         """
-        # Get the regression labels
-        node_assn = get_cluster_label_batch(clust_label, clusts, column=self.target)
+        # Validate that cached labels and validity mask are provided together.
+        if (labels is None) != (valid_mask is None):
+            raise ValueError(
+                "Cached labels and validity mask must be provided together."
+            )
 
-        # Vector targets are eligible only when every component is available.
-        node_assn_array = node_assn.numpy_tensor()
-        base_valid_mask = node_assn_array > -1
-        if base_valid_mask.ndim > 1:
-            base_valid_mask = np.all(base_valid_mask, axis=1)
-        valid_mask = base_valid_mask.copy()
+        # Reuse exact cached supervision or derive it from structured truth.
         count_rejected = 0
-
-        # Reject regression targets attached to poor truth-instance matches.
-        if self.quality_filter.active:
-            classes = None
-            if self.quality_filter.class_dependent:
-                # Reduce the categorical quality field on the same clusters as
-                # the continuous regression target.
-                classes = get_cluster_label_batch(
-                    clust_label,
-                    clusts,
-                    column=self.quality_target,
-                ).numpy_tensor()
-            quality_mask = self.quality_filter.node_mask(
+        if labels is not None:
+            assert valid_mask is not None
+            node_assn = labels
+            valid_array = prepare_cached_target(labels, valid_mask, node_pred, "node")
+        else:
+            if clust_label is None:
+                raise ValueError(
+                    "Node regression requires either cached supervision or "
+                    "structured cluster labels."
+                )
+            node_assn, valid_array, count_rejected = self._build_target(
                 clust_label,
                 clusts,
-                classes,
                 overlap_cache,
             )
-            count_rejected = int(np.count_nonzero(base_valid_mask & ~quality_mask))
-            valid_mask &= quality_mask
 
-            # Mark rejected targets with the ordinary invalid-label sentinel.
-            node_assn_array = node_assn.numpy_tensor().copy()
-            node_assn_array[~quality_mask] = -1
-            node_assn = TensorBatch(node_assn_array, node_assn.counts)
-
-        # Combine ordinary target validity with the optional quality policy.
-        # Apply the valid mask and convert the labels to a torch.Tensor
-        valid_index = np.where(valid_mask)[0]
-        node_assn = node_assn.to_tensor(device=node_pred.device)
-        node_assn_tensor = node_assn.torch_tensor()[valid_index]
+        # From here on, cached and live targets follow the same loss path.
+        if valid_mask is None:
+            valid_mask = validity_batch(valid_array, node_assn)
+        valid_index = np.where(valid_array)[0]
+        node_assn_tensor = target_tensor(node_assn, node_pred, dtype=node_pred.dtype)[
+            valid_index
+        ]
         node_pred_tensor = node_pred.torch_tensor()[valid_index]
 
         # Scalar labels are stored as ``(N,)`` while model predictions use
@@ -212,7 +213,73 @@ class NodeRegressionLoss(torch.nn.Module):
             acc = float(torch.std(rel_res, correction=0))
 
         result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
-        if self.quality_filter.active:
+        if labels is None and self.quality_filter.active:
             result["count_rejected"] = count_rejected
+        # Expose the exact supervision consumed above for later caching.
+        if return_target:
+            result["target"] = node_assn
+            result["valid"] = valid_mask
 
         return result
+
+    def _build_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        overlap_cache: ClusterOverlapCache | None,
+    ) -> tuple[TensorBatch, np.ndarray, int]:
+        """Build node-aligned regression supervision from structured truth.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Voxel-level labels containing the configured regression target.
+        clusts : IndexBatch
+            Cluster-to-voxel index whose ordering defines the node axis.
+        overlap_cache : ClusterOverlapCache, optional
+            Precomputed cluster overlaps shared across GrapPA objectives.
+
+        Returns
+        -------
+        TensorBatch
+            Scalar or vector regression labels aligned with graph nodes.
+        np.ndarray
+            Boolean mask requiring every target component to be valid and all
+            configured overlap-quality conditions to pass.
+        int
+            Number of otherwise valid nodes rejected by overlap quality.
+        """
+        node_assn = get_cluster_label_batch(clust_label, clusts, column=self.target)
+
+        # Vector targets are eligible only when every component is available.
+        node_assn_array = node_assn.to_numpy().data
+        base_valid_mask = node_assn_array > -1
+        if base_valid_mask.ndim > 1:
+            base_valid_mask = np.all(base_valid_mask, axis=1)
+        valid_array = base_valid_mask.copy()
+
+        # Reject targets attached to poor truth-instance matches.
+        count_rejected = 0
+        if self.quality_filter.active:
+            classes = None
+            if self.quality_filter.class_dependent:
+                classes = get_cluster_label_batch(
+                    clust_label,
+                    clusts,
+                    column=self.quality_target,
+                ).numpy_tensor()
+            quality_mask = self.quality_filter.node_mask(
+                clust_label,
+                clusts,
+                classes,
+                overlap_cache,
+            )
+            count_rejected = int(np.count_nonzero(base_valid_mask & ~quality_mask))
+            valid_array &= quality_mask
+
+            # Mark rejected targets with the ordinary invalid-label sentinel.
+            node_assn_array = node_assn.numpy_tensor().copy()
+            node_assn_array[~quality_mask] = -1
+            node_assn = TensorBatch(node_assn_array, node_assn.counts)
+
+        return node_assn, valid_array, count_rejected
