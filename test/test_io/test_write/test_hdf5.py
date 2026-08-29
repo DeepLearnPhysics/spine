@@ -29,7 +29,7 @@ from spine.data import (
 )
 from spine.io.collate import CollateAll
 from spine.io.parse import HDF5ClusterLabelParser
-from spine.io.read import HDF5Reader
+from spine.io.read import HDF5Reader, StageHDF5Reader
 from spine.io.write import *
 from spine.io.write.hdf5.common import (
     DataFormat,
@@ -49,6 +49,11 @@ def fixture_hdf5_output(tmp_path):
        Generic pytest fixture used to handle temporary test files
     """
     return os.path.join(tmp_path, "dummy.h5")
+
+
+def stage_product_values(stage, key):
+    """Return the physical values dataset for one staged V2 product."""
+    return stage["products"][key]["values"][:]
 
 
 @pytest.fixture(name="tensor_list")
@@ -790,6 +795,171 @@ def test_stage_hdf5_writer_finalizes_stages_independently(hdf5_output):
         assert len(out_file["stages"]["graph_spice"]["events"]) == 1
 
 
+def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
+    """Stage caches should preserve V2 product metadata and sidecars."""
+    tensor = TensorData(
+        coords=np.asarray([[1, 2, 3]], dtype=np.int32),
+        features=np.asarray([[4.0, 5.0]], dtype=np.float32),
+        meta=Meta(),
+        coordinate_groups={"position": (0, 1, 2)},
+        feature_fields={"value": (0,), "shape": (1,)},
+    )
+    selection = IndexData(np.asarray([1, 3], dtype=np.int64), span=5)
+    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "coordinates": [tensor],
+            "selection": [selection],
+        },
+    )
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([1]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "coordinates": [tensor],
+            "selection": [selection],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(hdf5_output, "r") as in_file:
+        assert in_file["info"].attrs["format"] == "stage_hdf5"
+        assert in_file["info"].attrs["format_version"] == 2
+        stage = in_file["stages"]["deghosting"]
+        assert set(stage) == {"events", "info", "products"}
+        assert stage["events"].dtype == np.dtype(np.int64)
+        assert len(stage["events"]) == 2
+        assert "meta" in stage["products"]["coordinates"]
+        assert "spans" in stage["products"]["selection"]
+
+    reader = StageHDF5Reader("deghosting", hdf5_output)
+    entry = reader.get(0)
+    reader.close()
+
+    restored_tensor = entry["coordinates"]
+    assert isinstance(restored_tensor, TensorData)
+    assert isinstance(restored_tensor.meta, Meta)
+    assert restored_tensor.coordinate_groups == {"position": (0, 1, 2)}
+    np.testing.assert_array_equal(restored_tensor.feature("shape"), [[5.0]])
+    restored_selection = entry["selection"]
+    assert isinstance(restored_selection, IndexData)
+    assert restored_selection.span == 5
+    np.testing.assert_array_equal(restored_selection.features, [1, 3])
+
+
+def test_stage_hdf5_writer_rejects_legacy_cache(tmp_path):
+    """Legacy staged caches should be rebuilt rather than appended in place."""
+    path = tmp_path / "legacy.h5"
+    with h5py.File(path, "w") as out_file:
+        info = out_file.create_group("info")
+        info.attrs["format"] = "stage_hdf5"
+        info.attrs["format_version"] = 1
+        out_file.create_group("stages")
+
+    writer = StageHDF5Writer(str(path))
+    with pytest.raises(ValueError, match="format version 1.*rebuild"):
+        writer.write_stage(
+            "deghosting",
+            {
+                "index": np.asarray([0]),
+                "source_file_name": np.asarray(["source.root"]),
+                "source_file_size": np.asarray([10]),
+                "source_file_mtime_ns": np.asarray([20]),
+                "dummy_data": [np.asarray([[1.0, 2.0]])],
+            },
+        )
+    writer.close()
+
+
+@pytest.mark.parametrize(
+    ("metadata", "message"),
+    [
+        ({}, "missing info group"),
+        (
+            {"format": "hdf5", "format_version": 2},
+            "expected format 'stage_hdf5'",
+        ),
+    ],
+)
+def test_stage_hdf5_writer_rejects_invalid_container(tmp_path, metadata, message):
+    """Existing outputs must identify themselves as staged V2 caches."""
+    path = tmp_path / "invalid.h5"
+    with h5py.File(path, "w") as out_file:
+        if metadata:
+            info = out_file.create_group("info")
+            for key, value in metadata.items():
+                info.attrs[key] = value
+        out_file.create_group("stages")
+
+    writer = StageHDF5Writer(str(path))
+    with pytest.raises(ValueError, match=message):
+        writer._ensure_stage_file(str(path))
+    writer.close()
+
+
+@pytest.mark.parametrize(
+    ("malformation", "message"),
+    [
+        ("events", "missing its V2 event axis"),
+        ("products", "different product schema"),
+        ("metadata", "missing V2 metadata"),
+        ("schema", "different schema"),
+        ("child", "missing child 'meta'"),
+    ],
+)
+def test_stage_hdf5_writer_validates_active_v2_schema(tmp_path, malformation, message):
+    """Appending should diagnose each malformed stage-schema component."""
+    path = tmp_path / "cache.h5"
+    tensor = TensorData(
+        coords=np.asarray([[1, 2, 3]]),
+        features=np.asarray([[4.0]]),
+        meta=Meta(),
+    )
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "coordinates": [tensor],
+        },
+    )
+    state = writer._stage_states["deghosting"]
+    writer.close()
+
+    with h5py.File(path, "a") as out_file:
+        stage = out_file["stages"]["deghosting"]
+        products = stage["products"]
+        if malformation == "events":
+            del stage["events"]
+        elif malformation == "products":
+            products.create_group("unexpected")
+        elif malformation == "metadata":
+            del products["coordinates"].attrs["product_metadata"]
+        elif malformation == "schema":
+            products["coordinates"].attrs["product_metadata"] = yaml.dump(
+                {"product_type": "index"}
+            )
+        else:
+            del products["coordinates"]["meta"]
+
+        with pytest.raises(ValueError, match=message):
+            StageHDF5Writer._validate_stage_schema(
+                stage, str(path), "deghosting", state
+            )
+
+
 def test_stage_hdf5_writer_overwrite_stage_preserves_other_stages(hdf5_output):
     """Rewriting one stage should leave sibling stages untouched."""
     writer = StageHDF5Writer(hdf5_output, overwrite=True)
@@ -831,11 +1001,11 @@ def test_stage_hdf5_writer_overwrite_stage_preserves_other_stages(hdf5_output):
 
     with h5py.File(hdf5_output, "r") as out_file:
         np.testing.assert_array_equal(
-            out_file["stages"]["deghosting"]["dummy_data"][:],
+            stage_product_values(out_file["stages"]["deghosting"], "dummy_data"),
             np.asarray([[1.0, 2.0]]),
         )
         np.testing.assert_array_equal(
-            out_file["stages"]["graph_spice"]["dummy_data"][:],
+            stage_product_values(out_file["stages"]["graph_spice"], "dummy_data"),
             np.asarray([[5.0, 6.0]]),
         )
 
@@ -959,12 +1129,11 @@ def test_stage_hdf5_writer_respects_explicit_keys(tmp_path):
 
     with h5py.File(cache_path, "r") as out_file:
         stage_group = out_file["stages"]["deghosting"]
-        assert "dummy_data" in stage_group
-        assert "extra_tensor" not in stage_group
-        assert "source_file_entry_index" in stage_group
-        events = stage_group["events"]
-        assert "dummy_data" in events.dtype.names
-        assert "extra_tensor" not in events.dtype.names
+        products = stage_group["products"]
+        assert "dummy_data" in products
+        assert "extra_tensor" not in products
+        assert "source_file_entry_index" in products
+        assert stage_group["events"].dtype == np.dtype(np.int64)
 
 
 def test_stage_hdf5_writer_preserves_source_entry_with_explicit_keys(tmp_path):
@@ -992,9 +1161,10 @@ def test_stage_hdf5_writer_preserves_source_entry_with_explicit_keys(tmp_path):
 
     with h5py.File(cache_path, "r") as out_file:
         stage_group = out_file["stages"]["deghosting"]
-        assert "source_file_entry_index" in stage_group
-        assert "source_file_entry_index" in stage_group["events"].dtype.names
-        np.testing.assert_array_equal(stage_group["source_file_entry_index"][:], [7])
+        assert "source_file_entry_index" in stage_group["products"]
+        np.testing.assert_array_equal(
+            stage_product_values(stage_group, "source_file_entry_index"), [7]
+        )
 
 
 def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
@@ -1063,14 +1233,20 @@ def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
         assert out_file["source"].attrs["file_name"] == "source_a.root"
         assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
         np.testing.assert_array_equal(
-            out_file["stages"]["deghosting"]["source_file_entry_index"][:], [5]
+            stage_product_values(
+                out_file["stages"]["deghosting"], "source_file_entry_index"
+            ),
+            [5],
         )
 
     with h5py.File(source_b_cache, "r") as out_file:
         assert out_file["source"].attrs["file_name"] == "source_b.root"
         assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
         np.testing.assert_array_equal(
-            out_file["stages"]["deghosting"]["source_file_entry_index"][:], [6]
+            stage_product_values(
+                out_file["stages"]["deghosting"], "source_file_entry_index"
+            ),
+            [6],
         )
 
 
@@ -1200,7 +1376,7 @@ def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
     """Single-entry normalization and skip-key filtering should both work."""
     path = tmp_path / "cache.h5"
     writer = StageHDF5Writer(str(path), overwrite=True)
-    batch, batch_size = writer._prepare_batch(
+    batch, batch_size, stage_state = writer._prepare_batch(
         {
             "index": np.int64(0),
             "file_index": np.int64(1),
@@ -1209,13 +1385,15 @@ def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
             "source_file_size": 10,
             "source_file_mtime_ns": 20,
             "dummy_data": np.asarray([[1.0, 2.0]]),
-        }
+        },
+        None,
     )
     assert batch_size == 1
     assert isinstance(batch["index"], list)
+    assert stage_state is not None
     state = StageHDF5Writer(str(path), overwrite=True)
     state.skip_keys = ["dummy_data"]
-    stage_state = state._create_stage_state("deghosting", batch)
+    _, _, stage_state = state._prepare_batch(batch, None)
     assert "dummy_data" not in stage_state.keys
     assert "source_file_name" not in stage_state.keys
     state.close()
@@ -1403,11 +1581,13 @@ def test_stage_hdf5_writer_recovers_incomplete_stage_across_sessions(tmp_path):
         stages = out_file["stages"]
         assert len(stages["upstream"]["events"]) == 1
         np.testing.assert_array_equal(
-            stages["upstream"]["dummy_data"][:], np.asarray([[1.0, 2.0]])
+            stage_product_values(stages["upstream"], "dummy_data"),
+            np.asarray([[1.0, 2.0]]),
         )
         assert len(stages["deghosting"]["events"]) == 1
         np.testing.assert_array_equal(
-            stages["deghosting"]["dummy_data"][:], np.asarray([[3.0, 4.0]])
+            stage_product_values(stages["deghosting"], "dummy_data"),
+            np.asarray([[3.0, 4.0]]),
         )
         assert stages["deghosting"]["info"].attrs["complete"]
 
@@ -1445,7 +1625,8 @@ def test_stage_hdf5_writer_configured_overwrite_is_one_time(tmp_path):
         stage = out_file["stages"]["deghosting"]
         assert len(stage["events"]) == 2
         np.testing.assert_array_equal(
-            stage["dummy_data"][:], np.asarray([[3.0, 4.0], [5.0, 6.0]])
+            stage_product_values(stage, "dummy_data"),
+            np.asarray([[3.0, 4.0], [5.0, 6.0]]),
         )
 
 

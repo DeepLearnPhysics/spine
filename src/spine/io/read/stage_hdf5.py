@@ -13,6 +13,7 @@ from yaml.parser import ParserError
 from spine.logging import logger
 
 from .hdf5 import HDF5Reader
+from .hdf5.common import decode_string_attribute, require_group
 
 __all__ = ["StageHDF5Reader"]
 
@@ -80,8 +81,11 @@ class StageHDF5Reader(HDF5Reader):
         self.ignore_incomplete = ignore_incomplete
         self._handle_pid = None
         self._file_handles = {}
+        self.fixed_only = False
+        self._initialize_product_backend()
         self._resolved_products: dict[int, dict[str, str]] = {}
         self._source_info: dict[int, dict[str, object]] = {}
+        self.file_format_versions: list[int] = []
 
         # Build the global event axis and resolve products independently per file
         file_index = []
@@ -89,6 +93,8 @@ class StageHDF5Reader(HDF5Reader):
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         for i, path in enumerate(self.file_paths):
             with h5py.File(path, "r") as in_file:
+                self.validate_stage_file(in_file, path)
+                self.file_format_versions.append(2)
                 self._source_info[i] = self.read_source_info(in_file)
                 product_stage_map = self.resolve_product_stages(in_file, path)
                 self._resolved_products[i] = product_stage_map
@@ -122,6 +128,34 @@ class StageHDF5Reader(HDF5Reader):
         self.skip_unknown_attrs = skip_unknown_attrs
         self.cfg = self.process_cfg()
         self.version = self.process_version()
+
+    @classmethod
+    def validate_stage_file(cls, in_file: h5py.File, path: str) -> None:
+        """Require the internal staged-cache V2 container format.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open staged cache.
+        path : str
+            Cache path included in validation errors.
+        """
+        if "info" not in in_file:
+            raise ValueError(f"Staged cache '{path}' is missing its info group.")
+        info = require_group(in_file, "info")
+        version = int(info.attrs.get("format_version", 1))
+        if version != 2:
+            raise ValueError(
+                f"Staged cache '{path}' uses HDF5 format version {version}; "
+                "rebuild it with version 2."
+            )
+        file_format = decode_string_attribute(info.attrs.get("format"), "format")
+        if file_format != cls.name:
+            raise ValueError(
+                f"Staged cache '{path}' has format '{file_format}', expected "
+                f"'{cls.name}'."
+            )
+        cls.get_stages_group(in_file, path)
 
     @staticmethod
     def get_stages_group(in_file: h5py.File, path: str) -> h5py.Group:
@@ -252,7 +286,8 @@ class StageHDF5Reader(HDF5Reader):
     def list_stage_keys(self, stage_group: h5py.Group) -> tuple[str, ...]:
         """List product keys stored in one stage group.
 
-        This excludes the administrative ``info`` and ``events`` members.
+        Products are exposed from the stage-local V2 ``products`` namespace;
+        private reconstruction children remain nested under their owner.
 
         Parameters
         ----------
@@ -264,7 +299,12 @@ class StageHDF5Reader(HDF5Reader):
         tuple[str, ...]
             Stored logical product names.
         """
-        return tuple(key for key in stage_group.keys() if key not in {"info", "events"})
+        return tuple(self.get_stage_products(stage_group).keys())
+
+    @staticmethod
+    def get_stage_products(stage_group: h5py.Group) -> h5py.Group:
+        """Return the V2 logical-product root for one stage."""
+        return require_group(stage_group, "products")
 
     def resolve_product_stages(self, in_file: h5py.File, path: str) -> dict[str, str]:
         """Resolve each requested product key to one stage.
@@ -328,7 +368,7 @@ class StageHDF5Reader(HDF5Reader):
                 stage_name = self.stage_map[key]
                 stage_group = self.get_stage_group(in_file, path, stage_name)
                 self.check_stage_complete(stage_group, path, stage_name)
-                if key not in stage_group:
+                if key not in self.get_stage_products(stage_group):
                     raise KeyError(
                         f"Requested product '{key}' does not exist in stage "
                         f"'{stage_name}' of '{path}'."
@@ -339,7 +379,7 @@ class StageHDF5Reader(HDF5Reader):
             if self.stage is not None:
                 stage_group = self.get_stage_group(in_file, path, self.stage)
                 self.check_stage_complete(stage_group, path, self.stage)
-                if key not in stage_group:
+                if key not in self.get_stage_products(stage_group):
                     raise KeyError(
                         f"Requested product '{key}' does not exist in stage "
                         f"'{self.stage}' of '{path}'."
@@ -351,7 +391,7 @@ class StageHDF5Reader(HDF5Reader):
             candidates = []
             for stage_name in stage_names:
                 stage_group = self.get_stage_group(in_file, path, stage_name)
-                if key in stage_group:
+                if key in self.get_stage_products(stage_group):
                     self.check_stage_complete(stage_group, path, stage_name)
                     candidates.append(stage_name)
 
@@ -534,20 +574,11 @@ class StageHDF5Reader(HDF5Reader):
                 stage_group = self.get_stage_group(
                     in_file, self.file_paths[file_idx], stage_name
                 )
-                events = stage_group["events"]
-                assert isinstance(
-                    events, h5py.Dataset
-                ), f"Stage '{stage_name}' is missing an 'events' dataset."
-                event = events[entry_idx]
-                names = getattr(getattr(event, "dtype", None), "names", None)
-                if names is None:
-                    raise ValueError(
-                        f"Stage '{stage_name}' event entry does not have named fields."
-                    )
-                for key in names:
-                    if product_stage_map.get(key) != stage_name:
-                        continue
-                    self.load_region_product(stage_group, event, data, key)
+                products = self.get_stage_products(stage_group)
+                for key, resolved_stage in product_stage_map.items():
+                    if resolved_stage == stage_name:
+                        self.load_product(products, entry_idx, data, key)
+                self.reconstruct_products(products, entry_idx, data)
         finally:
             if should_close:
                 in_file.close()

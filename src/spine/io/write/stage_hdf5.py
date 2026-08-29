@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,7 @@ import yaml
 from spine.version import __version__
 
 from .hdf5 import HDF5Writer
+from .hdf5.common import decode_string_attribute, require_group
 
 __all__ = ["StageHDF5Writer"]
 
@@ -48,6 +50,8 @@ class StageHDF5Writer(HDF5Writer):
         keys: set[str]
         type_dict: dict[str, HDF5Writer.DataFormat]
         object_dtypes: list[list[tuple[str, type]]]
+        product_metadata: dict[str, dict[str, Any]]
+        product_children: dict[str, tuple[str, str]]
         event_dtype: np.dtype | list[tuple[str, Any]] | None = None
         entries_since_flush: int = 0
 
@@ -117,11 +121,9 @@ class StageHDF5Writer(HDF5Writer):
 
         Notes
         -----
-        Stage-cache files have a different, multi-stage schema and are not the
-        flat event files targeted by HDF5 format V2. They deliberately retain
-        the legacy V1 product layout. Recording ``format_version=1`` makes that
-        choice explicit for inspection tools without implying that staged
-        caches can be switched to V2 through writer configuration.
+        Stage caches exclusively use the offset-based HDF5 V2 product layout.
+        They are internal, reproducible artifacts, so legacy staged caches must
+        be rebuilt rather than appended or upgraded in place.
         """
         # Configure output routing before any source-derived files are opened
         self._handle_pid: int | None = None
@@ -151,13 +153,15 @@ class StageHDF5Writer(HDF5Writer):
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
         self.overwrite_stage = overwrite_stage
-        # StageHDF5Writer reuses V1 serialization helpers but owns a distinct
-        # container schema. Pin the inherited version attribute explicitly so
-        # future changes to the flat-writer default cannot alter stage caches.
-        self.format_version = self.legacy_format_version
+        # Stage caches deliberately have one physical layout with no legacy
+        # compatibility branch.
+        self.format_version = self.current_format_version
         self.source_info: dict[str, Any] | None = None
 
-        self.keys = set(keys) if keys is not None else None
+        self._configured_keys = set(keys) if keys is not None else None
+        self.keys = (
+            None if self._configured_keys is None else set(self._configured_keys)
+        )
         self.skip_keys = skip_keys
         self.dummy_ds = None
         self.append = True
@@ -165,6 +169,8 @@ class StageHDF5Writer(HDF5Writer):
         self.ready = False
         self.object_dtypes = []
         self.type_dict = None
+        self.product_metadata: dict[str, dict[str, Any]] = {}
+        self.product_children: dict[str, tuple[str, str]] = {}
         self.event_dtype = None
 
         # Track schemas, completion state, and handles independently per file
@@ -276,7 +282,8 @@ class StageHDF5Writer(HDF5Writer):
             return
 
         # Create the physical file lazily because routing depends on provenance
-        mode = "a" if os.path.exists(file_path) else "w"
+        file_exists = os.path.exists(file_path)
+        mode = "a" if file_exists else "w"
         if mode == "w":
             self._ensure_parent_dir(file_path)
 
@@ -288,15 +295,15 @@ class StageHDF5Writer(HDF5Writer):
             out_file = h5py.File(file_path, mode)
 
         try:
-            # Initialize only the administrative roots shared by all stages
-            if "info" not in out_file:
-                out_file.create_group("info")
-            out_file["info"].attrs["version"] = __version__
-            out_file["info"].attrs["spine_version"] = __version__
-            out_file["info"].attrs["format"] = self.name
-            out_file["info"].attrs["format_version"] = self.format_version
-
-            if "stages" not in out_file:
+            if file_exists:
+                self._validate_stage_file(out_file, file_path)
+            else:
+                # Initialize only the administrative roots shared by all stages
+                info = out_file.create_group("info")
+                info.attrs["version"] = __version__
+                info.attrs["spine_version"] = __version__
+                info.attrs["format"] = self.name
+                info.attrs["format_version"] = self.format_version
                 out_file.create_group("stages")
         finally:
             if not self.keep_open:
@@ -304,6 +311,40 @@ class StageHDF5Writer(HDF5Writer):
 
         self._initialized_files.add(file_path)
         self._known_files.add(file_path)
+
+    def _validate_stage_file(self, out_file: h5py.File, file_path: str) -> None:
+        """Require an existing cache file to use the staged V2 layout.
+
+        Staged caches are disposable internal products, so legacy files are
+        rejected with an instruction to rebuild rather than upgraded in place.
+
+        Parameters
+        ----------
+        out_file : h5py.File
+            Existing cache file opened for append.
+        file_path : str
+            Path included in validation errors.
+        """
+        if "info" not in out_file:
+            raise ValueError(
+                f"Cannot append staged cache '{file_path}': missing info group."
+            )
+        info = require_group(out_file, "info")
+        stored_version = int(
+            info.attrs.get("format_version", self.legacy_format_version)
+        )
+        if stored_version != self.current_format_version:
+            raise ValueError(
+                f"Staged cache '{file_path}' uses HDF5 format version "
+                f"{stored_version}; rebuild it with version 2."
+            )
+        stored_format = decode_string_attribute(info.attrs.get("format"), "format")
+        if stored_format != self.name:
+            raise ValueError(
+                f"Cannot append staged cache '{file_path}': expected format "
+                f"'{self.name}', found '{stored_format}'."
+            )
+        require_group(out_file, "stages")
 
     def get_batch_source_info(self, data: dict[str, Any]) -> dict[str, Any]:
         """Extract cache-file source provenance from one normalized batch.
@@ -403,32 +444,74 @@ class StageHDF5Writer(HDF5Writer):
                     f"({cached_value!r} != {value!r})."
                 )
 
-    def _prepare_batch(self, data: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        """Normalize one batch for stage writing.
+    def _prepare_batch(
+        self,
+        data: dict[str, Any],
+        state: StageState | None,
+    ) -> tuple[dict[str, Any], int, StageState]:
+        """Normalize one batch and resolve its stage-local V2 schema.
 
-        This mirrors the flat HDF5 writer behavior by accepting either scalar
-        single-entry payloads or already batched payloads and returning a
-        uniform list-like representation.
+        The inherited V2 preparation backend stores schema metadata on the
+        writer instance. Stage caches project the selected stage into that
+        state temporarily, then restore the driver-facing writer state before
+        returning.
+
+        Parameters
+        ----------
+        data : dict
+            Raw scalar or batched products to prepare.
+        state : StageState, optional
+            Existing schema for this stage, if it has already been written.
+
+        Returns
+        -------
+        tuple
+            Prepared batch, batch size, and resolved stage schema.
         """
-        data = self.with_source_provenance(data)
+        original_ready = self.ready
+        original_keys = self.keys
+        original_metadata = self.product_metadata
+        original_children = self.product_children
+        try:
+            # Start from the configured public projection on every stage. V2
+            # preparation may add private child keys owned by typed products.
+            self.ready = state is not None
+            self.keys = (
+                None if self._configured_keys is None else set(self._configured_keys)
+            )
+            self.product_metadata = (
+                {} if state is None else deepcopy(state.product_metadata)
+            )
+            self.product_children = (
+                {} if state is None else dict(state.product_children)
+            )
 
-        # Normalize single entries to the list-like form used by append_region_entry
-        if np.isscalar(data["index"]):
-            for key in data:
-                data[key] = [data[key]]
-            return data, 1
+            prepared = self.with_source_provenance(data)
+            prepared = self.prepare_products(prepared)
 
-        return data, len(data["index"])
+            # Normalize scalar entries to the list-like batch representation
+            # consumed by the collective product append backend.
+            if np.isscalar(prepared["index"]):
+                for key in prepared:
+                    prepared[key] = [prepared[key]]
+                batch_size = 1
+            else:
+                batch_size = len(prepared["index"])
 
-    def _create_stage_state(
-        self, stage: str, data: dict[str, Any]
-    ) -> StageHDF5Writer.StageState:
+            if state is None:
+                state = self._create_stage_state(prepared)
+            return prepared, batch_size, state
+        finally:
+            self.ready = original_ready
+            self.keys = original_keys
+            self.product_metadata = original_metadata
+            self.product_children = original_children
+
+    def _create_stage_state(self, data: dict[str, Any]) -> StageHDF5Writer.StageState:
         """Infer the schema of one stage from the first written batch.
 
         Parameters
         ----------
-        stage : str
-            Stage name whose schema is being initialized.
         data : dict
             Normalized batch dictionary used as the schema template.
         """
@@ -440,9 +523,12 @@ class StageHDF5Writer(HDF5Writer):
         # Infer and retain one immutable serialization schema per named stage
         type_dict, object_dtypes = self.get_data_formats(data, keys)
         state = self.StageState(
-            keys=keys, type_dict=type_dict, object_dtypes=object_dtypes
+            keys=keys,
+            type_dict=type_dict,
+            object_dtypes=object_dtypes,
+            product_metadata=deepcopy(self.product_metadata),
+            product_children=dict(self.product_children),
         )
-        self._stage_states[stage] = state
         return state
 
     def get_output_path(
@@ -612,7 +698,7 @@ class StageHDF5Writer(HDF5Writer):
                 )
 
         if stage not in stages:
-            # A new stage owns its metadata and a complete V1 product schema
+            # A new stage owns its metadata and complete V2 product schema.
             stage_group = stages.create_group(stage)
             info = stage_group.create_group("info")
             info.attrs["complete"] = False
@@ -624,7 +710,9 @@ class StageHDF5Writer(HDF5Writer):
 
             self.type_dict = state.type_dict
             self.event_dtype = state.event_dtype
-            self.initialize_region_datasets(stage_group, state.type_dict)
+            self.product_metadata = state.product_metadata
+            self.product_children = state.product_children
+            self.initialize_product_datasets(stage_group, state.type_dict)
             state.event_dtype = self.event_dtype
             self._active_stages.add(stage_key)
             return stage_group
@@ -633,6 +721,7 @@ class StageHDF5Writer(HDF5Writer):
         assert isinstance(
             stage_group, h5py.Group
         ), f"Stage '{stage}' is expected to be a group, got {type(stage_group)}."
+        self._validate_stage_schema(stage_group, file_path, stage, state)
 
         # Reopened stages may refresh metadata but remain incomplete until finalized
         if "info" in stage_group and attrs is not None:
@@ -644,6 +733,60 @@ class StageHDF5Writer(HDF5Writer):
         stage_group["info"].attrs["complete"] = False
         self._active_stages.add(stage_key)
         return stage_group
+
+    @staticmethod
+    def _validate_stage_schema(
+        stage_group: h5py.Group,
+        file_path: str,
+        stage: str,
+        state: StageState,
+    ) -> None:
+        """Validate an active stage against its in-memory V2 schema.
+
+        Parameters
+        ----------
+        stage_group : h5py.Group
+            Existing stage group being reopened for append.
+        file_path : str
+            Cache path used in validation errors.
+        stage : str
+            Stage name used in validation errors.
+        state : StageState
+            Expected physical and typed-product schema.
+        """
+        if "events" not in stage_group:
+            raise ValueError(
+                f"Stage '{stage}' in '{file_path}' is missing its V2 event axis."
+            )
+        products = require_group(stage_group, "products")
+        expected_products = set(state.type_dict).difference(state.product_children)
+        if set(products) != expected_products:
+            raise ValueError(
+                f"Stage '{stage}' in '{file_path}' has a different product schema."
+            )
+
+        # Typed products carry reconstruction metadata and private child groups.
+        for key, metadata in state.product_metadata.items():
+            product = require_group(products, key)
+            if "product_metadata" not in product.attrs:
+                raise ValueError(
+                    f"Stage '{stage}' product '{key}' is missing V2 metadata."
+                )
+            encoded = decode_string_attribute(
+                product.attrs["product_metadata"], "product_metadata"
+            )
+            expected_metadata = yaml.safe_load(yaml.safe_dump(metadata))
+            if yaml.safe_load(encoded) != expected_metadata:
+                raise ValueError(
+                    f"Stage '{stage}' product '{key}' has a different schema."
+                )
+
+        for parent, name in state.product_children.values():
+            parent_group = require_group(products, parent)
+            if name not in parent_group:
+                raise ValueError(
+                    f"Stage '{stage}' product '{parent}' is missing child '{name}'."
+                )
 
     def write_stage(
         self,
@@ -675,18 +818,26 @@ class StageHDF5Writer(HDF5Writer):
         is partitioned by source provenance and written into one cache file per
         source file automatically.
         """
-        # Normalize once and establish the stage schema from its first batch
-        normalized, _ = self._prepare_batch(data)
+        # Normalize once and establish the stage schema from its first batch.
         state = self._stage_states.get(stage)
-        if state is None:
-            state = self._create_stage_state(stage, normalized)
+        normalized, _, state = self._prepare_batch(data, state)
+        self._stage_states[stage] = state
 
         # Temporarily project the inherited flat writer onto this stage schema
         original_keys = self.keys
         original_type_dict = self.type_dict
         original_object_dtypes = self.object_dtypes
+        original_product_metadata = self.product_metadata
+        original_product_children = self.product_children
         original_event_dtype = self.event_dtype
         try:
+            self.keys = state.keys
+            self.type_dict = state.type_dict
+            self.object_dtypes = state.object_dtypes
+            self.product_metadata = state.product_metadata
+            self.product_children = state.product_children
+            self.event_dtype = state.event_dtype
+
             for file_path, subset, _ in self.split_batch_by_source(normalized):
                 out_file, should_close = self._open_handle(file_path)
                 try:
@@ -701,14 +852,10 @@ class StageHDF5Writer(HDF5Writer):
                         overwrite_stage=overwrite_stage,
                     )
 
-                    self.keys = state.keys
-                    self.type_dict = state.type_dict
-                    self.object_dtypes = state.object_dtypes
-                    self.event_dtype = state.event_dtype
-
-                    # Append only the events routed to this physical cache file
-                    for batch_id in range(len(subset["index"])):
-                        self.append_region_entry(stage_group, subset, batch_id)
+                    # Append the routed events collectively through the V2
+                    # offset backend to minimize resize and write operations.
+                    batch_ids = np.arange(len(subset["index"]), dtype=np.int64)
+                    self.append_product_entries(stage_group, subset, batch_ids)
 
                     state.event_dtype = self.event_dtype
                     if self.flush_frequency is not None:
@@ -724,6 +871,8 @@ class StageHDF5Writer(HDF5Writer):
             self.keys = original_keys
             self.type_dict = original_type_dict
             self.object_dtypes = original_object_dtypes
+            self.product_metadata = original_product_metadata
+            self.product_children = original_product_children
             self.event_dtype = original_event_dtype
 
     def finalize_stage(self, stage: str) -> None:

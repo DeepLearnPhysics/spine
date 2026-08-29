@@ -29,6 +29,24 @@ def _read_hdf5_entry(path, queue):
     reader.close()
 
 
+def _write_stage_cache(path, cfg=None):
+    """Write one valid staged V2 cache for reader-focused tests."""
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray(["source.root"]),
+            "source_file_size": np.asarray([10]),
+            "source_file_mtime_ns": np.asarray([20]),
+            "dummy_data": [np.asarray([[1.0, 2.0]])],
+        },
+        cfg=cfg,
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+
 @pytest.mark.parametrize("payload", [1, "value: invalid", "[valid, 2]"])
 def test_hdf5_reader_rejects_malformed_post_provenance(tmp_path, payload):
     """Post-processing provenance must be encoded as a string list."""
@@ -944,6 +962,43 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     reader.close()
 
 
+def test_stage_hdf5_reader_rejects_legacy_cache(tmp_path):
+    """Legacy staged caches should fail with a clear rebuild instruction."""
+    path = tmp_path / "legacy.h5"
+    with h5py.File(path, "w") as out_file:
+        info = out_file.create_group("info")
+        info.attrs["format"] = "stage_hdf5"
+        info.attrs["format_version"] = 1
+        out_file.create_group("stages")
+
+    with pytest.raises(ValueError, match="format version 1.*rebuild"):
+        StageHDF5Reader("deghosting", str(path))
+
+
+@pytest.mark.parametrize(
+    ("metadata", "message"),
+    [
+        ({}, "missing its info group"),
+        (
+            {"format": "hdf5", "format_version": 2},
+            "format 'hdf5'.*expected 'stage_hdf5'",
+        ),
+    ],
+)
+def test_stage_hdf5_reader_rejects_invalid_container(tmp_path, metadata, message):
+    """Readers must reject containers that are not staged V2 caches."""
+    path = tmp_path / "invalid.h5"
+    with h5py.File(path, "w") as out_file:
+        if metadata:
+            info = out_file.create_group("info")
+            for key, value in metadata.items():
+                info.attrs[key] = value
+        out_file.create_group("stages")
+
+    with pytest.raises(ValueError, match=message):
+        StageHDF5Reader("deghosting", str(path))
+
+
 def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
     """Older/minimal stage caches should expose source entry metadata."""
     path = tmp_path / "stage_cache.h5"
@@ -1334,17 +1389,11 @@ def test_stage_hdf5_reader_validate_stage_lengths_edges():
 def test_stage_hdf5_reader_process_cfg_rejects_invalid_payload(tmp_path, cfg, message):
     """Malformed stage configuration payloads should fail explicitly."""
     path = tmp_path / "stage_cache.h5"
-    with h5py.File(path, "w") as out_file:
-        out_file.create_group("info").attrs["version"] = "test"
-        stages = out_file.create_group("stages")
-        stage = stages.create_group("deghosting")
-        info = stage.create_group("info")
-        info.attrs["complete"] = True
-        info.attrs["cfg"] = cfg
-        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
-        ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
-        events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
-        events[0] = (stage["dummy_data"].regionref[:],)
+    _write_stage_cache(path, cfg={})
+    with h5py.File(path, "a") as out_file:
+        attrs = out_file["stages"]["deghosting"]["info"].attrs
+        del attrs["cfg"]
+        attrs["cfg"] = cfg
 
     with pytest.raises(TypeError, match=message):
         StageHDF5Reader("deghosting", str(path), build_classes=False)
@@ -1353,17 +1402,7 @@ def test_stage_hdf5_reader_process_cfg_rejects_invalid_payload(tmp_path, cfg, me
 def test_stage_hdf5_reader_process_cfg_parser_error_returns_none(monkeypatch, tmp_path):
     """Malformed stage cfg payloads should warn and produce None."""
     path = tmp_path / "stage_cache.h5"
-    with h5py.File(path, "w") as out_file:
-        out_file.create_group("info").attrs["version"] = "test"
-        stages = out_file.create_group("stages")
-        stage = stages.create_group("deghosting")
-        info = stage.create_group("info")
-        info.attrs["complete"] = True
-        info.attrs["cfg"] = "{}"
-        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
-        ref_dtype = np.dtype([("dummy_data", h5py.regionref_dtype)])
-        events = stage.create_dataset("events", shape=(1,), dtype=ref_dtype)
-        events[0] = (stage["dummy_data"].regionref[:],)
+    _write_stage_cache(path, cfg={})
 
     reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
     assert reader.cfg == {}
@@ -1380,22 +1419,20 @@ def test_stage_hdf5_reader_process_cfg_parser_error_returns_none(monkeypatch, tm
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_bad_index_and_unnamed_events(tmp_path):
-    """Stage reader should reject out-of-range entries and malformed events."""
+def test_stage_hdf5_reader_rejects_bad_index_and_incomplete_product(tmp_path):
+    """Stage reader should reject out-of-range entries and malformed products."""
     path = tmp_path / "stage_cache.h5"
-    with h5py.File(path, "w") as out_file:
-        out_file.create_group("info").attrs["version"] = "test"
-        stages = out_file.create_group("stages")
-        stage = stages.create_group("deghosting")
-        info = stage.create_group("info")
-        info.attrs["complete"] = True
-        stage.create_dataset("dummy_data", data=np.asarray([[1.0, 2.0]]))
-        stage.create_dataset("events", data=np.asarray([0], dtype=np.int64))
+    _write_stage_cache(path)
 
     reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
     with pytest.raises(IndexError, match="out of bounds"):
         reader.get(1)
-    with pytest.raises(ValueError, match="does not have named fields"):
+    reader.close()
+
+    with h5py.File(path, "a") as out_file:
+        del out_file["stages"]["deghosting"]["products"]["dummy_data"]["event_offsets"]
+    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    with pytest.raises(KeyError, match="event_offsets"):
         reader.get(0)
     reader.close()
 
