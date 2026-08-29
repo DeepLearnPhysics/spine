@@ -24,7 +24,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
             "base": {},
             "train": {},
             "io": {"reader": {"file_list": "stale.txt"}, "writer": {}},
-            "model": {},
+            "model": {"modules": {"uresnet_ppn": {}}},
         }
 
     monkeypatch.setattr(cli_module, "load_config_file", load_config)
@@ -57,6 +57,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
         weight_path="weights.ckpt",
         weight_list="weights.txt",
         config_overrides=["io.batch_size=8"],
+        module_weight=["uresnet_ppn=uresnet.ckpt"],
     )
 
     cfg = captured["cfg"]
@@ -76,6 +77,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["io"]["writer"]["suffix"] == "processed"
     assert cfg["model"]["weight_path"] == "weights.ckpt"
     assert cfg["model"]["weight_list"] == "weights.txt"
+    assert cfg["model"]["modules"]["uresnet_ppn"]["weight_path"] == "uresnet.ckpt"
     assert cfg["override"] == ("io.batch_size", 8)
     output = capsys.readouterr().out
     assert "██████████" in output
@@ -127,6 +129,38 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["base"]["parent_path"] == str(tmp_path)
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_keys"] is None
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
+
+
+def test_main_requires_model_for_module_weights(monkeypatch, tmp_path):
+    """Module checkpoint overrides should require a model configuration."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {"io": {"reader": {}}},
+    )
+
+    with pytest.raises(KeyError, match="requires a `model` block"):
+        cli_module.main(
+            config=str(config_path),
+            source=None,
+            source_list=None,
+            output=None,
+            output_dir=None,
+            output_suffix=None,
+            n=None,
+            nskip=None,
+            entry_list=None,
+            skip_entry_list=None,
+            log_dir=None,
+            weight_prefix=None,
+            weight_path=None,
+            weight_list=None,
+            config_overrides=None,
+            module_weight=["uresnet_ppn=uresnet.ckpt"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -896,6 +930,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 weight_prefix="weights",
                 weight_path="weights.ckpt",
                 weight_list="weights.txt",
+                module_weight=["uresnet_ppn=uresnet.ckpt"],
                 config_overrides=["a=1"],
                 resume=None,
                 inference=False,
@@ -947,6 +982,7 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["n"] == 2
     assert main_calls[0]["tensorboard"] is True
     assert main_calls[0]["tensorboard_dir"] == "tb"
+    assert main_calls[0]["module_weight"] == ["uresnet_ppn=uresnet.ckpt"]
     assert main_calls[0]["output_dir"] == "outputs"
     assert main_calls[0]["output_suffix"] == "processed"
 
@@ -974,3 +1010,33 @@ def test_cli_parses_mixed_source_and_source_list(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["source"] == ["hdf5=/cache/*.h5"]
     assert calls[0]["source_list"] == ["larcv=raw_files.txt"]
+
+
+def test_cli_parses_module_weights(monkeypatch):
+    """Module checkpoints may coexist with a global checkpoint."""
+    calls = []
+    monkeypatch.setattr(cli_module, "main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(
+        cli_module.sys,
+        "argv",
+        [
+            "spine",
+            "-c",
+            "config.yaml",
+            "--weight-path",
+            "full-chain.ckpt",
+            "--module-weight",
+            "uresnet_ppn=uresnet.ckpt",
+            "--module-weight",
+            "graph_spice=spice.ckpt",
+        ],
+    )
+
+    cli_module.cli()
+
+    assert len(calls) == 1
+    assert calls[0]["weight_path"] == "full-chain.ckpt"
+    assert calls[0]["module_weight"] == [
+        "uresnet_ppn=uresnet.ckpt",
+        "graph_spice=spice.ckpt",
+    ]

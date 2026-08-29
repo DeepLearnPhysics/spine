@@ -11,6 +11,7 @@ from warnings import warn
 from spine.banner import format_banner
 from spine.bin.info import get_version, show_info
 from spine.bin.source import apply_source_overrides, get_input_config
+from spine.bin.weight import apply_module_weight_overrides
 from spine.config import load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
 from spine.config.operations import parse_value, set_nested_value
@@ -32,6 +33,7 @@ def main(
     weight_path: str | None,
     weight_list: str | None,
     config_overrides: list[str] | None,
+    module_weight: list[str] | None = None,
     val_source: list[str] | None = None,
     val_source_list: str | None = None,
     world_size: int | None = None,
@@ -87,6 +89,8 @@ def main(
         the model weights
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
+    module_weight : list[str], optional
+        Module checkpoint overrides in the form ``MODULE=PATH``
     val_source : list[str], optional
         List of paths to validation input files
     val_source_list : str, optional
@@ -269,6 +273,12 @@ def main(
     if weight_list is not None:
         cfg["model"]["weight_list"] = weight_list
 
+    # Module checkpoints are independent of the optional global checkpoint.
+    if module_weight:
+        if "model" not in cfg:
+            raise KeyError("--module-weight requires a `model` block.")
+        apply_module_weight_overrides(cfg["model"], module_weight)
+
     # Apply an explicit resume override to either supported train location.
     if resume is not None:
         train_cfg = cfg.get("train", cfg["base"].get("train"))
@@ -338,6 +348,9 @@ def cli() -> None:
               spine -c config.yaml \\
                 --source larcv=raw.root hdf5=cache.h5
                   Override the sources of a composite dataset.
+              spine -c config.yaml --weight-path full-chain.ckpt \\
+                --module-weight uresnet_ppn=uresnet.ckpt
+                  Override one module after loading a global checkpoint.
               spine --help
                   Show this help message.
 
@@ -487,6 +500,14 @@ def cli() -> None:
         "--weight-list",
         help="Path to a text file containing a list of weight file paths",
     )
+    parser.add_argument(
+        "--module-weight",
+        action="extend",
+        nargs="+",
+        metavar="MODULE=PATH",
+        help="Checkpoint for a configured model module; accepts one or more "
+        "MODULE=PATH assignments",
+    )
 
     parser.add_argument(
         "--resume",
@@ -546,6 +567,7 @@ def cli() -> None:
         weight_path=args.weight_path,
         weight_list=args.weight_list,
         config_overrides=args.config_overrides,
+        module_weight=args.module_weight,
         val_source=args.val_source,
         val_source_list=args.val_source_list,
         world_size=args.world_size,
