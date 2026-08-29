@@ -57,6 +57,7 @@ class NodeVertexLoss(torch.nn.Module):
 
     # Name of the loss (as specified in the configuration)
     name = "vertex"
+    cacheable_targets = False
 
     def __init__(
         self,

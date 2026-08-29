@@ -138,15 +138,25 @@ def test_node_regression_loss_masks_invalid_targets(graph_labels, graph_clusters
         graph_clusters.counts,
     )
 
-    result = NodeRegressionLoss(target="energy")(
+    loss_fn = NodeRegressionLoss(target="energy")
+    result = loss_fn(
         graph_labels,
         graph_clusters,
         prediction,
+        return_target=True,
     )
 
     assert result["count"] == 2
     torch.testing.assert_close(result["loss"], torch.tensor(2.5))
     assert result["accuracy"] == pytest.approx(0.5)
+    cached = loss_fn(
+        None,
+        graph_clusters,
+        prediction,
+        labels=result["target"],
+        valid_mask=result["valid"],
+    )
+    torch.testing.assert_close(cached["loss"], result["loss"])
 
     incompatible = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
     with pytest.raises(ValueError, match="incompatible numbers"):
@@ -185,6 +195,128 @@ def test_node_regression_loss_handles_no_valid_targets(graph_labels, graph_clust
     assert result["count"] == 0
     assert result["accuracy"] == 1.0
     torch.testing.assert_close(result["loss"], torch.tensor(0.0))
+
+
+def test_cached_node_target_validation(graph_clusters):
+    """Cached target pairs must be typed, aligned and one-dimensionally masked."""
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    labels = TensorBatch(np.zeros(3, dtype=np.int64), graph_clusters.counts)
+    valid = TensorBatch(np.ones(3, dtype=bool), graph_clusters.counts)
+    loss_fn = NodeClassLoss(target="pid")
+
+    with pytest.raises(ValueError, match="provided together"):
+        loss_fn(None, graph_clusters, prediction, labels=labels)
+    with pytest.raises(TypeError, match="must be TensorBatch"):
+        loss_fn(
+            None,
+            graph_clusters,
+            prediction,
+            labels=np.zeros(3),
+            valid_mask=valid,
+        )
+    with pytest.raises(ValueError, match="labels must align"):
+        loss_fn(
+            None,
+            graph_clusters,
+            prediction,
+            labels=TensorBatch(np.zeros(3), counts=[3]),
+            valid_mask=valid,
+        )
+    with pytest.raises(ValueError, match="validity mask must align"):
+        loss_fn(
+            None,
+            graph_clusters,
+            prediction,
+            labels=labels,
+            valid_mask=TensorBatch(np.ones(3), counts=[3]),
+        )
+    with pytest.raises(ValueError, match="one-dimensional"):
+        loss_fn(
+            None,
+            graph_clusters,
+            prediction,
+            labels=labels,
+            valid_mask=TensorBatch(np.ones((3, 1)), graph_clusters.counts),
+        )
+    with pytest.raises(ValueError, match="structured cluster labels"):
+        loss_fn(None, graph_clusters, prediction)
+
+    result = loss_fn(
+        None,
+        graph_clusters,
+        prediction,
+        labels=labels,
+        valid_mask=valid,
+        return_target=True,
+    )
+    assert result["count"] == 3
+    assert result["target"] is labels
+    assert result["valid"] is valid
+
+
+def test_other_cached_target_pairs_validate_required_inputs(graph_clusters):
+    """Every cacheable node and edge objective should enforce the same pair."""
+    node_pred = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    node_labels = TensorBatch(np.zeros(3), graph_clusters.counts)
+    edge_index = EdgeIndexBatch(
+        np.array([[0], [1]], dtype=np.int64),
+        counts=[1, 0],
+        spans=graph_clusters.counts,
+        directed=True,
+    )
+    edge_pred = TensorBatch(torch.zeros((1, 2)), counts=[1, 0])
+    edge_labels = TensorBatch(np.zeros(1), counts=[1, 0])
+
+    with pytest.raises(ValueError, match="provided together"):
+        NodeRegressionLoss(target="energy")(
+            None, graph_clusters, node_pred, labels=node_labels
+        )
+    with pytest.raises(ValueError, match="structured cluster labels"):
+        NodeRegressionLoss(target="energy")(None, graph_clusters, node_pred)
+
+    with pytest.raises(ValueError, match="provided together"):
+        NodeShowerPrimaryLoss()(None, graph_clusters, node_pred, labels=node_labels)
+    with pytest.raises(ValueError, match="structured cluster labels"):
+        NodeShowerPrimaryLoss()(None, graph_clusters, node_pred)
+
+    with pytest.raises(ValueError, match="provided together"):
+        NodeOrientLoss()(
+            None,
+            None,
+            graph_clusters,
+            node_pred,
+            None,
+            None,
+            labels=node_labels,
+        )
+    with pytest.raises(ValueError, match="endpoint inputs"):
+        NodeOrientLoss()(None, None, graph_clusters, node_pred, None, None)
+
+    edge_loss = EdgeChannelLoss(target="group")
+    with pytest.raises(ValueError, match="provided together"):
+        edge_loss(
+            None,
+            graph_clusters,
+            edge_index,
+            edge_pred,
+            labels=edge_labels,
+        )
+    with pytest.raises(ValueError, match="structured cluster labels"):
+        edge_loss(None, graph_clusters, edge_index, edge_pred)
+
+    edge_valid = TensorBatch(np.ones(1, dtype=bool), counts=[1, 0])
+    result = edge_loss(
+        None,
+        graph_clusters,
+        edge_index,
+        edge_pred,
+        labels=edge_labels,
+        valid_mask=edge_valid,
+        return_target=True,
+    )
+    assert result["count"] == 1
+    assert result["target"] is edge_labels
+    assert result["valid"] is edge_valid
 
 
 def test_node_losses_filter_low_quality_clusters(graph_labels):
@@ -595,6 +727,33 @@ def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
     assert result["accuracy"] == 1.0
 
 
+def test_shower_primary_reuses_cached_target(graph_labels, graph_clusters):
+    """Shower-primary loss should consume its exact emitted supervision."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 0, 1],
+        group_primary=[1, 0, 1],
+    )
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    loss_fn = NodeShowerPrimaryLoss()
+    live = loss_fn(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        return_target=True,
+    )
+    cached = loss_fn(
+        None,
+        graph_clusters,
+        prediction,
+        labels=live["target"],
+        valid_mask=live["valid"],
+    )
+
+    torch.testing.assert_close(cached["loss"], live["loss"])
+    assert cached["count"] == live["count"]
+
+
 def test_shower_primary_truth_group_purity(
     graph_labels,
     graph_clusters,
@@ -661,18 +820,33 @@ def test_node_orientation_filters_low_quality_tracks(graph_labels):
         ),
     )
 
-    result = NodeOrientLoss(min_purity=[0.75, 0.75])(
+    loss_fn = NodeOrientLoss(min_purity=[0.75, 0.75])
+    result = loss_fn(
         graph_labels,
         coord_label,
         objects,
         prediction,
         starts,
         ends,
+        return_target=True,
     )
 
     assert result["count"] == 1
     assert result["count_rejected"] == 2
     assert result["accuracy"] == 1.0
+
+    cached = loss_fn(
+        None,
+        None,
+        objects,
+        prediction,
+        None,
+        None,
+        labels=result["target"],
+        valid_mask=result["valid"],
+    )
+    torch.testing.assert_close(cached["loss"], result["loss"])
+    assert cached["count"] == result["count"]
 
 
 def test_vertex_loss_checks_containment_per_event(
