@@ -583,6 +583,7 @@ def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
     """Internal sparse PPN products retain their independently pruned rows."""
 
     class Model:
+        predicts_ppn = True
         predicts_vertex = True
 
         def __call__(self, _data: TensorBatch) -> dict[str, Any]:
@@ -609,10 +610,144 @@ def test_segmentation_deghosts_only_row_aligned_ppn_outputs() -> None:
     state = ChainState(data=make_data(3))
     result = stage(state)
     assert result.outputs["ppn_points"].counts.tolist() == [2]
+    assert result.products["ppn_points"] is result.outputs["ppn_points"]
     assert result.outputs["vertex_points"].counts.tolist() == [2]
     assert result.outputs["ppn_coords"][0].counts.tolist() == [1]
     assert result.products["vertex_proposals"].counts.tolist() == [2]
+    assert "ppn_points" in stage.provides
     assert "vertex_proposals" in stage.provides
+
+
+def test_particle_grappa_consumes_live_canonical_ppn_points() -> None:
+    """A segmentation stage should publish PPN points for a later GrapPA stage."""
+    ppn_points = TensorBatch(torch.zeros((2, 10)), [2])
+    clusts, shapes = make_clusters()
+    seen = {}
+
+    class SegmentationModel:
+        predicts_ppn = True
+        predicts_vertex = False
+
+        def __call__(self, data):
+            return {
+                "segmentation": TensorBatch(
+                    torch.zeros((data.shape[0], 5)), data.counts
+                ),
+                "ppn_points": ppn_points,
+            }
+
+    class Operations:
+        def run_grappa(
+            self,
+            _model,
+            _data,
+            input_clusts,
+            input_shapes,
+            _accepted_shapes,
+            **kwargs,
+        ):
+            seen["ppn_points"] = kwargs["ppn_points"]
+            return input_clusts, input_shapes, input_clusts, None, {}
+
+    segmentation = SegmentationStage(
+        "segmentation",
+        "uresnet",
+        SegmentationModel(),  # type: ignore[arg-type]
+        ClusterLabelAdapter(),
+    )
+    aggregation = ParticleAggregationStage(
+        "aggregation",
+        {"shower": None, "track": None, "particle": "grappa"},
+        {"particle": object()},  # type: ignore[dict-item]
+        Operations(),  # type: ignore[arg-type]
+    )
+    register_provider(
+        ProviderSpec(
+            "test_live_ppn_segmentation",
+            lambda _name, _config, _owner: segmentation,
+        )
+    )
+    register_provider(
+        ProviderSpec(
+            "test_live_ppn_aggregation",
+            lambda _name, _config, _owner: aggregation,
+        )
+    )
+    chain = FullChain(
+        chain={
+            "inputs": ["fragment_clusts", "fragment_shapes"],
+            "stages": [
+                {
+                    "name": "segmentation",
+                    "provider": "test_live_ppn_segmentation",
+                },
+                {
+                    "name": "aggregation",
+                    "provider": "test_live_ppn_aggregation",
+                },
+            ],
+        }
+    )
+
+    chain(data=make_data(), fragment_clusts=clusts, fragment_shapes=shapes)
+
+    assert seen["ppn_points"] is ppn_points
+    assert "ppn_points" in segmentation.provides
+    assert "ppn_points" in aggregation.optional
+
+
+def test_particle_grappa_consumes_cached_chain_input_ppn_points() -> None:
+    """A chain beginning from cached products should route PPN points identically."""
+    ppn_points = TensorBatch(torch.zeros((2, 10)), [2])
+    clusts, shapes = make_clusters()
+    seen = {}
+
+    class Operations:
+        def run_grappa(
+            self,
+            _model,
+            _data,
+            input_clusts,
+            input_shapes,
+            _accepted_shapes,
+            **kwargs,
+        ):
+            seen["ppn_points"] = kwargs["ppn_points"]
+            return input_clusts, input_shapes, input_clusts, None, {}
+
+    aggregation = ParticleAggregationStage(
+        "aggregation",
+        {"shower": None, "track": None, "particle": "grappa"},
+        {"particle": object()},  # type: ignore[dict-item]
+        Operations(),  # type: ignore[arg-type]
+    )
+    register_provider(
+        ProviderSpec(
+            "test_cached_ppn_aggregation",
+            lambda _name, _config, _owner: aggregation,
+        )
+    )
+    chain = FullChain(
+        chain={
+            "inputs": ["fragment_clusts", "fragment_shapes", "ppn_points"],
+            "stages": [
+                {
+                    "name": "aggregation",
+                    "provider": "test_cached_ppn_aggregation",
+                }
+            ],
+        }
+    )
+
+    chain(
+        data=make_data(),
+        fragment_clusts=clusts,
+        fragment_shapes=shapes,
+        ppn_points=ppn_points,
+    )
+
+    assert seen["ppn_points"] is ppn_points
+    assert "ppn_points" in aggregation.optional
 
 
 def test_segmentation_loss_aligns_cached_deghosted_rows() -> None:
@@ -1111,7 +1246,6 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     coord_label = TensorBatch(torch.zeros((2, 6)), [2])
     result = operations.prepare_grappa_input(
         SimpleNamespace(node_encoder=encoder),
-        {},
         data,
         clusts,
         shapes,
@@ -1125,7 +1259,6 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     with pytest.raises(ValueError, match="require `primaries`"):
         operations.prepare_grappa_input(
             SimpleNamespace(node_encoder=encoder),
-            {},
             data,
             clusts,
             shapes,
@@ -1134,20 +1267,20 @@ def test_aggregation_input_preparation_covers_optional_features() -> None:
     with pytest.raises(ValueError, match="require `ppn_points`"):
         operations.prepare_grappa_input(
             SimpleNamespace(node_encoder=encoder),
-            {},
             data,
             clusts,
             shapes,
         )
 
     expected_points = TensorBatch(torch.zeros((2, 6)), [2])
+    ppn_points = TensorBatch(torch.zeros((1, 10)), [1])
     operations.point_predictor = lambda *_args: expected_points
     result = operations.prepare_grappa_input(
         SimpleNamespace(node_encoder=encoder),
-        {"ppn_points": object()},
         data,
         clusts,
         shapes,
+        ppn_points=ppn_points,
     )
     assert result["points"] is expected_points
 
@@ -1169,7 +1302,6 @@ def test_aggregation_input_derives_truth_points(monkeypatch) -> None:
     )
     result = operations.prepare_grappa_input(
         SimpleNamespace(node_encoder=encoder),
-        {},
         make_data(),
         clusts,
         shapes,
@@ -1192,7 +1324,6 @@ def test_grappa_execution_requires_logits_for_primary_grouping() -> None:
     with pytest.raises(ValueError, match="requires `node_pred`"):
         operations.run_grappa(
             Model(),
-            {},
             make_data(),
             clusts,
             shapes,
@@ -1310,11 +1441,13 @@ def test_interaction_aggregation_modes_and_task_ownership() -> None:
 
     data = make_data()
     clusts, shapes = make_clusters()
+    ppn_points = TensorBatch(torch.zeros((2, 10)), [2])
     state = ChainState(
         data=data,
         particle_clusts=clusts,
         particle_shapes=shapes,
         particle_primaries=clusts,
+        ppn_points=ppn_points,
     )
     label_stage = InteractionAggregationStage(
         "inter", "label", None, AggregationOperations()
@@ -1342,6 +1475,7 @@ def test_interaction_aggregation_modes_and_task_ownership() -> None:
 
     class Operations:
         def run_grappa(self, *args, **kwargs):
+            assert kwargs["ppn_points"] is ppn_points
             native = {
                 "clusts": clusts,
                 "node_type_pred": TensorBatch(torch.zeros((2, 2)), [2]),
@@ -1361,6 +1495,7 @@ def test_interaction_aggregation_modes_and_task_ownership() -> None:
     assert "particle_node_type_pred" not in result.outputs
     assert "particle_node_primary_pred" in result.outputs
     assert "particle_edge_pred" in result.outputs
+    assert "ppn_points" in stage.optional
 
 
 def test_interaction_aggregation_promotes_vertex_products() -> None:

@@ -27,7 +27,7 @@ class ParticleAggregationStage(ChainStage):
     """
 
     requires = frozenset({"point_data", "fragment_clusts", "fragment_shapes"})
-    optional = frozenset({"clust_label", "coord_label"})
+    optional = frozenset({"clust_label", "coord_label", "ppn_points"})
     provides = frozenset({"particle_clusts", "particle_shapes", "particle_primaries"})
 
     def __init__(
@@ -122,13 +122,13 @@ class ParticleAggregationStage(ChainStage):
             model = self.models[path]
             return self.operations.run_grappa(
                 model,
-                state.outputs,
                 state.require("point_data", self.name).data,
                 fragments,
                 fragment_shapes,
                 accepted_shapes,
                 clust_label=state.get("clust_label"),
                 coord_label=state.get("coord_label"),
+                ppn_points=state.get("ppn_points"),
                 aggregate_shapes=True,
                 shape_use_primary=use_primary,
                 retain_primaries=use_primary,
@@ -274,7 +274,7 @@ class InteractionAggregationStage(ChainStage):
     requires = frozenset(
         {"point_data", "particle_clusts", "particle_shapes", "particle_primaries"}
     )
-    optional = frozenset({"clust_label", "coord_label"})
+    optional = frozenset({"clust_label", "coord_label", "ppn_points"})
     provides = frozenset({"interaction_clusts"})
 
     def __init__(
@@ -353,14 +353,14 @@ class InteractionAggregationStage(ChainStage):
                 raise RuntimeError("Interaction GrapPA was not initialized.")
             interactions, _, _, _, native = self.operations.run_grappa(
                 self.model,
-                state.outputs,
                 state.require("point_data", self.name).data,
                 particles,
                 shapes,
                 self.model.node_type,
-                primaries,
-                state.get("clust_label"),
-                state.get("coord_label"),
+                primaries=primaries,
+                clust_label=state.get("clust_label"),
+                coord_label=state.get("coord_label"),
+                ppn_points=state.get("ppn_points"),
                 point_use_primary=True,
             )
             # Do not republish clusters or node heads owned by another stage.

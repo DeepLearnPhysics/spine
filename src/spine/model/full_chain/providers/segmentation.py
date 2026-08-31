@@ -55,6 +55,8 @@ class SegmentationStage(ChainStage):
         self.mode = mode
         self.model = model
         self.label_adapter = label_adapter
+        if bool(getattr(model, "predicts_ppn", False)):
+            self.provides = self.provides | {"ppn_points"}
         if bool(getattr(model, "predicts_vertex", False)):
             self.provides = self.provides | {"vertex_proposals"}
 
@@ -118,6 +120,8 @@ class SegmentationStage(ChainStage):
                 data = adapted_data
 
             outputs.update(model_result)
+            if "ppn_points" in model_result:
+                products["ppn_points"] = model_result["ppn_points"]
             if "vertex_points" in model_result:
                 products["vertex_proposals"] = model_result["vertex_points"]
             segmentation = model_result["segmentation"]

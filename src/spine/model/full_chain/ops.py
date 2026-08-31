@@ -89,13 +89,13 @@ class AggregationOperations:
     def prepare_grappa_input(
         self,
         model: GrapPA,
-        state_outputs: dict[str, Any],
         data: TensorBatch,
         clusts: IndexBatch,
         shapes: TensorBatch,
         primaries: IndexBatch | None = None,
         clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
+        ppn_points: TensorBatch | None = None,
         point_use_primaries: bool = False,
     ) -> dict[str, TensorBatch | IndexBatch]:
         """Build explicit supplemental inputs required by GrapPA.
@@ -104,9 +104,6 @@ class AggregationOperations:
         ----------
         model : GrapPA
             Native GrapPA model whose node encoder defines required features.
-        state_outputs : dict
-            Public outputs from preceding stages, including optional PPN
-            predictions.
         data : TensorBatch
             Canonical sparse voxel data.
         clusts : IndexBatch
@@ -120,6 +117,8 @@ class AggregationOperations:
             unavailable.
         coord_label : TensorBatch, optional
             Particle start and end point truth.
+        ppn_points : TensorBatch, optional
+            Canonical point proposals produced live or supplied from cache.
         point_use_primaries : bool, default False
             Associate point features with primary fragments rather than full
             node clusters.
@@ -151,12 +150,12 @@ class AggregationOperations:
                     raise ValueError("Primary-based points require `primaries`.")
                 reference = primaries
 
-            if "ppn_points" in state_outputs:
+            if ppn_points is not None:
                 result["points"] = self.point_predictor(
                     data,
                     reference,
                     shapes,
-                    state_outputs["ppn_points"],
+                    ppn_points,
                 )
             else:
                 if coord_label is None or clust_label is None:
@@ -337,7 +336,6 @@ class AggregationOperations:
     def run_grappa(
         self,
         model: GrapPA,
-        state_outputs: dict[str, Any],
         data: TensorBatch,
         clusts: IndexBatch,
         shapes: TensorBatch,
@@ -345,6 +343,7 @@ class AggregationOperations:
         primaries: IndexBatch | None = None,
         clust_label: ClusterLabelBatch | None = None,
         coord_label: TensorBatch | None = None,
+        ppn_points: TensorBatch | None = None,
         aggregate_shapes: bool = False,
         shape_use_primary: bool = False,
         point_use_primary: bool = False,
@@ -356,8 +355,6 @@ class AggregationOperations:
         ----------
         model : GrapPA
             Native graph model.
-        state_outputs : dict
-            Public outputs from preceding chain stages.
         data : TensorBatch
             Canonical sparse voxel data.
         clusts : IndexBatch
@@ -372,6 +369,8 @@ class AggregationOperations:
             Structured cluster truth.
         coord_label : TensorBatch, optional
             Particle coordinate truth.
+        ppn_points : TensorBatch, optional
+            Canonical point proposals produced live or supplied from cache.
         aggregate_shapes : bool, default False
             Build one semantic shape per predicted group.
         shape_use_primary : bool, default False
@@ -402,13 +401,13 @@ class AggregationOperations:
         )
         model_input = self.prepare_grappa_input(
             model,
-            state_outputs,
             data,
             clusts,
             shapes,
             primaries,
             clust_label,
             coord_label,
+            ppn_points,
             point_use_primary,
         )
         # Run the native model without changing its standalone interface.
