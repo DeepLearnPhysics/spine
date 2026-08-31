@@ -147,7 +147,7 @@ class ChainState:
             canonical ``point_data`` key.
         ValueError
             If a stage replaces an undeclared product or duplicates a public
-            output name.
+            output name which is not the alias of a declared replacement.
         """
         # Canonical products track ownership so replacement mistakes identify
         # both the original and attempted producers.
@@ -160,6 +160,13 @@ class ChainState:
                 )
             self.products[key] = value
             self.producers[key] = stage
+
+            # A canonical product may also have been exposed as a public
+            # output by its original producer. Keep that alias synchronized
+            # when a transformation stage explicitly replaces the product.
+            # Unique diagnostic outputs remain append-only below.
+            if key in replaces and key in self.outputs:
+                self.outputs[key] = value
 
             # Keep the historical flat aliases synchronized for external
             # providers while native stages exchange one aligned point bundle.
@@ -177,8 +184,10 @@ class ChainState:
                         del self.products[alias]
                         self.producers.pop(alias, None)
 
-        # Public outputs are append-only: losses and reconstruction consumers
-        # must never depend on stage order to resolve duplicate names.
+        # Diagnostic outputs are append-only: losses and reconstruction
+        # consumers must never depend on stage order to resolve duplicate
+        # names. Public aliases of replaced products were synchronized above
+        # and should not be repeated explicitly in ``result.outputs``.
         overlap = set(self.outputs).intersection(result.outputs)
         if overlap:
             names = ", ".join(sorted(overlap))
