@@ -146,9 +146,11 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             Cached primary labels aligned with ``node_pred``. Must be supplied
             together with ``valid_mask``.
         valid_mask : TensorBatch, optional
-            Cached one-dimensional node validity mask.
+            Cached one-dimensional static node validity mask. Predicted-group
+            purity is reapplied from the current ``group_pred`` every time.
         return_target : bool, default False
-            If `True`, return the exact labels and mask consumed by the loss.
+            If `True`, return the primary labels and static validity mask which
+            can be reused safely in a later training iteration.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -170,29 +172,37 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
                 "Cached labels and validity mask must be provided together."
             )
 
-        # Reuse exact cached supervision or derive it from structured truth.
+        # Reuse cached static supervision or derive it from structured truth.
         count_rejected = 0
         if labels is not None:
             assert valid_mask is not None
             primary_ids = labels
-            valid_array = prepare_cached_target(labels, valid_mask, node_pred, "node")
+            static_valid = prepare_cached_target(labels, valid_mask, node_pred, "node")
         else:
             if clust_label is None:
                 raise ValueError(
                     "Shower-primary loss requires either cached supervision or "
                     "structured cluster labels."
                 )
-            primary_ids, valid_array, count_rejected = self._build_target(
+            primary_ids, static_valid, count_rejected = self._build_target(
                 clust_label,
                 clusts,
                 coord_label,
-                group_pred,
                 overlap_cache,
             )
 
-        # From here on, cached and live targets follow the same loss path.
+        # Preserve only iteration-independent validity in the cache product.
         if valid_mask is None:
-            valid_mask = validity_batch(valid_array, primary_ids)
+            valid_mask = validity_batch(static_valid, primary_ids)
+
+        # Predicted grouping changes during training and must be reapplied to
+        # both freshly built and cached targets on every forward pass.
+        valid_array = static_valid.copy()
+        if self.high_purity and self.use_group_pred:
+            if group_pred is None:
+                raise ValueError("If using group predictions, must provide them.")
+            valid_array &= node_purity_mask_batch(group_pred, primary_ids)
+
         valid_index = np.where(valid_array)[0]
         node_assn_tensor = target_tensor(primary_ids, node_pred, dtype=torch.long)[
             valid_index
@@ -224,7 +234,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
         if labels is None and self.quality_filter.active:
             result["count_rejected"] = count_rejected
-        # Expose the exact supervision consumed above for later caching.
+        # Expose only the stable supervision needed by a later iteration.
         if return_target:
             result["target"] = primary_ids
             result["valid"] = valid_mask
@@ -236,14 +246,13 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
         coord_label: TensorBatch | None,
-        group_pred: TensorBatch | None,
         overlap_cache: ClusterOverlapCache | None,
     ) -> tuple[TensorBatch, np.ndarray, int]:
         """Build node-aligned shower-primary supervision from truth.
 
-        The helper applies the same closest-fragment, group-purity and overlap
-        rules used by the live loss. Its output can therefore be cached and
-        replayed without reconstructing those decisions from voxel labels.
+        The helper applies closest-fragment, truth-group purity and overlap
+        rules. Predicted-group purity is intentionally deferred to
+        :meth:`forward` because it changes between training iterations.
 
         Parameters
         ----------
@@ -253,8 +262,6 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             Cluster-to-voxel index whose ordering defines the node axis.
         coord_label : TensorBatch, optional
             Particle creation points required by ``use_closest``.
-        group_pred : TensorBatch, optional
-            Predicted group IDs used by high-purity filtering when requested.
         overlap_cache : ClusterOverlapCache, optional
             Precomputed cluster overlaps shared across GrapPA objectives.
 
@@ -263,10 +270,12 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         TensorBatch
             Binary primary labels aligned with graph nodes.
         np.ndarray
-            Boolean mask selecting nodes eligible for the loss.
+            Static Boolean mask suitable for caching. Predicted-group purity
+            is not represented in this mask.
         int
             Number of otherwise eligible nodes rejected by overlap quality.
         """
+        # Build the static supervision and validity mask from structured truth.
         primary_ids = get_cluster_label_batch(
             clust_label, clusts, column="group_primary"
         )
@@ -284,14 +293,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             )
             valid_array &= primary_ids.numpy_tensor() > -1
 
-        # Optionally require exactly one primary fragment in each group.
-        if self.high_purity:
-            if self.use_group_pred:
-                if group_pred is None:
-                    raise ValueError("If using group predictions, must provide them.")
-                group_ids = group_pred
-            else:
-                group_ids = get_cluster_label_batch(clust_label, clusts, column="group")
+        # Truth-group purity is static; predicted-group purity is applied later.
+        if self.high_purity and not self.use_group_pred:
+            group_ids = get_cluster_label_batch(clust_label, clusts, column="group")
             valid_array &= node_purity_mask_batch(group_ids, primary_ids)
 
         # Exclude unstable targets according to the overlap-quality policy.

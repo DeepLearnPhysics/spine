@@ -23,7 +23,12 @@ from spine.model.grappa.evaluation import (
     edge_purity_mask_batch,
 )
 
-from .target import prepare_cached_target, target_tensor, validity_batch
+from .target import (
+    prepare_cached_target,
+    prepare_cached_validity,
+    target_tensor,
+    validity_batch,
+)
 
 __all__ = ["EdgeChannelLoss"]
 
@@ -161,12 +166,15 @@ class EdgeChannelLoss(torch.nn.Module):
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
         labels : TensorBatch, optional
-            Cached binary labels aligned directly with ``edge_pred``. Must be
-            supplied together with ``valid_mask``.
+            Cached supervision supplied together with ``valid_mask``. This is
+            an edge-aligned binary target in ``group`` and ``particle_forest``
+            modes. In ``forest`` mode, it contains stable node group IDs from
+            which the current prediction-dependent tree is rebuilt.
         valid_mask : TensorBatch, optional
-            Cached one-dimensional edge validity mask.
+            Cached one-dimensional static edge validity mask.
         return_target : bool, default False
-            If `True`, return the exact labels and mask consumed by the loss.
+            If `True`, return stable supervision which can be reused safely in
+            a later training iteration.
         **kwargs : dict, optional
             Other labels/outputs of the model which are not relevant here
 
@@ -189,19 +197,45 @@ class EdgeChannelLoss(torch.nn.Module):
                 "Cached labels and validity mask must be provided together."
             )
 
-        # Reuse exact cached supervision or derive it from structured truth.
+        # Reuse cached static supervision or derive it from structured truth.
         count_rejected = 0
         if labels is not None:
             assert valid_mask is not None
-            edge_assn = labels
-            valid_array = prepare_cached_target(labels, valid_mask, edge_pred, "edge")
+            if self.mode == "forest":
+                forest_group_ids = labels
+                static_valid = self._prepare_cached_forest_target(
+                    forest_group_ids,
+                    valid_mask,
+                    clusts,
+                    edge_pred,
+                )
+                edge_assn, forest_valid = edge_assignment_forest_batch(
+                    edge_index,
+                    edge_pred.to_numpy(),
+                    forest_group_ids,
+                )
+                valid_array = static_valid & forest_valid.numpy_tensor()
+                cache_target = forest_group_ids
+            else:
+                edge_assn = labels
+                valid_array = prepare_cached_target(
+                    labels, valid_mask, edge_pred, "edge"
+                )
+                static_valid = valid_array
+                cache_target = edge_assn
         else:
             if clust_label is None:
                 raise ValueError(
                     "Edge classification requires either cached supervision or "
                     "structured cluster labels."
                 )
-            edge_assn, valid_array, count_rejected = self._build_target(
+            (
+                edge_assn,
+                valid_array,
+                cache_target,
+                static_valid,
+                count_rejected,
+            ) = self._build_target(
                 clust_label,
                 clusts,
                 edge_index,
@@ -210,9 +244,9 @@ class EdgeChannelLoss(torch.nn.Module):
                 overlap_cache,
             )
 
-        # From here on, cached and live targets follow the same loss path.
+        # Persist the stable mask, not a forest selection tied to old logits.
         if valid_mask is None:
-            valid_mask = validity_batch(valid_array, edge_assn)
+            valid_mask = validity_batch(static_valid, edge_assn)
         valid_index = np.where(valid_array)[0]
         edge_pred_tensor = edge_pred.torch_tensor()[valid_index]
         edge_assn_tensor = target_tensor(edge_assn, edge_pred, dtype=torch.long)[
@@ -244,9 +278,9 @@ class EdgeChannelLoss(torch.nn.Module):
         result = {"accuracy": acc, "loss": loss, "count": len(valid_index)}
         if labels is None and self.quality_filter.active:
             result["count_rejected"] = count_rejected
-        # Expose the exact supervision consumed above for later caching.
+        # Expose only the stable inputs needed to rebuild later supervision.
         if return_target:
-            result["target"] = edge_assn
+            result["target"] = cache_target
             result["valid"] = valid_mask
 
         return result
@@ -259,13 +293,13 @@ class EdgeChannelLoss(torch.nn.Module):
         edge_pred: TensorBatch,
         true_edge_index: EdgeIndexBatch | None,
         overlap_cache: ClusterOverlapCache | None,
-    ) -> tuple[TensorBatch, np.ndarray, int]:
+    ) -> tuple[TensorBatch, np.ndarray, TensorBatch, np.ndarray, int]:
         """Build edge-aligned supervision from structured truth.
 
-        The returned labels and validity mask follow the exact ordering of
-        ``edge_index`` and therefore of ``edge_pred``. Besides constructing the
-        labels selected by ``mode``, this method applies purity and overlap
-        requirements so that cached targets reproduce the live loss exactly.
+        Static truth, purity and overlap decisions are separated from the
+        prediction-dependent spanning-tree selection. In ``forest`` mode the
+        cache target is therefore node-aligned group IDs, while the labels
+        consumed by the current loss remain edge aligned.
 
         Parameters
         ----------
@@ -287,12 +321,18 @@ class EdgeChannelLoss(torch.nn.Module):
         TensorBatch
             Binary labels aligned with the predicted edges.
         np.ndarray
-            Boolean mask selecting edges eligible for the loss.
+            Effective Boolean mask selecting edges for the current loss.
+        TensorBatch
+            Stable cache target. This is node-aligned in ``forest`` mode and
+            otherwise identical to the edge labels.
+        np.ndarray
+            Static edge-validity mask suitable for caching.
         int
             Number of otherwise eligible edges rejected by overlap quality.
         """
+        # Build the static supervision and validity mask from structured truth.
         group_ids = get_cluster_label_batch(clust_label, clusts, self.target)
-        valid_mask = np.all(
+        static_valid = np.all(
             group_ids.numpy_tensor()[edge_index.index] > -1,
             axis=0,
         )
@@ -301,13 +341,15 @@ class EdgeChannelLoss(torch.nn.Module):
         if self.high_purity:
             part_ids = get_cluster_label_batch(clust_label, clusts, "particle")
             prim_ids = get_cluster_label_batch(clust_label, clusts, "group_primary")
-            valid_mask &= edge_purity_mask_batch(
+            static_valid &= edge_purity_mask_batch(
                 edge_index, part_ids, group_ids, prim_ids
             )
 
         # Construct the exact binary supervision requested by the loss mode.
+        dynamic_valid = np.ones_like(static_valid)
         if self.mode == "group":
             edge_assn = edge_assignment_batch(edge_index, group_ids)
+            cache_target = edge_assn
 
         elif self.mode == "forest":
             forest_group_ids = group_ids
@@ -329,7 +371,8 @@ class EdgeChannelLoss(torch.nn.Module):
                 edge_pred.to_numpy(),
                 forest_group_ids,
             )
-            valid_mask &= valid_mask_mst.numpy_tensor()
+            dynamic_valid = valid_mask_mst.numpy_tensor()
+            cache_target = forest_group_ids
 
         elif self.mode == "particle_forest":
             if true_edge_index is None:
@@ -341,6 +384,7 @@ class EdgeChannelLoss(torch.nn.Module):
             edge_assn = edge_assignment_from_graph_batch(
                 edge_index, true_edge_index, part_ids
             )
+            cache_target = edge_assn
 
         else:
             raise ValueError(f"Loss mode not recognized: {self.mode}")
@@ -348,14 +392,66 @@ class EdgeChannelLoss(torch.nn.Module):
         # Apply endpoint-quality requirements after constructing edge classes.
         count_rejected = 0
         if self.quality_filter.active:
+            quality_classes = (
+                None if self.mode == "forest" else edge_assn.numpy_tensor()
+            )
             edge_quality_mask = self.quality_filter.edge_mask(
                 clust_label,
                 clusts,
                 edge_index,
-                edge_assn.numpy_tensor(),
+                quality_classes,
                 overlap_cache,
             )
-            count_rejected = int(np.count_nonzero(valid_mask & ~edge_quality_mask))
-            valid_mask &= edge_quality_mask
+            count_rejected = int(np.count_nonzero(static_valid & ~edge_quality_mask))
+            static_valid &= edge_quality_mask
 
-        return edge_assn, valid_mask, count_rejected
+        # The spanning tree is selected from the current edge logits. All other
+        # modes have no dynamic validity component.
+        valid_mask = static_valid & dynamic_valid
+
+        return edge_assn, valid_mask, cache_target, static_valid, count_rejected
+
+    @staticmethod
+    def _prepare_cached_forest_target(
+        group_ids: TensorBatch,
+        valid_mask: TensorBatch,
+        clusts: IndexBatch,
+        edge_pred: TensorBatch,
+    ) -> np.ndarray:
+        """Validate cached forest primitives on their distinct axes.
+
+        Forest group IDs align with graph nodes, while static validity aligns
+        with edge predictions. Keeping both partitions explicit prevents a
+        cached tree selected from old logits from masquerading as stable truth.
+
+        Parameters
+        ----------
+        group_ids : TensorBatch
+            Cached node group IDs used to rebuild the target spanning forest.
+        valid_mask : TensorBatch
+            Cached static edge-validity mask.
+        clusts : IndexBatch
+            Current graph nodes and their event partitioning.
+        edge_pred : TensorBatch
+            Current edge logits and their event partitioning.
+
+        Returns
+        -------
+        np.ndarray
+            Boolean static edge-validity mask on CPU.
+        """
+        if not isinstance(group_ids, TensorBatch):
+            raise TypeError("Cached forest group labels must be TensorBatch.")
+
+        group_counts = group_ids.counts
+        if not isinstance(group_counts, np.ndarray):
+            group_counts = group_counts.detach().cpu().numpy()
+        cluster_counts = clusts.counts
+        if not isinstance(cluster_counts, np.ndarray):
+            cluster_counts = cluster_counts.detach().cpu().numpy()
+        if group_ids.shape[0] != len(clusts.index_list) or not np.array_equal(
+            group_counts, cluster_counts
+        ):
+            raise ValueError("Cached forest group labels must align with graph nodes.")
+
+        return prepare_cached_validity(valid_mask, edge_pred, "edge")

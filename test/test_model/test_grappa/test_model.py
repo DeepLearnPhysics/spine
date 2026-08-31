@@ -223,6 +223,48 @@ def test_grappa_loss_returns_and_reuses_cached_targets(
     assert cached["accuracy"] == live["accuracy"]
 
 
+def test_grappa_loss_routes_cached_forest_primitives(
+    graph_labels,
+    graph_clusters,
+):
+    """Forest caching may pair node targets with edge validity safely."""
+    graph_labels.particles["group"] = TensorBatch(
+        np.asarray([0, 0, 1]),
+        graph_clusters.counts,
+    )
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]], dtype=np.int64),
+        counts=[2, 0],
+        spans=graph_clusters.counts,
+        directed=True,
+    )
+    edge_pred = TensorBatch(torch.zeros((2, 2)), counts=edge_index.counts)
+    cfg = {
+        "edge_loss": {"name": "channel", "target": "group", "mode": "forest"},
+        "return_targets": True,
+    }
+
+    live = GrapPALoss(cfg)(
+        graph_labels,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        edge_pred=edge_pred,
+    )
+    assert live["edge_target"].counts.tolist() == [2, 1]
+    assert live["edge_valid"].counts.tolist() == [2, 0]
+
+    cached = GrapPALoss({**cfg, "return_targets": False})(
+        clust_label=None,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        edge_pred=edge_pred,
+        edge_target=live["edge_target"].to_tensor(dtype=torch.float32),
+        edge_valid=live["edge_valid"].to_tensor(dtype=torch.float32),
+    )
+    torch.testing.assert_close(cached["loss"], live["loss"])
+    assert cached["accuracy"] == live["accuracy"]
+
+
 def test_grappa_loss_validates_cached_target_contract(graph_labels):
     """Cached supervision must be paired and supported by the objective."""
     prediction = TensorBatch(torch.zeros((3, 2)), counts=[2, 1])

@@ -549,6 +549,106 @@ def test_edge_channel_truth_modes(graph_labels, graph_clusters):
         )
 
 
+def test_edge_forest_rebuilds_cached_target_from_current_logits(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """Cached forest primitives should not freeze an old predicted tree."""
+    _add_particle_fields(graph_labels, group=[0, 0, 1])
+    edge_index, initial_pred = _edge_inputs()
+    current_pred = TensorBatch(
+        torch.tensor([[2.0, 0.0], [0.0, 2.0]]),
+        counts=edge_index.counts,
+    )
+
+    def build_forest(_, edge_pred, group_ids):
+        """Select visibly different targets from the current logits."""
+        initial = edge_pred.numpy_tensor()[0, 0] < 1.0
+        labels = np.asarray([1, 0] if initial else [0, 1])
+        valid = np.asarray([True, False] if initial else [False, True])
+        assert group_ids.shape[0] == len(graph_clusters.index_list)
+        return (
+            TensorBatch(labels, edge_index.counts),
+            TensorBatch(valid, edge_index.counts),
+        )
+
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.edge_channel.edge_assignment_forest_batch",
+        build_forest,
+    )
+    loss_fn = EdgeChannelLoss(target="group", mode="forest")
+    cached_inputs = loss_fn(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        initial_pred,
+        return_target=True,
+    )
+    assert cached_inputs["target"].shape[0] == len(graph_clusters.index_list)
+    np.testing.assert_array_equal(
+        cached_inputs["valid"].numpy_tensor(),
+        np.ones(2, dtype=bool),
+    )
+
+    live = loss_fn(
+        graph_labels,
+        graph_clusters,
+        edge_index,
+        current_pred,
+    )
+    cached = loss_fn(
+        None,
+        graph_clusters,
+        edge_index,
+        current_pred,
+        labels=cached_inputs["target"],
+        valid_mask=cached_inputs["valid"],
+    )
+    assert live["count"] == cached["count"] == 1
+    torch.testing.assert_close(cached["loss"], live["loss"])
+
+    # Cached batches may carry tensor-backed partition metadata after routing.
+    graph_clusters.counts = torch.as_tensor(graph_clusters.counts)
+    cached = loss_fn(
+        None,
+        graph_clusters,
+        edge_index,
+        current_pred,
+        labels=cached_inputs["target"].to_tensor(dtype=torch.float32),
+        valid_mask=cached_inputs["valid"],
+    )
+    assert cached["count"] == 1
+
+    with pytest.raises(TypeError, match="forest group labels"):
+        loss_fn(
+            None,
+            graph_clusters,
+            edge_index,
+            current_pred,
+            labels=np.zeros(3),
+            valid_mask=cached_inputs["valid"],
+        )
+    with pytest.raises(ValueError, match="align with graph nodes"):
+        loss_fn(
+            None,
+            graph_clusters,
+            edge_index,
+            current_pred,
+            labels=TensorBatch(np.zeros(2), edge_index.counts),
+            valid_mask=cached_inputs["valid"],
+        )
+    with pytest.raises(TypeError, match="validity mask must be TensorBatch"):
+        loss_fn(
+            None,
+            graph_clusters,
+            edge_index,
+            current_pred,
+            labels=cached_inputs["target"],
+            valid_mask=np.ones(2),
+        )
+
+
 def test_edge_channel_high_purity(graph_labels, graph_clusters, monkeypatch):
     """High-purity edge supervision is restricted to shower groups."""
     _add_particle_fields(
@@ -728,7 +828,7 @@ def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
 
 
 def test_shower_primary_reuses_cached_target(graph_labels, graph_clusters):
-    """Shower-primary loss should consume its exact emitted supervision."""
+    """Shower-primary loss should consume its emitted static supervision."""
     _add_particle_fields(
         graph_labels,
         group=[0, 0, 1],
@@ -752,6 +852,66 @@ def test_shower_primary_reuses_cached_target(graph_labels, graph_clusters):
 
     torch.testing.assert_close(cached["loss"], live["loss"])
     assert cached["count"] == live["count"]
+
+
+def test_shower_primary_reapplies_predicted_group_purity(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """Cached primary supervision should use the current predicted groups."""
+    _add_particle_fields(
+        graph_labels,
+        group=[0, 0, 1],
+        group_primary=[1, 0, 1],
+    )
+    prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
+    monkeypatch.setattr(
+        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        lambda group_ids, _: group_ids.numpy_tensor().astype(bool),
+    )
+    loss_fn = NodeShowerPrimaryLoss(high_purity=True, use_group_pred=True)
+    initial_groups = TensorBatch(np.ones(3), graph_clusters.counts)
+    current_groups = TensorBatch(np.asarray([1, 0, 0]), graph_clusters.counts)
+
+    cached_inputs = loss_fn(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        group_pred=initial_groups,
+        return_target=True,
+    )
+    assert cached_inputs["count"] == 3
+    np.testing.assert_array_equal(
+        cached_inputs["valid"].numpy_tensor(),
+        np.ones(3, dtype=bool),
+    )
+
+    live = loss_fn(
+        graph_labels,
+        graph_clusters,
+        prediction,
+        group_pred=current_groups,
+    )
+    cached = loss_fn(
+        None,
+        graph_clusters,
+        prediction,
+        group_pred=current_groups,
+        labels=cached_inputs["target"],
+        valid_mask=cached_inputs["valid"],
+    )
+    assert live["count"] == cached["count"] == 1
+    torch.testing.assert_close(cached["loss"], live["loss"])
+
+    with pytest.raises(ValueError, match="group predictions"):
+        loss_fn(
+            None,
+            graph_clusters,
+            prediction,
+            labels=cached_inputs["target"],
+            valid_mask=cached_inputs["valid"],
+        )
 
 
 def test_shower_primary_truth_group_purity(

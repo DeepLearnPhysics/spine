@@ -881,11 +881,13 @@ class GrapPALoss(torch.nn.Module):
     specific type should be provided with a corresponding output from GrapPA.
 
     With ``return_targets: true``, cacheable objectives additionally emit
-    ``<objective>_target`` and ``<objective>_valid`` products. A later run can
-    map those products through ``model.loss_input`` under the same parameter
-    names and omit ``clust_label``. Single objectives use the compact
-    ``node_*`` or ``edge_*`` prefixes; named heads preserve their full prefix,
-    for example ``node_type_target`` and ``node_type_valid``.
+    stable ``<objective>_target`` and ``<objective>_valid`` products. A later
+    run can map those products through ``model.loss_input`` under the same
+    parameter names and omit ``clust_label``. Any prediction-dependent target
+    selection is reapplied from the current model outputs. Single objectives
+    use the compact ``node_*`` or ``edge_*`` prefixes; named heads preserve
+    their full prefix, for example ``node_type_target`` and
+    ``node_type_valid``.
 
     See configuration files prefixed with `grappa_` under the `config`
     directory for detailed examples of working configurations.
@@ -937,8 +939,9 @@ class GrapPALoss(torch.nn.Module):
         global_loss : Union[dict, Dict[dict]], optional
             Global loss configuration
         return_targets : bool, default False
-            If `True`, include the exact labels and validity masks consumed by
-            each cacheable node and edge objective in the loss output.
+            If `True`, include the stable targets and validity masks needed to
+            reproduce each cacheable node and edge objective. Objectives with
+            prediction-dependent selection rebuild it on every forward pass.
         """
         # Check that there is at least one loss to apply
         if node_loss is None and edge_loss is None and global_loss is None:

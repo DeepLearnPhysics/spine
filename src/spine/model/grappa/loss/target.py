@@ -1,8 +1,9 @@
 """Utilities for validating and materializing cached GrapPA supervision.
 
-Cached targets must preserve the item ordering and per-event partitioning of
-the predictions they supervise. The helpers in this module centralize those
-invariants and keep device conversion out of the individual loss classes.
+Cached supervision must preserve the item ordering and per-event partitioning
+of the model objects it describes. The helpers in this module centralize the
+usual prediction-aligned invariants and keep device conversion out of the
+individual loss classes.
 """
 
 from __future__ import annotations
@@ -14,7 +15,12 @@ import numpy as np
 from spine.data import TensorBatch
 from spine.utils.conditional import torch
 
-__all__ = ["prepare_cached_target", "target_tensor", "validity_batch"]
+__all__ = [
+    "prepare_cached_target",
+    "prepare_cached_validity",
+    "target_tensor",
+    "validity_batch",
+]
 
 
 def _counts_numpy(batch: TensorBatch) -> np.ndarray:
@@ -100,6 +106,38 @@ def prepare_cached_target(
         _counts_numpy(labels), prediction_counts
     ):
         raise ValueError(f"Cached {kind} labels must align with predictions.")
+    return prepare_cached_validity(valid_mask, prediction, kind)
+
+
+def prepare_cached_validity(
+    valid_mask: TensorBatch,
+    prediction: TensorBatch,
+    kind: str,
+) -> np.ndarray:
+    """Validate and materialize a prediction-aligned cached validity mask.
+
+    This is separate from :func:`prepare_cached_target` for objectives whose
+    stable cached target lives on a different axis from their predictions,
+    such as forest edge supervision backed by node group IDs.
+
+    Parameters
+    ----------
+    valid_mask : TensorBatch
+        One boolean-compatible value per prediction.
+    prediction : TensorBatch
+        Prediction batch which defines the required counts and length.
+    kind : str
+        Human-readable objective axis used in error messages.
+
+    Returns
+    -------
+    np.ndarray
+        One-dimensional Boolean validity mask on CPU.
+    """
+    if not isinstance(valid_mask, TensorBatch):
+        raise TypeError(f"Cached {kind} validity mask must be TensorBatch.")
+
+    prediction_counts = _counts_numpy(prediction)
     if len(valid_mask) != len(prediction) or not np.array_equal(
         _counts_numpy(valid_mask), prediction_counts
     ):
