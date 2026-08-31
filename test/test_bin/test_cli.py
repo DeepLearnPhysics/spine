@@ -1116,6 +1116,19 @@ def test_cli_info_does_not_require_configuration(monkeypatch):
     assert calls == ["info"]
 
 
+def test_cli_requires_configuration_for_a_run(monkeypatch, capsys):
+    """Runtime options without a configuration should report a parser error."""
+    monkeypatch.setattr(cli_module.sys, "argv", ["spine", "--inference"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_module.cli()
+
+    assert exc_info.value.code == 2
+    assert (
+        "the following arguments are required: -c/--config" in capsys.readouterr().err
+    )
+
+
 def test_cli_parses_mixed_source_and_source_list(monkeypatch):
     """The two source flags may coexist when values carry target names."""
     calls = []
