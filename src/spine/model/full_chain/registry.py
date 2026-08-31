@@ -59,6 +59,7 @@ _BUILTIN_MODULES = {
     "interaction_vertexing": "spine.model.full_chain.providers.vertexing",
     "particle_image": "spine.model.full_chain.providers.image",
     "calibration": "spine.model.full_chain.providers.calibration",
+    "track_breaking": "spine.model.full_chain.providers.transform.track_breaking",
 }
 
 
