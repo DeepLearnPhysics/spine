@@ -50,6 +50,7 @@ def main(
     tensorboard_dir: str | None = None,
     resume: bool | None = None,
     inference: bool = False,
+    export_weights: str | None = None,
 ) -> None:
     """Main driver for training/validation/inference/analysis.
 
@@ -123,6 +124,9 @@ def main(
     inference : bool, default False
         Convert a training configuration to deterministic inference before
         applying command-line overrides.
+    export_weights : str, optional
+        Compose the configured model checkpoints into one CPU inference
+        checkpoint and exit without initializing data I/O.
     """
     # Identify the application before configuration loading, which may itself
     # trigger download/cache messages or validation warnings.
@@ -322,6 +326,16 @@ def main(
         cfg["base"]["world_size"] = launcher_world_size
         cfg["base"]["distributed"] = True
 
+    # Weight composition is a terminal model-only operation. It deliberately
+    # bypasses driver, data-loader and distributed runtime initialization.
+    if export_weights is not None:
+        from spine.model import export_model_weights
+
+        digest = export_model_weights(cfg, export_weights)
+        print(f"Exported composed weights: {export_weights}")
+        print(f"SHA-256: {digest}")
+        return
+
     # For actual training/inference, we need the main functionality
     from spine.main import run
 
@@ -355,6 +369,11 @@ def cli() -> None:
               spine -c config.yaml --weight-path full-chain.ckpt \\
                 --module-weight uresnet_ppn=uresnet.ckpt
                   Override one module after loading a global checkpoint.
+              spine -c config.yaml \\
+                --module-weight uresnet_ppn=uresnet.ckpt \\
+                --module-weight graph_spice=graph-spice.ckpt \\
+                --export-weights full-chain.ckpt
+                  Compose component checkpoints into one inference artifact.
               spine --help
                   Show this help message.
 
@@ -514,6 +533,11 @@ def cli() -> None:
         help="Checkpoint for a configured model module; accepts one or more "
         "MODULE=PATH assignments",
     )
+    parser.add_argument(
+        "--export-weights",
+        metavar="PATH",
+        help="Compose configured checkpoints into one CPU inference artifact",
+    )
 
     parser.add_argument(
         "--resume",
@@ -586,6 +610,7 @@ def cli() -> None:
         tensorboard_dir=args.tensorboard_dir,
         resume=args.resume,
         inference=args.inference,
+        export_weights=args.export_weights,
     )
 
 

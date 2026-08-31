@@ -46,6 +46,7 @@ from .checkpoint import (
     promote_checkpoint,
     verify_checkpoint,
 )
+from .export import export_model_weights
 from .manager import ModelManager
 from .validation import ValidationManager
 
@@ -58,4 +59,5 @@ __all__ = [
     "inspect_checkpoint",
     "promote_checkpoint",
     "verify_checkpoint",
+    "export_model_weights",
 ]

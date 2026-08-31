@@ -163,6 +163,56 @@ def test_main_requires_model_for_module_weights(monkeypatch, tmp_path):
         )
 
 
+def test_main_exports_weights_without_running_driver(monkeypatch, tmp_path, capsys):
+    """Weight export should dispatch the resolved config as a terminal action."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "io": {"reader": {}},
+            "model": {"modules": {"encoder": {}}},
+        },
+    )
+    monkeypatch.setattr(
+        "spine.model.export_model_weights",
+        lambda cfg, path: captured.update(cfg=cfg, path=path) or "abc123",
+    )
+    monkeypatch.setattr(
+        "spine.main.run",
+        lambda _cfg: pytest.fail("The runtime driver should not be initialized."),
+    )
+
+    cli_module.main(
+        config=str(config_path),
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+        module_weight=["encoder=encoder.ckpt"],
+        export_weights="composed.ckpt",
+    )
+
+    assert captured["path"] == "composed.ckpt"
+    assert captured["cfg"]["model"]["modules"]["encoder"]["weight_path"] == (
+        "encoder.ckpt"
+    )
+    assert "Exported composed weights: composed.ckpt" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("dataset", "source", "source_list", "expected"),
     [
@@ -997,6 +1047,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 weight_path="weights.ckpt",
                 weight_list="weights.txt",
                 module_weight=["uresnet_ppn=uresnet.ckpt"],
+                export_weights=None,
                 config_overrides=["a=1"],
                 resume=None,
                 inference=False,
@@ -1049,6 +1100,7 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["tensorboard"] is True
     assert main_calls[0]["tensorboard_dir"] == "tb"
     assert main_calls[0]["module_weight"] == ["uresnet_ppn=uresnet.ckpt"]
+    assert main_calls[0]["export_weights"] is None
     assert main_calls[0]["output_dir"] == "outputs"
     assert main_calls[0]["output_suffix"] == "processed"
 
@@ -1101,6 +1153,8 @@ def test_cli_parses_module_weights(monkeypatch):
             "uresnet_ppn=uresnet.ckpt",
             "--module-weight",
             "graph_spice=spice.ckpt",
+            "--export-weights",
+            "composed.ckpt",
         ],
     )
 
@@ -1112,3 +1166,4 @@ def test_cli_parses_module_weights(monkeypatch):
         "uresnet_ppn=uresnet.ckpt",
         "graph_spice=spice.ckpt",
     ]
+    assert calls[0]["export_weights"] == "composed.ckpt"

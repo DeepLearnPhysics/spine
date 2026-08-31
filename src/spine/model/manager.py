@@ -598,17 +598,26 @@ class ModelManager:
             Path to the weights for the full model
         """
         # If a general model path is provided, add it to the loading list first
-        weight_paths = []
+        weight_paths: list[tuple[str, str, str | None, bool]] = []
         if full_weight_path:
-            weight_paths = [(self.model_name, full_weight_path, "")]
+            weight_paths = [(self.model_name, full_weight_path, "", True)]
 
         # Find the list of sub-module weights to subsequently load
         module_items = list(self.model_cfg.items())
         while len(module_items) > 0:
             module, config = module_items.pop()
             if config.get("weight_path", "") != "":
-                model_name = config.get("model_name", module)
-                weight_paths.append((module, config["weight_path"], model_name))
+                # An omitted model name permits automatic detection of either
+                # a full-chain namespace or a standalone model checkpoint.
+                model_name = config.get("model_name")
+                weight_paths.append(
+                    (
+                        module,
+                        config["weight_path"],
+                        model_name,
+                        module == self.model_name,
+                    )
+                )
             for key in config:
                 if isinstance(config[key], dict):
                     module_items.append((key, config[key]))
@@ -621,6 +630,8 @@ class ModelManager:
         self.checkpoint_datasets = None
         self.checkpoint_runtime_state = None
         self.checkpoint_validation = None
+        self.loaded_weight_keys: set[str] = set()
+        self.loaded_weight_sources: list[dict[str, Any]] = []
         if not weight_paths:
             return
 
@@ -633,7 +644,7 @@ class ModelManager:
         )
 
         # Loop over provided model paths
-        for module, weight_path, model_name in weight_paths:
+        for module, weight_path, model_name, is_full_model in weight_paths:
             # Module-level weight paths must resolve to a single checkpoint.
             if not os.path.isfile(weight_path):
                 raise ValueError(
@@ -659,22 +670,47 @@ class ModelManager:
 
                 # Check that all the needed weights are provided
                 missing_keys = []
-                if module == self.model_name:
+                if is_full_model:
                     for name in net.state_dict():
                         if not name in state_dict.keys():
                             missing_keys.append((name, name))
 
                 else:
-                    # Update the key names according to the name used to store
-                    state_dict = {}
-                    for name in net.state_dict():
-                        if f"{module}." in name:
-                            suffix = "." if len(model_name) > 0 else ""
-                            key = name.replace(f"{module}.", f"{model_name}{suffix}")
-                            if key in checkpoint["state_dict"].keys():
-                                state_dict[name] = checkpoint["state_dict"][key]
-                            else:
-                                missing_keys.append((name, key))
+                    # Try the configured namespace exactly. Without one, first
+                    # accept keys from a full-chain checkpoint, then fall back
+                    # to the unprefixed keys of a standalone model checkpoint.
+                    source_names = (
+                        (model_name,) if model_name is not None else (module, "")
+                    )
+                    candidate_states = []
+                    for source_name in source_names:
+                        candidate_state = {}
+                        candidate_missing = []
+                        for name in net.state_dict():
+                            if f"{module}." in name:
+                                suffix = "." if source_name else ""
+                                key = name.replace(
+                                    f"{module}.", f"{source_name}{suffix}"
+                                )
+                                if key in checkpoint["state_dict"]:
+                                    candidate_state[name] = checkpoint["state_dict"][
+                                        key
+                                    ]
+                                else:
+                                    candidate_missing.append((name, key))
+                        candidate_states.append(
+                            (source_name, candidate_state, candidate_missing)
+                        )
+
+                    selected = next(
+                        (
+                            candidate
+                            for candidate in candidate_states
+                            if not candidate[2] and candidate[1]
+                        ),
+                        candidate_states[0],
+                    )
+                    model_name, state_dict, missing_keys = selected
 
                 # If some necessary keys were not found, throw
                 if missing_keys:
@@ -696,8 +732,21 @@ class ModelManager:
                     )
                     logger.warning("Unexpected keys: %s", bad_keys.unexpected_keys)
 
+                # Record destination coverage after a successful load. Weight
+                # export uses this to reject constructor-initialized leftovers.
+                loaded_keys = tuple(sorted(state_dict))
+                self.loaded_weight_keys.update(loaded_keys)
+                self.loaded_weight_sources.append(
+                    {
+                        "module": module,
+                        "model_name": model_name,
+                        "path": weight_path,
+                        "keys": loaded_keys,
+                    }
+                )
+
                 # Load the optimizer state from the main weight file only
-                if self.train and module == self.model_name and self.restore_optimizer:
+                if self.train and is_full_model and self.restore_optimizer:
                     if "optimizer" not in checkpoint:
                         strict_resume = getattr(
                             self, "strict_resume", self.restore_optimizer
@@ -730,11 +779,11 @@ class ModelManager:
                                 lr_scheduler.load_state_dict(scheduler)
 
                 # Restore progress and provenance from the main checkpoint only.
-                if module == self.model_name:
+                if is_full_model:
                     load_progress = not self.train or getattr(
                         self, "load_training_progress", True
                     )
-                    if load_progress:
+                    if load_progress and "global_step" in checkpoint:
                         self.start_iteration = checkpoint["global_step"] + 1
                         global_epoch = checkpoint.get("global_epoch")
                         self.start_epoch = (
