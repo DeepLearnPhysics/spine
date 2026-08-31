@@ -38,7 +38,7 @@ class LArCVMetaParser(ParserBase):
     these pixel/voxel coordinates back into real world coordinates, you can use
     the output of this parser to compute it.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           meta:
@@ -128,7 +128,7 @@ class LArCVMetaParser(ParserBase):
 class LArCVRunInfoParser(ParserBase):
     """Parse run information (run, subrun, event number).
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           run_info:
@@ -194,7 +194,8 @@ class LArCVFlashParser(ParserBase):
     assumes that the trees are provided in order of the volume ID they
     correspond to.
 
-    .. code-block. yaml
+    .. code-block:: yaml
+
         schema:
           flashes:
             parser: flash
@@ -330,7 +331,8 @@ class LArCVFlashParser(ParserBase):
 class LArCVCRTHitParser(ParserBase):
     """Copy construct CRTHit and return an array of `CRTHit`.
 
-    .. code-block. yaml
+    .. code-block:: yaml
+
         schema:
           crthits:
             parser: crthit
@@ -379,7 +381,8 @@ class LArCVCRTHitParser(ParserBase):
 class LArCVTriggerParser(ParserBase):
     """Copy construct Trigger and return a `Trigger`.
 
-    .. code-block. yaml
+    .. code-block:: yaml
+
         schema:
           trigger:
             parser: trigger

@@ -1105,6 +1105,17 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["output_suffix"] == "processed"
 
 
+def test_cli_info_does_not_require_configuration(monkeypatch):
+    """Dependency diagnostics must run before a configuration is selected."""
+    calls: list[str] = []
+    monkeypatch.setattr(cli_module, "show_info", lambda: calls.append("info"))
+    monkeypatch.setattr(cli_module.sys, "argv", ["spine", "--info"])
+
+    cli_module.cli()
+
+    assert calls == ["info"]
+
+
 def test_cli_parses_mixed_source_and_source_list(monkeypatch):
     """The two source flags may coexist when values carry target names."""
     calls = []

@@ -35,6 +35,8 @@ class ChildrenProcessor(PostBase):
         mode : str, default 'shape'
             Attribute name to categorize children. This will count each child
             object for different category separately.
+        obj_type : str or sequence[str], default "particle"
+            Truth-object type or types for which children are counted
         """
         # Initialize the parent class
         super().__init__(obj_type, "truth")

@@ -14,6 +14,8 @@ weights*
 !docs/source/*.rst
 !docs/source/_templates/
 !docs/source/_templates/*.rst
+!docs/source/_templates/autosummary/
+!docs/source/_templates/autosummary/*.rst
 *.hdf5
 *.h5
 *.ipynb

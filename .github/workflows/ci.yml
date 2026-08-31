@@ -29,6 +29,9 @@ jobs:
     - name: Build warning-free documentation
       run: docs/build_docs.sh
 
+    - name: Check documentation links
+      run: make -C docs linkcheck SPHINXOPTS="-W --keep-going"
+
   test-core-dependencies:
     name: Test Core Dependencies Only
     runs-on: ubuntu-latest

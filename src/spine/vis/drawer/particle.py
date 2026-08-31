@@ -36,6 +36,8 @@ def scatter_particles(
         (P) List of true particle objects
     particle_field : str, default 'particle'
         Named particle association used to color the voxel rows.
+    markersize : float, default 1
+        Marker size used for particle points.
     **kwargs : dict, optional
         List of additional arguments to pass to plotly.graph_objs.Scatter3D that
         make up the output list

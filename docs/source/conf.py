@@ -53,6 +53,8 @@ extensions = [
     "sphinx_copybutton",
     "numpydoc",
     "spine_dataclass",
+    "spine_api_audit",
+    "spine_docs_audit",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -159,5 +161,13 @@ numpydoc_show_class_members = False
 numpydoc_class_members_toctree = False
 
 autosectionlabel_prefix_document = True
+
+# External links are checked separately in CI. Keep failures bounded and avoid
+# treating ordinary HTTPS canonicalization as a broken documentation link.
+linkcheck_timeout = 15
+linkcheck_retries = 2
+linkcheck_allowed_redirects = {
+    r"https://github\.com/DeepLearnPhysics/spine$": r"https://github\.com/DeepLearnPhysics/spine/?$",
+}
 
 master_doc = "index"

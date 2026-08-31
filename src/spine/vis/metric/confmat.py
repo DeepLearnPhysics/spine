@@ -35,6 +35,8 @@ def draw_confusion_matrix(
         Number of classes to represent
     mapping : dict, optional
         Mapping between the stored class and a redefined set of classes
+    figure_name : str, default "confmat"
+        Base name used when saving the figure.
     show_counts : bool, default False
         Show the number of entries in the contingency matrix
     class_names : list, optional

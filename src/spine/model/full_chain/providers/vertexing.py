@@ -320,7 +320,17 @@ def build_interaction_vertexing_stage(
     config: dict[str, Any],
     owner: Any,
 ) -> ChainStage:
-    """Build a non-trainable interaction vertex reduction stage."""
+    """Build a non-trainable interaction vertex reduction stage.
+
+    Parameters
+    ----------
+    name : str
+        Stage name.
+    config : dict
+        Vertex-reduction options forwarded to :class:`InteractionVertexingStage`.
+    owner : object
+        Full-chain owner, unused because the stage is non-trainable.
+    """
     del owner
     return InteractionVertexingStage(name, **config)
 

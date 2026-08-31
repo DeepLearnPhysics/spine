@@ -90,7 +90,13 @@ def decode_string_attribute(value: Any, name: str) -> str:
 
 
 def contiguous_runs(entries: np.ndarray) -> list[tuple[int, int]]:
-    """Convert ordered entry IDs into inclusive-exclusive contiguous runs."""
+    """Convert ordered entry IDs into inclusive-exclusive contiguous runs.
+
+    Parameters
+    ----------
+    entries : np.ndarray
+        Ordered file-local entry identifiers.
+    """
     if len(entries) == 0:
         return []
 

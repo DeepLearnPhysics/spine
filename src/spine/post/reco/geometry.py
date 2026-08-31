@@ -51,25 +51,16 @@ class ContainmentProcessor(PostBase):
         Parameters
         ----------
         margin : float, sequence or np.ndarray
-            Minimum distance from a detector wall to be considered contained:
-            - If float: distance buffer is shared between all 6 walls
-            - If [x,y,z]: distance is shared between pairs of walls facing
-              each other and perpendicular to a shared axis
-            - If [[x_low,x_up], [y_low,y_up], [z_low,z_up]]: distance is
-              specified individually of each wall.
+            Minimum distance from a detector wall. A scalar applies to all six
+            walls, three values apply per axis, and a ``(3, 2)`` array sets the
+            lower and upper margin on each axis independently.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
         mode : str, default 'module'
-            Containment criterion (one of 'detector', 'module', 'tpc',
-            'source' or 'meta'):
-            - If 'tpc', makes sure it is contained within a single tpc
-            - If 'module', makes sure it is contained within a single module
-            - If 'detector', makes sure it is contained within the
-              outermost walls
-            - If 'source', use the origin of voxels to determine which TPC(s)
-              contributed to them, and define volumes accordingly
-            - If 'meta', use the metadata range as a basis for containment.
-              Note that this does not guarantee containment within the detector.
+            Containment volume: ``"tpc"``, ``"module"``, ``"detector"``,
+            source-derived contributing volumes (``"source"``), or the image
+            metadata bounds (``"meta"``). Metadata bounds do not guarantee
+            physical detector containment.
         allow_multi_module : bool, default False
             If `True`, allow particles/interactions to span multiple modules
         logical : bool, default False
@@ -83,6 +74,12 @@ class ContainmentProcessor(PostBase):
             When checking interaction containment, ignore particles below the
             size (in voxel count) specified by this parameter. If specified
             as a dictionary, it maps a specific particle type to its own cut.
+        obj_type : str or sequence[str], default ("particle", "interaction")
+            Object type or types to test for containment
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used for containment checks
+        run_mode : str, default "both"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
         """
         # Initialize the parent class
         super().__init__(obj_type, run_mode, truth_point_mode)
@@ -238,22 +235,17 @@ class FiducialProcessor(PostBase):
         Parameters
         ----------
         margin : float, sequence or np.ndarray
-            Minimum distance from a detector wall to be considered contained:
-            - If float: distance buffer is shared between all 6 walls
-            - If [x,y,z]: distance is shared between pairs of walls facing
-              each other and perpendicular to a shared axis
-            - If [[x_low,x_up], [y_low,y_up], [z_low,z_up]]: distance is
-              specified individually of each wall.
+            Minimum distance from a detector wall. A scalar applies to all six
+            walls, three values apply per axis, and a ``(3, 2)`` array sets the
+            lower and upper margin on each axis independently.
         cathode_margin : float, optional
             If specified, sets a different margin for the cathode boundaries
         mode : str, default 'module'
-            Containment criterion (one of 'detector', 'module', 'tpc' or 'meta'):
-            - If 'tpc', makes sure it is contained within a single tpc
-            - If 'module', makes sure it is contained within a single module
-            - If 'detector', makes sure it is contained within the
-              outermost walls
-            - If 'meta', use the metadata range as a basis for containment.
-              Note that this does not guarantee containment within the detector.
+            Fiducial volume: ``"tpc"``, ``"module"``, ``"detector"``, or the
+            image metadata bounds (``"meta"``). Metadata bounds do not
+            guarantee physical detector containment.
+        run_mode : str, default "both"
+            Interaction collection to process: ``"reco"``, ``"truth"``, or both
         truth_vertex_mode : str, default 'vertex'
              Vertex attribute to use to check containment of true interactions
         """

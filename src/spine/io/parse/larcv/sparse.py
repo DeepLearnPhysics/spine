@@ -33,7 +33,7 @@ __all__ = [
 class LArCVSparse2DParser(ParserBase):
     """Class that retrieves and parses a 2D sparse tensor.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           input_data:
@@ -61,6 +61,8 @@ class LArCVSparse2DParser(ParserBase):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         projection_id : int
             Projection ID to get the 2D images from
         sparse_event: larcv.EventSparseTensor2D, optional
@@ -168,7 +170,7 @@ class LArCVSparse2DParser(ParserBase):
 class LArCVSparse3DParser(ParserBase):
     """Class that retrieves and parses a 3D sparse tensor.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           input_data:
@@ -205,6 +207,8 @@ class LArCVSparse3DParser(ParserBase):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         sparse_event: larcv.EventSparseTensor3D, optional
             Sparse tensor to get the voxel/features from
         sparse_event_list: List[larcv.EventSparseTensor3D], optional
@@ -447,7 +451,7 @@ class LArCVSparse3DParser(ParserBase):
 class LArCVSparse3DAggregateParser(LArCVSparse3DParser):
     """Class that aggregates features from multiple sparse tensors
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           charge_label:
@@ -466,8 +470,12 @@ class LArCVSparse3DAggregateParser(LArCVSparse3DParser):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         aggr : str
             Aggregation function to apply ('sum', 'mean', 'max', etc.)
+        **kwargs : dict, optional
+            Arguments forwarded to :class:`LArCVSparse3DParser`.
         """
         # Initialize the parent class
         super().__init__(dtype, **kwargs)
@@ -520,7 +528,7 @@ class LArCVSparse3DAggregateParser(LArCVSparse3DParser):
 class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
     """Class that convert a tensor containing semantics to binary ghost labels.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           input_rescaled:
@@ -545,6 +553,8 @@ class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         collection_only : bool, default False
             If True, only uses the collection plane charge
         collection_id : int, default 2
@@ -609,7 +619,7 @@ class LArCVSparse3DChargeRescaledParser(LArCVSparse3DParser):
 class LArCVSparse3DGhostParser(LArCVSparse3DParser):
     """Class that convert a tensor containing semantics to binary ghost labels.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           ghost_label:

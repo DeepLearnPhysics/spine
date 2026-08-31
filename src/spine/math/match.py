@@ -20,7 +20,13 @@ __all__ = [
 
 @nb.njit(cache=True)
 def intersection_size_sorted(x: np.ndarray, y: np.ndarray) -> int:
-    """Compute the size of the intersection of two sorted unique arrays."""
+    """Compute the size of the intersection of two sorted unique arrays.
+
+    Parameters
+    ----------
+    x, y : np.ndarray
+        Sorted arrays containing unique integer values.
+    """
     i = j = count = 0
     while i < len(x) and j < len(y):
         if x[i] == y[j]:

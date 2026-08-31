@@ -17,7 +17,7 @@ __all__ = ["FPN"]
 
 
 class FPN(sparse.Network):
-    """Feature pyramid network with additive lateral skip connections.
+    """Feature pyramid network with additive lateral skip connections [1]_.
 
     The configuration follows :func:`setup_cnn_configuration`. Unlike UResNet,
     which concatenates encoder and decoder features, FPN projects each encoder

@@ -332,7 +332,7 @@ class ResNetBlock(sparse.Network):
 
 
 class AtrousIIBlock(sparse.Network):
-    """Apply the two-stage atrous residual block from ACNN.
+    """Apply the two-stage atrous residual block from ACNN [1]_.
 
     The two convolutions use dilation rates one and three, respectively, to
     enlarge the receptive field without reducing spatial resolution.
@@ -432,7 +432,7 @@ class AtrousIIBlock(sparse.Network):
 
 
 class ResNeXtBlock(sparse.Network):
-    """Apply a grouped multi-path ResNeXt-style residual block.
+    """Apply a grouped multi-path ResNeXt-style residual block [1]_.
 
     Each cardinal path first projects the full input to a fraction of the
     output width, then applies ``depth`` sparse convolutions. Path outputs are
@@ -743,7 +743,7 @@ class SPP(sparse.Network):
 
 
 class ASPP(sparse.Network):
-    """Aggregate multi-scale context with atrous spatial pyramid pooling.
+    """Aggregate multi-scale context with atrous spatial pyramid pooling [1]_.
 
     The block combines a pointwise projection, parallel dilated convolutions,
     and a projected global-context branch. Their features are concatenated and
@@ -926,7 +926,7 @@ class CascadeDilationBlock(sparse.Network):
 
 
 class MBConv(sparse.Network):
-    """Apply a sparse inverted-bottleneck mobile convolution.
+    """Apply a sparse inverted-bottleneck mobile convolution [1]_.
 
     For expansion ratios greater than one, the block expands channels with a
     linear projection, applies a channel-wise sparse convolution, and projects
@@ -1158,7 +1158,7 @@ class MBResConv(sparse.Network):
 
 
 class SEBlock(sparse.Network):
-    """Reweight sparse feature channels using squeeze-and-excitation.
+    """Reweight sparse feature channels using squeeze-and-excitation [1]_.
 
     Global pooling produces one descriptor per batch entry. A two-layer
     bottleneck predicts sigmoid channel weights which are broadcast and

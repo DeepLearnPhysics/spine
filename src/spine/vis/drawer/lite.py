@@ -181,6 +181,8 @@ def scatter_lite_particles(
         Text associated with the particle trace
     showscale : bool, default False
         If True, show the colorscale of the :class:`plotly.graph_objs.Mesh3d`
+    linewidth : float, default 5.0
+        Width of line-like particle traces.
     cone_num_samples : int, default 10
         Number of samples to use for the cone mesh
     name : Union[str, List[str]], optional
@@ -410,7 +412,7 @@ def em_cone_trace(
 
     Parameters
     ----------
-    start : np.ndarray
+    start_point : np.ndarray
         (3,) Array representing the starting point of the shower.
     direction : np.ndarray
         (3,) Array representing the direction vector of the shower.
@@ -513,8 +515,10 @@ def legend_trace(
         Maximum value along the color scale
     colorscale : List[Union[str, float]], optional
         Colorscale of the legend trace
-    **kwargs : dict, optional
-        Additional parameters to pass to the plotly trace object
+    legendgroup : str, optional
+        Legend group assigned to the dummy trace.
+    name : str, optional
+        Display name of the legend entry.
 
     Returns
     -------

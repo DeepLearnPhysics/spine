@@ -114,8 +114,8 @@ def dbscan(
         Distance below which two points are considered neighbors
     min_samples : int
         Minimum number of neighbors for a point to be a core point
-    metric : str, default 'euclidean'
-        Distance metric used to compute pdist
+    metric_id : int, default METRICS["euclidean"]
+        Integer identifier of the distance metric used to compute distances.
     p : float, default 2.
         p-norm factor for the Minkowski metric, if used
 

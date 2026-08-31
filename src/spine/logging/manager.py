@@ -525,7 +525,13 @@ class LogManager:
 
 
 def get_first_entry(index: Any) -> Any:
-    """Return the first entry identifier from a scalar or sequence index."""
+    """Return the first entry identifier from a scalar or sequence index.
+
+    Parameters
+    ----------
+    index : Any
+        Scalar entry identifier or non-empty sequence of identifiers.
+    """
     if isinstance(index, (list, tuple)):
         return index[0]
     if isinstance(index, np.ndarray) and index.ndim > 0:

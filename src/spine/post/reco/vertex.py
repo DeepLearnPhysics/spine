@@ -58,6 +58,10 @@ class VertexProcessor(PostBase):
         angle_threshold : float, default 0.3 radians
             Maximum angle between the vertex-to-start-point vector and a shower
             direction to consider that a shower originated from the vertex
+        run_mode : str, default "both"
+            Interaction collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-particle coordinate attribute used for vertex reconstruction
         """
         # Initialize the parent class
         super().__init__("interaction", run_mode, truth_point_mode)

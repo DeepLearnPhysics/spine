@@ -36,7 +36,13 @@ def ppn_raw_schema() -> TensorSchema:
 
 
 def ppn_prediction_schema(endpoints: bool = False) -> TensorSchema:
-    """Return the schema of discrete post-processed point predictions."""
+    """Return the schema of discrete post-processed point predictions.
+
+    Parameters
+    ----------
+    endpoints : bool, default False
+        Include the two endpoint-score columns used for track orientation.
+    """
     fields = {
         "scores": (0, 1),
         "occupancy": (2,),
@@ -438,7 +444,7 @@ class ParticlePointPredictor:
             predict a point within one voxel of their location
         anchor_points : bool, default True
             If `True`, the point estimates are brought to the closest cluster voxel
-        enhance_track_points, default False
+        enhance_track_points : bool, default False
             If `True`, tracks leverage PPN predictions to provide a more
             accurate estimate of the end points. This needs to be avoided for
             track fragments, as PPN is typically not trained to find end points

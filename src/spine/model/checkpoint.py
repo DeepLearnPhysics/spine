@@ -309,6 +309,11 @@ def _write_checksum_sidecar(path: Path, digest: str) -> None:
 def verify_checkpoint(path: str | os.PathLike[str]) -> bool:
     """Verify a checkpoint against its adjacent SHA-256 sidecar.
 
+    Parameters
+    ----------
+    path : str or os.PathLike
+        Checkpoint artifact whose checksum should be verified.
+
     Raises
     ------
     FileNotFoundError

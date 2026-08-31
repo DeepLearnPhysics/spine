@@ -45,6 +45,10 @@ class TrackCompletenessAna(AnaBase):
             Minimum length of tracks to consider, in cm
         include_pids : Sequence[int], optional
             Particle IDs to include in the analysis
+        run_mode : str, default 'both'
+            Object collection to analyze: reconstructed, truth, or both.
+        truth_point_mode : str, default 'points'
+            Truth-particle coordinate attribute used for the diagnostic.
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """

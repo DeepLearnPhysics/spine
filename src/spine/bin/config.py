@@ -177,7 +177,15 @@ Examples:
 
 
 def cli(argv: list[str] | None = None, stream: TextIO | None = None) -> int:
-    """Run the config inspection CLI."""
+    """Run the config inspection CLI.
+
+    Parameters
+    ----------
+    argv : list[str], optional
+        Argument vector. Defaults to the process command line.
+    stream : TextIO, optional
+        Stream used for diff output. Defaults to standard output.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
     out_stream = stream or sys.stdout

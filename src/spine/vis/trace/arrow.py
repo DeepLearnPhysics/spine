@@ -55,7 +55,7 @@ def scatter_arrows(
         label per arrow.
     line : dict, optional
         Arrow trunk line property dictionary
-    linewidth : float, default 2
+    linewidth : float, default 5
         Width of the arrow trunk lines
     colorscale : str or list, optional
         Color scale used to map numeric per-arrow colors.
@@ -63,8 +63,8 @@ def scatter_arrows(
         Lower bound of the arrow color scale.
     cmax : float, optional
         Upper bound of the arrow color scale.
-    name : name
-        Name of the traces
+    name : str, optional
+        Name of the traces.
 
     Returns
     -------

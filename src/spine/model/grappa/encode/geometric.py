@@ -1,3 +1,5 @@
+"""Hand-engineered geometric node and edge encoders for GrapPA graphs."""
+
 from __future__ import annotations
 
 import numpy as np

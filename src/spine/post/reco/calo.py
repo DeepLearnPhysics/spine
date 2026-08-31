@@ -42,6 +42,12 @@ class CalorimetricEnergyProcessor(PostBase):
             Global scaling factor for the depositions (can be an expression)
         shower_fudge : float or str, default 1.
             Shower energy fudge factor (accounts for missing cluster energy)
+        obj_type : str or sequence[str], default "particle"
+            Object type or types whose calorimetric energy is reconstructed
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_dep_mode : str, default "depositions"
+            Truth-object deposition attribute to sum
         """
         # Initialize the parent class
         super().__init__(obj_type, run_mode, truth_dep_mode=truth_dep_mode)
@@ -116,6 +122,12 @@ class CalibrationProcessor(PostBase):
             ``depositions_q`` to calibrate from preserved input charge, or
             ``depositions`` to continue from previously calibrated values.
             Results are always written to ``depositions``.
+        obj_type : str or sequence[str], default ("particle", "interaction")
+            Object type or types to calibrate
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used during calibration
         **cfg : dict
             Calibration manager configuration
         """

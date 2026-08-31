@@ -236,7 +236,13 @@ def distributed_all_gather_object(obj):
 
 
 def require_torch(operation="this operation"):
-    """Raise informative error when torch is required but not available."""
+    """Raise an informative error when PyTorch is unavailable.
+
+    Parameters
+    ----------
+    operation : str, default "this operation"
+        User-facing description of the requested operation.
+    """
     if not TORCH_AVAILABLE:
         raise ImportError(
             f"PyTorch is required for {operation}. "
@@ -252,7 +258,7 @@ def create_summary_writer(log_dir, **kwargs):
     ----------
     log_dir : str
         Output directory for TensorBoard event files.
-    **kwargs
+    **kwargs : Any
         Additional keyword arguments forwarded to
         ``torch.utils.tensorboard.SummaryWriter``.
 

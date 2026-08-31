@@ -29,19 +29,15 @@ __all__ = ["NodeVertexLoss"]
 class NodeVertexLoss(torch.nn.Module):
     """Loss used to predict the position of the vertex within each interaction.
 
-    This loss formulates the problem as a node problem:
-    - Predict which nodes are primary nodes (originate from the vertex);
-    - Primary nodes predict the vertex position;
-    - The positions predicted by each primary particle are aggregated
-      downstream to form a vertex prediction for each interaction.
-
-    This loss expects 5 outputs per node:
-    - 2 for the primary identification
-    - 3 for the position regression
+    This loss treats vertex finding as a node problem. It identifies primary
+    nodes, regresses a vertex position from each primary, and lets downstream
+    code aggregate those particle-level estimates into one interaction
+    vertex. Each node therefore produces five outputs: two primary-class
+    logits and three position coordinates.
 
     For use in config:
 
-    ..  code-block:: yaml
+    .. code-block:: yaml
 
         model:
           name: grappa
@@ -51,7 +47,7 @@ class NodeVertexLoss(torch.nn.Module):
                 name: vertex
                 <dictionary of arguments to pass to the loss>
 
-    See configuration files prefixed with `grappa_` under the `config`
+    See configuration files prefixed with ``grappa_`` under the ``config``
     directory for detailed examples of working configurations.
     """
 

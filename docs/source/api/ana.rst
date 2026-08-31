@@ -32,6 +32,34 @@ configuration. Individual scripts declare their required fields through
 ``columnar_requests`` and receive projected columns plus event-boundary
 metadata through ``process_columnar``.
 
+Configurable analysis scripts
+-----------------------------
+
+Each class below can be selected by its ``name`` attribute under ``ana:``.
+Its reference page documents all constructor options and defaults.
+
+.. autosummary::
+   :toctree: generated
+
+   calib.MCSCalibAna
+   diag.GraphEdgeLengthAna
+   diag.PointCompletenessAna
+   diag.ShowerStartDEdxAna
+   diag.TrackCompletenessAna
+   metric.ClusterAna
+   metric.FlashMatchingAna
+   metric.PointProposalAna
+   metric.SegmentAna
+   script.SaveAna
+
+Framework and implementation modules
+------------------------------------
+
+.. autosummary::
+   :toctree: generated
+
+   AnaManager
+
 .. autosummary::
    :toctree: generated
 

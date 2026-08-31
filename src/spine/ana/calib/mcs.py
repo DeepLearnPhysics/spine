@@ -69,6 +69,10 @@ class MCSCalibAna(AnaBase):
         time_window : Sequence[float], optional
             Time within which the particle must occur to be used for calibration.
             This is only used with true instances to remove out-of-time objects
+        run_mode : str, default 'truth'
+            Object collection to analyze. MCS calibration normally uses truth.
+        truth_point_mode : str, default 'points'
+            Truth-particle coordinate attribute used for track segmentation.
         **kwargs : dict, optional
             Additional arguments to pass to :class:`AnaBase`
         """

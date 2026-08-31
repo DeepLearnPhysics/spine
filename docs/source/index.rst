@@ -29,9 +29,14 @@ The package is organized around the :class:`spine.driver.Driver` pipeline:
    Introduction <self>
    installation
    quickstart
+   workflows
+   operations
    pipeline
    data_model
+   configuration
    config_loader
+   troubleshooting
+   support
    api/index
 
 Getting Started

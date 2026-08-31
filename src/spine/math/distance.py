@@ -160,6 +160,8 @@ def minkowski(x: np.ndarray, y: np.ndarray, p: float) -> float:
         (3,) Coordinates of the first point
     y : np.ndarray
         (3,) Coordinates of the second point
+    p : float
+        Order of the Minkowski norm.
 
     Returns
     -------
@@ -465,6 +467,19 @@ def closest_pair_legacy(
     This preserves the historical iterative behavior, including the missing
     set switch after each closest-point update. New code should use
     :func:`closest_pair`.
+
+    Parameters
+    ----------
+    x1, x2 : np.ndarray
+        Point sets whose closest pair is requested.
+    iterative : bool, default False
+        Use the historical alternating nearest-point approximation.
+    seed : bool, default True
+        Initialize the iterative method from endpoint candidates.
+    metric_id : int, default METRICS["euclidean"]
+        Integer identifier of the distance metric.
+    p : float, default 2.0
+        Minkowski norm order when that metric is selected.
     """
     x1 = np.ascontiguousarray(x1)
     x2 = np.ascontiguousarray(x2)

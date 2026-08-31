@@ -44,9 +44,11 @@ class TrackExtremaProcessor(PostBase):
             density variation to estimate the direction.
             - ppn: uses ppn candidate predictions (classify_endpoints) to
             assign start and endpoints.
+        obj_type : str or sequence[str], default "particle"
+            Reconstructed object type or types whose extrema are assigned
         **kwargs : dict
-            Extra arguments to pass to the `check_track_orientation` or the
-            `check_track_orientation_ppn' functions
+            Extra arguments passed to ``check_track_orientation`` or
+            ``check_track_orientation_ppn``
         """
         # Initialize the parent class
         super().__init__(obj_type, "reco")

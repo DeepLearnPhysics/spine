@@ -13,12 +13,24 @@ Units: TypeAlias = Literal["cm", "px"]
 
 
 def is_single_index(index: Any) -> bool:
-    """Return ``True`` when an entry index represents a single event."""
+    """Return whether an entry index represents a single event.
+
+    Parameters
+    ----------
+    index : Any
+        Scalar or batched entry-index representation.
+    """
     return np.isscalar(index) or (isinstance(index, np.ndarray) and index.ndim == 0)
 
 
 def get_batch_size(index: Any) -> int:
-    """Return the number of entries in a batched index container."""
+    """Return the number of entries in a batched index container.
+
+    Parameters
+    ----------
+    index : Any
+        Sized entry-index sequence or array.
+    """
     if is_single_index(index):
         raise TypeError("Expected batched `index`, but received a scalar value.")
 

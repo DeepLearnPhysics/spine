@@ -13,22 +13,13 @@ class PointBreakClusterer:
     """Leverages particles start/end point positions to break up instances
     of particles which touch (vertex, secondary interaction point, etc.).
 
-    Two methods are supported: `masked_dbscan` and `closest_path`.
-
-    The masked DBSCAN method proceeds as follows:
-    - Break up the input point cloud into DBSCAN clusters
-    - For each cluster, mask out regions around the particle end points
-    - Run DBSCAN on the masked point cloud
-    - Each new instance is a particle instance
-    - Unlabeled, masked points are merged to the closest instance
-
-    The closest path method proceeds as follows:
-    - Break up the input point cloud into DBSCAN clusters
-    - For each cluster, build a radius graph on its constituents
-    - Find the closest graph paths for each pair of particle end points
-    - The paths that belong to the minimum spanning tree are particles
-    - Points from the cloud are assigned to a particle using their
-      proximity to a particle path
+    Two methods are supported: ``masked_dbscan`` and ``closest_path``.
+    Masked DBSCAN first forms coarse clusters, removes neighborhoods around
+    particle endpoints, reclusters the remaining points, and assigns masked
+    points to the nearest resulting instance. Closest path instead builds a
+    radius graph inside each coarse cluster, identifies endpoint-to-endpoint
+    paths in its minimum spanning tree, and assigns points by proximity to
+    those particle paths.
 
     The latter only works on track clusters, not on EM showers.
     """

@@ -4,6 +4,12 @@
 
 We use Sphinx to generate the documentation, and Read the Docs to host it at https://spine.readthedocs.io/latest/.
 CI and Read the Docs treat every Sphinx warning as a build failure.
+The ``spine_api_audit`` extension also fails the build when a source module is
+absent from the hand-written API index, a public top-level symbol lacks a
+docstring, or a public constructor parameter has no NumPy-style description.
+The ``spine_docs_audit`` extension additionally parses every YAML example,
+compiles every Python example, validates exact ``config/*.yaml`` references,
+and checks the syntax and local includes of all maintained configurations.
 
 ## API documentation
 
@@ -117,6 +123,13 @@ cd docs/
 
 This removes generated autosummary sources, cleans the HTML output, and runs a
 warning-strict build matching CI.
+
+CI also runs Sphinx's ``linkcheck`` builder. To run it locally:
+
+```bash
+cd docs/
+make linkcheck SPHINXOPTS="-W --keep-going"
+```
 
 ### Manual build
 

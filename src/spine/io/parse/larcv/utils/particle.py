@@ -204,6 +204,11 @@ def get_invalid_index(indexes):
     LArCV historically used :data:`INVAL_IDX` and now uses the larger
     :data:`INVAL_ID`. A value above :data:`INVAL_IDX` identifies the newer
     convention, allowing a valid historical ``INVAL_IDX`` value to be kept.
+
+    Parameters
+    ----------
+    indexes : array-like
+        Index values from one LArCV event.
     """
     return INVAL_ID if np.max(indexes, initial=-1) > INVAL_IDX else INVAL_IDX
 

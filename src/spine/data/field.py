@@ -52,12 +52,14 @@ class FieldMetadata(Mapping[str, object]):
     cat : bool, default=False
         Whether this is a concatenation attribute.
     units : str, optional
-        Physical units for the field. Common values:
-        - Fixed units: ``'MeV'``, ``'GeV'``, ``'ns'``, ``'us'``, ``'MeV/c'``
-        - Instance units: ``'instance'`` (follows the instance's units attribute)
+        Physical units for the field. Fixed units include ``'MeV'``, ``'GeV'``,
+        ``'ns'``, ``'us'`` and ``'MeV/c'``. The special value ``'instance'``
+        follows the containing instance's units attribute.
     enum : IntEnum subclass, optional
         Enumerated type for categorical fields (e.g., ``ParticlePID``).
 
+    Examples
+    --------
     >>> id: int = field(default=-1, metadata=FieldMetadata(index=True))
     >>>
     >>> # Enumerated field

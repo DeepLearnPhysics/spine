@@ -117,45 +117,101 @@ def create_tensor(duplicate_reduction: str | None = None, **kwargs: Any) -> Any:
 
 
 def concatenate(*tensors: Any) -> Any:
-    """Concatenate native tensors with a common coordinate map."""
+    """Concatenate native tensors with a common coordinate map.
+
+    Parameters
+    ----------
+    *tensors : Any
+        Native MinkowskiEngine tensors with compatible coordinates.
+    """
     return engine.cat(*tensors)
 
 
 def coordinates(tensor: Any) -> Any:
-    """Return a native tensor's batched coordinate matrix."""
+    """Return a native tensor's batched coordinate matrix.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.C
 
 
 def features(tensor: Any) -> Any:
-    """Return a native tensor's feature matrix."""
+    """Return a native tensor's feature matrix.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.F
 
 
 def tensor_stride(tensor: Any) -> tuple[int, ...]:
-    """Return a native tensor's spatial stride as a tuple."""
+    """Return a native tensor's spatial stride as a tuple.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tuple(int(value) for value in tensor.tensor_stride)
 
 
 def coordinate_map_key(tensor: Any) -> Any:
-    """Return a native tensor's coordinate-map key."""
+    """Return a native tensor's coordinate-map key.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.coordinate_map_key
 
 
 def coordinate_manager(tensor: Any) -> Any:
-    """Return a native tensor's coordinate manager."""
+    """Return a native tensor's coordinate manager.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.coordinate_manager
 
 
 def unique_index(tensor: Any) -> Any:
-    """Return indices retained during native coordinate quantization."""
+    """Return indices retained during native coordinate quantization.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.unique_index
 
 
 def inverse_mapping(tensor: Any) -> Any:
-    """Map native constructor input rows to quantized sparse sites."""
+    """Map native constructor input rows to quantized sparse sites.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    """
     return tensor.inverse_mapping
 
 
 def features_at_coordinates(tensor: Any, queries: Any) -> Any:
-    """Query native tensor features at continuous coordinates."""
+    """Query native tensor features at continuous coordinates.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native MinkowskiEngine sparse tensor.
+    queries : Any
+        Continuous batched coordinates to query.
+    """
     return tensor.features_at_coordinates(queries)

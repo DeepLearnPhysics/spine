@@ -211,11 +211,9 @@ class ParticleThresholdProcessor(PostBase):
 class ParticleNeutrinoLogicProcessor(PostBase):
     """Enforce that there is at most 1 primary lepton per interaction.
 
-    In particular:
-    - If there is no muon and the interactions with a MIP are required to have
-      one, turn one of the MIPs into a muon (and neutralize the pion score)
-    - If there are more than 1 muon per interaction, pick one muon and switch
-      other muons to pions (and neutralize the muon score)
+    If a charged-current-like interaction has MIPs but no muon, one MIP is
+    relabeled as the lepton. If multiple muons are present, one is retained and
+    the others are relabeled as pions.
     """
 
     # Name of the post-processor (as specified in the configuration)
@@ -330,6 +328,8 @@ class InteractionTopologyProcessor(PostBase):
             Which `Particle` attribute to use to apply the KE thresholds
         truth_ke_mode : str, default 'energy_deposit'
             Which `TruthParticle` attribute to use to apply the KE thresholds
+        run_mode : str, default "both"
+            Interaction collection to process: ``"reco"``, ``"truth"``, or both
         """
         # Initialize the run mode
         super().__init__("interaction", run_mode)

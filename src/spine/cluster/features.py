@@ -44,8 +44,10 @@ def get_cluster_features_batch(
         required when ``add_shape`` is enabled.
     clusts : IndexBatch
         (C) List of cluster indexes
-    max_dist : float, default -1.0
-        Neighborhood radius around the point used t compute the dE/dx
+    add_value : bool, default False
+        Append mean and RMS voxel-value features.
+    add_shape : bool, default False
+        Append the semantic shape assigned to each cluster.
 
     Returns
     -------
@@ -209,6 +211,10 @@ def get_cluster_features(
         Voxel coordinates.
     clusts : List[np.ndarray]
         (C) List of cluster indexes
+    values : np.ndarray, optional
+        Per-voxel values used to append mean and RMS features.
+    shapes : np.ndarray, optional
+        Per-voxel semantic labels used to append a cluster shape feature.
 
     Returns
     -------

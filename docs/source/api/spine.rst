@@ -19,5 +19,5 @@ The core interfaces are intentionally small:
 .. autosummary::
    :toctree: generated
 
-   driver
+   driver.Driver
    main

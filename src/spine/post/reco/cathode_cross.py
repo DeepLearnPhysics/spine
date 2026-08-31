@@ -20,11 +20,9 @@ __all__ = ["CathodeCrosserProcessor"]
 
 class CathodeCrosserProcessor(PostBase):
     """Find particles that cross the cathode of a LArTPC module that is divided
-    into two TPCs. It might manifest itself into two forms:
-    - If the particle is ~in-time, it will be a single particle, with
-      potentially a small break/offset near the cathode
-    - If the particle is significantly out-of-time, a cathode crosser will
-      be composed of two distinct reconstructed particle objects
+    into two TPCs. An approximately in-time crosser is one particle with a
+    possible break near the cathode. A significantly out-of-time crosser can
+    appear as two distinct reconstructed particles.
     """
 
     # Name of the post-processor (as specified in the configuration)
@@ -70,12 +68,13 @@ class CathodeCrosserProcessor(PostBase):
         adjust_crossers : bool, default True
             If True, shifts cathode crosser positions to match at the cathode
         adjust_method : str, default 'distance'
-            Method used to adjust the cathode crossers:
-            - 'distance': make the tracks meet at the cathode
-            - 'projection': make the y-intercepts of the two tracks match in the
-              xy and xz projection (in the least-squares sense)
-            - 'dot': Make the dot-product of the two track directions match with
-              the vector which joins the two end-points
+            Adjustment strategy. ``"distance"`` makes tracks meet at the
+            cathode; ``"projection"`` matches their intercepts in the xy and
+            xz projections; ``"dot"`` uses the track-direction dot products.
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used for cathode-crossing checks
         """
         # Initialize the parent class
         super().__init__(("particle", "interaction"), run_mode, truth_point_mode)

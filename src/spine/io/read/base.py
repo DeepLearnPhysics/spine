@@ -18,13 +18,10 @@ from spine.utils.docstring import merge_ancestor_docstrings
 class ReaderBase(ABC):
     """Parent reader class which provides common functions between all readers.
 
-    This class provides these basic functions:
-    1. Method to parse the requested file list or file list file into a list of
-       paths to existing files (throws if nothing is found)
-    2. Method to produce a list of entries in the file(s) as selected by the
-       provided parameters, checks that they exist (throws if they do not)
-    3. Essential `__len__` and `__getitem__` methods. Must define the
-       `get` function in the inheriting class for both of them to work.
+    This class resolves requested files into existing paths and validates the
+    selected entry list. It also supplies :meth:`__len__` and
+    :meth:`__getitem__`; concrete readers implement :meth:`get` to make those
+    methods operational.
 
     Attributes
     ----------
