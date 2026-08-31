@@ -1,3 +1,5 @@
+"""Multiple-Coulomb-scattering energy and angular-resolution calculations."""
+
 import numba as nb
 import numpy as np
 import scipy

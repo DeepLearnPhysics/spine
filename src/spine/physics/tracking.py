@@ -1,3 +1,5 @@
+"""Track orientation, range, and local trajectory reconstruction utilities."""
+
 import numba as nb
 import numpy as np
 from scipy.interpolate import UnivariateSpline
@@ -568,7 +570,7 @@ def get_track_spline(coordinates, segment_length, s=None):
 
     Parameters
     ----------
-    coordinatea : np.ndarray
+    coordinates : np.ndarray
         (N, 3) point cloud
     segment_length : float
         The subdivision length at which to sample points from the spline.

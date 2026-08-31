@@ -28,12 +28,9 @@ class DBSCAN(torch.nn.Module):
 
     It uses SPINE's numba-accelerated DBSCAN implementation to fragment each of
     the particle shapes into dense instances. Runs DBSCAN on each requested
-    semantic class separately, in one of three ways:
-    - Run pure DBSCAN on all the voxels in that class
-    - Runs DBSCAN on PPN point-masked voxels and then associates the
-      leftovers based on proximity to existing instances.
-    - Use a graph-based method to cluster tracks based on PPN vertices. This
-      technique can only be used on tracks.
+    semantic class separately. It can run plain DBSCAN on every voxel, run
+    DBSCAN after masking around PPN points and then attach the remaining
+    voxels, or use a graph-based track-only method based on PPN vertices.
     """
 
     def __init__(
@@ -203,12 +200,11 @@ class DBSCAN(torch.nn.Module):
         Parameters
         ----------
         data : TensorBatch
-            (N, 1 + D + N_f) Tensor of voxel/value pairs
-            - N is the the total number of voxels in the image
-            - 1 is the batch ID
-            - D is the number of dimensions in the input image
-            - N_f is 1 (charge/energy) if the clusters (`clusts`) are provided,
-              or it needs to contain cluster labels to build them on the fly
+            ``(N, 1 + D + N_f)`` tensor of voxel/value pairs, where ``N`` is
+            the total voxel count, the first column is the batch ID, ``D`` is
+            the spatial dimension, and ``N_f`` is the feature count. ``N_f``
+            may contain only charge/energy when clusters are supplied, or the
+            labels needed to build clusters on the fly.
         seg_pred : TensorBatch
             (N) Segmentation value for each data point
         coord_label : TensorBatch, optional

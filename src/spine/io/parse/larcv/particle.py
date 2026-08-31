@@ -59,7 +59,7 @@ __all__ = [
 class LArCVParticleParser(ParserBase):
     """Class which loads larcv.Particle objects to local Particle ones.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           particles:
@@ -242,7 +242,7 @@ class LArCVParticleParser(ParserBase):
 class LArCVNeutrinoParser(ParserBase):
     """Class which loads larcv.Neutrino objects to local Neutrino ones.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           neutrinos:
@@ -392,7 +392,7 @@ class LArCVParticlePointParser(ParserBase):
 
     It provides the coordinates of the end points, types and particle index.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           points:
@@ -508,7 +508,7 @@ class LArCVParticleCoordinateParser(ParserBase):
 
     It provides the coordinates of the end points, time and shape.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           coords:
@@ -616,13 +616,12 @@ class LArCVParticleCoordinateParser(ParserBase):
 class LArCVVertexPointParser(ParserBase):
     """Class that retrieves the vertices.
 
-    It provides the coordinates of points where multiple particles originate:
-    - If the `neutrino_event` is provided, it simply uses the coordinates of
-      the neutrino interaction points.
-    - If the `particle_event` is provided instead, it looks for ancestor point
-      positions shared by at least two particles.
+    It provides the coordinates of points where multiple particles originate.
+    With ``neutrino_event``, it uses the neutrino interaction points. With
+    ``particle_event`` instead, it finds ancestor positions shared by at least
+    two particles.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           vertices:
@@ -738,7 +737,7 @@ class LArCVParticleGraphParser(ParserBase):
     """Class that uses larcv.EventParticle to construct edges
     between particles (i.e. clusters).
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           graph:
@@ -854,7 +853,7 @@ class LArCVParticleGraphParser(ParserBase):
 class LArCVSingleParticlePIDParser(ParserBase):
     """Get the first true particle's species.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           image_pid:
@@ -912,7 +911,7 @@ class LArCVSingleParticlePIDParser(ParserBase):
 class LArCVSingleParticleEnergyParser(ParserBase):
     """Get the first true particle's kinetic energy.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           image_energy:

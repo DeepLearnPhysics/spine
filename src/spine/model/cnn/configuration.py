@@ -28,6 +28,8 @@ def setup_cnn_configuration(
 
     Parameters
     ----------
+    self : Any
+        CNN module on which the validated configuration is stored.
     reps : int
         Number of residual or convolutional blocks at each depth.
     depth : int

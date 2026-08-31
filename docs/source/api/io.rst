@@ -27,6 +27,14 @@ The I/O layer is organized into a few cooperating pieces:
 This is the first stage of the driver pipeline and the point where external
 detector data is mapped into SPINE's internal data structures.
 
+Manager
+-------
+
+.. autosummary::
+   :toctree: generated
+
+   manager.IOManager
+
 File Readers
 ------------
 
@@ -130,6 +138,24 @@ dataset and the mixed LArCV/HDF5 dataset.
    dataset.LArCVDataset
    dataset.HDF5Dataset
    dataset.MixedDataset
+   dataset.JointDataset
+
+Data augmentation
+-----------------
+
+These classes are selected by ``name`` in a dataset's ``augment``
+configuration.  Their class pages list the available transformation options.
+
+.. autosummary::
+   :toctree: generated
+
+   augment.AugmentManager
+   augment.CropAugment
+   augment.FlipAugment
+   augment.JitterAugment
+   augment.MaskAugment
+   augment.RotateAugment
+   augment.TranslateAugment
 
 Parsers
 -------
@@ -137,6 +163,48 @@ Parsers
 Parsers translate raw reader outputs into framework-neutral parser products.
 The HDF5 parser layer includes generic tensor, index, and object parsers for
 cached data products.
+
+The parser classes below are the values accepted by dataset ``schema``
+entries.  Their constructor signatures are the schema's configurable
+parameters.
+
+.. autosummary::
+   :toctree: generated
+
+   parse.hdf5.tensor.HDF5TensorParser
+   parse.hdf5.tensor.HDF5ClusterTensorParser
+   parse.hdf5.tensor.HDF5FeatureTensorParser
+   parse.hdf5.index.HDF5IndexParser
+   parse.hdf5.index.HDF5IndexListParser
+   parse.hdf5.index.HDF5EdgeIndexParser
+   parse.hdf5.object.HDF5ObjectParser
+   parse.hdf5.object.HDF5ObjectListParser
+   parse.hdf5.cluster.HDF5ClusterLabelParser
+   parse.larcv.misc.LArCVMetaParser
+   parse.larcv.misc.LArCVRunInfoParser
+   parse.larcv.misc.LArCVFlashParser
+   parse.larcv.misc.LArCVCRTHitParser
+   parse.larcv.misc.LArCVTriggerParser
+   parse.larcv.sparse.LArCVSparse2DParser
+   parse.larcv.sparse.LArCVSparse3DParser
+   parse.larcv.sparse.LArCVSparse3DAggregateParser
+   parse.larcv.sparse.LArCVSparse3DChargeRescaledParser
+   parse.larcv.sparse.LArCVSparse3DGhostParser
+   parse.larcv.cluster.LArCVCluster2DParser
+   parse.larcv.cluster.LArCVCluster3DParser
+   parse.larcv.cluster.LArCVCluster3DAggregateParser
+   parse.larcv.cluster.LArCVCluster3DChargeRescaledParser
+   parse.larcv.particle.LArCVParticleParser
+   parse.larcv.particle.LArCVNeutrinoParser
+   parse.larcv.particle.LArCVParticlePointParser
+   parse.larcv.particle.LArCVParticleCoordinateParser
+   parse.larcv.particle.LArCVVertexPointParser
+   parse.larcv.particle.LArCVParticleGraphParser
+   parse.larcv.particle.LArCVSingleParticlePIDParser
+   parse.larcv.particle.LArCVSingleParticleEnergyParser
+
+Parser implementation modules
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. autosummary::
    :toctree: generated
@@ -166,3 +234,18 @@ Tools for dataset preparation, augmentation, collation, and sampling.
    overlay
    unwrap
    factories
+
+Batch samplers
+~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   sample.SequentialBatchSampler
+   sample.RandomSequenceBatchSampler
+   sample.BootstrapBatchSampler
+   sample.JointSequentialBatchSampler
+   sample.JointRandomSequenceBatchSampler
+   sample.JointBootstrapBatchSampler
+   sample.DistributedProxySampler
+   collate.CollateAll

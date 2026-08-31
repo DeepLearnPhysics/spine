@@ -284,7 +284,15 @@ class SPICELossStage(ChainLossStage):
     """Route namespaced SPICE embedding outputs to its native objective."""
 
     def __init__(self, name: str, loss: SPICELoss) -> None:
-        """Initialize the SPICE loss adapter."""
+        """Initialize the SPICE loss adapter.
+
+        Parameters
+        ----------
+        name : str
+            Stage name.
+        loss : SPICELoss
+            Native SPICE objective.
+        """
         super().__init__(name)
         self.loss = loss
 
@@ -305,7 +313,15 @@ class FragmentationLossStage(ChainLossStage):
     """Combine independent learned-fragmentation objectives."""
 
     def __init__(self, name: str, stages: dict[str, ChainLossStage]) -> None:
-        """Initialize named native loss adapters."""
+        """Initialize named native loss adapters.
+
+        Parameters
+        ----------
+        name : str
+            Stage name.
+        stages : dict[str, ChainLossStage]
+            Learned fragmentation objectives keyed by implementation name.
+        """
         super().__init__(name)
         self.stages = stages
 

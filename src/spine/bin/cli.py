@@ -396,11 +396,12 @@ def cli() -> None:
         help="Show system and dependency information",
     )
 
-    # Add config file argument (-c/--config only)
+    # Configuration is required for execution, but informational commands must
+    # remain usable before a runtime or configuration has been selected.
     parser.add_argument(
         "-c",
         "--config",
-        required=True,
+        required=False,
         help="Path to the configuration file (requires torch dependencies)",
     )
 
@@ -577,6 +578,9 @@ def cli() -> None:
     if args.info:
         show_info()
         return
+
+    if args.config is None:
+        parser.error("the following arguments are required: -c/--config")
 
     config_file = args.config
 

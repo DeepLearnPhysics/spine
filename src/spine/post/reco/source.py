@@ -33,7 +33,15 @@ class SourceAssigner(PostBase):
         run_mode: str = "reco",
         truth_point_mode: str = "points",
     ) -> None:
-        """Initialize the source assigner."""
+        """Initialize the source assigner.
+
+        Parameters
+        ----------
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used when assigning sources
+        """
         # Initialize the parent class, store run mode
         super().__init__(run_mode=run_mode, truth_point_mode=truth_point_mode)
 

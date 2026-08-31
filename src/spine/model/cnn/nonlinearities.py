@@ -8,7 +8,7 @@ from spine.model import sparse
 
 
 class Mish(torch.nn.Module):
-    r"""Apply the smooth, non-monotonic Mish activation to sparse features.
+    r"""Apply the smooth, non-monotonic Mish activation to sparse features [1]_.
 
     Mish is defined element-wise as
     :math:`x \tanh(\operatorname{softplus}(x))`. Coordinates and sparse tensor

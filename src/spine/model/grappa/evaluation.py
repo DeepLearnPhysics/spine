@@ -43,7 +43,7 @@ def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
     ----------
     edge_index : EdgeIndexBatch
         (2, E) Input sparse incidence matrix (on clusters)
-    truth_edge_index : TensorBatch
+    true_edge_index : TensorBatch
         (2, E') Label sparse incidence matrix (on particles)
     part_ids : TensorBatch
         (C) Particle IDs of the clusters
@@ -316,7 +316,7 @@ def edge_assignment_from_graph(edge_index, true_edge_index, part_ids):
     ----------
     edge_index : EdgeIndexBatch
         (E, 2) Input sparse incidence matrix (on clusters)
-    truth_edge_index : TensorBatch
+    true_edge_index : TensorBatch
         (E', 2) Label sparse incidence matrix (on particles)
     part_ids : np.ndarray
         (C) Particle IDs of the clusters
@@ -351,7 +351,7 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
     edge_index : np.ndarray
         (E, 2) Input sparse incidence matrix (on clusters)
     edge_pred : np.ndarray
-        (E, 2) Logits associated with each edge
+        (E, 2) Logits associated with each edge.
     group_ids : np.ndarray
         (C) Cluster group IDs
 
@@ -448,8 +448,8 @@ def node_assignment_bipartite(
     ----------
     edge_index : np.ndarray
         (2, E) Sparse incidence matrix
-    edge_pred : np.ndarray
-        (E, 2) Logits associated with each edge
+    edge_label : np.ndarray
+        (E,) Edge score or binary label used to select the strongest link.
     primaries : np.ndarray
         (P) List of primary IDs
     num_nodes : int
@@ -515,7 +515,7 @@ def adjacency_matrix(edge_index: nb.int64[:, :], n: nb.int64) -> nb.boolean[:, :
     ----------
     edge_index : np.ndarray
         (2, E) Sparse incidence matrix
-    num_nodes : int
+    n : int
         Number of nodes in the graph, C
 
     Returns

@@ -16,6 +16,51 @@ The model package is built around configuration-driven instantiation through :cl
 .. autosummary::
    :toctree: generated
 
+   ModelManager
+   ValidationManager
+
+Top-level model configurations
+------------------------------
+
+The ``model.name`` setting selects one of the registered network/loss pairs
+below.  Their class pages expose the model-specific configuration dictionaries
+and output contracts.
+
+.. autosummary::
+   :toctree: generated
+
+   full_chain.FullChain
+   full_chain.FullChainLoss
+   graph_spice.GraphSPICE
+   graph_spice.GraphSPICELoss
+   grappa.GrapPA
+   grappa.GrapPALoss
+   image.ImageModel
+   image.ImageLoss
+   spice.SPICE
+   spice.SPICELoss
+   uresnet.UResNetSegmentation
+   uresnet.SegmentationLoss
+   uresnet.BayesianUResNet
+   uresnet.BayesianSegmentationLoss
+
+The :doc:`uresnet_ppn` page documents the registered ``uresnet_ppn`` network
+and loss without importing them during the documentation build. The
+:doc:`optional_runtime` page covers the full-chain segmentation provider and
+AdaBound optimizers, which have the same runtime constraint.
+
+.. toctree::
+   :hidden:
+
+   uresnet_ppn
+   optional_runtime
+
+Implementation modules
+----------------------
+
+.. autosummary::
+   :toctree: generated
+
    manager
    validation
    checkpoint

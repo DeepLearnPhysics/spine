@@ -46,7 +46,7 @@ __all__ = [
 class LArCVCluster2DParser(ParserBase):
     """Class that retrieves and parses a 2D cluster list.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           cluster_label:
@@ -64,6 +64,8 @@ class LArCVCluster2DParser(ParserBase):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         cluster_event : larcv.EventClusterPixel2D
             Event which contains the 2D clusters
         projection_id : int
@@ -162,7 +164,7 @@ class LArCVCluster2DParser(ParserBase):
 class LArCVCluster3DParser(ParserBase):
     """Class that retrieves and parses a 3D cluster list.
 
-    .. code-block. yaml
+    .. code-block:: yaml
 
         schema:
           cluster_label:
@@ -209,6 +211,8 @@ class LArCVCluster3DParser(ParserBase):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         particle_event : larcv.EventParticle, optional
             Legacy top-level particle input. Prefer ``particle_info``.
         add_particle_info : bool, default False
@@ -621,6 +625,8 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         sparse_value_event_list : List[larcv.EventSparseTensor3D]
             List of sparse tensors used to compute the aggregated charge
         value_aggr : str
@@ -661,6 +667,8 @@ class LArCVCluster3DAggregateParser(LArCVCluster3DParser):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         sparse_value_event_list : List[larcv.EventSparseTensor3D]
             List of sparse value tensors
         **kwargs : dict, optional
@@ -708,6 +716,8 @@ class LArCVCluster3DChargeRescaledParser(LArCVCluster3DParser):
 
         Parameters
         ----------
+        dtype : str
+            NumPy dtype used for output feature arrays.
         sparse_value_event_list : List[larcv.EventSparseTensor3D]
             (7) List of sparse tensors used to compute the rescaled charge
             - Charge value of each of the contributing planes (3)

@@ -19,6 +19,32 @@ Core interface
 Calibration implementations
 ---------------------------
 
+These are the classes accepted in a calibration chain.  Follow a class link
+to review its configurable constructor parameters and defaults; the shorter
+module links below retain the implementation-level API.
+
+.. autosummary::
+   :toctree: generated
+
+   field.FieldCalibrator
+   gain.GainCalibrator
+   lifetime.LifetimeCalibrator
+   recombination.RecombinationCalibrator
+   response.ResponseCalibrator
+   smearing.SmearingCalibrator
+   transparency.TransparencyCalibrator
+
+Supporting configuration objects
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   field.FieldMap
+
+Implementation modules
+~~~~~~~~~~~~~~~~~~~~~~
+
 .. autosummary::
    :toctree: generated
 

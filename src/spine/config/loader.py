@@ -295,14 +295,16 @@ class ConfigLoader(yaml.SafeLoader):
 
         Examples
         --------
-        model:
-          # Simple URL
-          weights: !download https://example.com/model.ckpt
+        .. code-block:: yaml
 
-          # With hash validation
-          weights: !download
-            url: https://example.com/model.ckpt
-            hash: abc123def456...  # SHA256 hash
+            model:
+              # Simple URL
+              weights: !download https://example.com/model.ckpt
+
+              # With hash validation
+              weights: !download
+                url: https://example.com/model.ckpt
+                hash: abc123def456...  # SHA256 hash
         """
         if not self._download:
             if isinstance(node, yaml.ScalarNode):

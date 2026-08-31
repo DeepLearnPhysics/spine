@@ -167,22 +167,17 @@ def cluster_direction(
 ) -> np.ndarray:
     """Estimates the orientation of a cluster.
 
-    It follows the following procedure:
-    - By default, it takes the normalized mean direction from the cluster
-      start point to the cluster voxels
-    - If `max_dist` is specified, it restricts the cluster voxels
-      to those within a `max_dist` radius from the start point
-    - If `optimize` is True, it selects the neighborhood which
-      minimizes the transverse spread w.r.t. the direction
+    By default, this is the normalized mean direction from the cluster start
+    to its voxels. A positive ``max_dist`` restricts the estimate to a local
+    neighborhood. With ``optimize=True``, the function selects the
+    neighborhood that minimizes transverse spread about the direction.
 
     Parameters
     ----------
     voxels : np.ndarray
         (N, 3) Voxel coordinates
-    starts : np.ndarray
-        (C, 3) Start points w.r.t. which to estimate the direction
-    clusts : List[np.ndarray]
-        (C) List of cluster indexes
+    start : np.ndarray
+        ``(3,)`` point from which to estimate the direction.
     max_dist : float, default -1.0
         Neighborhood radius around the point used to estimate the direction
     optimize : bool, default False
@@ -356,6 +351,8 @@ def cluster_dedx(
     max_dist : float, default 5.0
         Neighborhood radius around the point used to compute the dE/dx
     anchor : bool, default False
+        If true, project the start point onto the cluster before measuring.
+    anchor : bool, default False
         If true, anchor the start point to the closest cluster point
 
     Returns
@@ -415,6 +412,8 @@ def cluster_dedx_dir(
         (3) Start direction of the cluster
     max_dist : float, default 5.0
         Neighborhood radius around the point used to compute the dE/dx
+    anchor : bool, default False
+        Project the supplied start point onto the cluster before measuring.
 
     Returns
     -------

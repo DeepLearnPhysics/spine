@@ -1,3 +1,5 @@
+"""Interaction-vertex reconstruction from particle endpoints and directions."""
+
 import numba as nb
 import numpy as np
 
@@ -292,6 +294,8 @@ def get_weighted_pseudovertex(
         (P, 3) Particle start points
     directions : np.ndarray
         (P, 3) Particle directions
+    weights : np.ndarray
+        (P,) Relative contribution of each particle line.
     dim : int
         Number of dimensions
     """

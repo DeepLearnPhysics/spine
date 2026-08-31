@@ -51,8 +51,8 @@ The command-line executable uses the same path:
 
 Command-line input, output, checkpoint, and ``--set`` options override the
 corresponding configuration values before the driver is constructed. See
-:doc:`config_loader` for the configuration language and :doc:`quickstart` for
-container commands.
+:doc:`configuration` for the block-to-API map, :doc:`config_loader` for the
+configuration language, and :doc:`quickstart` for container commands.
 
 Choosing An API Level
 ---------------------

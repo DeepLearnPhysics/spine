@@ -37,6 +37,14 @@ class PIDTemplateProcessor(PostBase):
         ----------
         fill_per_pid : bool, default False
             If `True`, stores the scores associated with each PID candidate
+        obj_type : str or sequence[str], default "particle"
+            Object type or types to identify
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used by the template fitter
+        truth_dep_mode : str, default "depositions"
+            Truth-object deposition attribute used by the template fitter
         **identifier : dict, optional
             Particle template identifier configuration parameters
         """

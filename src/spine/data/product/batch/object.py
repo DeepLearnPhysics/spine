@@ -24,6 +24,11 @@ class ObjectListBatch(list[ObjectListData]):
     def __init__(self, entries: Iterable[ObjectListData]) -> None:
         """Initialize the batch from event-level object-list products.
 
+        Parameters
+        ----------
+        entries : iterable[ObjectListData]
+            One typed object list per event.
+
         Raises
         ------
         TypeError

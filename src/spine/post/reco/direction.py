@@ -43,6 +43,12 @@ class DirectionProcessor(PostBase):
             Radius around the start voxel to include in the direction estimate
         optimize : bool, default True
             Optimize the number of points involved in the direction estimate
+        obj_type : str or sequence[str], default "particle"
+            Object type or types whose directions are reconstructed
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used for direction estimation
+        run_mode : str, default "both"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
         """
         # Initialize the parent class
         super().__init__(obj_type, run_mode, truth_point_mode)

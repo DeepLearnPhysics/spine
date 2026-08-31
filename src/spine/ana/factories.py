@@ -31,9 +31,6 @@ def ana_script_factory(
         Name of the analyzer module
     cfg : dict
         Analysis script module configuration
-    parent_path : str
-        Path to the parent directory of the main analysis configuration. This
-        allows for the use of relative paths in the analyzers.
     overwrite : bool, optional
         If `True`, overwrite the CSV logs if they already exist
     log_dir : str, optional

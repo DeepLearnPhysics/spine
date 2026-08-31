@@ -66,7 +66,7 @@ class RecombinationCalibrator:
         mip_dedx : float, default 2.105168
             Mean dE/dx value of a MIP in LAr. Used to apply a flat recombination
             correction if the local dE/dx is not evaluated through tracking.
-        track_mode : float, default 'bin_pca'
+        tracking_mode : str, default 'bin_pca'
             If tracking is done to produce local dQ/dx values along tracks,
             defines the track chunking method to be used.
         **kwargs : dict, optional

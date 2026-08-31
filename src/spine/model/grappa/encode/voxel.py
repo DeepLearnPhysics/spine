@@ -143,7 +143,15 @@ def get_voxel_features_batch(data: TensorBatch, max_dist: float = 5.0) -> Tensor
 
 @numbafy(cast_args=["voxels"], keep_torch=True, ref_arg="voxels")
 def get_voxel_features(voxels: np.ndarray, max_dist: float = 5.0) -> np.ndarray:
-    """Compute 16 local geometric features for each input voxel."""
+    """Compute 16 local geometric features for each input voxel.
+
+    Parameters
+    ----------
+    voxels : np.ndarray
+        (N, 3) voxel-coordinate matrix.
+    max_dist : float, default 5.0
+        Open radius defining each local neighborhood.
+    """
     if max_dist <= 0.0:
         raise ValueError("`max_dist` must be positive.")
     return _get_voxel_features(voxels, max_dist)
@@ -198,7 +206,13 @@ class VoxelGeoNodeEncoder(torch.nn.Module):
     feature_size = 16
 
     def __init__(self, max_dist: float = 5.0) -> None:
-        """Initialize the voxel neighborhood radius."""
+        """Initialize the voxel neighborhood radius.
+
+        Parameters
+        ----------
+        max_dist : float, default 5.0
+            Radius within which local voxel geometry is summarized.
+        """
         super().__init__()
         if max_dist <= 0.0:
             raise ValueError("`max_dist` must be positive.")

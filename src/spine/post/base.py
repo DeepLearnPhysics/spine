@@ -102,6 +102,9 @@ class PostBase(ABC):
             If specified, tells which attribute of the :class:`TruthFragment`,
             :class:`TruthParticle` or :class:`TruthInteraction` object to use
             to fetch its depositions
+        pid_mode : str, optional
+            Particle-identification attribute used by processors that consume
+            PID values. Supported modes are "pid" and "chi2_pid".
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration. This
             allows for the use of relative paths in the post-processors.

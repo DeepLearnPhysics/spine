@@ -63,7 +63,9 @@ def adjusted_rand_score(labels_true, labels_pred):
     Notes
     -----
     This implementation uses a fast numba-compiled algorithm that avoids
-    constructing the full pairwise similarity matrix.
+    constructing the full pairwise similarity matrix. The adjusted index is
+    defined by Hubert and Arabie [1]_; a concise overview is also available
+    online [2]_.
 
     References
     ----------
@@ -211,7 +213,8 @@ def adjusted_mutual_info_score(labels_true, labels_pred):
     -----
     This implementation uses a fast numba-compiled algorithm that computes
     the hypergeometric expected mutual information directly from the
-    contingency table.
+    contingency table. It follows the chance-corrected formulation described
+    by Vinh, Epps, and Bailey [1]_; see also the concise overview [2]_.
 
     References
     ----------

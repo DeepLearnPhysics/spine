@@ -212,7 +212,12 @@ Next Steps
 ----------
 
 - Review :doc:`installation` for the runtime options and tradeoffs
+- Follow :doc:`workflows` for training, inference, full reconstruction, and resume
+- Use :doc:`operations` before qualifying or scaling a production campaign
 - Read :doc:`pipeline` for the ownership and execution boundaries
 - Read :doc:`data_model` before consuming reconstructed and truth objects
-- Explore :doc:`config_loader` to understand SPINE configuration files
+- Use :doc:`configuration` to map each YAML block to its accepted parameters
+- Explore :doc:`config_loader` for includes, overrides, and path handling
+- Start with :doc:`troubleshooting` when a production run fails
+- Read :doc:`support` for API stability and compatibility boundaries
 - Browse the API reference for the pipeline stage you are modifying or using

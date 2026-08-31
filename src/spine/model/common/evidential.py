@@ -279,7 +279,7 @@ def evd_loss_factory(
 
 
 class EVDLoss(torch.nn.Module):
-    """Compute annealed evidential classification loss.
+    """Compute annealed evidential classification loss [1]_.
 
     References
     ----------

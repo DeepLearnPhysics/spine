@@ -89,6 +89,14 @@ class MCSEnergyProcessor(PostBase):
             Only run the algorithm on particles that are not contained
         angle_method : str, default 'atan2'
             Angular reconstruction method
+        obj_type : str or sequence[str], default "particle"
+            Object type or types whose energy is reconstructed
+        run_mode : str, default "both"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used for track segmentation
+        pid_mode : str, default "pid"
+            Particle-ID attribute used to select the mass hypothesis
         **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
         """

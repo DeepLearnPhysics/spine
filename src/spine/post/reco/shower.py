@@ -67,6 +67,12 @@ class ShowerParametricEnergyProcessor(PostBase):
             longitudinal profile.
         mode : str, default "module"
             Geometry mode for the shower energy fitter.
+        run_mode : str, default "reco"
+            Particle collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-particle coordinate attribute used by the fitter
+        truth_dep_mode : str, default "depositions"
+            Truth-particle deposition attribute used by the fitter
         """
         # Initialize the parent class
         super().__init__(
@@ -175,13 +181,10 @@ class ShowerConversionDistanceProcessor(PostBase):
         Parameters
         ----------
         mode : str, default 'vertex'
-            Method used to compute the conversion distance:
-            - 'vertex_to_start': Distance between the vertex and the predicted
-               shower start point.
-            - 'vertex_to_points': Shortest distance between the vertex and any
-              shower point.
-            - 'protons_to_points': Distance between any proton/pion point and
-              any shower point.
+            Distance definition. ``"vertex_to_start"`` uses the predicted
+            shower start; ``"vertex_to_points"`` uses the closest shower
+            point; ``"protons_to_points"`` uses the closest proton/pion and
+            shower points.
         include_secondary : bool, default False
             If `True`, computes the conversion distance for secondary particles
         """

@@ -90,7 +90,13 @@ def extract_metadata(
 
 
 def extract_modifier(metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Extract the identity and provenance used to compose a modifier."""
+    """Extract the identity and provenance used to compose a modifier.
+
+    Parameters
+    ----------
+    metadata : dict
+        Validated configuration metadata.
+    """
     if metadata.get(META_KIND) != "mod" or not metadata.get(META_NAME):
         return None
 
@@ -350,6 +356,13 @@ def check_modifier_conflicts(
 
     Conflict declarations are intentionally checked in both directions so a
     declaration only needs to appear on one of the two modifiers.
+
+    Parameters
+    ----------
+    existing_modifiers : list[dict]
+        Modifiers already present in the composed configuration.
+    included_modifiers : list[dict]
+        Modifiers introduced by the included configuration subtree.
     """
     for existing in existing_modifiers:
         for included in included_modifiers:

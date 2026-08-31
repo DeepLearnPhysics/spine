@@ -46,6 +46,14 @@ class CSDAEnergyProcessor(PostBase):
             Particle species to compute the kinetic energy for
         fill_per_pid : bool, default False
             If `True`, compute the CSDA KE estimate under all PID assumptions
+        obj_type : str or sequence[str], default "particle"
+            Object type or types whose energy is reconstructed
+        run_mode : str, default "both"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-object coordinate attribute used to measure range
+        pid_mode : str, default "pid"
+            Particle-ID attribute used to select the range table
         **kwargs : dict, optional
             Additional arguments to pass to the tracking algorithm
         """

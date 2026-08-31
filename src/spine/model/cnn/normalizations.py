@@ -8,7 +8,7 @@ from spine.model import sparse
 
 
 class PixelNorm(torch.nn.Module):
-    r"""Normalize each sparse site's feature vector to unit length.
+    r"""Normalize each sparse site's feature vector to unit length [1]_.
 
     For a feature vector :math:`x_i`, this layer returns
     :math:`x_i / \sqrt{\sum_j x_{ij}^2 + \epsilon}`. It has no trainable
@@ -64,7 +64,7 @@ class PixelNorm(torch.nn.Module):
 
 
 class AdaIN(torch.nn.Module):
-    """Apply adaptive instance normalization to sparse feature channels.
+    """Apply adaptive instance normalization to sparse feature channels [1]_.
 
     The feature matrix is normalized independently by channel over all active
     sparse sites, then transformed with externally assignable scale and bias

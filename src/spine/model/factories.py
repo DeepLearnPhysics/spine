@@ -28,7 +28,13 @@ def model_names() -> tuple[str, ...]:
 
 
 def model_spec(name: str) -> ModelSpec:
-    """Load the specification for one supported model lazily."""
+    """Load the specification for one supported model lazily.
+
+    Parameters
+    ----------
+    name : str
+        Registered model name.
+    """
 
     if name not in _MODEL_MODULES:
         valid_names = ", ".join(model_names())
@@ -56,7 +62,13 @@ def model_spec(name: str) -> ModelSpec:
 
 
 def model_factory(name: str) -> tuple[type[Any], type[Any] | None]:
-    """Return the network and loss classes associated with a model name."""
+    """Return the network and loss classes associated with a model name.
+
+    Parameters
+    ----------
+    name : str
+        Registered model name.
+    """
 
     spec = model_spec(name)
     return spec.network, spec.loss

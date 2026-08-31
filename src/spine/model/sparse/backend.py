@@ -109,40 +109,90 @@ def concatenate(*tensors: Any) -> Any:
 
 
 def coordinates(tensor: Any) -> Any:
-    """Return the coordinate matrix of a native sparse tensor."""
+    """Return the coordinate matrix of a native sparse tensor.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().coordinates(tensor)
 
 
 def features(tensor: Any) -> Any:
-    """Return the feature matrix of a native sparse tensor."""
+    """Return the feature matrix of a native sparse tensor.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().features(tensor)
 
 
 def tensor_stride(tensor: Any) -> tuple[int, ...]:
-    """Return the spatial stride of a native sparse tensor."""
+    """Return the spatial stride of a native sparse tensor.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().tensor_stride(tensor)
 
 
 def coordinate_map_key(tensor: Any) -> Any:
-    """Return the coordinate-map key of a native sparse tensor."""
+    """Return the coordinate-map key of a native sparse tensor.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().coordinate_map_key(tensor)
 
 
 def coordinate_manager(tensor: Any) -> Any:
-    """Return the coordinate manager of a native sparse tensor."""
+    """Return the coordinate manager of a native sparse tensor.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().coordinate_manager(tensor)
 
 
 def unique_index(tensor: Any) -> Any:
-    """Return input-row indices retained by backend quantization."""
+    """Return input-row indices retained by backend quantization.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().unique_index(tensor)
 
 
 def inverse_mapping(tensor: Any) -> Any:
-    """Map original input rows to backend sparse sites."""
+    """Map original input rows to backend sparse sites.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    """
     return adapter().inverse_mapping(tensor)
 
 
 def features_at_coordinates(tensor: Any, queries: Any) -> Any:
-    """Query native sparse features at continuous coordinates."""
+    """Query native sparse features at continuous coordinates.
+
+    Parameters
+    ----------
+    tensor : Any
+        Native sparse tensor.
+    queries : Any
+        Continuous batched coordinates to query.
+    """
     return adapter().features_at_coordinates(tensor, queries)

@@ -72,6 +72,12 @@ class FlashMatchProcessor(PostBase):
         max_cathode_offset : float, optional
             If specified, only match cathode-crossing interactions which are
             offset from the cathode less than this threshold
+        run_mode : str, default "reco"
+            Interaction collection to process: ``"reco"``, ``"truth"``, or both
+        truth_point_mode : str, default "points"
+            Truth-interaction coordinate attribute used for matching
+        truth_dep_mode : str, default "depositions"
+            Truth-interaction deposition attribute used for light prediction
         parent_path : str, optional
             Path to the parent directory of the main analysis configuration.
             This allows for the use of relative paths in the post-processors.
@@ -177,24 +183,13 @@ class FlashMatchProcessor(PostBase):
 
         Notes
         -----
-        This post-processor modifies the list of `interaction` objects
-        in-place by filling the following attributes:
-        - interaction.is_flash_matched: (bool)
-               Indicator for whether the given interaction has a flash match
-        - interaction.flash_ids: np.ndarray
-               The flash IDs in the flash list
-        - interaction.flash_volume_ids: np.ndarray
-               The flash optical volume IDs in the flash list
-        - interaction.flash_times: np.ndarray
-               The flash time(s) in microseconds
-        - interaction.flash_scores: np.ndarray
-               The flash scores(s) (larger is better)
-        - interaction.flash_total_pe: float
-               Total number of PEs associated with the matched flash(es)
-        - interaction.flash_hypo_pe: float, optional
-               Total number of PEss associated with the hypothesis flash
-        - interaction.flash_hypothesis_ids: np.ndarray, optional
-               IDs of stored per-channel optical hypotheses
+        This post-processor updates each ``interaction`` in place. Match state,
+        identifiers, optical-volume identifiers, times, and scores are stored
+        in ``is_flash_matched``, ``flash_ids``, ``flash_volume_ids``,
+        ``flash_times`` and ``flash_scores``. It also fills ``flash_total_pe``.
+        When hypotheses are requested, ``flash_hypo_pe`` and
+        ``flash_hypothesis_ids`` hold their total PE and stored per-channel
+        hypothesis identifiers.
         """
         # Fetch the optical flashes
         flashes = data[self.flash_key]

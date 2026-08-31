@@ -72,8 +72,8 @@ class ModelManager:
             Path to a text file containing a list of weight file paths to load
         to_numpy : int, default False
             Cast model output to numpy ndarray
-        time_dependant_loss : bool, default False
-            Handles time-dependant loss, such as KL divergence annealing
+        time_dependent_loss : bool, default False
+            Handle time-dependent loss terms such as KL-divergence annealing.
         train : dict, default None
             Training regimen configuration
         dtype : str, default 'float32'

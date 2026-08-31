@@ -118,6 +118,21 @@ def get_inference_cfg(
 
     New code should load configurations through :mod:`spine.config` and call
     :func:`to_inference_config` directly.
+
+    Parameters
+    ----------
+    cfg : mapping, str or pathlib.Path
+        Configuration mapping or path to a YAML configuration.
+    file_keys : str or list[str], optional
+        Replacement input files.
+    weight_path : str, optional
+        Model checkpoint or checkpoint pattern.
+    batch_size : int, optional
+        Global inference batch size.
+    num_workers : int, optional
+        Number of loader worker processes.
+    cpu : bool, default False
+        Request CPU execution.
     """
     warn(
         "`get_inference_cfg` is deprecated; use `to_inference_config`.",

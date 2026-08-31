@@ -72,6 +72,8 @@ class BuildManager:
             Build/load RecoInteraction/TruthInteraction objects
         mode : str, default 'both'
             Whether to construct reconstructed objects, true objects or both
+        units : str, default 'cm'
+            Coordinate units assigned to the constructed objects.
         sources : Dict[str, str], optional
             Dictionary which maps the necessary data products onto a name
             in the input/output dictionary of the reconstruction chain.

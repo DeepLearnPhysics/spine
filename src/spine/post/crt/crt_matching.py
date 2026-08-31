@@ -34,6 +34,8 @@ class CRTMatchProcessor(PostBase):
         ----------
         crt_key : str
             Data product key which provides the CRT information
+        run_mode : str, default "reco"
+            Object collection to process: ``"reco"``, ``"truth"``, or both
         **kwargs : dict
             Keyword arguments to pass to the CRT-TPC matching algorithm
         """
@@ -57,14 +59,10 @@ class CRTMatchProcessor(PostBase):
 
         Notes
         -----
-        This post-processor modifies the list of `particle` objects
-        in-place by filling the following attributes:
-        - particle.is_crt_matched: (bool)
-               Indicator for whether the given particle has a CRT hit match
-        - particle.crt_ids: np.ndarray
-               The CRT hit IDs in the CRT hit list
-        - particle.crt_times: np.ndarray
-               The CRT hit time(s) in microseconds
+        This post-processor updates each ``particle`` in place. It sets
+        ``is_crt_matched`` to indicate whether a match exists, stores matched
+        hit identifiers in ``crt_ids``, and stores their times in microseconds
+        in ``crt_times``.
         """
         # Fetch the CRT hits, nothing to do here if there are none
         crthits = data[self.crt_key]
