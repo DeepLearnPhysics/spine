@@ -22,6 +22,7 @@ from spine.model.full_chain.config import build_chain_plan
 from spine.model.full_chain.label import ClusterLabelAdapter
 from spine.model.full_chain.ops import AggregationOperations
 from spine.model.full_chain.providers.aggregation import (
+    CompositeLossStage,
     GrapPALossStage,
     InteractionAggregationStage,
     ParticleAggregationStage,
@@ -1478,6 +1479,55 @@ def test_aggregation_builders_validate_modes_and_loss_mappings(monkeypatch) -> N
             },
             owner,
         )
+
+
+def test_particle_aggregation_loss_uses_one_stage_namespace(monkeypatch) -> None:
+    """Composite child names should not repeat the parent stage namespace."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self, _config):
+            super().__init__()
+
+        def forward(self, **_data):
+            marker = object()
+            return {
+                "loss": torch.tensor(1.0),
+                "accuracy": 1.0,
+                "num_losses": 1,
+                "node_target": marker,
+                "node_valid": marker,
+            }
+
+    monkeypatch.setattr(
+        "spine.model.full_chain.providers.aggregation.GrapPALoss",
+        Loss,
+    )
+    owner = torch.nn.Module()
+    stage = build_particle_aggregation_loss(
+        "particle_aggregation",
+        {
+            "loss": {
+                "shower": {"node_loss": {}},
+                "track": {"node_loss": {}},
+            }
+        },
+        owner,
+    )
+    assert isinstance(stage, CompositeLossStage)
+    assert [child.name for child in stage.stages] == ["shower", "track"]
+
+    loss = object.__new__(FullChainLoss)
+    torch.nn.Module.__init__(loss)
+    loss.stages = [stage]
+    result = loss(clust_label=make_cluster_label())
+
+    assert "particle_aggregation_shower_node_target" in result
+    assert "particle_aggregation_shower_node_valid" in result
+    assert "particle_aggregation_track_node_target" in result
+    assert "particle_aggregation_track_node_valid" in result
+    assert not any(
+        key.startswith("particle_aggregation_particle_aggregation_") for key in result
+    )
 
 
 def test_full_chain_loss_aggregates_and_validates_stage_results() -> None:

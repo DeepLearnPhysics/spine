@@ -610,7 +610,8 @@ def build_particle_aggregation_loss(
             raise TypeError(f"GrapPA `{path}` loss must be a mapping.")
         loss = GrapPALoss(loss_config)
         owner.add_module(f"grappa_{path}_loss", loss)
-        stages.append(GrapPALossStage(f"{name}_{path}", prefixes[path], loss))
+        # The enclosing full-chain loss supplies the parent stage namespace.
+        stages.append(GrapPALossStage(path, prefixes[path], loss))
     if not stages:
         return None
     return CompositeLossStage(name, stages)
