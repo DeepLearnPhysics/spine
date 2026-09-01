@@ -140,9 +140,9 @@ def restore_rng_state(state):
 
     # CUDA state is process-local, hence each distributed rank restores its own.
     if TORCH_AVAILABLE and "torch" in state:
-        torch.set_rng_state(state["torch"])
+        torch.set_rng_state(state["torch"].detach().cpu())
     if TORCH_AVAILABLE and "cuda" in state and torch.cuda.is_available():
-        torch.cuda.set_rng_state(state["cuda"])
+        torch.cuda.set_rng_state(state["cuda"].detach().cpu())
 
 
 def manual_seed(seed):

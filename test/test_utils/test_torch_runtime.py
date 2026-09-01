@@ -29,6 +29,49 @@ def test_rng_state_round_trip_restores_python_and_numpy():
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is not installed")
+def test_rng_state_restore_normalizes_tensors_to_cpu(monkeypatch):
+    """Device-mapped checkpoint RNG tensors must be moved back to CPU."""
+
+    class DeviceMappedState:
+        def __init__(self, cpu_state):
+            self.cpu_state = cpu_state
+            self.detached = False
+
+        def detach(self):
+            self.detached = True
+            return self
+
+        def cpu(self):
+            assert self.detached
+            return self.cpu_state
+
+    state = runtime.capture_rng_state()
+    torch_cpu_state = object()
+    cuda_cpu_state = object()
+    torch_state = DeviceMappedState(torch_cpu_state)
+    cuda_state = DeviceMappedState(cuda_cpu_state)
+    state["torch"] = torch_state
+    state["cuda"] = cuda_state
+
+    restored = {}
+    monkeypatch.setattr(
+        runtime.torch, "set_rng_state", lambda value: restored.update(torch=value)
+    )
+    monkeypatch.setattr(runtime.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        runtime.torch.cuda,
+        "set_rng_state",
+        lambda value: restored.update(cuda=value),
+    )
+
+    runtime.restore_rng_state(state)
+
+    assert torch_state.detached
+    assert cuda_state.detached
+    assert restored == {"torch": torch_cpu_state, "cuda": cuda_cpu_state}
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is not installed")
 def test_cdist_fast_supports_declared_metrics():
     """The shared tensor distance helper must implement its stated contract."""
     first = torch.tensor([[0.0, 0.0], [1.0, 2.0]])
