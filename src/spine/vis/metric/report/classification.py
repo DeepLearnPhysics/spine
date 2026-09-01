@@ -18,7 +18,23 @@ PRIMARY_LABELS = {0: "Secondary", 1: "Primary"}
 
 
 def _canonical_labels(kind: str) -> Mapping[int, str]:
-    """Return the canonical integer-to-display-label map for one class kind."""
+    """Return the canonical integer-to-display-label map for one class kind.
+
+    Parameters
+    ----------
+    kind : str
+        Classification domain: ``shape``, ``pid`` or ``primary``.
+
+    Returns
+    -------
+    mapping of int to str
+        Canonical SPINE display labels indexed by class ID.
+
+    Raises
+    ------
+    ValueError
+        If ``kind`` is not a supported classification domain.
+    """
     if kind == "shape":
         return SHAPE_LABELS
     if kind == "pid":
@@ -29,7 +45,22 @@ def _canonical_labels(kind: str) -> Mapping[int, str]:
 
 
 def _aliases(kind: str) -> dict[str, int]:
-    """Build case-insensitive enum and display-label aliases."""
+    """Build case-insensitive enum and display-label aliases.
+
+    Both enum member names (for example ``lowe``) and display labels (for
+    example ``low_energy``) are accepted. The aliases are normalized to lower
+    case with underscores.
+
+    Parameters
+    ----------
+    kind : str
+        Classification domain passed to :func:`_canonical_labels`.
+
+    Returns
+    -------
+    dict
+        Normalized aliases mapped to integer class IDs.
+    """
     labels = _canonical_labels(kind)
     aliases = {
         label.lower().replace(" ", "_"): class_id
@@ -57,7 +88,25 @@ def _aliases(kind: str) -> dict[str, int]:
 
 
 def class_id(value: int | str, kind: str) -> int:
-    """Resolve an integer ID or canonical class name to an integer ID."""
+    """Resolve an integer ID or canonical class name to an integer ID.
+
+    Parameters
+    ----------
+    value : int or str
+        Numeric class ID, enum member name or canonical display label.
+    kind : str
+        Classification domain used to interpret a string value.
+
+    Returns
+    -------
+    int
+        Resolved class ID.
+
+    Raises
+    ------
+    ValueError
+        If a string does not identify a known class.
+    """
     if isinstance(value, (int, np.integer)):
         return int(value)
     normalized = str(value).strip().lower().replace(" ", "_")
@@ -68,7 +117,23 @@ def class_id(value: int | str, kind: str) -> int:
 
 
 def infer_class_kind(column: str) -> str:
-    """Infer shape, PID, or primary classes from a save-record column name."""
+    """Infer shape, PID, or primary classes from a save-record column name.
+
+    Parameters
+    ----------
+    column : str
+        Truth-column name produced by the save analyzer.
+
+    Returns
+    -------
+    str
+        One of ``shape``, ``pid`` or ``primary``.
+
+    Raises
+    ------
+    ValueError
+        If the column suffix does not identify a supported class domain.
+    """
     if column.endswith("_shape"):
         return "shape"
     if column.endswith("_pid"):
@@ -92,6 +157,30 @@ def resolve_class_groups(
     ``class_mapping`` maps each requested display label to one or more source
     classes. The two options are mutually exclusive. The legacy
     ``class_names`` option remains accepted as a display-label override.
+
+    Parameters
+    ----------
+    config : mapping
+        Recipe or task configuration containing optional ``classes``,
+        ``class_mapping`` and ``class_names`` entries.
+    kind : str
+        Classification domain used to resolve source values.
+    default_ids : sequence of int
+        Source class IDs used when no restriction or mapping is configured.
+
+    Returns
+    -------
+    list of dict
+        Ordered report groups. Each entry contains a display ``name`` and the
+        list of raw ``source_ids`` pooled into that group.
+
+    Raises
+    ------
+    TypeError
+        If a class selection or mapping has the wrong container type.
+    ValueError
+        If options conflict, a group is empty, a source class is duplicated,
+        or a negative sentinel class is requested.
     """
     classes = config.get("classes")
     class_mapping = config.get("class_mapping")
@@ -117,6 +206,8 @@ def resolve_class_groups(
                 }
             )
     else:
+        # A class restriction is represented as one report group per source
+        # class. This keeps downstream aggregation independent of config mode.
         if classes is not None and (
             isinstance(classes, (str, bytes)) or not isinstance(classes, Sequence)
         ):
@@ -153,7 +244,23 @@ def map_class_values(
     values: np.ndarray,
     groups: Sequence[Mapping[str, Any]],
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Map raw categorical values onto report groups and return validity."""
+    """Map raw categorical values onto report groups and return validity.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Raw integer values read from a save-record column.
+    groups : sequence of mappings
+        Class groups returned by :func:`resolve_class_groups`.
+
+    Returns
+    -------
+    mapped : np.ndarray
+        Zero-based report-group indices. Values outside all configured groups
+        are assigned ``-1``.
+    valid : np.ndarray
+        Boolean mask selecting values represented by the report groups.
+    """
     mapped = np.full(len(values), -1, dtype=np.int64)
     for target, group in enumerate(groups):
         mapped[np.isin(values, group["source_ids"])] = target
@@ -164,7 +271,29 @@ def aggregate_confusion(
     matrix: np.ndarray,
     groups: Sequence[Mapping[str, Any]],
 ) -> np.ndarray:
-    """Aggregate a raw confusion matrix over selected or mapped classes."""
+    """Aggregate a raw confusion matrix over selected or mapped classes.
+
+    The input and output matrices use predicted class on axis 0 and true
+    class on axis 1. Restricting classes drops counts outside the requested
+    groups; mapping pools every Cartesian pair of source groups.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Square raw confusion-count matrix.
+    groups : sequence of mappings
+        Ordered class groups returned by :func:`resolve_class_groups`.
+
+    Returns
+    -------
+    np.ndarray
+        Square confusion-count matrix in report-group order.
+
+    Raises
+    ------
+    ValueError
+        If a configured source ID exceeds the raw matrix dimensions.
+    """
     size = len(matrix)
     output = np.zeros((len(groups), len(groups)), dtype=np.int64)
     for prediction, prediction_group in enumerate(groups):

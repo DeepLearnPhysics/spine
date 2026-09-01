@@ -16,7 +16,17 @@ import numpy as np
 
 
 def plotting():
-    """Return ``matplotlib.pyplot`` configured for non-interactive jobs."""
+    """Return ``matplotlib.pyplot`` configured for non-interactive jobs.
+
+    Matplotlib is imported lazily so summary-only consumers do not pay its
+    import cost. The ``Agg`` backend also prevents batch workers from requiring
+    an X server.
+
+    Returns
+    -------
+    module
+        Configured :mod:`matplotlib.pyplot` module.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -42,6 +52,12 @@ def save_figure(fig: Any, output: Path, formats: Sequence[str]) -> list[Path]:
     -------
     list[Path]
         Paths of the figure files written by this call.
+
+    Notes
+    -----
+    The figure is closed after every requested format has been written. A
+    caller should therefore finish all modifications before calling this
+    helper.
     """
     plt = plotting()
     paths = []
@@ -65,6 +81,21 @@ def histogram_quantiles(
     Values are interpolated uniformly within the selected bin. This preserves
     the streaming reduction contract without retaining point-level arrays.
     Empty histograms produce ``None`` for every requested quantile.
+
+    Parameters
+    ----------
+    counts : sequence of int
+        Number of entries in each histogram bin.
+    edges : sequence of float
+        Histogram edges, with one more element than ``counts``.
+    quantiles : sequence of float, optional
+        Cumulative probabilities to estimate.
+
+    Returns
+    -------
+    list
+        Estimated values in requested order, or ``None`` values for an empty
+        histogram.
     """
     counts_array = np.asarray(counts, dtype=np.float64)
     edges_array = np.asarray(edges, dtype=np.float64)
@@ -97,7 +128,35 @@ def plot_confusion_matrix(
     show_counts: bool = True,
     figsize: tuple[float, float] = (9.0, 7.0),
 ):
-    """Draw a count matrix with truth- or prediction-normalized annotations."""
+    """Draw a count matrix with normalized fractions and count annotations.
+
+    Matrices follow the SPINE analyzer convention: rows are predicted classes
+    and columns are true classes.
+
+    Parameters
+    ----------
+    matrix : sequence of sequence of int
+        Square confusion-count matrix.
+    class_names : sequence of str
+        Tick label for each matrix class.
+    normalize : {"truth", "prediction"}, default "truth"
+        Normalize each truth column or prediction row, respectively.
+    show_counts : bool, default True
+        Include raw counts below normalized values in each cell.
+    figsize : tuple of float, default (9.0, 7.0)
+        Figure width and height in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure containing the annotated confusion matrix.
+
+    Raises
+    ------
+    ValueError
+        If the matrix is not square, labels do not match its size, or the
+        normalization mode is unsupported.
+    """
     plt = plotting()
     counts = np.asarray(matrix, dtype=np.int64)
     if counts.ndim != 2 or counts.shape[0] != counts.shape[1]:
@@ -107,6 +166,8 @@ def plot_confusion_matrix(
     if normalize not in ("truth", "prediction"):
         raise ValueError("Normalization must be `truth` or `prediction`.")
 
+    # Preserve the two-dimensional denominator for prediction normalization;
+    # truth normalization naturally broadcasts a one-dimensional column sum.
     denominator = counts.sum(axis=0) if normalize == "truth" else counts.sum(axis=1)
     if normalize == "prediction":
         denominator = denominator[:, None]
@@ -159,6 +220,25 @@ def plot_histogram_with_boxplot(
     ``quantiles`` and ``mean``. Quantiles follow the order 10, 25, 50, 75 and
     90 percent. This summary-based interface lets report plots be regenerated
     directly from ``summary.json``.
+
+    Parameters
+    ----------
+    distributions : mapping
+        Legend labels mapped to serialized distribution summaries.
+    edges : sequence of float
+        Common histogram edges for every distribution.
+    x_label : str
+        Shared horizontal-axis label.
+    yscale : str, default "log"
+        Matplotlib scale for the histogram panel. Empty histograms fall back to
+        a linear scale to avoid invalid log limits.
+    figsize : tuple of float, default (9.0, 6.0)
+        Figure width and height in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Two-panel figure containing compact quantiles above step histograms.
     """
     plt = plotting()
     edges_array = np.asarray(edges, dtype=np.float64)
@@ -169,6 +249,8 @@ def plot_histogram_with_boxplot(
     )
     effective_yscale = yscale if has_entries else "linear"
 
+    # The shallow upper panel reproduces the notebook's 10--90 percentile
+    # whisker, interquartile box, median line and optional mean diamond.
     with plt.rc_context({"font.size": 14, "figure.autolayout": False}):
         fig, axes = plt.subplots(
             2,

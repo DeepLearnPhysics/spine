@@ -1,4 +1,10 @@
-"""Point-proposal distance reduction and notebook-style rendering."""
+"""Streaming reduction and rendering of point-proposal metrics.
+
+Point-proposal analyzer records contain the closest-match distance in both
+truth-to-reconstruction and reconstruction-to-truth directions. The two
+directions respectively define efficiency and purity as functions of a
+distance threshold, while their valid distances provide resolution summaries.
+"""
 
 from __future__ import annotations
 
@@ -21,12 +27,32 @@ from .classification import resolve_class_groups
 
 
 class PointProposalRecipe(ReportRecipe):
-    """Stream bidirectional PPN distances into curves and distributions."""
+    """Stream bidirectional PPN distances into curves and distributions.
+
+    Configuration supports ``distance_thresholds``, ``distance_range``,
+    ``distance_scale``, ``distance_unit``, ``bins``, semantic ``classes`` or
+    ``class_mapping``, and ``chunksize``. A negative or non-finite distance is
+    treated as an unmatched point and contributes to the threshold denominator
+    but not the resolution distribution.
+    """
 
     name = "point_proposal"
 
     def reduce(self, csv_paths: Mapping[str, Sequence[Path]]) -> dict[str, Any]:
-        """Reduce point rows in chunks, including optional per-shape summaries."""
+        """Reduce point rows in chunks, including per-shape summaries.
+
+        Parameters
+        ----------
+        csv_paths : mapping of str to sequence of Path
+            CSV shards under the required ``truth_to_reco`` and
+            ``reco_to_truth`` input names.
+
+        Returns
+        -------
+        dict
+            Serializable thresholds, bin edges, classes and directional
+            efficiency, purity and resolution statistics.
+        """
         thresholds = np.asarray(
             self.config.get("distance_thresholds", (1.0, 2.0, 5.0)),
             dtype=np.float64,
@@ -84,7 +110,27 @@ class PointProposalRecipe(ReportRecipe):
         scale: float,
         classes: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
-        """Reduce one matching direction into threshold and histogram statistics."""
+        """Reduce one matching direction into threshold and histogram statistics.
+
+        Parameters
+        ----------
+        paths : sequence of Path
+            CSV shards for one matching direction.
+        thresholds : np.ndarray
+            Sorted distance thresholds at which to count successful matches.
+        edges : np.ndarray
+            Fixed edges for overall and per-class distance histograms.
+        scale : float
+            Multiplicative conversion from stored distances to report units.
+        classes : sequence of mappings
+            Semantic groups used for per-class distance distributions.
+
+        Returns
+        -------
+        dict
+            Input counts, threshold fractions, type accuracy and overall and
+            per-class distance distributions.
+        """
         total = matched = correct_type = 0
         value_sum = value_sum_sq = 0.0
         passing = np.zeros(len(thresholds), dtype=np.int64)
@@ -105,6 +151,8 @@ class PointProposalRecipe(ReportRecipe):
                 if "dist" not in chunk:
                     raise ValueError(f"Missing `dist` column in {path}.")
                 distances = chunk.dist.to_numpy(dtype=np.float64) * scale
+                # Analyzer sentinel distances are excluded from the resolution
+                # distribution but remain in ``total`` for efficiency/purity.
                 valid = np.isfinite(distances) & (distances >= 0.0)
                 selected = distances[valid]
                 total += len(distances)
@@ -118,6 +166,8 @@ class PointProposalRecipe(ReportRecipe):
                 histogram += np.histogram(selected, bins=edges)[0]
 
                 if {"shape", "closest_shape"} <= set(chunk.columns):
+                    # Type accuracy is conditional on a geometrically matched
+                    # point and is therefore normalized by ``matched`` below.
                     correct_type += int(
                         np.count_nonzero(
                             valid & (chunk["shape"] == chunk["closest_shape"])
@@ -171,7 +221,22 @@ class PointProposalRecipe(ReportRecipe):
         output_dir: Path,
         formats: Sequence[str],
     ) -> list[Path]:
-        """Render threshold curves and distance distributions from the summary."""
+        """Render threshold curves and distance distributions from the summary.
+
+        Parameters
+        ----------
+        summary : mapping
+            Serialized result returned by :meth:`reduce`.
+        output_dir : Path
+            Destination directory for PPN figures.
+        formats : sequence of str
+            Graphical file formats to write.
+
+        Returns
+        -------
+        list of Path
+            Paths of efficiency, purity and resolution figures.
+        """
         paths = []
         plt = plotting()
         thresholds = np.asarray(summary["distance_thresholds"])

@@ -1,4 +1,9 @@
-"""Batch reduction and rendering recipes for SPINE metric CSV files."""
+"""Batch reduction and rendering recipes for SPINE metric CSV files.
+
+The package exposes the recipe interface, built-in metric implementations and
+the :func:`build_report` orchestrator used by the standalone ``spine-report``
+entry point. Importing it does not load Torch, LArCV or the SPINE driver.
+"""
 
 from .base import REPORT_SCHEMA_VERSION, ReportRecipe
 from .cluster import ClusterSummaryRecipe

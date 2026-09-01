@@ -1,4 +1,10 @@
-"""Clustering metric reduction and notebook-style rendering."""
+"""Streaming reduction and rendering of clustering quality metrics.
+
+The clustering analyzer writes one row per event at the fragment, particle
+and interaction levels. This module accumulates bounded histograms and scalar
+moments for each configured metric, optionally broken down by semantic class,
+without concatenating all analyzer output in memory.
+"""
 
 from __future__ import annotations
 
@@ -17,12 +23,35 @@ from .classification import resolve_class_groups
 
 
 class ClusterSummaryRecipe(ReportRecipe):
-    """Stream fragment, particle, and interaction clustering distributions."""
+    """Stream fragment, particle and interaction clustering distributions.
+
+    Configuration accepts ``metric_names`` (default ``ari``, ``eff``,
+    ``pur``), ``bins``, per-metric ``metric_ranges``, semantic ``classes`` or
+    ``class_mapping``, and ``chunksize``. Named input sources are treated as
+    clustering levels; interaction inputs omit the semantic breakdown because
+    their analyzer records do not contain per-shape columns.
+
+    The serialized result stores overall and per-class distributions under
+    ``levels``. Each distribution contains sufficient statistics and bin
+    edges needed to reproduce its plot exactly.
+    """
 
     name = "cluster_summary"
 
     def reduce(self, csv_paths: Mapping[str, Sequence[Path]]) -> dict[str, Any]:
-        """Reduce overall and per-shape clustering columns in bounded memory."""
+        """Reduce overall and per-shape clustering columns in bounded memory.
+
+        Parameters
+        ----------
+        csv_paths : mapping of str to sequence of Path
+            CSV shards grouped by clustering level, typically ``fragment``,
+            ``particle`` and ``interaction``.
+
+        Returns
+        -------
+        dict
+            Serializable class definitions and distributions for every level.
+        """
         metric_names = list(self.config.get("metric_names", ("ari", "eff", "pur")))
         classes = resolve_class_groups(
             self.config,
@@ -64,9 +93,31 @@ class ClusterSummaryRecipe(ReportRecipe):
         bins: int,
         metric_ranges: Mapping[str, Sequence[float]],
     ) -> dict[str, Any]:
-        """Reduce one clustering aggregation level."""
+        """Reduce one clustering aggregation level.
+
+        Parameters
+        ----------
+        paths : sequence of Path
+            CSV shards belonging to this aggregation level.
+        metric_names : sequence of str
+            Numeric analyzer columns to summarize.
+        classes : sequence of mappings
+            Semantic groups to pool in per-class distributions. An empty
+            sequence disables the breakdown.
+        bins : int
+            Number of histogram bins per metric.
+        metric_ranges : mapping
+            Lower and upper histogram limits keyed by metric name.
+
+        Returns
+        -------
+        dict
+            Input counts plus overall and per-class metric distributions.
+        """
         accumulators = {}
         class_accumulators: dict[str, dict[str, dict[str, Any]]] = {}
+        # Each metric owns its edges because ARI and overlap metrics commonly
+        # cover different numeric ranges.
         for metric in metric_names:
             edges = np.linspace(*metric_ranges.get(metric, (0.0, 1.0)), bins + 1)
             accumulators[metric] = self._new_accumulator(edges)
@@ -89,6 +140,9 @@ class ClusterSummaryRecipe(ReportRecipe):
                     )
                 for metric, accumulator in accumulators.items():
                     self._update_accumulator(accumulator, chunk[metric].to_numpy())
+                    # Per-shape analyzer columns follow ``<metric>_<shape>``.
+                    # Mapping several shapes into one group pools their
+                    # sufficient statistics in the same accumulator.
                     for group in classes:
                         group_accumulator = class_accumulators[metric][group["name"]]
                         for source_id in group["source_ids"]:
@@ -124,7 +178,18 @@ class ClusterSummaryRecipe(ReportRecipe):
     def _new_accumulator(
         edges: np.ndarray,
     ) -> dict[str, Any]:
-        """Create mutable sufficient statistics for one numeric column."""
+        """Create mutable sufficient statistics for one numeric column.
+
+        Parameters
+        ----------
+        edges : np.ndarray
+            Fixed histogram edges for the distribution.
+
+        Returns
+        -------
+        dict
+            Mutable count, moments, histogram and edge storage.
+        """
         return {
             "count": 0,
             "sum": 0.0,
@@ -137,7 +202,19 @@ class ClusterSummaryRecipe(ReportRecipe):
     def _update_accumulator(
         accumulator: dict[str, Any], raw_values: np.ndarray
     ) -> None:
-        """Add finite values within the configured metric range."""
+        """Add finite values within the configured metric range.
+
+        Values outside the histogram range are excluded from both the
+        histogram and scalar moments so every serialized statistic describes
+        the same population.
+
+        Parameters
+        ----------
+        accumulator : dict
+            Mutable state returned by :meth:`_new_accumulator`.
+        raw_values : np.ndarray
+            Values read from one CSV chunk.
+        """
         values = np.asarray(raw_values, dtype=np.float64)
         lower, upper = accumulator["edges"][[0, -1]]
         values = values[np.isfinite(values) & (values >= lower) & (values <= upper)]
@@ -151,7 +228,18 @@ class ClusterSummaryRecipe(ReportRecipe):
 
     @staticmethod
     def _finish_accumulator(accumulator: Mapping[str, Any]) -> dict[str, Any]:
-        """Convert one mutable accumulator to a JSON-safe distribution."""
+        """Convert one mutable accumulator to a JSON-safe distribution.
+
+        Parameters
+        ----------
+        accumulator : mapping
+            Completed mutable sufficient statistics.
+
+        Returns
+        -------
+        dict
+            Distribution summary including JSON-safe histogram edges.
+        """
         result = distribution_summary(
             accumulator["histogram"],
             accumulator["edges"],
@@ -168,7 +256,22 @@ class ClusterSummaryRecipe(ReportRecipe):
         output_dir: Path,
         formats: Sequence[str],
     ) -> list[Path]:
-        """Render overall and per-class plots for every clustering level."""
+        """Render overall and per-class plots for every clustering level.
+
+        Parameters
+        ----------
+        summary : mapping
+            Serialized result returned by :meth:`reduce`.
+        output_dir : Path
+            Destination directory for clustering figures.
+        formats : sequence of str
+            Graphical file formats to write.
+
+        Returns
+        -------
+        list of Path
+            Paths of all generated figures.
+        """
         paths = []
         for level, level_summary in summary["levels"].items():
             # Metrics may use different ranges (ARI commonly spans -1 to 1,
@@ -220,7 +323,26 @@ class ClusterSummaryRecipe(ReportRecipe):
         output_path: Path,
         formats: Sequence[str],
     ) -> list[Path]:
-        """Render one distribution from exactly its serialized statistics."""
+        """Render one distribution from exactly its serialized statistics.
+
+        Parameters
+        ----------
+        values : mapping
+            Distribution statistics, including ``histogram_edges``.
+        label : str
+            Legend label for the distribution.
+        x_label : str
+            Horizontal-axis label.
+        output_path : Path
+            Figure path without an extension.
+        formats : sequence of str
+            Graphical file formats to write.
+
+        Returns
+        -------
+        list of Path
+            Figure paths written by :func:`save_figure`.
+        """
         figure = plot_histogram_with_boxplot(
             {label: values},
             values["histogram_edges"],

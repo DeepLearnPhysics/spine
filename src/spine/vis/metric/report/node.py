@@ -1,4 +1,10 @@
-"""Reduction of configurable node predictions stored by ``SaveAna``."""
+"""Reduction of configurable node predictions stored by ``SaveAna``.
+
+Node reports operate on matched fragment or particle records produced by the
+generic save analyzer. Each configured task selects rows through declarative
+quality cuts, then evaluates either a categorical prediction or the cosine
+between truth and reconstructed direction vectors.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +35,28 @@ def quality_cut_mask(
     expression for boolean composition. Leaf predicates name one ``column``
     and one or more of ``min``, ``max``, ``equals``, ``not_equals``, ``in``,
     ``not_in``, ``abs_equals`` or ``abs_not_equals``. Bounds are inclusive.
+
+    For example, ``{"all": [{"column": "iou", "min": 0.5},
+    {"column": "truth_nu_id", "min": 0}]}`` selects well-matched objects
+    associated with a neutrino interaction.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        Save-record rows on which to evaluate the predicates.
+    specification : mapping, optional
+        Nested boolean expression, a leaf predicate or ``None``. A missing
+        specification selects every row.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean selection mask aligned with ``frame``.
+
+    Raises
+    ------
+    ValueError
+        If a leaf predicate references a column absent from ``frame``.
     """
     if not specification:
         return np.ones(len(frame), dtype=bool)
@@ -70,12 +98,40 @@ def quality_cut_mask(
 
 
 class NodeSummaryRecipe(ReportRecipe):
-    """Evaluate classification and orientation tasks from matched save rows."""
+    """Evaluate classification and orientation tasks from matched save rows.
+
+    The required ``tasks`` mapping defines a ``source`` and ``type`` for each
+    output. Classification tasks specify truth and prediction columns plus an
+    optional ``class_type``, class restriction or class mapping. Orientation
+    tasks specify parallel lists of truth and prediction vector columns,
+    together with optional histogram ``bins`` and ``range``. Every task may
+    define nested ``quality_cuts`` evaluated before accumulation.
+
+    A task summary distinguishes ``selected_rows`` from ``evaluated_rows``.
+    The latter excludes selected categorical values outside configured class
+    groups and orientation rows containing invalid or zero-length vectors.
+    """
 
     name = "node_summary"
 
     def reduce(self, csv_paths: Mapping[str, Sequence[Path]]) -> dict[str, Any]:
-        """Reduce every configured task while reading each source shard once."""
+        """Reduce every configured task while reading each source shard once.
+
+        Parameters
+        ----------
+        csv_paths : mapping of str to sequence of Path
+            Save CSV shards grouped by configured source name.
+
+        Returns
+        -------
+        dict
+            Serializable input counts and results keyed by task name.
+
+        Raises
+        ------
+        ValueError
+            If no tasks are configured or a task references an unknown source.
+        """
         tasks = self.config.get("tasks")
         if not isinstance(tasks, Mapping) or not tasks:
             raise ValueError("A node summary requires a non-empty `tasks` mapping.")
@@ -102,6 +158,8 @@ class NodeSummaryRecipe(ReportRecipe):
                     chunksize=self.config.get("chunksize", DEFAULT_CHUNKSIZE),
                 )
                 for chunk in chunks:
+                    # Apply each task's cuts independently while sharing the
+                    # comparatively expensive read of the source CSV.
                     for key, task in source_tasks.items():
                         mask = quality_cut_mask(chunk, task.get("quality_cuts"))
                         self._update_task(states[key], task, chunk.loc[mask])
@@ -117,7 +175,26 @@ class NodeSummaryRecipe(ReportRecipe):
 
     @staticmethod
     def _initialize_task(key: str, task: Mapping[str, Any]) -> dict[str, Any]:
-        """Create mutable state for one configured node task."""
+        """Create mutable state for one configured node task.
+
+        Parameters
+        ----------
+        key : str
+            User-defined task name, used in validation errors.
+        task : mapping
+            Classification or orientation task configuration.
+
+        Returns
+        -------
+        dict
+            Mutable confusion counts or direction-distribution statistics.
+
+        Raises
+        ------
+        ValueError
+            If required task fields are absent or the task/class type is
+            unknown.
+        """
         task_type = task.get("type", "classification")
         if task_type == "classification":
             truth_column = task.get("truth_column")
@@ -164,7 +241,22 @@ class NodeSummaryRecipe(ReportRecipe):
         task: Mapping[str, Any],
         frame: pd.DataFrame,
     ) -> None:
-        """Add one selected CSV chunk to a task accumulator."""
+        """Add one selected CSV chunk to a task accumulator.
+
+        Parameters
+        ----------
+        state : dict
+            Mutable state returned by :meth:`_initialize_task`.
+        task : mapping
+            Task configuration describing the input columns.
+        frame : pd.DataFrame
+            Rows which passed the task's quality cuts.
+
+        Raises
+        ------
+        ValueError
+            If a required truth or prediction column is missing.
+        """
         state["selected_rows"] += len(frame)
         if state["type"] == "classification":
             truth_column = task.get("truth_column")
@@ -180,6 +272,8 @@ class NodeSummaryRecipe(ReportRecipe):
             prediction, prediction_valid = map_class_values(
                 prediction, state["classes"]
             )
+            # Rows in excluded source classes passed the quality cuts but do
+            # not contribute to the configured report confusion matrix.
             valid = truth_valid & prediction_valid
             size = len(state["class_names"])
             valid &= (truth < size) & (prediction < size)
@@ -200,6 +294,8 @@ class NodeSummaryRecipe(ReportRecipe):
             )
         truth = frame[truth_columns].to_numpy(dtype=np.float64)
         prediction = frame[prediction_columns].to_numpy(dtype=np.float64)
+        # Normalize through the dot-product denominator without materializing
+        # normalized vectors. Invalid and zero-length vectors are not scored.
         denominator = np.linalg.norm(truth, axis=1) * np.linalg.norm(prediction, axis=1)
         valid = np.isfinite(truth).all(axis=1) & np.isfinite(prediction).all(axis=1)
         valid &= denominator > 0.0
@@ -212,7 +308,19 @@ class NodeSummaryRecipe(ReportRecipe):
 
     @staticmethod
     def _finish_task(state: Mapping[str, Any]) -> dict[str, Any]:
-        """Convert mutable task state to a JSON-safe result."""
+        """Convert mutable task state to a JSON-safe result.
+
+        Parameters
+        ----------
+        state : mapping
+            Completed classification or orientation accumulator.
+
+        Returns
+        -------
+        dict
+            Classification counts and accuracy, or orientation distribution
+            statistics and forward fraction.
+        """
         if state["type"] == "classification":
             matrix = state["matrix"]
             return {
@@ -247,7 +355,20 @@ class NodeSummaryRecipe(ReportRecipe):
 
     @staticmethod
     def _forward_fraction(histogram: np.ndarray, edges: np.ndarray) -> float:
-        """Return the binned fraction with a non-negative direction cosine."""
+        """Return the binned fraction with a non-negative direction cosine.
+
+        Parameters
+        ----------
+        histogram : np.ndarray
+            Direction-cosine histogram counts.
+        edges : np.ndarray
+            Direction-cosine histogram edges.
+
+        Returns
+        -------
+        float
+            Fraction of entries in bins whose centers are non-negative.
+        """
         total = int(histogram.sum())
         if not total:
             return 0.0
@@ -260,7 +381,22 @@ class NodeSummaryRecipe(ReportRecipe):
         output_dir: Path,
         formats: Sequence[str],
     ) -> list[Path]:
-        """Render one directly regenerable plot for each node task."""
+        """Render one directly regenerable plot for each node task.
+
+        Parameters
+        ----------
+        summary : mapping
+            Serialized result returned by :meth:`reduce`.
+        output_dir : Path
+            Destination directory for node figures.
+        formats : sequence of str
+            Graphical file formats to write.
+
+        Returns
+        -------
+        list of Path
+            Paths of all generated task figures.
+        """
         paths = []
         for key, task in summary["tasks"].items():
             if task["type"] == "classification":

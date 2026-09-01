@@ -1,4 +1,11 @@
-"""Configuration, discovery, provenance, and orchestration for reports."""
+"""Configuration, discovery, provenance and orchestration for reports.
+
+The report manager is the filesystem-facing layer behind ``spine-report``. It
+loads a standalone YAML configuration, discovers completed analyzer shards,
+dispatches each metric to its recipe, and writes both figures and a cumulative
+``summary.json``. Model and I/O-stack imports are intentionally absent so the
+manager remains suitable for a lightweight CPU batch job.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +33,20 @@ RECIPE_REGISTRY = {
 
 
 def _sha256(path: Path, block_size: int = 1024 * 1024) -> str:
-    """Compute a file's SHA-256 digest without loading it into memory."""
+    """Compute a file's SHA-256 digest without loading it into memory.
+
+    Parameters
+    ----------
+    path : Path
+        File to hash.
+    block_size : int, default 1048576
+        Number of bytes read per iteration.
+
+    Returns
+    -------
+    str
+        Lowercase hexadecimal SHA-256 digest.
+    """
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         while block := stream.read(block_size):
@@ -35,7 +55,21 @@ def _sha256(path: Path, block_size: int = 1024 * 1024) -> str:
 
 
 def _metadata(config: Mapping[str, Any], config_path: Path) -> dict[str, Any]:
-    """Normalize configured provenance and fill deterministic checksums."""
+    """Normalize configured provenance and fill deterministic checksums.
+
+    Parameters
+    ----------
+    config : mapping
+        Complete report configuration.
+    config_path : Path
+        Path from which the configuration was loaded.
+
+    Returns
+    -------
+    dict
+        User metadata augmented with schema version, resolved config path and
+        config checksum. A local checkpoint receives a checksum when readable.
+    """
     metadata = dict(config.get("metadata", {}))
     metadata["report_schema_version"] = REPORT_SCHEMA_VERSION
     metadata["report_config"] = str(config_path.resolve())
@@ -55,7 +89,28 @@ def _metadata(config: Mapping[str, Any], config_path: Path) -> dict[str, Any]:
 
 
 def _patterns(metric_config: Mapping[str, Any]) -> dict[str, str]:
-    """Extract named input glob patterns from one recipe configuration."""
+    """Extract named input glob patterns from one recipe configuration.
+
+    Recipes may use a single ``source``, a named ``sources`` mapping, or the
+    two conventional PPN directions ``truth_to_reco`` and ``reco_to_truth``.
+
+    Parameters
+    ----------
+    metric_config : mapping
+        One metric entry from the report configuration.
+
+    Returns
+    -------
+    dict
+        Input names mapped to glob patterns.
+
+    Raises
+    ------
+    TypeError
+        If ``sources`` is present but is not a mapping.
+    ValueError
+        If the metric defines no recognized input form.
+    """
     if "source" in metric_config:
         return {"source": str(metric_config["source"])}
     if "sources" in metric_config:
@@ -81,7 +136,32 @@ def _discover(
     *,
     strict: bool,
 ) -> tuple[dict[str, list[Path]], str | None]:
-    """Resolve every configured input pattern beneath the input directory."""
+    """Resolve every configured input pattern beneath the input directory.
+
+    Parameters
+    ----------
+    metric_key : str
+        User-defined metric name used in diagnostics.
+    metric_config : mapping
+        Recipe configuration containing input patterns.
+    input_dir : Path
+        Root below which the patterns are evaluated.
+    strict : bool
+        Raise for unmatched inputs when ``True``; otherwise return a skip
+        reason for the summary.
+
+    Returns
+    -------
+    discovered : dict
+        Sorted regular files grouped by input name.
+    reason : str or None
+        Human-readable skip reason in non-strict mode, otherwise ``None``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a required pattern matches no files in strict mode.
+    """
     discovered = {
         name: sorted(path for path in input_dir.glob(pattern) if path.is_file())
         for name, pattern in _patterns(metric_config).items()
@@ -99,7 +179,20 @@ def _discover(
 def _metric_sources(
     discovered: Mapping[str, list[Path]], input_dir: Path
 ) -> dict[str, list[str]]:
-    """Express discovered source paths relative to the report input root."""
+    """Express discovered source paths relative to the report input root.
+
+    Parameters
+    ----------
+    discovered : mapping
+        Absolute or input-root-relative paths grouped by source name.
+    input_dir : Path
+        Common report input root.
+
+    Returns
+    -------
+    dict
+        Source paths serialized relative to ``input_dir`` for portability.
+    """
     return {
         name: [str(path.relative_to(input_dir)) for path in paths]
         for name, paths in discovered.items()
@@ -107,7 +200,20 @@ def _metric_sources(
 
 
 def _nested_input_counts(metric: Mapping[str, Any], count_name: str) -> list[int]:
-    """Collect one input count from the different recipe summary layouts."""
+    """Collect one input count from the different recipe summary layouts.
+
+    Parameters
+    ----------
+    metric : mapping
+        Completed recipe summary.
+    count_name : str
+        Input statistic to collect, such as ``events`` or ``data_files``.
+
+    Returns
+    -------
+    list of int
+        Available counts across levels, directions or node sources.
+    """
     if "levels" in metric:
         sources = metric["levels"].values()
     elif "directions" in metric:
@@ -125,7 +231,25 @@ def _nested_input_counts(metric: Mapping[str, Any], count_name: str) -> list[int
 
 
 def _load_config(config_path: Path) -> Mapping[str, Any]:
-    """Load and minimally validate a standalone report YAML file."""
+    """Load and minimally validate a standalone report YAML file.
+
+    Parameters
+    ----------
+    config_path : Path
+        YAML configuration path.
+
+    Returns
+    -------
+    mapping
+        Parsed configuration containing a non-empty ``metrics`` mapping.
+
+    Raises
+    ------
+    TypeError
+        If the YAML root is not a mapping.
+    ValueError
+        If ``metrics`` is absent, empty or not a mapping.
+    """
     import yaml
 
     with config_path.open("r", encoding="utf-8") as stream:
@@ -139,7 +263,17 @@ def _load_config(config_path: Path) -> Mapping[str, Any]:
 
 
 def _refresh_input_counts(result: dict[str, Any]) -> None:
-    """Update aggregate event and data-file counts from completed recipes."""
+    """Update aggregate event and data-file counts from completed recipes.
+
+    Counts can be repeated across recipes which consume the same events. The
+    report therefore records the largest completed recipe count instead of
+    summing and double-counting shared inputs.
+
+    Parameters
+    ----------
+    result : dict
+        Mutable top-level report summary.
+    """
     event_counts = [
         value
         for metric in result["metrics"].values()
@@ -155,7 +289,15 @@ def _refresh_input_counts(result: dict[str, Any]) -> None:
 
 
 def _write_summary(result: Mapping[str, Any], path: Path) -> None:
-    """Persist the current serializable report state as formatted JSON."""
+    """Persist the current serializable report state as formatted JSON.
+
+    Parameters
+    ----------
+    result : mapping
+        Current report state. Non-finite JSON values are rejected.
+    path : Path
+        Destination ``summary.json`` path.
+    """
     with path.open("w", encoding="utf-8") as stream:
         json.dump(result, stream, indent=2, allow_nan=False)
         stream.write("\n")
@@ -186,6 +328,16 @@ def build_report(
     -------
     dict
         The same serializable dictionary written to ``summary.json``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If strict discovery is enabled and a configured source is absent.
+    TypeError
+        If the configuration or a metric entry has the wrong structure.
+    ValueError
+        If a recipe or output format is unsupported, or recipe validation
+        fails.
     """
     config_path = Path(config_path)
     input_dir = Path(input_dir)
@@ -222,6 +374,8 @@ def build_report(
                 f"Unknown report recipe `{recipe_name}` for metric `{key}`."
             )
 
+        # Discovery occurs immediately before reduction, after the scheduler
+        # has declared the producing inference jobs complete.
         discovered, missing_reason = _discover(
             str(key),
             metric_config,
@@ -237,6 +391,7 @@ def build_report(
             _write_summary(result, summary_path)
             continue
 
+        # A recipe summary is the sole source for both JSON and plots.
         recipe: ReportRecipe = RECIPE_REGISTRY[recipe_name](str(key), metric_config)
         summary = recipe.reduce(discovered)
         summary["sources"] = _metric_sources(discovered, input_dir)
