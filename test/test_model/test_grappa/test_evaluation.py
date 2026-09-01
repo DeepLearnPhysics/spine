@@ -2,23 +2,58 @@
 
 import numpy as np
 import pytest
+import torch
 
-from spine.data import TensorBatch
+from spine.data import EdgeIndexBatch, TensorBatch
 from spine.model.grappa.evaluation import (
     adjacency_matrix,
     cluster_to_voxel_label,
     clustering_metrics,
     edge_assignment_forest,
+    edge_assignment_forest_batch,
     edge_assignment_score,
     edge_purity_mask,
     grouping_loss,
     node_assignment_bipartite,
     node_assignment_score,
     node_purity_mask,
+    node_purity_mask_batch,
     primary_assignment,
     primary_assignment_batch,
     voxel_efficiency_bipartite,
 )
+
+
+def test_cached_torch_targets_cross_numpy_evaluation_boundary():
+    """Torch-backed cached IDs should reach NumPy helpers as integers."""
+    counts = torch.tensor([3], dtype=torch.long)
+    groups = TensorBatch(torch.tensor([0.0, 0.0, 1.0]), counts=counts)
+    primaries = TensorBatch(torch.tensor([1.0, 0.0, 0.0]), counts=counts)
+
+    node_valid = node_purity_mask_batch(groups, primaries)
+    np.testing.assert_array_equal(node_valid, [True, True, False])
+
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0, 0, 1], [1, 2, 2]], dtype=torch.long),
+        counts=torch.tensor([3], dtype=torch.long),
+        spans=torch.tensor([3], dtype=torch.long),
+        directed=True,
+    )
+    edge_prediction = TensorBatch(
+        torch.tensor([[0.0, 3.0], [3.0, 0.0], [0.0, 3.0]]),
+        counts=torch.tensor([3], dtype=torch.long),
+    )
+    forest_groups = TensorBatch(torch.zeros(3), counts=counts)
+    edge_target, edge_valid = edge_assignment_forest_batch(
+        edge_index,
+        edge_prediction,
+        forest_groups,
+    )
+
+    assert edge_target.is_numpy
+    assert edge_valid.is_numpy
+    assert edge_target.numpy_tensor().sum() == 2
+    assert edge_valid.numpy_tensor().sum() == 2
 
 
 def test_primary_bipartite_and_batch_assignments():

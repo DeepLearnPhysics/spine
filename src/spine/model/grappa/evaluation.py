@@ -83,6 +83,12 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
     TensorBatch
         (E) Array specifying edges to apply the loss to
     """
+    # Forest construction is NumPy/SciPy based, while cached targets may have
+    # been moved to Torch together with the other model inputs.
+    edge_index = edge_index.to_numpy()
+    edge_pred = edge_pred.to_numpy()
+    group_ids = group_ids.to_numpy()
+
     # Loop over the list of entries in the batch
     edge_assn = np.empty(edge_index.index.shape[1], dtype=np.int64)
     valid_mask = np.empty(edge_index.index.shape[1], dtype=bool)
@@ -90,7 +96,9 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
         # Get the list of labels and the list of nodes to apply the loss to
         lower, upper = edge_index.edges[b], edge_index.edges[b + 1]
         edge_assn_b, edge_valid_b = edge_assignment_forest(
-            edge_index[b], edge_pred[b], group_ids[b]
+            edge_index[b],
+            edge_pred[b],
+            np.asarray(group_ids[b], dtype=np.int64),
         )
 
         edge_assn[lower:upper] = edge_assn_b
@@ -250,11 +258,19 @@ def node_purity_mask_batch(group_ids, primary_ids):
     np.ndarray
         (C) High purity node mask
     """
+    # Cached categorical targets are moved to Torch using the model dtype.
+    # Restore the NumPy integer contract required by the Numba helper.
+    group_ids = group_ids.to_numpy()
+    primary_ids = primary_ids.to_numpy()
+
     # Loop over the entries in the batch
     valid_mask = np.empty(len(group_ids.tensor), dtype=bool)
     for b in range(group_ids.batch_size):
         lower, upper = group_ids.edges[b], group_ids.edges[b + 1]
-        valid_mask[lower:upper] = node_purity_mask(group_ids[b], primary_ids[b])
+        valid_mask[lower:upper] = node_purity_mask(
+            np.asarray(group_ids[b], dtype=np.int64),
+            np.asarray(primary_ids[b], dtype=np.int64),
+        )
 
     return valid_mask
 
