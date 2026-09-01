@@ -131,6 +131,17 @@ class FakeLoaderNoReader:
         return 1
 
 
+class FakeMixedLoader(FakeLoader):
+    """Loader-like object with primary LArCV and staged-cache readers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.dataset = SimpleNamespace(
+            reader=FakeReader(),
+            cache=SimpleNamespace(reader=FakeStageReader()),
+        )
+
+
 def test_io_manager_initializes_reader_writer_and_iterations(monkeypatch):
     """Reader setup should derive prefixes, writer and iteration count."""
     writer_calls: list[tuple[object, str | list[str], bool]] = []
@@ -336,6 +347,33 @@ def test_io_manager_uses_sidecars_for_same_file_staged_writes(monkeypatch):
     writer_cfg, _ = writer_calls[2]
     assert writer_cfg["sidecar"] is False
     assert "target_file_paths" not in writer_cfg
+
+
+def test_io_manager_uses_mixed_dataset_cache_reader_for_sidecars(monkeypatch):
+    """Mixed loaders should extend their staged cache, not the LArCV source."""
+    writer_calls = []
+    monkeypatch.setattr(manager_mod, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(
+        manager_mod, "loader_factory", lambda **kwargs: FakeMixedLoader()
+    )
+    monkeypatch.setattr(
+        manager_mod,
+        "writer_factory",
+        lambda cfg, **kwargs: writer_calls.append((cfg, kwargs)) or object(),
+    )
+
+    manager = IOManager(
+        loader={"dataset": {"name": "mixed"}},
+        writer={"name": "stage_hdf5", "stage": "fragmentation"},
+        unwrap=True,
+        split_output=True,
+    )
+
+    writer_cfg, kwargs = writer_calls[0]
+    assert manager.reader.file_paths == FakeReader.file_paths
+    assert writer_cfg["sidecar"] is True
+    assert writer_cfg["target_file_paths"] == FakeStageReader.file_paths
+    assert kwargs["split"] is True
 
 
 def test_io_manager_prefix_variants(monkeypatch):

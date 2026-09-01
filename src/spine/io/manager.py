@@ -310,26 +310,53 @@ class IOManager:
             raise ValueError("Must unwrap the model output to write it to file.")
 
         # A staged cache with no explicit output destination is being extended
-        # in place. Route the writer back to the reader's canonical files and
-        # isolate the new stage in sidecars until successful finalization.
+        # in place. Route the writer back to the cache reader's canonical files
+        # and isolate the new stage in sidecars until successful finalization.
         writer_cfg = dict(writer)
-        reader = self.reader
+        stage_reader = self._get_staged_cache_reader()
         if (
             writer_cfg.get("name") == "stage_hdf5"
-            and reader is not None
-            and getattr(reader, "name", None) == "stage_hdf5"
+            and stage_reader is not None
             and not writer_cfg.get("file_name")
             and not writer_cfg.get("directory")
         ):
             writer_cfg.setdefault("sidecar", True)
             if writer_cfg["sidecar"]:
-                writer_cfg.setdefault("target_file_paths", list(reader.file_paths))
+                writer_cfg.setdefault(
+                    "target_file_paths", list(stage_reader.file_paths)
+                )
 
         # Register the write timer and initialize the writer.
         self.watch.initialize("write")
         self.writer = writer_factory(
             writer_cfg, prefix=self.output_prefix, split=split_output
         )
+
+    def _get_staged_cache_reader(self) -> Any | None:
+        """Return the staged HDF5 reader being extended, if present.
+
+        Reader-driven jobs expose the staged reader directly through
+        :attr:`reader`. A mixed loader keeps its LArCV reader there because it
+        owns iteration and provenance; its aligned HDF5 reader instead lives
+        under ``loader.dataset.cache.reader``. Sidecar routing must inspect the
+        latter without changing the manager's primary-reader semantics.
+
+        Returns
+        -------
+        object or None
+            Staged HDF5 reader which owns the canonical cache paths, or
+            ``None`` when this job is not reading a staged cache.
+        """
+        if getattr(self.reader, "name", None) == "stage_hdf5":
+            return self.reader
+
+        dataset = getattr(self.loader, "dataset", None)
+        cache = getattr(dataset, "cache", None)
+        cache_reader = getattr(cache, "reader", None)
+        if getattr(cache_reader, "name", None) == "stage_hdf5":
+            return cache_reader
+
+        return None
 
     def set_post_processors(self, post_processors: tuple[str, ...]) -> None:
         """Merge and propagate cumulative post-processing provenance.
