@@ -52,6 +52,13 @@ class_mapping:
   Ghost: [ghost]
 ```
 
+The generic report demonstrates both forms. Its standard segmentation matrix
+is explicitly restricted to shower through low-energy scatter, the complete
+set present in the generic dataset. A separate `segmentation_shower_track`
+metric maps shower, Michel, delta, and low-energy scatter to `Shower`, while
+keeping track as `Track`. Because each is an independent recipe, both records
+and both confusion plots are retained.
+
 Node tasks consume matched `save_truth_*` rows. Nested `quality_cuts` support
 `all`/`any`/`not` composition and column predicates, keeping overlap,
 minimum-size, neutrino origin, particle shape, primariness, and ancestry

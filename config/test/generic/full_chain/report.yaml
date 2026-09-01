@@ -10,6 +10,15 @@ metrics:
   segmentation:
     name: segment_confusion
     source: "**/*segment_eval_summary.csv"
+    classes: [shower, track, michel, delta, low_energy]
+
+  # Example of reducing canonical semantic classes to a task-specific view.
+  segmentation_shower_track:
+    name: segment_confusion
+    source: "**/*segment_eval_summary.csv"
+    class_mapping:
+      Shower: [shower, michel, delta, low_energy]
+      Track: [track]
 
   ppn:
     name: point_proposal

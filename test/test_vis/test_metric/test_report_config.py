@@ -32,3 +32,21 @@ def test_generic_save_records_expose_node_truth_selections():
 
     assert "group_primary" in save["fragment"]
     assert "nu_id" in save["particle"]
+
+
+def test_generic_report_includes_standard_and_mapped_semantics():
+    """Generic defaults should retain five classes and demonstrate mapping."""
+    report = yaml.safe_load((CONFIG_DIR / "report.yaml").read_text(encoding="utf-8"))
+    metrics = report["metrics"]
+
+    assert metrics["segmentation"]["classes"] == [
+        "shower",
+        "track",
+        "michel",
+        "delta",
+        "low_energy",
+    ]
+    assert metrics["segmentation_shower_track"]["class_mapping"] == {
+        "Shower": ["shower", "michel", "delta", "low_energy"],
+        "Track": ["track"],
+    }
