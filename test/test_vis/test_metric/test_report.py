@@ -233,6 +233,17 @@ def test_cluster_recipe_rejects_missing_metric_columns(tmp_path):
         recipe.reduce({"fragment": [path]})
 
 
+def test_cluster_recipe_rejects_malformed_metric_range(tmp_path):
+    """Each clustering histogram range should provide exactly two bounds."""
+    recipe = ClusterSummaryRecipe(
+        "clustering",
+        {"metric_names": ["ari"], "metric_ranges": {"ari": [0.0]}},
+    )
+
+    with pytest.raises(ValueError, match="must contain two bounds"):
+        recipe.reduce({"fragment": [tmp_path / "unused.csv"]})
+
+
 def test_point_recipe_validates_thresholds_and_distance_column(tmp_path):
     """PPN reduction should reject invalid thresholds and malformed shards."""
     with pytest.raises(ValueError, match="distance thresholds"):

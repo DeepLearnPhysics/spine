@@ -17,8 +17,8 @@ from .plot import plotting
 
 
 def histogram_quantiles(
-    counts: Sequence[int],
-    edges: Sequence[float],
+    counts: Sequence[int] | np.ndarray,
+    edges: Sequence[float] | np.ndarray,
     quantiles: Sequence[float] = (0.1, 0.25, 0.5, 0.75, 0.9),
 ) -> list[float | None]:
     """Estimate distribution quantiles from binned sufficient statistics.
@@ -29,9 +29,9 @@ def histogram_quantiles(
 
     Parameters
     ----------
-    counts : sequence of int
+    counts : sequence of int or np.ndarray
         Number of entries in each histogram bin.
-    edges : sequence of float
+    edges : sequence of float or np.ndarray
         Histogram edges, with one more element than ``counts``.
     quantiles : sequence of float, optional
         Cumulative probabilities to estimate.
@@ -99,6 +99,8 @@ def plot_histogram_with_boxplot(
     matplotlib.figure.Figure
         Two-panel figure containing compact quantiles above step histograms.
     """
+    from matplotlib.patches import Rectangle
+
     plt = plotting()
     edges_array = np.asarray(edges, dtype=np.float64)
     centers = (edges_array[:-1] + edges_array[1:]) / 2.0
@@ -136,7 +138,7 @@ def plot_histogram_with_boxplot(
                 y = len(labels) - index - 1
                 axes[0].hlines(y, q10, q90, color=color, linewidth=2)
                 axes[0].add_patch(
-                    plt.Rectangle(
+                    Rectangle(
                         (q25, y - 0.25),
                         q75 - q25,
                         0.5,

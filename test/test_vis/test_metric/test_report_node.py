@@ -160,6 +160,10 @@ def test_node_recipe_validates_tasks(config, sources, message):
             },
             "Unknown class type",
         ),
+        (
+            {"type": "orientation", "range": [0.0]},
+            "must contain two bounds",
+        ),
         ({"type": "regression"}, "Unknown node task type"),
     ],
 )
@@ -191,6 +195,13 @@ def test_node_recipe_rejects_missing_task_columns():
                 "truth_column": "truth_is_primary",
                 "prediction_column": "reco_is_primary",
             },
+            pd.DataFrame({"truth_is_primary": [1]}),
+        )
+
+    with pytest.raises(ValueError, match="require string truth and prediction"):
+        recipe._update_task(
+            classification,
+            {"truth_column": "truth_is_primary"},
             pd.DataFrame({"truth_is_primary": [1]}),
         )
 

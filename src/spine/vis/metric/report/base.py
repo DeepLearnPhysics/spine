@@ -77,8 +77,12 @@ def distribution_summary(
     Quantiles are estimated from the histogram because point-level values are
     intentionally not retained by streaming reducers.
     """
-    mean = value_sum / count if count else None
-    variance = max(value_sum_sq / count - mean**2, 0.0) if count else None
+    if count:
+        mean = value_sum / count
+        variance = max(value_sum_sq / count - mean**2, 0.0)
+    else:
+        mean = None
+        variance = None
     return {
         "count": count,
         "mean": mean,

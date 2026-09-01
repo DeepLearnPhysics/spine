@@ -221,7 +221,17 @@ class NodeSummaryRecipe(ReportRecipe):
             }
         if task_type == "orientation":
             bins = int(task.get("bins", 50))
-            edges = np.linspace(*task.get("range", (-1.0, 1.0)), bins + 1)
+            value_range = task.get("range", (-1.0, 1.0))
+            if (
+                isinstance(value_range, (str, bytes))
+                or not isinstance(value_range, Sequence)
+                or len(value_range) != 2
+            ):
+                raise ValueError(
+                    f"Orientation range for `{key}` must contain two bounds."
+                )
+            lower, upper = value_range
+            edges = np.linspace(float(lower), float(upper), bins + 1)
             return {
                 "type": task_type,
                 "edges": edges,
@@ -259,6 +269,13 @@ class NodeSummaryRecipe(ReportRecipe):
         if state["type"] == "classification":
             truth_column = task.get("truth_column")
             prediction_column = task.get("prediction_column")
+            if not isinstance(truth_column, str) or not isinstance(
+                prediction_column, str
+            ):
+                raise ValueError(
+                    "Node classification tasks require string truth and "
+                    "prediction columns."
+                )
             missing = {truth_column, prediction_column} - set(frame.columns)
             if missing:
                 raise ValueError(

@@ -120,7 +120,13 @@ class ClusterSummaryRecipe(ReportRecipe):
         # Each metric owns its edges because ARI and overlap metrics commonly
         # cover different numeric ranges.
         for metric in metric_names:
-            edges = np.linspace(*metric_ranges.get(metric, (0.0, 1.0)), bins + 1)
+            metric_range = metric_ranges.get(metric, (0.0, 1.0))
+            if len(metric_range) != 2:
+                raise ValueError(
+                    f"Clustering range for `{metric}` must contain two bounds."
+                )
+            lower, upper = metric_range
+            edges = np.linspace(float(lower), float(upper), bins + 1)
             accumulators[metric] = self._new_accumulator(edges)
             class_accumulators[metric] = {
                 group["name"]: self._new_accumulator(edges) for group in classes
