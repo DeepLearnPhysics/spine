@@ -2,3 +2,4 @@
 
 from .confmat import *
 from .heatmap import *
+from .report import *
