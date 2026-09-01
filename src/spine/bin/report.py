@@ -30,7 +30,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cli(argv: Sequence[str] | None = None) -> int:
-    """Run the standalone SPINE metric reporter."""
+    """Run the standalone SPINE metric reporter.
+
+    Parameters
+    ----------
+    argv : sequence of str, optional
+        Command-line arguments to parse. If omitted, arguments are read from
+        :data:`sys.argv`.
+
+    Returns
+    -------
+    int
+        Process exit status. A successful report returns zero.
+    """
     args = build_parser().parse_args(argv)
     summary = build_report(args.config, args.input_dir, args.output_dir)
     summary_path = Path(args.output_dir) / "summary.json"

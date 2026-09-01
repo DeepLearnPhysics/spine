@@ -43,6 +43,7 @@ Bin modules
    spine.bin.cli
    spine.bin.config
    spine.bin.info
+   spine.bin.report
    spine.bin.source
    spine.bin.weight
 
@@ -383,7 +384,15 @@ Vis modules
    spine.vis.metric.confmat
    spine.vis.metric.distribution
    spine.vis.metric.heatmap
+   spine.vis.metric.plot
    spine.vis.metric.report
+   spine.vis.metric.report.base
+   spine.vis.metric.report.classification
+   spine.vis.metric.report.cluster
+   spine.vis.metric.report.manager
+   spine.vis.metric.report.node
+   spine.vis.metric.report.point
+   spine.vis.metric.report.segment
    spine.vis.scene.adapter
    spine.vis.scene.backend
    spine.vis.scene.model
