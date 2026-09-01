@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pandas as pd
+import pytest
 import yaml
 
-from spine.vis.metric.report import build_report
+from spine.vis.metric.report import (
+    ClusterSummaryRecipe,
+    PointProposalRecipe,
+    SegmentConfusionRecipe,
+    build_report,
+)
+from spine.vis.metric.report.base import InputCounts
 
 
 def _write_inputs(input_dir):
@@ -175,3 +183,115 @@ def test_non_strict_report_records_missing_metric(tmp_path):
     summary = build_report(config_path, tmp_path / "raw", tmp_path / "report")
 
     assert summary["metrics"]["segmentation"]["status"] == "skipped"
+
+
+def test_input_counts_prefers_physical_event_identity(tmp_path):
+    """Complete run coordinates should take precedence over loader indexes."""
+    counts = InputCounts()
+    frame = pd.DataFrame(
+        {
+            "run": [1, 1],
+            "subrun": [2, 2],
+            "event": [3, 3],
+            "file_index": [0, 0],
+            "index": [7, 7],
+        }
+    )
+
+    counts.update(tmp_path / "source.csv", frame)
+
+    assert counts.as_dict([tmp_path / "source.csv"], len(frame)) == {
+        "csv_shards": 1,
+        "rows": 2,
+        "events": 1,
+        "data_files": 1,
+    }
+
+
+def test_cluster_recipe_reduces_per_class_columns(tmp_path):
+    """Per-shape analyzer columns should feed their class distributions."""
+    path = tmp_path / "cluster.csv"
+    pd.DataFrame({"ari": [0.5], "ari_0": [0.75]}).to_csv(path, index=False)
+    recipe = ClusterSummaryRecipe(
+        "clustering", {"metric_names": ["ari"], "classes": ["shower"]}
+    )
+
+    summary = recipe.reduce({"fragment": [path]})
+
+    assert summary["levels"]["fragment"]["by_class"]["Shower"]["ari"][
+        "mean"
+    ] == pytest.approx(0.75)
+
+
+def test_cluster_recipe_rejects_missing_metric_columns(tmp_path):
+    """A malformed cluster shard should identify its absent metric columns."""
+    path = tmp_path / "cluster.csv"
+    pd.DataFrame({"ari": [0.5]}).to_csv(path, index=False)
+    recipe = ClusterSummaryRecipe("clustering", {"metric_names": ["ari", "pur"]})
+
+    with pytest.raises(ValueError, match="Missing clustering columns.*pur"):
+        recipe.reduce({"fragment": [path]})
+
+
+def test_point_recipe_validates_thresholds_and_distance_column(tmp_path):
+    """PPN reduction should reject invalid thresholds and malformed shards."""
+    with pytest.raises(ValueError, match="distance thresholds"):
+        PointProposalRecipe("ppn", {"distance_thresholds": []}).reduce({})
+
+    path = tmp_path / "points.csv"
+    pd.DataFrame({"shape": [0]}).to_csv(path, index=False)
+    recipe = PointProposalRecipe("ppn", {})
+    with pytest.raises(ValueError, match="Missing `dist` column"):
+        recipe.reduce({"truth_to_reco": [path], "reco_to_truth": [path]})
+
+
+def test_point_renderer_allows_summaries_without_class_breakdowns(tmp_path):
+    """Resolution and threshold plots should not require per-class summaries."""
+    distribution = {
+        "count": 1,
+        "mean": 0.5,
+        "std": 0.0,
+        "quantiles": [0.5] * 5,
+        "histogram": [1],
+    }
+    direction = {
+        "threshold_fraction": {"1.0": 1.0},
+        "distribution": distribution,
+        "by_class": {},
+    }
+    summary = {
+        "distance_thresholds": [1.0],
+        "distance_unit": "cm",
+        "histogram_edges": [0.0, 1.0],
+        "directions": {"efficiency": direction, "purity": direction},
+    }
+
+    artifacts = PointProposalRecipe("ppn", {}).render(summary, tmp_path, ["png"])
+
+    assert {artifact.name for artifact in artifacts} == {
+        "ppn_efficiency.png",
+        "ppn_purity.png",
+        "ppn_resolution.png",
+    }
+
+
+@pytest.mark.parametrize(
+    ("frame", "config", "message"),
+    [
+        (pd.DataFrame({"value": [1]}), {}, "No confusion count columns"),
+        (
+            pd.DataFrame({"count_00": [1], "count_22": [1]}),
+            {"num_classes": 2},
+            "contains 3",
+        ),
+    ],
+)
+def test_segment_recipe_rejects_malformed_count_shards(
+    tmp_path, frame, config, message
+):
+    """Semantic summaries must expose a matrix compatible with configuration."""
+    path = tmp_path / "segment.csv"
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match=message):
+        SegmentConfusionRecipe("segment", config).reduce({"source": [path]})
