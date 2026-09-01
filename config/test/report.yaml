@@ -1,0 +1,93 @@
+# Standalone reduction of completed full-chain analyzer CSV shards.
+strict: true
+formats: [png, json]
+
+metadata:
+  dataset: null
+  checkpoint: null
+
+metrics:
+  segmentation:
+    name: segment_confusion
+    source: "**/*segment_eval_summary.csv"
+    classes: [shower, track, michel, delta, low_energy]
+
+  # Example of reducing canonical semantic classes to a task-specific view.
+  segmentation_shower_track:
+    name: segment_confusion
+    source: "**/*segment_eval_summary.csv"
+    class_mapping:
+      Shower: [shower, michel, delta, low_energy]
+      Track: [track]
+
+  ppn:
+    name: point_proposal
+    truth_to_reco: "**/*point_eval_truth_to_reco.csv"
+    reco_to_truth: "**/*point_eval_reco_to_truth.csv"
+    distance_thresholds: [1.0, 2.0, 5.0]
+    distance_range: [0.0, 5.0]
+    distance_unit: cm
+
+  clustering:
+    name: cluster_summary
+    sources:
+      fragment: "**/*cluster_eval_fragment.csv"
+      particle: "**/*cluster_eval_particle.csv"
+      interaction: "**/*cluster_eval_interaction.csv"
+
+  nodes:
+    name: node_summary
+    sources:
+      fragment: "**/*save_truth_fragments.csv"
+      particle: "**/*save_truth_particles.csv"
+    tasks:
+      shower_fragment_primary:
+        source: fragment
+        type: classification
+        truth_column: truth_group_primary
+        prediction_column: reco_is_primary
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_shape, equals: 0}
+            - {column: truth_size_adapt, min: 25}
+
+      particle_pid:
+        source: particle
+        type: classification
+        truth_column: truth_pid
+        prediction_column: reco_pid
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_nu_id, min: 0}
+            - {column: truth_is_primary, equals: true}
+            # Exclude an electron when its parent is a neutral pion. Writing
+            # the excluded conjunction directly avoids an opaque De Morgan OR.
+            - not:
+                all:
+                  - {column: truth_parent_pdg_code, equals: 111}
+                  - {column: truth_pdg_code, abs_equals: 11}
+
+      particle_primary:
+        source: particle
+        type: classification
+        truth_column: truth_is_primary
+        prediction_column: reco_is_primary
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_nu_id, min: 0}
+            - {column: truth_size, min: 25}
+
+      particle_orientation:
+        source: particle
+        type: orientation
+        truth_columns: [truth_start_dir_x, truth_start_dir_y, truth_start_dir_z]
+        prediction_columns: [reco_start_dir_x, reco_start_dir_y, reco_start_dir_z]
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_nu_id, min: 0}
+            - {column: truth_shape, equals: 1}
+            - {column: truth_size, min: 25}

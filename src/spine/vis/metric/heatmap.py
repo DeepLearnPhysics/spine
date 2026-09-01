@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -55,8 +56,8 @@ class UncertaintyFormatter(Formatter):
 
 def heatmap(
     data: np.ndarray,
-    row_labels: list[str] | np.ndarray,
-    col_labels: list[str] | np.ndarray,
+    row_labels: Sequence[str] | np.ndarray,
+    col_labels: Sequence[str] | np.ndarray,
     ax: Axes | None = None,
     **kwargs: Any,
 ) -> AxesImage:
@@ -66,9 +67,9 @@ def heatmap(
     ----------
     data : np.ndarray
         Two-dimensional array of shape ``(N, M)``.
-    row_labels : Union[List[str], np.ndarray]
+    row_labels : Sequence[str] or np.ndarray
         Labels for the ``N`` heatmap rows.
-    col_labels : Union[List[str], np.ndarray]
+    col_labels : Sequence[str] or np.ndarray
         Labels for the ``M`` heatmap columns.
     ax : matplotlib.axes.Axes, optional
         Axes on which to draw the heatmap. If omitted, use the current axes.

@@ -1,106 +1,22 @@
-"""Visualization tools for confusion matrices."""
+"""Construction and visualization of confusion matrices.
+
+This module has one responsibility: turning an existing set of categorical
+predictions into a confusion matrix and drawing a matrix already reduced by an
+analyzer or report recipe. CSV discovery, aggregation and artifact persistence
+belong to :mod:`spine.vis.metric.report`.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
-import matplotlib as mpl
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 
-mpl.rcParams.update({"font.size": 18})
-mpl.rcParams.update({"figure.autolayout": True})
+from .heatmap import annotate_heatmap, heatmap
+from .plot import plotting
 
-
-def draw_confusion_matrix(
-    file_path: str | Path,
-    num_classes: int | None = None,
-    mapping: Mapping[int, Sequence[int]] | None = None,
-    figure_name: str = "confmat",
-    show_counts: bool = False,
-    class_names: Sequence[str] | None = None,
-    figsize: tuple[float, float] = (9, 6),
-    norm_axis: int = 0,
-) -> None:
-    """Draws the confusion matrix from a file produced by the analysis
-    script used to evaluate the classification accuracy.
-
-    Parameters
-    ----------
-    file_path : str
-        Path to the file which contains the classification metrics
-    num_classes : int, optional
-        Number of classes to represent
-    mapping : dict, optional
-        Mapping between the stored class and a redefined set of classes
-    figure_name : str, default "confmat"
-        Base name used when saving the figure.
-    show_counts : bool, default False
-        Show the number of entries in the contingency matrix
-    class_names : list, optional
-        Labels for each class
-    figsize : tuple, default (9, 6)
-        Figure size
-    norm_axis : int, default 0
-        Normalization axis (0: recall, 1: precision)
-    """
-    # Load the file
-    data = pd.read_csv(file_path)
-
-    # Load the contingency matrix
-    if "score_0" in data.keys():
-        hist = build_matrix(data, num_classes, mapping)
-    else:
-        hist = rebuild_matrix(data, num_classes, mapping)
-
-    # Initialize figure
-    fig = plt.figure(figsize=figsize)
-    fig.patch.set_alpha(0)
-
-    # Normalize the histogram counts to the total number of entries in each true class bin
-    if norm_axis not in (0, 1):
-        raise ValueError("The normalization axis must be 0 (recall) or 1 (precision).")
-    norms = np.sum(hist, axis=norm_axis)
-    if norm_axis == 0:
-        hist_norm = hist / norms
-    else:
-        hist_norm = hist / norms[:, None]
-
-    # Initialize plot, fill
-    num_classes = len(hist)
-    xedges = yedges = -0.5 + np.arange(0, num_classes + 1)
-    plt.pcolormesh(xedges, yedges, hist_norm, cmap="Blues")
-    for i in range(num_classes):
-        for j in range(num_classes):
-            label = (
-                f"{hist_norm[i, j]:0.3f}\n({int(hist[i, j])})"
-                if show_counts
-                else f"{hist_norm[i, j]:0.3f}"
-            )
-            plt.text(
-                j,
-                i,
-                label,
-                color="white" if hist_norm[i, j] > 0.5 else "black",
-                ha="center",
-                va="center",
-            )
-
-    # Set axes style and labels
-    plt.xlabel("Class label")
-    plt.ylabel("Class prediction")
-    if class_names is not None:
-        if len(class_names) != num_classes:
-            raise ValueError("Must provide one class label per class.")
-        plt.xticks(np.arange(num_classes), labels=class_names)
-        plt.yticks(np.arange(num_classes), labels=class_names)
-    plt.colorbar()
-
-    # Save and show
-    plt.savefig(f"{figure_name}.png", bbox_inches="tight")
-    plt.show()
+__all__ = ["build_matrix", "plot_confusion_matrix"]
 
 
 def build_matrix(
@@ -108,110 +24,149 @@ def build_matrix(
     num_classes: int | None = None,
     mapping: Mapping[int, Sequence[int]] | None = None,
 ) -> np.ndarray:
-    """Builds a confusion matrix from a pixel-wise storage file.
+    """Build a confusion matrix from categorical prediction records.
+
+    The input must contain one ``pred`` and ``label`` value per record. Matrix
+    rows represent predicted classes and columns represent true classes.
 
     Parameters
     ----------
-    data : pd.Dataframe
-        Dataframe which contains the pixel label/predictions
+    data : pd.DataFrame
+        Records containing ``pred`` and ``label`` columns. ``score_<id>``
+        columns may be used to infer the source class count.
     num_classes : int, optional
-        Number of classes to represent
-    mapping : dict, optional
-        Mapping between the stored class and a redefined set of classes
+        Number of output classes. If omitted, infer it from ``mapping`` or the
+        available score columns.
+    mapping : mapping of int to sequence of int, optional
+        Output class IDs mapped to source class IDs. Records outside all
+        mapped groups are excluded.
+
+    Returns
+    -------
+    np.ndarray
+        Integer confusion matrix with prediction on axis 0 and truth on axis 1.
+
+    Raises
+    ------
+    ValueError
+        If the number of classes cannot be inferred or does not agree with the
+        mapping.
     """
-    # If the number of classes is not specified, fetch from the file
     if num_classes is None:
         if mapping is not None:
             num_classes = len(mapping)
         else:
-            classes = []
-            for k in data.keys():
-                if k.startswith("score"):
-                    classes.append(int(k[-1]))
-            if len(classes) == 0:
+            classes = [
+                int(column.rsplit("_", 1)[-1])
+                for column in data.columns
+                if column.startswith("score_")
+            ]
+            if not classes:
                 raise ValueError(
                     "Could not infer the number of classes from the file. "
                     "Please provide the `num_classes` parameter."
                 )
-            num_classes = np.max(classes) + 1
-
-    assert num_classes is not None  # for the type checker
+            num_classes = max(classes) + 1
 
     if mapping is not None and len(mapping) != num_classes:
         raise ValueError("The number of classes should match those in the map.")
 
-    # Apply the requested class mapping, if any
-    pred = data.pred.to_numpy()
-    label = data.label.to_numpy()
+    prediction = data["pred"].to_numpy()
+    truth = data["label"].to_numpy()
     if mapping is not None:
-        mapped_pred = np.full(len(pred), -1, dtype=np.int64)
-        mapped_label = np.full(len(label), -1, dtype=np.int64)
+        mapped_prediction = np.full(len(prediction), -1, dtype=np.int64)
+        mapped_truth = np.full(len(truth), -1, dtype=np.int64)
         for class_id, source_ids in mapping.items():
-            mapped_pred[np.isin(pred, source_ids)] = class_id
-            mapped_label[np.isin(label, source_ids)] = class_id
+            mapped_prediction[np.isin(prediction, source_ids)] = class_id
+            mapped_truth[np.isin(truth, source_ids)] = class_id
 
-        mapped_mask = (mapped_pred >= 0) & (mapped_label >= 0)
-        pred = mapped_pred[mapped_mask]
-        label = mapped_label[mapped_mask]
+        # Mapping acts as both aggregation and selection: a record contributes
+        # only when its prediction and truth both belong to configured groups.
+        valid = (mapped_prediction >= 0) & (mapped_truth >= 0)
+        prediction = mapped_prediction[valid]
+        truth = mapped_truth[valid]
 
-    # Build the confusion matrix
-    hist = np.histogram2d(
-        pred,
-        label,
-        bins=[num_classes, num_classes],
-        range=[[0, num_classes], [0, num_classes]],
+    matrix = np.histogram2d(
+        prediction,
+        truth,
+        bins=(num_classes, num_classes),
+        range=((0, num_classes), (0, num_classes)),
     )[0]
+    return matrix.astype(np.int64)
 
-    return hist
 
+def plot_confusion_matrix(
+    matrix: Sequence[Sequence[int]],
+    class_names: Sequence[str],
+    *,
+    normalize: str = "truth",
+    show_counts: bool = True,
+    figsize: tuple[float, float] = (9.0, 7.0),
+):
+    """Draw a confusion matrix with normalized and raw annotations.
 
-def rebuild_matrix(
-    data: pd.DataFrame,
-    num_classes: int | None = None,
-    mapping: Mapping[int, Sequence[int]] | None = None,
-) -> np.ndarray:
-    """Builds a confusion matrix from an entry-wise storage file.
+    Matrices follow the SPINE analyzer convention: rows are predicted classes
+    and columns are true classes. Drawing delegates the labeled grid and cell
+    annotations to :mod:`spine.vis.metric.heatmap` so heatmap behavior has a
+    single implementation.
 
     Parameters
     ----------
-    data : pd.Dataframe
-        Dataframe which contains the flattened matrix
-    num_classes : int, optional
-        Number of classes to represent
-    mapping : dict, optional
-        Mapping between the stored class and a redefined set of classes
+    matrix : sequence of sequence of int
+        Square confusion-count matrix.
+    class_names : sequence of str
+        Tick label for each matrix class.
+    normalize : {"truth", "prediction"}, default "truth"
+        Normalize each truth column or prediction row, respectively.
+    show_counts : bool, default True
+        Include raw counts below normalized values in each cell.
+    figsize : tuple of float, default (9.0, 7.0)
+        Figure width and height in inches.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure containing the annotated confusion matrix.
+
+    Raises
+    ------
+    ValueError
+        If the matrix is not square, labels do not match its size, or the
+        normalization mode is unsupported.
     """
-    # If the number of classes is not specified, fetch from the file
-    if num_classes is None:
-        if mapping is not None:
-            num_classes = len(mapping)
-        else:
-            classes = []
-            for k in data.keys():
-                if k.startswith("count"):
-                    classes.append(int(k[-1]))
-            if len(classes) == 0:
-                raise ValueError(
-                    "Could not infer the number of classes from the file. "
-                    "Please provide the `num_classes` parameter."
-                )
-            num_classes = np.max(classes) + 1
+    plt = plotting()
+    counts = np.asarray(matrix, dtype=np.int64)
+    if counts.ndim != 2 or counts.shape[0] != counts.shape[1]:
+        raise ValueError("A confusion matrix must be square.")
+    if len(class_names) != len(counts):
+        raise ValueError("Must provide one class name per confusion-matrix class.")
+    if normalize not in ("truth", "prediction"):
+        raise ValueError("Normalization must be `truth` or `prediction`.")
 
-    assert num_classes is not None  # for the type checker
+    denominator = counts.sum(axis=0) if normalize == "truth" else counts.sum(axis=1)
+    if normalize == "prediction":
+        denominator = denominator[:, None]
+    normalized = np.zeros_like(counts, dtype=np.float64)
+    np.divide(counts, denominator, out=normalized, where=denominator != 0)
 
-    if mapping is not None and len(mapping) != num_classes:
-        raise ValueError("The number of classes should match those in the map.")
-
-    # Rebuild confusion matrix
-    hist = np.empty((num_classes, num_classes), dtype=np.int64)
-    for i in range(num_classes):
-        for j in range(num_classes):
-            if mapping is None or not (i in mapping and j in mapping):
-                hist[i, j] = np.sum(data[f"count_{i}{j}"])
-            else:
-                hist[i, j] = 0
-                for k in mapping[i]:
-                    for l in mapping[j]:
-                        hist[i, j] += np.sum(data[f"count_{k}{l}"])
-
-    return hist
+    with plt.rc_context({"font.size": 14, "figure.autolayout": True}):
+        figure, axis = plt.subplots(figsize=figsize)
+        figure.patch.set_alpha(0)
+        image = heatmap(
+            normalized,
+            class_names,
+            class_names,
+            ax=axis,
+            vmin=0.0,
+            vmax=1.0,
+            cmap="Blues",
+        )
+        value_format = "{x:.3f}\n({unc:.0f})" if show_counts else "{x:.3f}"
+        annotate_heatmap(image, unc=counts, valfmt=value_format, threshold=0.5)
+        axis.set(xlabel="True class", ylabel="Predicted class")
+        figure.colorbar(
+            image,
+            ax=axis,
+            label=f"{normalize.capitalize()}-normalized fraction",
+        )
+    return figure

@@ -83,6 +83,7 @@ dev = [
 [project.scripts]
 spine = "spine.bin.cli:cli"
 spine-config = "spine.bin.config:cli"
+spine-report = "spine.bin.report:cli"
 
 [tool.setuptools.dynamic]
 version = {attr = "spine.version.__version__"}

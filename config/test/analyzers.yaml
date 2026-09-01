@@ -1,0 +1,57 @@
+# Generic analyzer fragment which emits every record consumed by spine-report.
+
+# SaveAna needs constructed fragments for fragment-node evaluation. This block
+# merges into the full-chain builder configuration when included last.
+build:
+  fragments: true
+
+# Materialize PPN candidates for PointProposalAna and match fragments for the
+# fragment-node record. These entries merge with the other postprocessors in
+# the full-chain configuration.
+post:
+  ppn: {}
+  match:
+    # Full-chain truth objects live in the point cloud adapted to the semantic
+    # prediction. Match in that same space; original fragment indexes are not
+    # populated when adapted fragment labels are available.
+    truth_point_mode: points_adapt
+    fragment: true
+
+ana:
+  prefix_output: true
+  overwrite: true
+
+  segment_eval:
+    summary: true
+    ghost: false
+
+  point_eval: {}
+
+  cluster_eval:
+    obj_type: [fragment, particle, interaction]
+    # Build both assignments from objects so inference does not need to retain
+    # the adapted training label tensor.
+    use_objects: true
+    truth_index_mode: index_adapt
+    metrics: [pur, eff, ari]
+
+  save:
+    obj_type: [fragment, particle]
+    run_mode: both
+    match_mode: both
+    # Reconstructed `is_primary` is the fragment-node prediction. The physical
+    # cascade-primary label is `group_primary`; TruthFragment.is_primary is not
+    # filled. This does not reproduce a loss configured with `use_closest`.
+    # Truth fragment `size` refers to the unadapted index and is zero after a
+    # full-chain build. Store `size_adapt` for quality selections instead.
+    fragment: [shape, size, size_adapt, is_primary, group_primary, start_dir]
+    particle:
+      - shape
+      - size
+      - pid
+      - is_primary
+      - start_dir
+      - ke
+      - pdg_code
+      - parent_pdg_code
+      - nu_id
