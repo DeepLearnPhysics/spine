@@ -133,7 +133,15 @@ def test_build_report_renders_expected_pngs(tmp_path):
         "ppn_efficiency.png",
         "ppn_purity.png",
         "ppn_resolution.png",
-        "clustering_summary.png",
+        "clustering_fragment_ari.png",
+        "clustering_fragment_eff.png",
+        "clustering_fragment_pur.png",
+        "clustering_particle_ari.png",
+        "clustering_particle_eff.png",
+        "clustering_particle_pur.png",
+        "clustering_interaction_ari.png",
+        "clustering_interaction_eff.png",
+        "clustering_interaction_pur.png",
     }
 
 

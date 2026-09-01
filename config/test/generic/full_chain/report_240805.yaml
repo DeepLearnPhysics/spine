@@ -11,7 +11,7 @@ metrics:
   segmentation:
     name: segment_confusion
     source: "**/*segment_eval_summary.csv"
-    class_names: [shower, track, michel, delta, low_energy]
+    class_names: [shower, track, michel, delta, low_energy, ghost]
 
   ppn:
     name: point_proposal
@@ -20,6 +20,7 @@ metrics:
     distance_thresholds: [1.0, 2.0, 5.0]
     distance_range: [0.0, 5.0]
     distance_unit: cm
+    class_names: [shower, track, michel, delta]
 
   clustering:
     name: cluster_summary
@@ -27,3 +28,59 @@ metrics:
       fragment: "**/*cluster_eval_fragment.csv"
       particle: "**/*cluster_eval_particle.csv"
       interaction: "**/*cluster_eval_interaction.csv"
+    class_names: [shower, track, michel, delta]
+
+  nodes:
+    name: node_summary
+    sources:
+      fragment: "**/*save_truth_fragments.csv"
+      particle: "**/*save_truth_particles.csv"
+    tasks:
+      shower_fragment_primary:
+        source: fragment
+        type: classification
+        truth_column: truth_is_primary
+        prediction_column: reco_is_primary
+        class_names: [secondary, primary]
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_shape, equals: 0}
+            - {column: truth_size, min: 25}
+
+      particle_pid:
+        source: particle
+        type: classification
+        truth_column: truth_pid
+        prediction_column: reco_pid
+        class_names: [photon, electron, muon, pion, proton, kaon]
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_is_primary, equals: true}
+            # Exclude electrons and photons descending from neutral pions.
+            - any:
+                - {column: truth_parent_pdg_code, not_equals: 111}
+                - {column: truth_pdg_code, abs_not_equals: 11}
+
+      particle_primary:
+        source: particle
+        type: classification
+        truth_column: truth_is_primary
+        prediction_column: reco_is_primary
+        class_names: [secondary, primary]
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_size, min: 25}
+
+      particle_orientation:
+        source: particle
+        type: orientation
+        truth_columns: [truth_start_dir_x, truth_start_dir_y, truth_start_dir_z]
+        prediction_columns: [reco_start_dir_x, reco_start_dir_y, reco_start_dir_z]
+        quality_cuts:
+          all:
+            - {column: match_overlap, min: 0.5}
+            - {column: truth_shape, in: [0, 1]}
+            - {column: truth_size, min: 25}
