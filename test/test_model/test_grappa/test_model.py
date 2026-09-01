@@ -82,6 +82,22 @@ def test_grappa_infers_shapes_for_track_restricted_grouping(
     assert len(shapes.numpy_tensor()) == len(graph_clusters.index_list)
 
 
+def test_grappa_normalizes_explicit_cached_shapes(graph_data, graph_clusters):
+    """Cached semantic classes recover an integer dtype before graph indexing."""
+    model = GrapPA(shower_model_config())
+    cached_shapes = TensorBatch(
+        torch.tensor([SHOWR_SHP, TRACK_SHP, TRACK_SHP], dtype=torch.float32),
+        [2, 1],
+    )
+
+    shapes = model._get_shapes(graph_data, graph_clusters, cached_shapes)
+
+    assert shapes is not None
+    assert shapes.numpy_tensor().dtype == np.int64
+    edge_index, _ = model._make_edge_index(graph_data, graph_clusters, shapes)
+    assert edge_index.counts.tolist() == [0, 0]
+
+
 def test_grappa_loss_routes_graph_truth_to_edge_objective():
     """Expose parsed graph labels under the edge-loss interface name."""
 

@@ -712,9 +712,17 @@ class GrapPA(torch.nn.Module):
             Cluster semantic labels, or `None` if they are not needed and were
             not provided.
         """
+        # If shapes are provided, return them directly.
         if shapes is not None:
-            return shapes
+            # Cached TensorBatch inputs are moved to the global model dtype before
+            # reaching GrapPA. Restore the categorical dtype before graph indexing.
+            shapes_np = shapes.to_numpy()
+            shape_values = shapes_np.numpy_tensor().astype(np.int64, copy=False)
+            return TensorBatch(shape_values, shapes_np.counts)
 
+        # If the graph constructor is not class-dependent and the grouping is not
+        # track-restricted, there is no need to derive the shapes from the cluster
+        # labels. Return None to indicate that the shapes are not needed.
         class_dependent_edges = self.graph_constructor is not None and isinstance(
             self.graph_constructor.max_length, np.ndarray
         )
@@ -722,6 +730,8 @@ class GrapPA(torch.nn.Module):
         if not class_dependent_edges and not track_restricted_grouping:
             return None
 
+        # If the graph constructor is class-dependent or the grouping is track-restricted,
+        # derive the shapes from the cluster labels.
         if not isinstance(data, ClusterLabelBatch):
             raise TypeError(
                 "Deriving semantic node labels requires structured cluster labels "
