@@ -6,7 +6,16 @@ from pathlib import Path
 
 import yaml
 
-CONFIG_DIR = Path(__file__).parents[3] / "config/test/generic/full_chain"
+CONFIG_DIR = Path(__file__).parents[3] / "config/test"
+
+
+def test_generic_metric_configs_are_flat():
+    """Keep generic reporting defaults directly under ``config/test``."""
+    assert {path.name for path in CONFIG_DIR.glob("*.yaml")} == {
+        "analyzers.yaml",
+        "report.yaml",
+    }
+    assert not any(path.is_dir() for path in CONFIG_DIR.iterdir())
 
 
 def test_generic_metric_configs_are_undated_and_ghost_free():

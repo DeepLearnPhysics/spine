@@ -3,7 +3,16 @@
 from pathlib import Path
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
-EXAMPLE_CONFIGS = sorted(CONFIG_DIR.rglob("*.cfg")) + sorted(CONFIG_DIR.rglob("*.yaml"))
+TEST_CONFIG_DIR = CONFIG_DIR / "test"
+
+# The test directory contains analyzer fragments and standalone reporter
+# configurations rather than complete Driver configurations. Keep the model
+# loader contract focused on examples that actually define ``io.loader``.
+EXAMPLE_CONFIGS = [
+    path
+    for path in (sorted(CONFIG_DIR.rglob("*.cfg")) + sorted(CONFIG_DIR.rglob("*.yaml")))
+    if TEST_CONFIG_DIR not in path.parents
+]
 
 MODEL_CONFIGS = {
     "full_chain": CONFIG_DIR / "full_chain" / "full_chain_train.yaml",

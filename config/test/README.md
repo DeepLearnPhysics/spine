@@ -13,7 +13,7 @@ Run it with:
 
 ```bash
 spine-report \
-  --config config/test/generic/full_chain/report.yaml \
+  --config config/test/report.yaml \
   --input-dir "$workspace/metrics/full_chain/raw" \
   --output-dir "$workspace/metrics/full_chain/report"
 ```
