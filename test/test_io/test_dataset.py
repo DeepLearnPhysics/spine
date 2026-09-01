@@ -15,7 +15,7 @@ from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import joint as joint_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset import mixed as mixed_dataset_module
-from spine.io.write import HDF5Writer
+from spine.io.write import HDF5Writer, StageHDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -199,6 +199,79 @@ def test_hdf5_dataset_batch_access_with_workers(tmp_path):
     values = np.concatenate([batch["value"].numpy().reshape(-1) for batch in batches])
     np.testing.assert_array_equal(indexes, np.arange(8))
     np.testing.assert_array_equal(values, np.arange(8))
+
+
+def test_staged_dataset_workers_survive_sidecar_publication(tmp_path):
+    """Active worker readers should finish safely after atomic stage publication."""
+    output = tmp_path / "worker_stage.h5"
+    num_entries = 8
+    source = {
+        "source_file_name": np.asarray(["source.root"] * num_entries),
+        "source_file_size": np.asarray([10] * num_entries),
+        "source_file_mtime_ns": np.asarray([20] * num_entries),
+        "source_file_entry_index": np.arange(num_entries),
+    }
+    writer = StageHDF5Writer(str(output), overwrite=True)
+    writer.write_stage(
+        "upstream",
+        {
+            "index": np.arange(num_entries),
+            "dummy_data": [
+                np.asarray([idx], dtype=np.int64) for idx in range(num_entries)
+            ],
+            **source,
+        },
+    )
+    writer.finalize_stage("upstream")
+    writer.close()
+
+    dataset = HDF5Dataset(
+        file_keys=str(output),
+        staged=True,
+        stage="upstream",
+        keys=["dummy_data"],
+        keep_open=True,
+        build_classes=False,
+    )
+    iterator = iter(DataLoader(dataset, batch_size=2, num_workers=2, shuffle=False))
+    batches = [next(iterator)]
+
+    # Publish the downstream stage while both loader workers retain handles to
+    # the canonical file's previous inode.
+    writer = StageHDF5Writer(
+        str(output),
+        sidecar=True,
+        target_file_paths=[str(output)],
+    )
+    writer.write_stage(
+        "downstream",
+        {
+            "index": np.arange(num_entries),
+            "dummy_data": [
+                np.asarray([100 + idx], dtype=np.int64) for idx in range(num_entries)
+            ],
+            **source,
+        },
+    )
+    writer.finalize_stage("downstream")
+    writer.close()
+
+    batches.extend(iterator)
+    indexes = np.concatenate([batch["index"].numpy() for batch in batches])
+    values = np.concatenate(
+        [batch["dummy_data"].numpy().reshape(-1) for batch in batches]
+    )
+    np.testing.assert_array_equal(indexes, np.arange(num_entries))
+    np.testing.assert_array_equal(values, np.arange(num_entries))
+
+    published = HDF5Dataset(
+        file_keys=str(output),
+        staged=True,
+        stage="downstream",
+        keys=["dummy_data"],
+        build_classes=False,
+    )
+    np.testing.assert_array_equal(published[7]["dummy_data"], [107])
 
 
 def test_hdf5_dataset_skip_keys(hdf5_data):

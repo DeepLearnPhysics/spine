@@ -139,6 +139,7 @@ class IOManager:
         self.unwrapper = None
         self.reader = None
         self.writer = None
+        self.post_list: tuple[str, ...] | None = None
         self.columnar = False
         self._resume_skip_batches = 0
         self._iteration_origin = 0
@@ -308,10 +309,26 @@ class IOManager:
         if self.loader is not None and not unwrap:
             raise ValueError("Must unwrap the model output to write it to file.")
 
+        # A staged cache with no explicit output destination is being extended
+        # in place. Route the writer back to the reader's canonical files and
+        # isolate the new stage in sidecars until successful finalization.
+        writer_cfg = dict(writer)
+        reader = self.reader
+        if (
+            writer_cfg.get("name") == "stage_hdf5"
+            and reader is not None
+            and getattr(reader, "name", None) == "stage_hdf5"
+            and not writer_cfg.get("file_name")
+            and not writer_cfg.get("directory")
+        ):
+            writer_cfg.setdefault("sidecar", True)
+            if writer_cfg["sidecar"]:
+                writer_cfg.setdefault("target_file_paths", list(reader.file_paths))
+
         # Register the write timer and initialize the writer.
         self.watch.initialize("write")
         self.writer = writer_factory(
-            writer, prefix=self.output_prefix, split=split_output
+            writer_cfg, prefix=self.output_prefix, split=split_output
         )
 
     def set_post_processors(self, post_processors: tuple[str, ...]) -> None:

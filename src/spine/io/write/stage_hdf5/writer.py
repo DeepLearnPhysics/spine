@@ -1,26 +1,26 @@
-"""Stage-aware HDF5 cache writer."""
+"""Public staged HDF5 writer and stage-serialization orchestration."""
 
 from __future__ import annotations
 
 import os
 from collections import defaultdict
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import Any
 
 import h5py
 import numpy as np
 import yaml
 
-from spine.version import __version__
-
-from .hdf5 import HDF5Writer
-from .hdf5.common import decode_string_attribute, require_group
+from ..hdf5 import HDF5Writer
+from ..hdf5.common import decode_string_attribute, require_group
+from .file import StageFileMixin
+from .sidecar import StageSidecarMixin
+from .state import StageState
 
 __all__ = ["StageHDF5Writer"]
 
 
-class StageHDF5Writer(HDF5Writer):
+class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
     """Write additive stage caches to one HDF5 file per source file.
 
     This writer is intended for sequential cache materialization workflows
@@ -37,24 +37,6 @@ class StageHDF5Writer(HDF5Writer):
     name = "stage_hdf5"
     _file_source_keys = {"source_file_name", "source_file_size", "source_file_mtime_ns"}
 
-    @dataclass
-    class StageState:
-        """In-memory description of one stage schema.
-
-        The regular :class:`HDF5Writer` stores one flat schema for the whole
-        file. Stage caches need one schema per stage, so this small dataclass
-        carries the state required to keep appending consistently to a given
-        stage group.
-        """
-
-        keys: set[str]
-        type_dict: dict[str, HDF5Writer.DataFormat]
-        object_dtypes: list[list[tuple[str, type]]]
-        product_metadata: dict[str, dict[str, Any]]
-        product_children: dict[str, tuple[str, str]]
-        event_dtype: np.dtype | list[tuple[str, Any]] | None = None
-        entries_since_flush: int = 0
-
     def __init__(
         self,
         file_name: str | None = None,
@@ -70,6 +52,8 @@ class StageHDF5Writer(HDF5Writer):
         flush_frequency: int | None = None,
         overwrite: bool = False,
         overwrite_stage: bool = False,
+        sidecar: bool = False,
+        target_file_paths: list[str] | None = None,
     ) -> None:
         """Initialize the stage-cache writer.
 
@@ -118,6 +102,16 @@ class StageHDF5Writer(HDF5Writer):
             first use while preserving all sibling stages. Incomplete stages
             are always rebuilt automatically when a new writer session first
             encounters them.
+        sidecar : bool, default False
+            If `True`, write each stage to a temporary neighboring cache and
+            merge it into the canonical target only during finalization. This
+            permits concurrent readers to keep the canonical file open while
+            a downstream stage is produced.
+        target_file_paths : list[str], optional
+            Existing canonical staged-cache paths indexed by their stored
+            source provenance. This is supplied internally by
+            :class:`spine.io.manager.IOManager` when a staged cache is both the
+            input and output of a job.
 
         Notes
         -----
@@ -125,61 +119,74 @@ class StageHDF5Writer(HDF5Writer):
         They are internal, reproducible artifacts, so legacy staged caches must
         be rebuilt rather than appended or upgraded in place.
         """
-        # Configure output routing before any source-derived files are opened
-        self._handle_pid: int | None = None
-        self._handles: dict[str, h5py.File] = {}
-
+        # Validate the configuration before initializing the shared HDF5 backend
         if not split:
             raise ValueError(
                 "StageHDF5Writer requires `split=True` because staged caches "
                 "are written one file per source file."
             )
+        if sidecar and overwrite:
+            raise ValueError(
+                "Sidecar stage writes cannot overwrite an entire cache. Use "
+                "`overwrite_stage=True` to replace only the configured stage."
+            )
 
+        # Initialize the shared HDF5 serialization backend while deliberately
+        # deferring staged-cache existence and replacement policy to this
+        # class. ``append=True`` prevents the flat writer constructor from
+        # rejecting or mutating an existing canonical cache.
         name_split = split if prefix is not None else False
-        self.file_name = self.get_file_names(
+        super().__init__(
             file_name=file_name,
+            directory=directory,
             prefix=prefix,
             suffix=suffix,
+            keys=keys,
+            skip_keys=skip_keys,
+            overwrite=False,
+            append=True,
             split=name_split,
-            directory=directory,
-        )[0]
+            lite=lite,
+            keep_open=keep_open,
+            flush_frequency=flush_frequency,
+            format_version=self.current_format_version,
+        )
+
+        self.file_name = self.file_names[0]
         self._route_by_source = isinstance(prefix, list) and len(prefix) > 1
         self.directory = directory
         self.suffix = suffix
 
-        # Store the driver-facing stage and inherited serialization options
+        # Add stage-specific routing and publication policy.
         self.stage = stage
-        self.lite = lite
-        self.keep_open = keep_open
-        self.flush_frequency = flush_frequency
         self.overwrite_stage = overwrite_stage
-        # Stage caches deliberately have one physical layout with no legacy
-        # compatibility branch.
-        self.format_version = self.current_format_version
+        self.sidecar = sidecar
         self.source_info: dict[str, Any] | None = None
 
-        self._configured_keys = set(keys) if keys is not None else None
-        self.keys = (
-            None if self._configured_keys is None else set(self._configured_keys)
-        )
-        self.skip_keys = skip_keys
-        self.dummy_ds = None
-        self.append = True
+        self._configured_keys = None if self.keys is None else set(self.keys)
+        # Stage caches always route by source, even when the initial base name
+        # was resolved from a single prefix.
         self.split = True
-        self.ready = False
-        self.object_dtypes = []
-        self.type_dict = None
-        self.product_metadata: dict[str, dict[str, Any]] = {}
-        self.product_children: dict[str, tuple[str, str]] = {}
-        self.event_dtype = None
 
         # Track schemas, completion state, and handles independently per file
-        self._cfg: dict[str, Any] | None = None
+        self._handles: dict[str, h5py.File] = {}
         self._initialized_files: set[str] = set()
-        self._stage_states: dict[str, StageHDF5Writer.StageState] = {}
+        self._stage_states: dict[str, StageState] = {}
         self._completed_stages: dict[str, set[str]] = defaultdict(set)
         self._active_stages: set[tuple[str, str]] = set()
         self._known_files: set[str] = set()
+
+        # Sidecars are tracked per canonical file and stage. A separate file
+        # for each pair keeps direct `write_stage` users isolated as well as
+        # the standard one-stage driver contract.
+        self._target_by_source: dict[tuple[str, int, int], str] = {}
+        self._canonical_files: set[str] = set()
+        self._sidecar_paths: dict[tuple[str, str], str] = {}
+        self._sidecar_replace: dict[tuple[str, str], bool] = {}
+        if target_file_paths is not None:
+            if not sidecar:
+                raise ValueError("`target_file_paths` requires `sidecar=True`.")
+            self._index_target_files(target_file_paths)
 
         if overwrite and os.path.exists(self.file_name):
             os.remove(self.file_name)
@@ -216,233 +223,6 @@ class StageHDF5Writer(HDF5Writer):
             )
 
         self.finalize_stage(self.stage)
-
-    def close(self) -> None:
-        """Close any persistent cache-file handles.
-
-        This only affects handles cached in the current process and may be
-        called repeatedly.
-        """
-        for handle in self._handles.values():
-            try:
-                handle.close()
-            except (OSError, RuntimeError, ValueError):
-                pass
-
-        self._handles = {}
-        self._handle_pid = None
-
-    def _check_handle_pid(self) -> None:
-        """Ensure persistent writer handles remain process-local.
-
-        Stage caches are not safe to append to through a writer instance that
-        has crossed a process boundary. This method enforces the same
-        single-process handle ownership contract as :class:`HDF5Writer`.
-        """
-        current_pid = os.getpid()
-        if self._handle_pid is None:
-            self._handle_pid = current_pid
-            return
-
-        if self._handle_pid != current_pid:
-            raise RuntimeError(
-                "StageHDF5Writer file handles are process-local and cannot be "
-                "reused across process boundaries."
-            )
-
-    def _open_handle(self, file_path: str) -> tuple[h5py.File, bool]:
-        """Return an appendable cache-file handle for one output path.
-
-        Returns
-        -------
-        tuple[h5py.File, bool]
-            Open HDF5 handle and a flag indicating whether the caller is
-            responsible for closing it immediately.
-        """
-        self._ensure_stage_file(file_path)
-        if not self.keep_open:
-            return h5py.File(file_path, "a"), True
-
-        self._check_handle_pid()
-        handle = self._handles.get(file_path)
-        if handle is None or not handle.id.valid:
-            handle = h5py.File(file_path, "a")
-            self._handles[file_path] = handle
-
-        return handle, False
-
-    def _ensure_stage_file(self, file_path: str) -> None:
-        """Initialize one output cache file structure on first use.
-
-        The top-level administrative groups are created lazily because staged
-        cache files are derived from source provenance and may not all be
-        touched by every write call.
-        """
-        if file_path in self._initialized_files:
-            return
-
-        # Create the physical file lazily because routing depends on provenance
-        file_exists = os.path.exists(file_path)
-        mode = "a" if file_exists else "w"
-        if mode == "w":
-            self._ensure_parent_dir(file_path)
-
-        if self.keep_open:
-            self._check_handle_pid()
-            out_file = h5py.File(file_path, mode)
-            self._handles[file_path] = out_file
-        else:
-            out_file = h5py.File(file_path, mode)
-
-        try:
-            if file_exists:
-                self._validate_stage_file(out_file, file_path)
-            else:
-                # Initialize only the administrative roots shared by all stages
-                info = out_file.create_group("info")
-                info.attrs["version"] = __version__
-                info.attrs["spine_version"] = __version__
-                info.attrs["format"] = self.name
-                info.attrs["format_version"] = self.format_version
-                out_file.create_group("stages")
-        finally:
-            if not self.keep_open:
-                out_file.close()
-
-        self._initialized_files.add(file_path)
-        self._known_files.add(file_path)
-
-    def _validate_stage_file(self, out_file: h5py.File, file_path: str) -> None:
-        """Require an existing cache file to use the staged V2 layout.
-
-        Staged caches are disposable internal products, so legacy files are
-        rejected with an instruction to rebuild rather than upgraded in place.
-
-        Parameters
-        ----------
-        out_file : h5py.File
-            Existing cache file opened for append.
-        file_path : str
-            Path included in validation errors.
-        """
-        if "info" not in out_file:
-            raise ValueError(
-                f"Cannot append staged cache '{file_path}': missing info group."
-            )
-        info = require_group(out_file, "info")
-        stored_version = int(
-            info.attrs.get("format_version", self.legacy_format_version)
-        )
-        if stored_version != self.current_format_version:
-            raise ValueError(
-                f"Staged cache '{file_path}' uses HDF5 format version "
-                f"{stored_version}; rebuild it with version 2."
-            )
-        stored_format = decode_string_attribute(info.attrs.get("format"), "format")
-        if stored_format != self.name:
-            raise ValueError(
-                f"Cannot append staged cache '{file_path}': expected format "
-                f"'{self.name}', found '{stored_format}'."
-            )
-        require_group(out_file, "stages")
-
-    def get_batch_source_info(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Extract cache-file source provenance from one normalized batch.
-
-        Parameters
-        ----------
-        data : dict
-            Normalized batch dictionary prepared for writing.
-
-        Returns
-        -------
-        dict[str, Any]
-            File-level source identity stored under the cache file's top-level
-            ``/source`` group.
-        """
-        required = ("source_file_name", "source_file_size", "source_file_mtime_ns")
-        missing = [key for key in required if key not in data]
-        if missing:
-            raise KeyError(
-                "StageHDF5Writer requires reader-provided source provenance. "
-                f"Missing keys: {missing}."
-            )
-
-        # Collapse batch-level provenance after verifying it identifies one file
-        values = {}
-        for key in required:
-            value = data[key]
-            if np.isscalar(value):
-                values[key] = value.item() if isinstance(value, np.generic) else value
-                continue
-
-            array = np.asarray(value)
-            if array.ndim == 0:
-                values[key] = array.item()
-                continue
-            if len(array) == 0:
-                raise ValueError(f"Source provenance key '{key}' is empty.")
-
-            first = array[0].item() if hasattr(array[0], "item") else array[0]
-            if any(
-                (el.item() if hasattr(el, "item") else el) != first for el in array[1:]
-            ):
-                raise ValueError(
-                    "StageHDF5Writer expects one source file per cache file. "
-                    f"Batch key '{key}' contains multiple values."
-                )
-            values[key] = first
-
-        return {
-            "file_name": values["source_file_name"],
-            "file_size": int(values["source_file_size"]),
-            "file_mtime_ns": int(values["source_file_mtime_ns"]),
-        }
-
-    def ensure_source_group(
-        self, out_file: h5py.File, data: dict[str, Any], file_path: str
-    ) -> None:
-        """Create or validate the top-level source provenance group.
-
-        This enforces the one-cache-file-per-source-file contract. If a later
-        stage attempts to write into an existing cache file with mismatched
-        source provenance, the writer raises immediately.
-
-        Parameters
-        ----------
-        out_file : h5py.File
-            Open staged-cache output file.
-        data : dict
-            Normalized batch containing source provenance.
-        file_path : str
-            Output path used in mismatch diagnostics.
-
-        Raises
-        ------
-        RuntimeError
-            If existing file provenance does not match the input batch.
-        """
-        source_info = self.get_batch_source_info(data)
-        self.source_info = source_info
-
-        # Record provenance on first use, then enforce it on every later stage
-        if "source" not in out_file:
-            source_group = out_file.create_group("source")
-            for key, value in source_info.items():
-                source_group.attrs[key] = value
-            return
-
-        source_group = out_file["source"]
-        assert isinstance(
-            source_group, h5py.Group
-        ), f"Expected 'source' to be a group, got {type(source_group)}."
-        for key, value in source_info.items():
-            cached_value = source_group.attrs.get(key)
-            if cached_value != value:
-                raise RuntimeError(
-                    f"Cache source mismatch for '{file_path}': '{key}' differs "
-                    f"({cached_value!r} != {value!r})."
-                )
 
     def _prepare_batch(
         self,
@@ -507,7 +287,7 @@ class StageHDF5Writer(HDF5Writer):
             self.product_metadata = original_metadata
             self.product_children = original_children
 
-    def _create_stage_state(self, data: dict[str, Any]) -> StageHDF5Writer.StageState:
+    def _create_stage_state(self, data: dict[str, Any]) -> StageState:
         """Infer the schema of one stage from the first written batch.
 
         Parameters
@@ -522,7 +302,7 @@ class StageHDF5Writer(HDF5Writer):
 
         # Infer and retain one immutable serialization schema per named stage
         type_dict, object_dtypes = self.get_data_formats(data, keys)
-        state = self.StageState(
+        state = StageState(
             keys=keys,
             type_dict=type_dict,
             object_dtypes=object_dtypes,
@@ -550,6 +330,17 @@ class StageHDF5Writer(HDF5Writer):
         str
             Destination path for the source-specific staged cache.
         """
+        # Same-file staged workflows route directly back to their canonical
+        # input cache using the immutable source identity stored in each file.
+        if self._target_by_source:
+            identity = self._source_identity(source_info)
+            if identity not in self._target_by_source:
+                raise ValueError(
+                    "No canonical staged cache matches source provenance "
+                    f"{identity}."
+                )
+            return self._target_by_source[identity]
+
         if not (self._route_by_source or multiple_sources):
             if self.directory is None:
                 return self.file_name
@@ -838,7 +629,15 @@ class StageHDF5Writer(HDF5Writer):
             self.product_children = state.product_children
             self.event_dtype = state.event_dtype
 
-            for file_path, subset, _ in self.split_batch_by_source(normalized):
+            for target_path, subset, source_info in self.split_batch_by_source(
+                normalized
+            ):
+                file_path = self._get_stage_write_path(
+                    target_path,
+                    stage,
+                    source_info,
+                    overwrite_stage,
+                )
                 out_file, should_close = self._open_handle(file_path)
                 try:
                     self.ensure_source_group(out_file, subset, file_path)
@@ -876,13 +675,19 @@ class StageHDF5Writer(HDF5Writer):
             self.event_dtype = original_event_dtype
 
     def finalize_stage(self, stage: str) -> None:
-        """Mark one stage as complete in every touched cache file.
+        """Finalize one stage in every touched cache file.
 
         Parameters
         ----------
         stage : str
             Stage name to finalize across all cache files written by this
             writer instance.
+
+        Notes
+        -----
+        In sidecar mode, completion is first flushed to each temporary cache.
+        The validated merge files are then atomically published to their
+        canonical paths.
         """
         for file_path in sorted(self._known_files):
             if (file_path, stage) not in self._active_stages:
@@ -907,6 +712,9 @@ class StageHDF5Writer(HDF5Writer):
                 if should_close:
                     out_file.close()
 
+        if self.sidecar:
+            self._merge_sidecar_stage(stage)
+
     def list_stages(self) -> tuple[str, ...]:
         """Return the union of stage-group names across touched cache files.
 
@@ -917,11 +725,22 @@ class StageHDF5Writer(HDF5Writer):
             touched by this writer instance.
         """
         stage_names: set[str] = set()
-        for file_path in sorted(self._known_files):
-            out_file, should_close = self._open_handle(file_path)
+        file_paths = set(self._known_files)
+        if self.sidecar:
+            file_paths.update(target for target, _ in self._sidecar_paths)
+            file_paths.update(self._target_by_source.values())
+            file_paths.update(self._canonical_files)
+
+        for file_path in sorted(file_paths):
+            if not os.path.exists(file_path):
+                continue
+
+            if file_path in self._known_files:
+                out_file, should_close = self._open_handle(file_path)
+            else:
+                out_file, should_close = h5py.File(file_path, "r"), True
             try:
-                stages = out_file["stages"]
-                assert isinstance(stages, h5py.Group), "'stages' must be an HDF5 group."
+                stages = require_group(out_file, "stages")
                 stage_names.update(stages.keys())
             finally:
                 if should_close:

@@ -92,6 +92,13 @@ class FakeColumnarReader(FakeReader):
         return {"index": [2 * entry, 2 * entry + 1]}
 
 
+class FakeStageReader(FakeReader):
+    """Reader-like staged cache used to exercise same-file writer routing."""
+
+    name = "stage_hdf5"
+    file_paths = ["/tmp/cache_a.h5", "/tmp/cache_b.h5"]
+
+
 class FakeLoader:
     """Loader-like object used by IOManager tests."""
 
@@ -281,6 +288,54 @@ def test_io_manager_validation(monkeypatch):
     manager.columnar = False
     with pytest.raises(RuntimeError, match="not configured"):
         manager.configure_columnar({"value": (("id",), True)})
+
+
+def test_io_manager_uses_sidecars_for_same_file_staged_writes(monkeypatch):
+    """Staged input/output jobs should receive automatic sidecar routing."""
+    writer_calls = []
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: FakeStageReader())
+
+    def build_writer(cfg, **kwargs):
+        writer_calls.append((cfg, kwargs))
+        return object()
+
+    monkeypatch.setattr(manager_mod, "writer_factory", build_writer)
+    IOManager(
+        reader={"name": "stage_hdf5"},
+        writer={"name": "stage_hdf5", "stage": "downstream"},
+        split_output=True,
+    )
+
+    writer_cfg, kwargs = writer_calls[0]
+    assert writer_cfg["sidecar"] is True
+    assert writer_cfg["target_file_paths"] == FakeStageReader.file_paths
+    assert kwargs["split"] is True
+
+    IOManager(
+        reader={"name": "stage_hdf5"},
+        writer={
+            "name": "stage_hdf5",
+            "stage": "downstream",
+            "file_name": "/tmp/separate.h5",
+        },
+        split_output=True,
+    )
+    writer_cfg, _ = writer_calls[1]
+    assert "sidecar" not in writer_cfg
+    assert "target_file_paths" not in writer_cfg
+
+    IOManager(
+        reader={"name": "stage_hdf5"},
+        writer={
+            "name": "stage_hdf5",
+            "stage": "downstream",
+            "sidecar": False,
+        },
+        split_output=True,
+    )
+    writer_cfg, _ = writer_calls[2]
+    assert writer_cfg["sidecar"] is False
+    assert "target_file_paths" not in writer_cfg
 
 
 def test_io_manager_prefix_variants(monkeypatch):

@@ -140,6 +140,50 @@ dataset and the mixed LArCV/HDF5 dataset.
    dataset.MixedDataset
    dataset.JointDataset
 
+Extending staged caches
+-----------------------
+
+When a staged HDF5 cache is both the input and output of a driver job, SPINE
+automatically writes the new stage to a temporary sidecar file. The canonical
+cache remains read-only while the loader is active, so HDF5 dataset reads may
+use multiple workers without competing with a writer handle. After successful
+processing, finalization builds a merged temporary copy beside each canonical
+cache and publishes it with an atomic file replacement. A failed run removes
+its uncommitted sidecars and leaves the canonical cache unchanged.
+
+No additional writer option is required for the usual same-file workflow. It
+is selected when both reader and writer use ``stage_hdf5`` and the writer has
+no explicit ``file_name`` or ``directory``. For example:
+
+.. code-block:: yaml
+
+   base:
+     split_output: true
+
+   io:
+     loader:
+       minibatch_size: 64
+       num_workers: 4
+       shuffle: false
+       dataset:
+         name: hdf5
+         staged: true
+         stage: fragmentation
+         file_keys: null
+     writer:
+       name: stage_hdf5
+       file_name: null
+       stage: particle_aggregation
+       overwrite_stage: true
+
+An explicit output destination retains the ordinary separate-output behavior.
+``sidecar: false`` may be used to opt out of automatic same-file sidecars, but
+direct writes again require the caller to avoid concurrent handles. Each
+canonical file is replaced atomically; a multi-file job is validated in full
+before publication, but is not a single filesystem-wide transaction. During
+finalization, the destination filesystem must have enough free space for one
+temporary copy of the canonical cache plus the new stage sidecar.
+
 Data augmentation
 -----------------
 

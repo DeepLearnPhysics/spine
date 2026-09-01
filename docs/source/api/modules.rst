@@ -192,6 +192,10 @@ Io modules
    spine.io.write.hdf5.schema
    spine.io.write.hdf5.writer
    spine.io.write.stage_hdf5
+   spine.io.write.stage_hdf5.file
+   spine.io.write.stage_hdf5.sidecar
+   spine.io.write.stage_hdf5.state
+   spine.io.write.stage_hdf5.writer
 
 Logging modules
 ---------------
