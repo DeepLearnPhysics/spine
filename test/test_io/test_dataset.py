@@ -216,6 +216,17 @@ def test_hdf5_dataset_rejects_stage_without_staged(hdf5_data):
         )
 
 
+def test_hdf5_dataset_rejects_stage_map_without_staged(hdf5_data):
+    """Flat HDF5 datasets should reject stray per-product stage routing."""
+    with pytest.raises(ValueError, match="can only be provided when `staged=True`"):
+        HDF5Dataset(
+            file_keys=hdf5_data,
+            build_classes=False,
+            staged=False,
+            stage_map={"run_info": "deghosting"},
+        )
+
+
 def test_hdf5_dataset_uses_stage_reader(monkeypatch, hdf5_data):
     """The staged flag should switch the HDF5 dataset to StageHDF5Reader."""
 

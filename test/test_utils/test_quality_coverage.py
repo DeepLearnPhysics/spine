@@ -341,6 +341,8 @@ def test_runtime_helpers_with_mocked_optional_states(monkeypatch):
     assert runtime.cuda_is_available()
     assert runtime.cuda_mem_info() == (2, 8)
     assert runtime.cuda_max_memory_allocated() == 4
+    assert runtime.is_tensor(runtime.torch.tensor([1]))
+    assert not runtime.is_tensor(np.asarray([1]))
 
     calls = []
     monkeypatch.setattr(runtime.torch.distributed, "is_available", lambda: True)
@@ -391,6 +393,12 @@ def test_numbafy_conversion_and_validation_paths():
     result = convert(torch.tensor([1.0]), groups=[1, 2])
     assert torch.is_tensor(result) and result.item() == 3.0
     assert convert(np.array([1.0]), groups=None).item() == 1.0
+
+    @numbafy(cast_args=["values"])
+    def optional_input(values=None):
+        return values
+
+    assert optional_input() is None
 
     @numbafy(cast_args=["missing"])
     def bad_cast(values):
