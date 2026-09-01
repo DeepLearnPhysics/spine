@@ -50,3 +50,14 @@ def test_generic_report_includes_standard_and_mapped_semantics():
         "Shower": ["shower", "michel", "delta", "low_energy"],
         "Track": ["track"],
     }
+
+
+def test_generic_orientation_is_restricted_to_tracks():
+    """Particle orientation should only evaluate track-like particles."""
+    report = yaml.safe_load((CONFIG_DIR / "report.yaml").read_text(encoding="utf-8"))
+    cuts = report["metrics"]["nodes"]["tasks"]["particle_orientation"]["quality_cuts"][
+        "all"
+    ]
+
+    assert {"column": "truth_shape", "equals": 1} in cuts
+    assert not any(cut.get("column") == "truth_shape" and "in" in cut for cut in cuts)

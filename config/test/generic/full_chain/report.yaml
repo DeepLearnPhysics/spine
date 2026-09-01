@@ -89,5 +89,5 @@ metrics:
           all:
             - {column: match_overlap, min: 0.5}
             - {column: truth_nu_id, min: 0}
-            - {column: truth_shape, in: [0, 1]}
+            - {column: truth_shape, equals: 1}
             - {column: truth_size, min: 25}
