@@ -296,6 +296,66 @@ def test_hdf5_reader_keep_open_false_opens_per_get(monkeypatch, hdf5_data):
     assert reader._file_handles == {}
 
 
+def test_hdf5_reader_get_many_opens_once_per_file(monkeypatch, tmp_path):
+    """Batch reads should preserve order while sharing transient handles."""
+    paths = []
+    for file_idx in range(2):
+        path = tmp_path / f"batch_{file_idx}.h5"
+        writer = HDF5Writer(str(path))
+        writer(
+            {
+                "index": np.asarray([0, 1]),
+                "value": [
+                    np.asarray([10 * file_idx], dtype=np.int64),
+                    np.asarray([10 * file_idx + 1], dtype=np.int64),
+                ],
+            },
+            cfg={"io": {"writer": {"name": "hdf5"}}},
+        )
+        writer.finalize()
+        writer.close()
+        paths.append(str(path))
+
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
+    reader = HDF5Reader(paths, build_classes=False, keep_open=False)
+    init_calls = open_calls
+
+    batch = reader.get_many([3, 0, 2, 0])
+
+    assert open_calls - init_calls == 2
+    assert [entry["index"] for entry in batch] == [3, 0, 2, 0]
+    assert [entry["file_index"] for entry in batch] == [1, 0, 1, 0]
+    assert [entry["file_entry_index"] for entry in batch] == [1, 0, 0, 0]
+    assert [entry["value"].tolist() for entry in batch] == [[11], [0], [10], [0]]
+    assert reader._file_handles == {}
+
+
+def test_hdf5_reader_get_many_rejects_bad_index_before_open(monkeypatch, hdf5_data):
+    """A malformed batch should fail before opening any event-read handle."""
+    reader = HDF5Reader(hdf5_data, build_classes=False, keep_open=False)
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
+    with pytest.raises(IndexError, match="out of bounds"):
+        reader.get_many([0, len(reader)])
+
+    assert open_calls == 0
+
+
 def test_hdf5_reader_close_swallows_handle_close_errors():
     """Reader cleanup should clear state even if a handle raises on close."""
     reader = HDF5Reader.__new__(HDF5Reader)
@@ -1025,6 +1085,50 @@ def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
     assert entry["source_file_entry_index"] == 1
     np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[3.0, 4.0]]))
     reader.close()
+
+
+def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_path):
+    """Staged caches should inherit the batch-scoped file access path."""
+    path = tmp_path / "stage_batch.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0, 1]),
+            "source_file_name": np.asarray(["source.root", "source.root"]),
+            "source_file_size": np.asarray([10, 10]),
+            "source_file_mtime_ns": np.asarray([20, 20]),
+            "source_file_entry_index": np.asarray([0, 1]),
+            "dummy_data": [
+                np.asarray([[1.0, 2.0]]),
+                np.asarray([[3.0, 4.0]]),
+            ],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    reader = StageHDF5Reader(
+        "deghosting", str(path), build_classes=False, keep_open=False
+    )
+    open_calls = 0
+    real_file = h5py.File
+
+    def counted_file(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_file(*args, **kwargs)
+
+    monkeypatch.setattr("spine.io.read.hdf5.reader.h5py.File", counted_file)
+    batch = reader.get_many([1, 0, 1])
+
+    assert open_calls == 1
+    assert [entry["index"] for entry in batch] == [1, 0, 1]
+    assert [entry["dummy_data"].tolist() for entry in batch] == [
+        [[3.0, 4.0]],
+        [[1.0, 2.0]],
+        [[3.0, 4.0]],
+    ]
 
 
 def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):

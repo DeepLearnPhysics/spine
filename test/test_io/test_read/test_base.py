@@ -36,6 +36,11 @@ def test_reader_base_getters():
 
     assert len(reader) == 3
     assert reader[1] == {"index": 1}
+    assert reader.get_many([2, 0, 2]) == [
+        {"index": 2},
+        {"index": 0},
+        {"index": 2},
+    ]
     assert reader.get_run_event(1, 0, 2) == {"index": 2}
     assert reader.get_file_path(0) == "file0"
     assert reader.get_file_index(2) == 0

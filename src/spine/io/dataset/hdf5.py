@@ -174,7 +174,44 @@ class HDF5Dataset(BaseDataset):
             a parsed dictionary containing standard metadata plus the products
             described by ``schema``.
         """
-        result = self.reader[idx]
+        return self._process_result(self.reader[idx])
+
+    def __getitems__(self, indices: Sequence[int]) -> list[DataDict]:
+        """Return multiple cached entries through the batched reader path.
+
+        Parameters
+        ----------
+        indices : sequence[int]
+            Dataset indexes requested by the data loader.
+
+        Returns
+        -------
+        list[dict]
+            Parsed and augmented samples in the same order as ``indices``.
+
+        Notes
+        -----
+        File-handle reuse is implemented by the reader. Projection, parsing,
+        and augmentation are deliberately applied afterward, one sample at a
+        time, to preserve :meth:`__getitem__` semantics.
+        """
+        return [
+            self._process_result(result) for result in self.reader.get_many(indices)
+        ]
+
+    def _process_result(self, result: DataDict) -> DataDict:
+        """Convert one raw reader result into a dataset sample.
+
+        Parameters
+        ----------
+        result : dict
+            Raw event dictionary produced by the HDF5 reader.
+
+        Returns
+        -------
+        dict
+            Projected or parser-reconstructed sample after augmentation.
+        """
 
         # Apply raw-product projection while retaining administrative metadata
         if self.keys is not None:
@@ -184,6 +221,7 @@ class HDF5Dataset(BaseDataset):
         for key in self.skip_keys:
             result.pop(key, None)
 
+        # Raw-product mode has no parser reconstruction step
         if not self.parsers:
             return self.apply_augmenter(result)
 

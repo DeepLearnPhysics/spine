@@ -1,7 +1,8 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 import os
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, cast
 from warnings import warn
 
 import h5py
@@ -591,19 +592,24 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         return version
 
     def get(self, idx: int) -> dict[str, Any]:
-        """Returns a specific entry in the file.
+        """Return one decoded entry from the HDF5 input files.
 
         Parameters
         ----------
         idx : int
-            Integer entry ID to access
+            Reader entry index to access.
 
         Returns
         -------
-        data : dict
-            Ditionary of data products corresponding to one event
+        dict
+            Data products and administrative metadata for one event.
+
+        Raises
+        ------
+        IndexError
+            If ``idx`` is outside the configured reader entry list.
         """
-        # Get the appropriate entry index
+        # Resolve the user-facing index onto its physical file and local entry
         if idx < 0 or idx >= len(self):
             raise IndexError(
                 f"Index {idx} out of bounds for dataset of size {len(self)}."
@@ -611,41 +617,132 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         file_idx = self.get_file_index(idx)
         entry_idx = self.get_file_entry_index(idx)
 
-        # Use the event tree to find out what needs to be loaded
-        data = {"file_index": file_idx, "file_entry_index": entry_idx}
-        data.update(self.get_source_provenance(file_idx, entry_idx))
         in_file, should_close = self._open_file(file_idx)
         try:
-            events = in_file["events"]
-            assert isinstance(
-                events, h5py.Dataset
-            ), "'events' is not a dataset in the HDF5 file."
-
-            # Dispatch on the physical layout of the file containing this
-            # entry. `file_format_versions` is parallel to `file_paths`, so a
-            # single reader can transparently span V1 and V2 files.
-            if self.file_format_versions[file_idx] == 1:
-                event = events[entry_idx]
-                names = getattr(getattr(event, "dtype", None), "names", None)
-                if names is not None:
-                    for key in names:
-                        if self.should_load_key(key):
-                            self.load_region_product(in_file, event, data, key)
-                else:
-                    raise ValueError("Event entry does not have named fields.")
-
-            else:
-                # V2 exposes only logical products at the projection boundary;
-                # implementation children are loaded with their owning product.
-                products = require_group(in_file, "products")
-                for key in products:
-                    if key is not None and self.should_load_key(key):
-                        self.load_product(products, entry_idx, data, key)
-                self.reconstruct_products(products, entry_idx, data)
-
+            return self._load_entry(idx, file_idx, entry_idx, in_file)
         finally:
             if should_close:
                 in_file.close()
+
+    def get_many(self, indices: Sequence[int]) -> list[dict[str, Any]]:
+        """Load a batch, opening each participating file at most once.
+
+        Input order, duplicate indexes, entry filtering, and scalar decoding
+        semantics are preserved. Only the physical file-handle lifetime is
+        widened from one entry to one batch.
+
+        Parameters
+        ----------
+        indices : sequence[int]
+            Reader entry indexes to load. They may be unordered or repeated.
+
+        Returns
+        -------
+        list[dict]
+            Decoded entries in the same order as ``indices``.
+
+        Raises
+        ------
+        IndexError
+            If any requested index is outside the configured entry list. All
+            indexes are validated before an event-read handle is opened.
+        """
+        # Resolve and validate the full request before performing physical I/O
+        resolved: list[tuple[int, int, int, int]] = []
+        for position, raw_idx in enumerate(indices):
+            idx = int(raw_idx)
+            if idx < 0 or idx >= len(self):
+                raise IndexError(
+                    f"Index {idx} out of bounds for dataset of size {len(self)}."
+                )
+            resolved.append(
+                (
+                    position,
+                    idx,
+                    self.get_file_index(idx),
+                    self.get_file_entry_index(idx),
+                )
+            )
+
+        # Group by physical file while retaining each result's output position
+        grouped: dict[int, list[tuple[int, int, int]]] = {}
+        for position, idx, file_idx, entry_idx in resolved:
+            grouped.setdefault(file_idx, []).append((position, idx, entry_idx))
+
+        # Reuse one transient or persistent handle for each participating file
+        results: list[dict[str, Any] | None] = [None] * len(resolved)
+        for file_idx, entries in grouped.items():
+            in_file, should_close = self._open_file(file_idx)
+            try:
+                for position, idx, entry_idx in entries:
+                    results[position] = self._load_entry(
+                        idx, file_idx, entry_idx, in_file
+                    )
+            finally:
+                if should_close:
+                    in_file.close()
+
+        # Reads were grouped by file; return them in the caller's original order
+        return cast(list[dict[str, Any]], results)
+
+    def _load_entry(
+        self,
+        idx: int,
+        file_idx: int,
+        entry_idx: int,
+        in_file: h5py.File,
+    ) -> dict[str, Any]:
+        """Decode one resolved entry from an already-open file handle.
+
+        Parameters
+        ----------
+        idx : int
+            User-facing reader index written into the returned metadata.
+        file_idx : int
+            Index of the physical file containing the event.
+        entry_idx : int
+            Event index local to that physical file.
+        in_file : h5py.File
+            Open readable handle for ``file_idx``.
+
+        Returns
+        -------
+        dict
+            Decoded event products and administrative metadata.
+
+        Notes
+        -----
+        This method does not own ``in_file`` and therefore never closes it.
+        Keeping handle ownership in :meth:`get` and :meth:`get_many` lets both
+        scalar and batch paths share the same decoding implementation.
+        """
+
+        # Use the event tree to find out what needs to be loaded
+        data = {"file_index": file_idx, "file_entry_index": entry_idx}
+        data.update(self.get_source_provenance(file_idx, entry_idx))
+        events = in_file["events"]
+        assert isinstance(
+            events, h5py.Dataset
+        ), "'events' is not a dataset in the HDF5 file."
+
+        # Dispatch on the physical layout of the file containing this entry.
+        if self.file_format_versions[file_idx] == 1:
+            event = events[entry_idx]
+            names = getattr(getattr(event, "dtype", None), "names", None)
+            if names is not None:
+                for key in names:
+                    if self.should_load_key(key):
+                        self.load_region_product(in_file, event, data, key)
+            else:
+                raise ValueError("Event entry does not have named fields.")
+
+        else:
+            # V2 products own their implementation datasets below `/products`
+            products = require_group(in_file, "products")
+            for key in products:
+                if key is not None and self.should_load_key(key):
+                    self.load_product(products, entry_idx, data, key)
+            self.reconstruct_products(products, entry_idx, data)
 
         # Use the global index, not the one read from file
         data["index"] = idx

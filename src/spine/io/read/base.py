@@ -7,6 +7,7 @@ data products into dictionaries to be used downstream.
 import glob
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -97,6 +98,24 @@ class ReaderBase(ABC):
             One entry-worth of data from the loaded files
         """
         return self.get(idx)
+
+    def get_many(self, indices: Sequence[int]) -> list[dict[str, Any]]:
+        """Load multiple entries using the scalar reader fallback.
+
+        Backends may override this method to share physical I/O across the
+        requested entries while preserving their order and scalar semantics.
+
+        Parameters
+        ----------
+        indices : sequence[int]
+            Reader entry indexes to load.
+
+        Returns
+        -------
+        list[dict]
+            Decoded entries in the same order as ``indices``.
+        """
+        return [self.get(int(idx)) for idx in indices]
 
     @abstractmethod
     def get(self, idx: int) -> dict[str, Any]:

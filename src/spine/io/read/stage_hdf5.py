@@ -537,27 +537,37 @@ class StageHDF5Reader(HDF5Reader):
             return next(iter(cfg_map.values()))
         return cfg_map
 
-    def get(self, idx: int) -> dict[str, object]:
-        """Return one merged cache entry.
+    def _load_entry(
+        self,
+        idx: int,
+        file_idx: int,
+        entry_idx: int,
+        in_file: h5py.File,
+    ) -> dict[str, object]:
+        """Decode one resolved staged-cache entry from an open file.
 
         Parameters
         ----------
         idx : int
-            Dataset entry index in the staged cache.
+            User-facing reader index written into the returned metadata.
+        file_idx : int
+            Index of the physical staged-cache file containing the event.
+        entry_idx : int
+            Event index local to that physical file.
+        in_file : h5py.File
+            Open readable handle for ``file_idx``.
 
         Returns
         -------
         dict[str, object]
             Raw merged event dictionary containing standard metadata plus all
             requested stage products for the selected entry.
-        """
-        if idx < 0 or idx >= len(self):
-            raise IndexError(
-                f"Index {idx} out of bounds for dataset of size {len(self)}."
-            )
-        file_idx = self.get_file_index(idx)
-        entry_idx = self.get_file_entry_index(idx)
 
+        Notes
+        -----
+        Handle ownership remains with the inherited scalar or batch access
+        method. This decoder only reads from ``in_file`` and never closes it.
+        """
         # Seed the result with global and source-local administrative metadata
         data: dict[str, object] = {
             "file_index": file_idx,
@@ -567,21 +577,16 @@ class StageHDF5Reader(HDF5Reader):
         data.update(self._source_info.get(file_idx, {}))
         product_stage_map = self._resolved_products[file_idx]
 
-        in_file, should_close = self._open_file(file_idx)
-        try:
-            # Read each physical stage once and select only its resolved products
-            for stage_name in sorted(set(product_stage_map.values())):
-                stage_group = self.get_stage_group(
-                    in_file, self.file_paths[file_idx], stage_name
-                )
-                products = self.get_stage_products(stage_group)
-                for key, resolved_stage in product_stage_map.items():
-                    if resolved_stage == stage_name:
-                        self.load_product(products, entry_idx, data, key)
-                self.reconstruct_products(products, entry_idx, data)
-        finally:
-            if should_close:
-                in_file.close()
+        # Read each physical stage once and select only its resolved products
+        for stage_name in sorted(set(product_stage_map.values())):
+            stage_group = self.get_stage_group(
+                in_file, self.file_paths[file_idx], stage_name
+            )
+            products = self.get_stage_products(stage_group)
+            for key, resolved_stage in product_stage_map.items():
+                if resolved_stage == stage_name:
+                    self.load_product(products, entry_idx, data, key)
+            self.reconstruct_products(products, entry_idx, data)
 
         # Expose the user-facing global entry after all stage products are merged
         data["index"] = idx

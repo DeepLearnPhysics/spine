@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
 from spine.utils.conditional import TORCH_AVAILABLE
@@ -51,6 +51,51 @@ class BaseDataset(Dataset):
     def __init__(self) -> None:
         """Initialize shared dataset state."""
         self.augmenter = None
+
+    def __getitems__(self, indices: Sequence[Any]) -> list[DataDict]:
+        """Return a batch of samples using the scalar access fallback.
+
+        PyTorch's map-style data loader uses this optional plural method when
+        it is available. Concrete datasets can override it to combine backend
+        reads without changing the samples presented to the collate function.
+
+        Parameters
+        ----------
+        indices : sequence
+            Dataset indexes requested by the data loader.
+
+        Returns
+        -------
+        list[dict]
+            Samples in the same order as ``indices``.
+        """
+        return [self[index] for index in indices]
+
+    @staticmethod
+    def load_batch(dataset: Any, indices: Sequence[Any]) -> list[DataDict]:
+        """Load multiple samples from a child dataset.
+
+        The optimized plural interface is preferred when available. Plain
+        map-style datasets remain supported through scalar indexing, which is
+        useful for composite datasets configured with third-party sources.
+
+        Parameters
+        ----------
+        dataset : object
+            Child dataset to read.
+        indices : sequence
+            Indexes to forward to the child dataset.
+
+        Returns
+        -------
+        list[dict]
+            Child samples in the requested order.
+        """
+        getitems = getattr(dataset, "__getitems__", None)
+        if getitems is not None:
+            return getitems(indices)
+
+        return [dataset[index] for index in indices]
 
     def build_augmenter(self, augment: Mapping[str, Any] | None) -> None:
         """Instantiate the configured augmenter, if any.

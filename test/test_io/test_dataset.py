@@ -22,6 +22,33 @@ pytestmark = pytest.mark.skipif(
     not TORCH_AVAILABLE, reason="PyTorch is required for torch-backed IO datasets."
 )
 
+if TORCH_AVAILABLE:
+    from torch.utils.data import DataLoader
+
+
+def test_base_dataset_batch_fallbacks():
+    """Base datasets should batch scalar-only datasets without special support."""
+
+    class ScalarDataset(dataset_base_module.BaseDataset):
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    class PlainDataset:
+        def __getitem__(self, idx):
+            return {"index": idx}
+
+    dataset = ScalarDataset()
+
+    assert dataset.__getitems__([2, 0, 2]) == [
+        {"index": 2},
+        {"index": 0},
+        {"index": 2},
+    ]
+    assert dataset.load_batch(PlainDataset(), [1, 0]) == [
+        {"index": 1},
+        {"index": 0},
+    ]
+
 
 @pytest.mark.skipif(
     not ROOT_AVAILABLE, reason="ROOT is required for LArCV dataset tests."
@@ -119,6 +146,59 @@ def test_hdf5_dataset(hdf5_data):
     assert "source_file_mtime_ns" in entry
     assert entry["source_file_entry_index"] == 0
     assert "run_info" in entry
+
+
+def test_hdf5_dataset_batch_matches_scalar_access(tmp_path):
+    """Plural dataset access should preserve scalar projection semantics."""
+    output = tmp_path / "batch_dataset.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.asarray([0, 1, 2]),
+            "value": [
+                np.asarray([0.0], dtype=np.float32),
+                np.asarray([1.0], dtype=np.float32),
+                np.asarray([2.0], dtype=np.float32),
+            ],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    dataset = HDF5Dataset(file_keys=str(output), keys=["value"], keep_open=False)
+    indices = [2, 0, 2]
+    batch = dataset.__getitems__(indices)
+    scalar = [dataset[idx] for idx in indices]
+
+    assert [entry["index"] for entry in batch] == indices
+    for batched, individual in zip(batch, scalar):
+        assert batched.keys() == individual.keys()
+        np.testing.assert_array_equal(batched["value"], individual["value"])
+
+
+def test_hdf5_dataset_batch_access_with_workers(tmp_path):
+    """Worker processes should safely use the batch-scoped HDF5 path."""
+    output = tmp_path / "worker_batch.h5"
+    writer = HDF5Writer(str(output))
+    writer(
+        {
+            "index": np.arange(8),
+            "value": [np.asarray([idx], dtype=np.int64) for idx in range(8)],
+        },
+        cfg={"io": {"writer": {"name": "hdf5"}}},
+    )
+    writer.finalize()
+    writer.close()
+
+    dataset = HDF5Dataset(file_keys=str(output), keys=["value"], keep_open=False)
+    loader = DataLoader(dataset, batch_size=3, num_workers=2, shuffle=False)
+    batches = list(loader)
+
+    indexes = np.concatenate([batch["index"].numpy() for batch in batches])
+    values = np.concatenate([batch["value"].numpy().reshape(-1) for batch in batches])
+    np.testing.assert_array_equal(indexes, np.arange(8))
+    np.testing.assert_array_equal(values, np.arange(8))
 
 
 def test_hdf5_dataset_skip_keys(hdf5_data):
@@ -981,6 +1061,71 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
     }
 
 
+def test_mixed_dataset_delegates_batch_access(monkeypatch):
+    """Mixed datasets should retain plural access through both child sources."""
+    calls = {"primary": [], "cache": []}
+
+    class DummyDataset:
+        def __init__(self, source):
+            self.source = source
+            self.reader = object()
+            self.complete = True
+
+        def __len__(self):
+            return 3
+
+        def __getitem__(self, idx):
+            return self.__getitems__([idx])[0]
+
+        def __getitems__(self, indices):
+            calls[self.source].append(list(indices))
+            samples = [
+                {
+                    "index": idx,
+                    "file_index": 0,
+                    "file_entry_index": idx,
+                    f"{self.source}_value": idx,
+                }
+                for idx in indices
+            ]
+            return samples if self.complete else samples[:-1]
+
+        @property
+        def data_keys(self):
+            return {
+                "index": "scalar",
+                "file_index": "scalar",
+                "file_entry_index": "scalar",
+                f"{self.source}_value": "scalar",
+            }
+
+        @property
+        def overlay_methods(self):
+            return {key: "cat" for key in self.data_keys}
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset("primary")
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset("cache")
+    )
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+    )
+
+    batch = dataset.__getitems__([2, 0, 2])
+
+    assert calls == {"primary": [[2, 0, 2]], "cache": [[2, 0, 2]]}
+    assert [entry["index"] for entry in batch] == [2, 0, 2]
+    assert [entry["cache_value"] for entry in batch] == [2, 0, 2]
+
+    dataset.cache.complete = False
+    with pytest.raises(RuntimeError, match="incomplete batch"):
+        dataset.__getitems__([0, 1])
+
+
 def test_mixed_dataset_rejects_alignment_mismatch(monkeypatch):
     """The mixed dataset should fail clearly when sources do not align."""
 
@@ -1567,6 +1712,46 @@ def test_joint_dataset_overlays_primary_and_secondary_pair():
     assert len(dataset) == 2
     assert dataset.overlay_methods == {"index": "cat", "data": None}
     assert dataset.data_keys == ("index", "data")
+
+
+def test_joint_dataset_delegates_batch_access():
+    """Joint datasets should batch each source without changing pair ordering."""
+
+    class DummyDataset:
+        data_keys = {"index": "scalar"}
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, offset):
+            self.offset = offset
+            self.calls = []
+            self.complete = True
+
+        def __len__(self):
+            return 3
+
+        def __getitem__(self, idx):
+            return {"index": self.offset + idx}
+
+        def __getitems__(self, indices):
+            self.calls.append(list(indices))
+            samples = [self[idx] for idx in indices]
+            return samples if self.complete else samples[:-1]
+
+    primary = DummyDataset(0)
+    secondary = DummyDataset(10)
+    dataset = JointDataset(primary=primary, secondary=secondary)
+
+    batch = dataset.__getitems__([(2, 1), 0, (1, 2)])
+
+    assert primary.calls == [[2, 0, 1]]
+    assert secondary.calls == [[1, 2]]
+    np.testing.assert_array_equal(batch[0]["index"], np.asarray([2, 11]))
+    assert batch[1]["index"] == 0
+    np.testing.assert_array_equal(batch[2]["index"], np.asarray([1, 12]))
+
+    primary.complete = False
+    with pytest.raises(RuntimeError, match="incomplete batch"):
+        dataset.__getitems__([0, 1])
 
 
 def test_joint_dataset_rejects_incompatible_sources():

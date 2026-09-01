@@ -114,10 +114,59 @@ class MixedDataset(BaseDataset):
             Merged sample dictionary containing primary LArCV products plus
             non-metadata HDF5 cache products.
         """
-        # Load the aligned pair and validate its identity before merging products
-        primary = self.primary[idx]
-        cache = self.cache[idx]
+        return self._merge_sample(idx, self.primary[idx], self.cache[idx])
+
+    def __getitems__(self, indices: Sequence[int]) -> list[DataDict]:
+        """Load and merge a batch of aligned LArCV and cache samples.
+
+        Parameters
+        ----------
+        indices : sequence[int]
+            Shared dataset indexes requested from both sources.
+
+        Returns
+        -------
+        list[dict]
+            Validated merged samples in the same order as ``indices``.
+
+        Raises
+        ------
+        RuntimeError
+            If either child dataset returns an incomplete batch.
+        """
+        # Normalize once so both sources receive identical indexes and ordering
+        indices = [int(idx) for idx in indices]
+        primary_batch = self.load_batch(self.primary, indices)
+        cache_batch = self.load_batch(self.cache, indices)
+
+        # A partial child result would make source alignment ambiguous
+        if len(primary_batch) != len(cache_batch) or len(primary_batch) != len(indices):
+            raise RuntimeError("MixedDataset sources returned an incomplete batch.")
+
+        return [
+            self._merge_sample(idx, primary, cache)
+            for idx, primary, cache in zip(indices, primary_batch, cache_batch)
+        ]
+
+    def _merge_sample(self, idx: int, primary: DataDict, cache: DataDict) -> DataDict:
+        """Validate and merge one already-loaded aligned source pair.
+
+        Parameters
+        ----------
+        idx : int
+            Shared dataset index used for alignment diagnostics.
+        primary : dict
+            Sample loaded from the primary LArCV source.
+        cache : dict
+            Corresponding sample loaded from the HDF5 cache.
+
+        Returns
+        -------
+        dict
+            Merged and augmented sample.
+        """
         self.validate_alignment(idx, primary, cache)
+
         merged = dict(primary)
         self.merge_cache(merged, cache)
         return self.apply_augmenter(merged)

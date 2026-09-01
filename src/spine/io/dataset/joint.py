@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
 from ..overlay import Overlayer
@@ -203,11 +203,74 @@ class JointDataset(BaseDataset):
             event and then augmented.
         """
         primary_idx, secondary_idx = self.resolve_pair_index(idx)
-        primary = self.primary[primary_idx]
-        if secondary_idx is None:
+        return self._combine_sample(
+            self.primary[primary_idx],
+            None if secondary_idx is None else self.secondary[secondary_idx],
+        )
+
+    def __getitems__(
+        self, indices: Sequence[int | tuple[int, int | None]]
+    ) -> list[DataDict]:
+        """Load source batches before applying requested overlays in order.
+
+        Parameters
+        ----------
+        indices : sequence[int or tuple[int, int or None]]
+            Scalar primary indexes or explicit primary/secondary index pairs.
+
+        Returns
+        -------
+        list[dict]
+            Primary or overlaid samples in the same order as ``indices``.
+
+        Raises
+        ------
+        RuntimeError
+            If either child dataset returns an incomplete batch.
+        """
+        # Resolve pairing first, then issue at most one batch call per source
+        pairs = [self.resolve_pair_index(idx) for idx in indices]
+        primary_batch = self.load_batch(self.primary, [pair[0] for pair in pairs])
+        secondary_indices = [pair[1] for pair in pairs if pair[1] is not None]
+        secondary_batch = self.load_batch(self.secondary, secondary_indices)
+
+        if len(primary_batch) != len(pairs) or len(secondary_batch) != len(
+            secondary_indices
+        ):
+            raise RuntimeError("JointDataset sources returned an incomplete batch.")
+
+        # Reinsert optional secondary samples into the original pair ordering
+        secondary_iter = iter(secondary_batch)
+
+        results = []
+        for primary, (_, secondary_idx) in zip(primary_batch, pairs):
+            secondary = None if secondary_idx is None else next(secondary_iter)
+            results.append(self._combine_sample(primary, secondary))
+
+        return results
+
+    def _combine_sample(
+        self, primary: DataDict, secondary: DataDict | None
+    ) -> DataDict:
+        """Combine one already-loaded primary and optional secondary sample.
+
+        Parameters
+        ----------
+        primary : dict
+            Sample loaded from the primary dataset.
+        secondary : dict, optional
+            Sample to overlay onto ``primary``. If absent, ``primary`` is
+            returned after augmentation without invoking the overlayer.
+
+        Returns
+        -------
+        dict
+            Primary or overlaid sample after augmentation.
+        """
+        if secondary is None:
             return self.apply_augmenter(primary)
 
-        overlaid = self.overlayer([primary, self.secondary[secondary_idx]])
+        overlaid = self.overlayer([primary, secondary])
         assert len(overlaid) == 1, "Joint overlays should produce one sample."
         return self.apply_augmenter(overlaid[0])
 
