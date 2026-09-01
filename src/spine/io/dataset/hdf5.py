@@ -40,6 +40,7 @@ class HDF5Dataset(BaseDataset):
         dtype: str | None = None,
         staged: bool = False,
         stage: str | None = None,
+        stage_map: Mapping[str, str] | None = None,
         schema: Mapping[str, Mapping[str, Any]] | None = None,
         keys: Sequence[str] | None = None,
         skip_keys: Sequence[str] | None = None,
@@ -59,6 +60,10 @@ class HDF5Dataset(BaseDataset):
         stage : str, optional
             Default stage name to read when `staged=True`. Individual schema
             entries may override this with their own ``stage`` field.
+        stage_map : mapping, optional
+            Explicit map from raw product keys to stage names when
+            ``staged=True``. Schema-derived routing is merged into this map;
+            conflicting assignments are rejected.
         schema : mapping, optional
             Parser schema used to reconstruct higher-level products
         keys : sequence[str], optional
@@ -84,6 +89,8 @@ class HDF5Dataset(BaseDataset):
             raise ValueError("Provide either `keys` or `skip_keys`, not both.")
         if not staged and stage is not None:
             raise ValueError("`stage` can only be provided when `staged=True`.")
+        if not staged and stage_map is not None:
+            raise ValueError("`stage_map` can only be provided when `staged=True`.")
 
         self.keys = set(keys) if keys is not None else None
         self.skip_keys = set(skip_keys) if skip_keys is not None else set()
@@ -91,7 +98,7 @@ class HDF5Dataset(BaseDataset):
         self._overlay_methods = (
             dict(overlay_methods) if overlay_methods is not None else None
         )
-        reader_stage_map: dict[str, str] = {}
+        reader_stage_map = dict(stage_map or {})
 
         # If a parser schema is provided, instantiate the parsers and collect
         # the raw HDF5 products they require. In staged mode, also validate

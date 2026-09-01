@@ -301,6 +301,52 @@ def test_hdf5_dataset_allows_stage_autodiscovery(monkeypatch, hdf5_data):
     )
 
 
+def test_hdf5_dataset_merges_explicit_stage_map(monkeypatch, hdf5_data):
+    """Explicit stage routing should reach the staged reader exactly once."""
+
+    class DummyStageReader:
+        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
+            self.stage = stage
+            self.stage_map = stage_map
+            self.keys = keys
+            self.kwargs = kwargs
+
+        def __len__(self):
+            return 1
+
+    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
+
+    dataset = HDF5Dataset(
+        file_keys=hdf5_data,
+        staged=True,
+        stage_map={"data_adapt": "deghosting"},
+        dtype="float32",
+        schema={
+            "data_adapt": {
+                "parser": "tensor",
+                "tensor_event": "data_adapt",
+                "has_batch_col": False,
+                "coord_start_col": 0,
+                "feature_start_col": 3,
+            },
+            "clust_label_adapt": {
+                "parser": "tensor",
+                "stage": "graph_spice",
+                "tensor_event": "clust_label_adapt",
+                "has_batch_col": False,
+                "coord_start_col": 0,
+                "feature_start_col": 3,
+            },
+        },
+    )
+
+    assert dataset.reader.stage_map == {
+        "data_adapt": "deghosting",
+        "clust_label_adapt": "graph_spice",
+    }
+    assert "stage_map" not in dataset.reader.kwargs
+
+
 def test_hdf5_dataset_rejects_conflicting_raw_product_stage(hdf5_data):
     """One raw product should not be sourced from conflicting stages."""
     with pytest.raises(ValueError, match="Conflicting staged HDF5 schema"):
