@@ -11,6 +11,10 @@ build:
 post:
   ppn: {}
   match:
+    # Full-chain truth objects live in the point cloud adapted to the semantic
+    # prediction. Match in that same space; original fragment indexes are not
+    # populated when adapted fragment labels are available.
+    truth_point_mode: points_adapt
     fragment: true
 
 ana:
@@ -28,7 +32,7 @@ ana:
     # Build both assignments from objects so inference does not need to retain
     # the adapted training label tensor.
     use_objects: true
-    truth_index_mode: index
+    truth_index_mode: index_adapt
     metrics: [pur, eff, ari]
 
   save:
@@ -38,7 +42,9 @@ ana:
     # Reconstructed `is_primary` is the fragment-node prediction. The physical
     # cascade-primary label is `group_primary`; TruthFragment.is_primary is not
     # filled. This does not reproduce a loss configured with `use_closest`.
-    fragment: [shape, size, is_primary, group_primary, start_dir]
+    # Truth fragment `size` refers to the unadapted index and is zero after a
+    # full-chain build. Store `size_adapt` for quality selections instead.
+    fragment: [shape, size, size_adapt, is_primary, group_primary, start_dir]
     particle:
       - shape
       - size

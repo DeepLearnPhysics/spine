@@ -34,6 +34,23 @@ def test_generic_save_records_expose_node_truth_selections():
     assert "nu_id" in save["particle"]
 
 
+def test_generic_fragment_metrics_use_adapted_truth_indexes():
+    """Full-chain fragment metrics should use populated adapted indexes."""
+    analyzer = yaml.safe_load(
+        (CONFIG_DIR / "analyzers.yaml").read_text(encoding="utf-8")
+    )
+    report = yaml.safe_load((CONFIG_DIR / "report.yaml").read_text(encoding="utf-8"))
+
+    assert analyzer["post"]["match"]["truth_point_mode"] == "points_adapt"
+    assert analyzer["ana"]["cluster_eval"]["truth_index_mode"] == "index_adapt"
+    assert "size_adapt" in analyzer["ana"]["save"]["fragment"]
+
+    cuts = report["metrics"]["nodes"]["tasks"]["shower_fragment_primary"][
+        "quality_cuts"
+    ]["all"]
+    assert {"column": "truth_size_adapt", "min": 25} in cuts
+
+
 def test_generic_report_includes_standard_and_mapped_semantics():
     """Generic defaults should retain five classes and demonstrate mapping."""
     report = yaml.safe_load((CONFIG_DIR / "report.yaml").read_text(encoding="utf-8"))

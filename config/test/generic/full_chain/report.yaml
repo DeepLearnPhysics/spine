@@ -50,7 +50,7 @@ metrics:
           all:
             - {column: match_overlap, min: 0.5}
             - {column: truth_shape, equals: 0}
-            - {column: truth_size, min: 25}
+            - {column: truth_size_adapt, min: 25}
 
       particle_pid:
         source: particle

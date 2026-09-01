@@ -72,3 +72,9 @@ within the particle/cascade group, not particle primary within an interaction.
 This physical label is distinct from the optional closest-fragment target used
 when `NodeShowerPrimaryLoss.use_closest` is enabled; reproducing that training
 target would require recording it explicitly.
+
+Full-chain truth fragments are constructed from labels adapted to the semantic
+prediction. Their populated voxel attributes are therefore `index_adapt` and
+`size_adapt`; the original `index` is empty. The analyzer configuration uses
+adapted indexes for fragment matching and clustering, and the fragment-primary
+quality cut uses the saved `truth_size_adapt` column.
