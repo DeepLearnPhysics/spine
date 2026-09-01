@@ -995,13 +995,12 @@ def test_node_orientation_filters_low_quality_tracks(graph_labels):
     assert result["count_rejected"] == 2
     assert result["accuracy"] == 1.0
 
+    # Cached supervision must bypass endpoint requirements at the call boundary.
     cached = loss_fn(
         None,
         None,
         objects,
         prediction,
-        None,
-        None,
         labels=result["target"],
         valid_mask=result["valid"],
     )

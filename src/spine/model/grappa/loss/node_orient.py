@@ -97,8 +97,8 @@ class NodeOrientLoss(torch.nn.Module):
         coord_label: TensorBatch | None,
         clusts: IndexBatch,
         node_pred: TensorBatch,
-        start_points: TensorBatch | None,
-        end_points: TensorBatch | None,
+        start_points: TensorBatch | None = None,
+        end_points: TensorBatch | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
         labels: TensorBatch | None = None,
         valid_mask: TensorBatch | None = None,
@@ -118,9 +118,9 @@ class NodeOrientLoss(torch.nn.Module):
             (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, 2) Node prediction logits (binary output)
-        start_points : TensorBatch
+        start_points : TensorBatch, optional
             (C, 3) Start point features associated with each node
-        end_points : TensorBatch
+        end_points : TensorBatch, optional
             (C, 3) End point features associated with each node
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
