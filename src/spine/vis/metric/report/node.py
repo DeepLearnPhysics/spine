@@ -16,11 +16,9 @@ import numpy as np
 import pandas as pd
 
 from spine.constants import ParticlePID, ParticleShape
-from spine.vis.metric.style import (
-    plot_confusion_matrix,
-    plot_histogram_with_boxplot,
-    save_figure,
-)
+from spine.vis.metric.confmat import plot_confusion_matrix
+from spine.vis.metric.distribution import plot_histogram_with_boxplot
+from spine.vis.metric.plot import save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, distribution_summary
 from .classification import infer_class_kind, map_class_values, resolve_class_groups

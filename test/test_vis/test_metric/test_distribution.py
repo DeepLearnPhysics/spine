@@ -1,8 +1,11 @@
-"""Tests for reusable metric plotting styles."""
+"""Tests for scalar metric distribution helpers."""
 
 from __future__ import annotations
 
-from spine.vis.metric.style import histogram_quantiles, plot_histogram_with_boxplot
+from spine.vis.metric.distribution import (
+    histogram_quantiles,
+    plot_histogram_with_boxplot,
+)
 
 
 def test_histogram_quantiles_are_serializable_and_monotonic():

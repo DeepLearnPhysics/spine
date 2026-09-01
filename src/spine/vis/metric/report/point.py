@@ -16,11 +16,8 @@ import numpy as np
 import pandas as pd
 
 from spine.constants import LOWES_SHP
-from spine.vis.metric.style import (
-    plot_histogram_with_boxplot,
-    plotting,
-    save_figure,
-)
+from spine.vis.metric.distribution import plot_histogram_with_boxplot
+from spine.vis.metric.plot import plotting, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, distribution_summary
 from .classification import resolve_class_groups

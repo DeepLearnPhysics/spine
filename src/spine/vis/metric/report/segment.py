@@ -16,7 +16,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from spine.vis.metric.style import plot_confusion_matrix, save_figure
+from spine.vis.metric.confmat import plot_confusion_matrix
+from spine.vis.metric.plot import save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, safe_ratio
 from .classification import aggregate_confusion, resolve_class_groups

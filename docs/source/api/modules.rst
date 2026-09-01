@@ -381,7 +381,9 @@ Vis modules
    spine.vis.layout.matplotlib
    spine.vis.layout.plotly
    spine.vis.metric.confmat
+   spine.vis.metric.distribution
    spine.vis.metric.heatmap
+   spine.vis.metric.report
    spine.vis.scene.adapter
    spine.vis.scene.backend
    spine.vis.scene.model

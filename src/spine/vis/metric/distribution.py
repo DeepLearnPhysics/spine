@@ -1,74 +1,19 @@
-"""Reusable Matplotlib styles for reconstruction performance figures.
+"""Reduction and visualization helpers for scalar metric distributions.
 
 The helpers in this module distill the useful plotting patterns from the
-full-chain metrics notebook into functions which return figures instead of
-showing or saving them. Callers therefore retain control over file formats,
-paths, and interactive display.
+full-chain metrics notebook into summary-based functions. Histograms and
+quantiles are computed without retaining raw samples, and plotters return
+figures so callers retain control over artifact persistence.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-
-def plotting():
-    """Return ``matplotlib.pyplot`` configured for non-interactive jobs.
-
-    Matplotlib is imported lazily so summary-only consumers do not pay its
-    import cost. The ``Agg`` backend also prevents batch workers from requiring
-    an X server.
-
-    Returns
-    -------
-    module
-        Configured :mod:`matplotlib.pyplot` module.
-    """
-    import matplotlib
-
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
-
-    return plt
-
-
-def save_figure(fig: Any, output: Path, formats: Sequence[str]) -> list[Path]:
-    """Save a figure in each requested graphical format and close it.
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        Figure to persist.
-    output : Path
-        Output path without a suffix.
-    formats : sequence of str
-        Requested report formats. ``json`` is ignored because figures are
-        represented in the report summary separately.
-
-    Returns
-    -------
-    list[Path]
-        Paths of the figure files written by this call.
-
-    Notes
-    -----
-    The figure is closed after every requested format has been written. A
-    caller should therefore finish all modifications before calling this
-    helper.
-    """
-    plt = plotting()
-    paths = []
-    for file_format in formats:
-        if file_format == "json":
-            continue
-        path = output.with_suffix(f".{file_format}")
-        fig.savefig(path, bbox_inches="tight")
-        paths.append(path)
-    plt.close(fig)
-    return paths
+from .plot import plotting
 
 
 def histogram_quantiles(
@@ -118,92 +63,6 @@ def histogram_quantiles(
             float(edges_array[index] + fraction * np.diff(edges_array)[index])
         )
     return values
-
-
-def plot_confusion_matrix(
-    matrix: Sequence[Sequence[int]],
-    class_names: Sequence[str],
-    *,
-    normalize: str = "truth",
-    show_counts: bool = True,
-    figsize: tuple[float, float] = (9.0, 7.0),
-):
-    """Draw a count matrix with normalized fractions and count annotations.
-
-    Matrices follow the SPINE analyzer convention: rows are predicted classes
-    and columns are true classes.
-
-    Parameters
-    ----------
-    matrix : sequence of sequence of int
-        Square confusion-count matrix.
-    class_names : sequence of str
-        Tick label for each matrix class.
-    normalize : {"truth", "prediction"}, default "truth"
-        Normalize each truth column or prediction row, respectively.
-    show_counts : bool, default True
-        Include raw counts below normalized values in each cell.
-    figsize : tuple of float, default (9.0, 7.0)
-        Figure width and height in inches.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        Figure containing the annotated confusion matrix.
-
-    Raises
-    ------
-    ValueError
-        If the matrix is not square, labels do not match its size, or the
-        normalization mode is unsupported.
-    """
-    plt = plotting()
-    counts = np.asarray(matrix, dtype=np.int64)
-    if counts.ndim != 2 or counts.shape[0] != counts.shape[1]:
-        raise ValueError("A confusion matrix must be square.")
-    if len(class_names) != len(counts):
-        raise ValueError("Must provide one class name per confusion-matrix class.")
-    if normalize not in ("truth", "prediction"):
-        raise ValueError("Normalization must be `truth` or `prediction`.")
-
-    # Preserve the two-dimensional denominator for prediction normalization;
-    # truth normalization naturally broadcasts a one-dimensional column sum.
-    denominator = counts.sum(axis=0) if normalize == "truth" else counts.sum(axis=1)
-    if normalize == "prediction":
-        denominator = denominator[:, None]
-    normalized = np.zeros_like(counts, dtype=np.float64)
-    np.divide(counts, denominator, out=normalized, where=denominator != 0)
-
-    with plt.rc_context({"font.size": 14, "figure.autolayout": True}):
-        fig, axis = plt.subplots(figsize=figsize)
-        fig.patch.set_alpha(0)
-        image = axis.imshow(normalized, vmin=0.0, vmax=1.0, cmap="Blues")
-        for prediction in range(len(counts)):
-            for truth in range(len(counts)):
-                value = normalized[prediction, truth]
-                label = f"{value:.3f}"
-                if show_counts:
-                    label += f"\n({counts[prediction, truth]:d})"
-                axis.text(
-                    truth,
-                    prediction,
-                    label,
-                    ha="center",
-                    va="center",
-                    color="white" if value > 0.5 else "black",
-                )
-        axis.set(
-            xlabel="True class",
-            ylabel="Predicted class",
-            xticks=np.arange(len(class_names)),
-            yticks=np.arange(len(class_names)),
-            xticklabels=class_names,
-            yticklabels=class_names,
-        )
-        fig.colorbar(
-            image, ax=axis, label=f"{normalize.capitalize()}-normalized fraction"
-        )
-    return fig
 
 
 def plot_histogram_with_boxplot(
@@ -303,8 +162,5 @@ def plot_histogram_with_boxplot(
 
 __all__ = [
     "histogram_quantiles",
-    "plot_confusion_matrix",
     "plot_histogram_with_boxplot",
-    "plotting",
-    "save_figure",
 ]
