@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -10,9 +9,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from spine.constants import LOWES_SHP
 from spine.vis.metric.style import plot_histogram_with_boxplot, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, distribution_summary
+from .classification import resolve_class_groups
 
 
 class ClusterSummaryRecipe(ReportRecipe):
@@ -23,7 +24,11 @@ class ClusterSummaryRecipe(ReportRecipe):
     def reduce(self, csv_paths: Mapping[str, Sequence[Path]]) -> dict[str, Any]:
         """Reduce overall and per-shape clustering columns in bounded memory."""
         metric_names = list(self.config.get("metric_names", ("ari", "eff", "pur")))
-        class_names = list(self.config.get("class_names", []))
+        classes = resolve_class_groups(
+            self.config,
+            kind="shape",
+            default_ids=range(LOWES_SHP),
+        )
         bins = int(self.config.get("bins", 50))
         metric_ranges = {
             "ari": (-1.0, 1.0),
@@ -39,13 +44,14 @@ class ClusterSummaryRecipe(ReportRecipe):
             levels[level] = self._reduce_level(
                 paths,
                 metric_names=metric_names,
-                class_names=class_names if level != "interaction" else [],
+                classes=classes if level != "interaction" else [],
                 bins=bins,
                 metric_ranges=metric_ranges,
             )
         return {
             "recipe": self.name,
             "inputs": {"csv_shards": len(all_paths)},
+            "classes": classes,
             "levels": levels,
         }
 
@@ -54,20 +60,19 @@ class ClusterSummaryRecipe(ReportRecipe):
         paths: Sequence[Path],
         *,
         metric_names: Sequence[str],
-        class_names: Sequence[str],
+        classes: Sequence[Mapping[str, Any]],
         bins: int,
         metric_ranges: Mapping[str, Sequence[float]],
     ) -> dict[str, Any]:
         """Reduce one clustering aggregation level."""
         accumulators = {}
+        class_accumulators: dict[str, dict[str, dict[str, Any]]] = {}
         for metric in metric_names:
             edges = np.linspace(*metric_ranges.get(metric, (0.0, 1.0)), bins + 1)
             accumulators[metric] = self._new_accumulator(edges)
-            for class_id, name in enumerate(class_names):
-                accumulators[f"{metric}_{class_id}"] = self._new_accumulator(
-                    edges,
-                    class_name=name,
-                )
+            class_accumulators[metric] = {
+                group["name"]: self._new_accumulator(edges) for group in classes
+            }
 
         counts = InputCounts()
         row_count = 0
@@ -82,24 +87,33 @@ class ClusterSummaryRecipe(ReportRecipe):
                     raise ValueError(
                         f"Missing clustering columns {sorted(missing)} in {path}."
                     )
-                for column, accumulator in accumulators.items():
-                    if column in chunk:
-                        self._update_accumulator(
-                            accumulator,
-                            chunk[column].to_numpy(),
-                        )
+                for metric, accumulator in accumulators.items():
+                    self._update_accumulator(accumulator, chunk[metric].to_numpy())
+                    for group in classes:
+                        group_accumulator = class_accumulators[metric][group["name"]]
+                        for source_id in group["source_ids"]:
+                            column = f"{metric}_{source_id}"
+                            if column in chunk:
+                                self._update_accumulator(
+                                    group_accumulator,
+                                    chunk[column].to_numpy(),
+                                )
                 counts.update(path, chunk)
                 row_count += len(chunk)
 
-        overall = {}
-        by_class: dict[str, dict[str, Any]] = {name: {} for name in class_names}
-        for column, accumulator in accumulators.items():
-            summary = self._finish_accumulator(accumulator)
-            match = re.match(r"^(.+)_(\d+)$", column)
-            if match and accumulator["class_name"] is not None:
-                by_class[accumulator["class_name"]][match.group(1)] = summary
-            else:
-                overall[column] = summary
+        overall = {
+            metric: self._finish_accumulator(accumulator)
+            for metric, accumulator in accumulators.items()
+        }
+        by_class = {
+            group["name"]: {
+                metric: self._finish_accumulator(
+                    class_accumulators[metric][group["name"]]
+                )
+                for metric in metric_names
+            }
+            for group in classes
+        }
         return {
             "inputs": counts.as_dict(paths, row_count),
             "metrics": overall,
@@ -109,7 +123,6 @@ class ClusterSummaryRecipe(ReportRecipe):
     @staticmethod
     def _new_accumulator(
         edges: np.ndarray,
-        class_name: str | None = None,
     ) -> dict[str, Any]:
         """Create mutable sufficient statistics for one numeric column."""
         return {
@@ -118,7 +131,6 @@ class ClusterSummaryRecipe(ReportRecipe):
             "sum_sq": 0.0,
             "histogram": np.zeros(len(edges) - 1, dtype=np.int64),
             "edges": edges,
-            "class_name": class_name,
         }
 
     @staticmethod

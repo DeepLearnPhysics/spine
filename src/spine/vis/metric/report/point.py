@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from spine.constants import LOWES_SHP
 from spine.vis.metric.style import (
     plot_histogram_with_boxplot,
     plotting,
@@ -16,6 +17,7 @@ from spine.vis.metric.style import (
 )
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, distribution_summary
+from .classification import resolve_class_groups
 
 
 class PointProposalRecipe(ReportRecipe):
@@ -41,7 +43,11 @@ class PointProposalRecipe(ReportRecipe):
             float(distance_range[0]), float(distance_range[1]), bins + 1
         )
         scale = float(self.config.get("distance_scale", 1.0))
-        class_names = list(self.config.get("class_names", []))
+        classes = resolve_class_groups(
+            self.config,
+            kind="shape",
+            default_ids=range(LOWES_SHP),
+        )
         directions = {}
         all_paths: list[Path] = []
 
@@ -56,7 +62,7 @@ class PointProposalRecipe(ReportRecipe):
                 thresholds=thresholds,
                 edges=edges,
                 scale=scale,
-                class_names=class_names,
+                classes=classes,
             )
 
         return {
@@ -65,6 +71,7 @@ class PointProposalRecipe(ReportRecipe):
             "distance_thresholds": thresholds.tolist(),
             "distance_unit": self.config.get("distance_unit", "cm"),
             "histogram_edges": edges.tolist(),
+            "classes": classes,
             "directions": directions,
         }
 
@@ -75,7 +82,7 @@ class PointProposalRecipe(ReportRecipe):
         thresholds: np.ndarray,
         edges: np.ndarray,
         scale: float,
-        class_names: Sequence[str],
+        classes: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
         """Reduce one matching direction into threshold and histogram statistics."""
         total = matched = correct_type = 0
@@ -83,9 +90,9 @@ class PointProposalRecipe(ReportRecipe):
         passing = np.zeros(len(thresholds), dtype=np.int64)
         histogram = np.zeros(len(edges) - 1, dtype=np.int64)
         class_histograms = {
-            name: np.zeros(len(edges) - 1, dtype=np.int64) for name in class_names
+            value["name"]: np.zeros(len(edges) - 1, dtype=np.int64) for value in classes
         }
-        class_counts = {name: [0, 0.0, 0.0] for name in class_names}
+        class_counts = {value["name"]: [0, 0.0, 0.0] for value in classes}
         counts = InputCounts()
         row_count = 0
 
@@ -116,10 +123,11 @@ class PointProposalRecipe(ReportRecipe):
                             valid & (chunk["shape"] == chunk["closest_shape"])
                         )
                     )
-                if class_names and "shape" in chunk:
+                if classes and "shape" in chunk:
                     shapes = chunk["shape"].to_numpy(dtype=np.int64)
-                    for class_id, name in enumerate(class_names):
-                        values = distances[valid & (shapes == class_id)]
+                    for group in classes:
+                        name = group["name"]
+                        values = distances[valid & np.isin(shapes, group["source_ids"])]
                         class_histograms[name] += np.histogram(values, bins=edges)[0]
                         class_counts[name][0] += len(values)
                         class_counts[name][1] += float(values.sum())
@@ -142,7 +150,7 @@ class PointProposalRecipe(ReportRecipe):
                 value_sum=class_counts[name][1],
                 value_sum_sq=class_counts[name][2],
             )
-            for name in class_names
+            for name in class_histograms
         }
         return {
             "inputs": counts.as_dict(paths, row_count),

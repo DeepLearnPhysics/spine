@@ -12,7 +12,7 @@ import pandas as pd
 
 from spine.vis.metric.style import histogram_quantiles
 
-REPORT_SCHEMA_VERSION = "1.1.0"
+REPORT_SCHEMA_VERSION = "1.2.0"
 DEFAULT_CHUNKSIZE = 100_000
 
 

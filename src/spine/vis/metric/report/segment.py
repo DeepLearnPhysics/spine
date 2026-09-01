@@ -13,6 +13,7 @@ import pandas as pd
 from spine.vis.metric.style import plot_confusion_matrix, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, safe_ratio
+from .classification import aggregate_confusion, resolve_class_groups
 
 
 class SegmentConfusionRecipe(ReportRecipe):
@@ -24,8 +25,7 @@ class SegmentConfusionRecipe(ReportRecipe):
     def reduce(self, csv_paths: Mapping[str, Sequence[Path]]) -> dict[str, Any]:
         """Sum ``count_ij`` columns without concatenating event rows."""
         paths = list(csv_paths["source"])
-        class_names = list(self.config.get("class_names", []))
-        num_classes = len(class_names) or self.config.get("num_classes")
+        num_classes = self.config.get("num_classes")
         matrix: np.ndarray | None = None
         counts = InputCounts()
         row_count = 0
@@ -58,10 +58,14 @@ class SegmentConfusionRecipe(ReportRecipe):
                 row_count += len(chunk)
 
         assert matrix is not None
-        if not class_names:
-            class_names = [str(index) for index in range(len(matrix))]
-        if len(class_names) != len(matrix):
-            raise ValueError("Must provide one class name per segmentation class.")
+        raw_total = int(matrix.sum())
+        classes = resolve_class_groups(
+            self.config,
+            kind="shape",
+            default_ids=range(len(matrix)),
+        )
+        matrix = aggregate_confusion(matrix, classes)
+        class_names = [value["name"] for value in classes]
 
         support = matrix.sum(axis=0)
         predicted = matrix.sum(axis=1)
@@ -71,8 +75,10 @@ class SegmentConfusionRecipe(ReportRecipe):
         return {
             "recipe": self.name,
             "inputs": counts.as_dict(paths, row_count),
+            "classes": classes,
             "class_names": class_names,
             "matrix": matrix.tolist(),
+            "excluded_count": raw_total - int(matrix.sum()),
             "per_class": {
                 name: {
                     "support": int(support[index]),
@@ -93,4 +99,4 @@ class SegmentConfusionRecipe(ReportRecipe):
     ) -> list[Path]:
         """Render the confusion matrix represented in the summary."""
         figure = plot_confusion_matrix(summary["matrix"], summary["class_names"])
-        return save_figure(figure, output_dir / "segmentation_confusion", formats)
+        return save_figure(figure, output_dir / f"{self.key}_confusion", formats)

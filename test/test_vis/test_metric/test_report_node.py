@@ -8,29 +8,33 @@ from spine.vis.metric.report import NodeSummaryRecipe, quality_cut_mask
 
 
 def test_quality_cut_mask_supports_nested_notebook_selection():
-    """Nested predicates should express the notebook's primary PID cuts."""
+    """Nested negation should clearly exclude electrons from neutral pions."""
     frame = pd.DataFrame(
         {
-            "match_overlap": [0.8, 0.8, 0.2],
-            "truth_is_primary": [True, True, True],
-            "truth_parent_pdg_code": [0, 111, 0],
-            "truth_pdg_code": [11, 11, 13],
+            "match_overlap": [0.8, 0.8, 0.8, 0.2],
+            "truth_nu_id": [0, 0, -1, 0],
+            "truth_is_primary": [True, True, True, True],
+            "truth_parent_pdg_code": [0, 111, 111, 0],
+            "truth_pdg_code": [11, 11, 22, 13],
         }
     )
     cuts = {
         "all": [
             {"column": "match_overlap", "min": 0.5},
+            {"column": "truth_nu_id", "min": 0},
             {"column": "truth_is_primary", "equals": True},
             {
-                "any": [
-                    {"column": "truth_parent_pdg_code", "not_equals": 111},
-                    {"column": "truth_pdg_code", "abs_not_equals": 11},
-                ]
+                "not": {
+                    "all": [
+                        {"column": "truth_parent_pdg_code", "equals": 111},
+                        {"column": "truth_pdg_code", "abs_equals": 11},
+                    ]
+                }
             },
         ]
     }
 
-    assert quality_cut_mask(frame, cuts).tolist() == [True, False, False]
+    assert quality_cut_mask(frame, cuts).tolist() == [True, False, False, False]
 
 
 def test_node_recipe_reduces_classification_and_orientation(tmp_path):
@@ -89,5 +93,7 @@ def test_node_recipe_reduces_classification_and_orientation(tmp_path):
 
     assert summary["tasks"]["primary"]["matrix"] == [[0, 0], [1, 1]]
     assert summary["tasks"]["primary"]["accuracy"] == 0.5
+    assert summary["tasks"]["primary"]["evaluated_rows"] == 2
     assert summary["tasks"]["orientation"]["distribution"]["count"] == 2
+    assert summary["tasks"]["orientation"]["evaluated_rows"] == 2
     assert summary["tasks"]["orientation"]["forward_fraction"] == 0.5

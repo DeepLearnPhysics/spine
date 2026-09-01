@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from spine.constants import ParticlePID, ParticleShape
 from spine.vis.metric.style import (
     plot_confusion_matrix,
     plot_histogram_with_boxplot,
@@ -16,6 +17,7 @@ from spine.vis.metric.style import (
 )
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, distribution_summary
+from .classification import infer_class_kind, map_class_values, resolve_class_groups
 
 
 def quality_cut_mask(
@@ -23,13 +25,15 @@ def quality_cut_mask(
 ) -> np.ndarray:
     """Evaluate a nested, declarative quality-cut specification.
 
-    A specification may contain ``all`` or ``any`` lists for boolean
-    composition. Leaf predicates name one ``column`` and one or more of
-    ``min``, ``max``, ``equals``, ``not_equals``, ``in``, ``not_in``,
-    ``abs_equals`` or ``abs_not_equals``. Bounds are inclusive.
+    A specification may contain ``all`` or ``any`` lists and a unary ``not``
+    expression for boolean composition. Leaf predicates name one ``column``
+    and one or more of ``min``, ``max``, ``equals``, ``not_equals``, ``in``,
+    ``not_in``, ``abs_equals`` or ``abs_not_equals``. Bounds are inclusive.
     """
     if not specification:
         return np.ones(len(frame), dtype=bool)
+    if "not" in specification:
+        return ~quality_cut_mask(frame, specification["not"])
     if "all" in specification:
         mask = np.ones(len(frame), dtype=bool)
         for child in specification["all"]:
@@ -116,15 +120,28 @@ class NodeSummaryRecipe(ReportRecipe):
         """Create mutable state for one configured node task."""
         task_type = task.get("type", "classification")
         if task_type == "classification":
-            class_names = list(task.get("class_names", []))
-            if not class_names:
-                raise ValueError(f"Classification task `{key}` requires class names.")
+            truth_column = task.get("truth_column")
+            if not truth_column:
+                raise ValueError(f"Classification task `{key}` needs `truth_column`.")
+            class_type = task.get("class_type") or infer_class_kind(truth_column)
+            if class_type == "shape":
+                default_ids = [int(value) for value in ParticleShape if int(value) >= 0]
+            elif class_type == "pid":
+                default_ids = [int(value) for value in ParticlePID if int(value) >= 0]
+            elif class_type == "primary":
+                default_ids = [0, 1]
+            else:
+                raise ValueError(f"Unknown class type `{class_type}` for `{key}`.")
+            classes = resolve_class_groups(
+                task,
+                kind=class_type,
+                default_ids=default_ids,
+            )
             return {
                 "type": task_type,
-                "class_names": class_names,
-                "matrix": np.zeros(
-                    (len(class_names), len(class_names)), dtype=np.int64
-                ),
+                "classes": classes,
+                "class_names": [value["name"] for value in classes],
+                "matrix": np.zeros((len(classes), len(classes)), dtype=np.int64),
                 "selected_rows": 0,
             }
         if task_type == "orientation":
@@ -159,10 +176,9 @@ class NodeSummaryRecipe(ReportRecipe):
                 )
             truth = frame[truth_column].to_numpy(dtype=np.int64)
             prediction = frame[prediction_column].to_numpy(dtype=np.int64)
-            truth, truth_valid = self._map_classes(truth, task.get("mapping"))
-            prediction, prediction_valid = self._map_classes(
-                prediction,
-                task.get("mapping"),
+            truth, truth_valid = map_class_values(truth, state["classes"])
+            prediction, prediction_valid = map_class_values(
+                prediction, state["classes"]
             )
             valid = truth_valid & prediction_valid
             size = len(state["class_names"])
@@ -195,19 +211,6 @@ class NodeSummaryRecipe(ReportRecipe):
         state["sum_sq"] += float(np.square(cosine).sum())
 
     @staticmethod
-    def _map_classes(
-        values: np.ndarray,
-        mapping: Mapping[Any, Sequence[int]] | None,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Apply an optional many-to-one class mapping and return its valid mask."""
-        if mapping is None:
-            return values, values >= 0
-        mapped = np.full(len(values), -1, dtype=np.int64)
-        for target, sources in mapping.items():
-            mapped[np.isin(values, sources)] = int(target)
-        return mapped, mapped >= 0
-
-    @staticmethod
     def _finish_task(state: Mapping[str, Any]) -> dict[str, Any]:
         """Convert mutable task state to a JSON-safe result."""
         if state["type"] == "classification":
@@ -215,6 +218,8 @@ class NodeSummaryRecipe(ReportRecipe):
             return {
                 "type": state["type"],
                 "selected_rows": state["selected_rows"],
+                "evaluated_rows": int(matrix.sum()),
+                "classes": state["classes"],
                 "class_names": state["class_names"],
                 "matrix": matrix.tolist(),
                 "accuracy": (
@@ -232,6 +237,7 @@ class NodeSummaryRecipe(ReportRecipe):
         return {
             "type": state["type"],
             "selected_rows": state["selected_rows"],
+            "evaluated_rows": distribution["count"],
             "forward_fraction": NodeSummaryRecipe._forward_fraction(
                 state["histogram"],
                 state["edges"],
