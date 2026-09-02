@@ -16,9 +16,8 @@ from spine.bin.source import (
     get_input_config,
 )
 from spine.bin.weight import apply_module_weight_overrides
-from spine.config import load_config_file, to_inference_config
+from spine.config import apply_overrides, load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
-from spine.config.operations import parse_value, set_nested_value
 
 
 def main(
@@ -168,6 +167,28 @@ def main(
     if inference:
         cfg = to_inference_config(cfg)
 
+    # Apply checkpoint selection before considering runtime I/O. Weight export
+    # is deliberately valid for a model-only configuration.
+    if weight_path is not None:
+        cfg["model"]["weight_path"] = weight_path
+    if weight_list is not None:
+        cfg["model"]["weight_list"] = weight_list
+    if module_weight:
+        if "model" not in cfg:
+            raise KeyError("--module-weight requires a `model` block.")
+        apply_module_weight_overrides(cfg["model"], module_weight)
+
+    # Weight composition is terminal. Apply generic model/config overrides,
+    # then exit before validating or initializing any data runtime machinery.
+    if export_weights is not None:
+        from spine.model import export_model_weights
+
+        cfg = apply_overrides(cfg, config_overrides)
+        digest = export_model_weights(cfg, export_weights)
+        print(f"Exported composed weights: {export_weights}")
+        print(f"SHA-256: {digest}")
+        return
+
     # The configuration must minimally contain an IO block
     if "io" not in cfg:
         raise KeyError("Configuration file must contain an `io` block.")
@@ -275,18 +296,6 @@ def main(
             )
         train_cfg["weight_prefix"] = weight_prefix
 
-    # Override the weight loading path if provided
-    if weight_path is not None:
-        cfg["model"]["weight_path"] = weight_path
-    if weight_list is not None:
-        cfg["model"]["weight_list"] = weight_list
-
-    # Module checkpoints are independent of the optional global checkpoint.
-    if module_weight:
-        if "model" not in cfg:
-            raise KeyError("--module-weight requires a `model` block.")
-        apply_module_weight_overrides(cfg["model"], module_weight)
-
     # Apply an explicit resume override to either supported train location.
     if resume is not None:
         train_cfg = cfg.get("train", cfg["base"].get("train"))
@@ -294,24 +303,9 @@ def main(
             raise KeyError("--resume/--no-resume requires a `train` block.")
         train_cfg["resume"] = resume
 
-    # Apply any generic config overrides from --set arguments
-    if config_overrides:
-        for override in config_overrides:
-            if "=" not in override:
-                raise ValueError(
-                    f"Invalid --set format: '{override}'. "
-                    f"Expected format: 'key.path=value'"
-                )
-
-            key_path, value_str = override.split("=", 1)
-            key_path = key_path.strip()
-            value_str = value_str.strip()
-
-            # Parse the value (handles strings, numbers, booleans, lists, etc.)
-            value = parse_value(value_str)
-
-            # Set the nested value (returns tuple of (config, applied))
-            cfg, _ = set_nested_value(cfg, key_path, value)
+    # Generic overrides remain last for ordinary runs, preserving their
+    # precedence over dedicated runtime flags.
+    cfg = apply_overrides(cfg, config_overrides)
 
     # Override distributed settings from environment variables (SLURM/torchrun)
     # This handles multi-node training where each process sees 1 GPU but is part
@@ -325,16 +319,6 @@ def main(
             )
         cfg["base"]["world_size"] = launcher_world_size
         cfg["base"]["distributed"] = True
-
-    # Weight composition is a terminal model-only operation. It deliberately
-    # bypasses driver, data-loader and distributed runtime initialization.
-    if export_weights is not None:
-        from spine.model import export_model_weights
-
-        digest = export_model_weights(cfg, export_weights)
-        print(f"Exported composed weights: {export_weights}")
-        print(f"SHA-256: {digest}")
-        return
 
     # For actual training/inference, we need the main functionality
     from spine.main import run

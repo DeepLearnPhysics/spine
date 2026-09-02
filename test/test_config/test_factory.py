@@ -106,11 +106,23 @@ def test_instantiate_modules_returns_label_to_instance_mapping():
 def test_instantiate_validates_name_keys_and_duplicate_kwargs():
     registry = {"alpha": Alpha}
 
+    assert isinstance(instantiate(registry, "alpha"), Alpha)
+
     with pytest.raises(ValueError, match="one of"):
         instantiate(registry, {"name": "alpha", "parser": "alpha"}, alt_name="parser")
 
+    instance = instantiate(
+        registry,
+        {"parser": "alpha", "value": 4},
+        alt_name="parser",
+    )
+    assert instance.value == 4
+
     with pytest.raises(ValueError, match="under `name`"):
         instantiate(registry, {"value": 1})
+
+    with pytest.raises(ValueError, match="Available names.*alpha"):
+        instantiate(registry, "missing")
 
     with pytest.warns(DeprecationWarning, match="keyword arguments"):
         with pytest.raises(ValueError, match="under `args` and `kwargs`"):
@@ -134,6 +146,14 @@ def test_module_dictionary_alias_warning_and_factory_error_paths():
         with pytest.deprecated_call(match="deprecated"):
             registry = module_dict(module, class_name="old_alpha")
         assert registry["old_alpha"] is Alpha
+
+        registry = module_dict(module)
+        assert registry["old_alpha"] is Alpha
+        assert module_dict(module, pattern="Alpha") == {
+            "Alpha": Alpha,
+            "alpha": Alpha,
+            "old_alpha": Alpha,
+        }
     finally:
         del Alpha.aliases
 

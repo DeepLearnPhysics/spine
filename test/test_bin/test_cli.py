@@ -28,15 +28,6 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
         }
 
     monkeypatch.setattr(cli_module, "load_config_file", load_config)
-    monkeypatch.setattr(cli_module, "parse_value", lambda value: int(value))
-    monkeypatch.setattr(
-        cli_module,
-        "set_nested_value",
-        lambda cfg, key_path, value: (
-            cfg | {"override": (key_path, value)},
-            True,
-        ),
-    )
     monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
     monkeypatch.setenv("RANK", "0")
     monkeypatch.setenv("WORLD_SIZE", "4")
@@ -78,7 +69,7 @@ def test_main_updates_reader_config_and_runs(monkeypatch, tmp_path, capsys):
     assert cfg["model"]["weight_path"] == "weights.ckpt"
     assert cfg["model"]["weight_list"] == "weights.txt"
     assert cfg["model"]["modules"]["uresnet_ppn"]["weight_path"] == "uresnet.ckpt"
-    assert cfg["override"] == ("io.batch_size", 8)
+    assert cfg["io"]["batch_size"] == 8
     output = capsys.readouterr().out
     assert "██████████" in output
     assert f"SPINE {cli_module.get_version()}" in output
@@ -164,16 +155,15 @@ def test_main_requires_model_for_module_weights(monkeypatch, tmp_path):
 
 
 def test_main_exports_weights_without_running_driver(monkeypatch, tmp_path, capsys):
-    """Weight export should dispatch the resolved config as a terminal action."""
+    """Weight export should accept and resolve a model-only configuration."""
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("io: {}\n", encoding="utf-8")
+    config_path.write_text("model: {}\n", encoding="utf-8")
     captured = {}
     monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
     monkeypatch.setattr(
         cli_module,
         "load_config_file",
         lambda _path: {
-            "io": {"reader": {}},
             "model": {"modules": {"encoder": {}}},
         },
     )
@@ -199,14 +189,17 @@ def test_main_exports_weights_without_running_driver(monkeypatch, tmp_path, caps
         skip_entry_list=None,
         log_dir=None,
         weight_prefix=None,
-        weight_path=None,
+        weight_path="base.ckpt",
         weight_list=None,
-        config_overrides=None,
+        config_overrides=["model.dtype=float64"],
         module_weight=["encoder=encoder.ckpt"],
         export_weights="composed.ckpt",
     )
 
     assert captured["path"] == "composed.ckpt"
+    assert "io" not in captured["cfg"]
+    assert captured["cfg"]["model"]["weight_path"] == "base.ckpt"
+    assert captured["cfg"]["model"]["dtype"] == "float64"
     assert captured["cfg"]["model"]["modules"]["encoder"]["weight_path"] == (
         "encoder.ckpt"
     )
@@ -978,13 +971,12 @@ def test_main_validation_errors(monkeypatch, tmp_path):
             config_overrides=None,
         )
 
-    monkeypatch.setattr(cli_module, "parse_value", lambda value: value)
     monkeypatch.setattr(
         cli_module,
         "load_config_file",
         lambda cfg_path: {"base": {}, "io": {"reader": {}}, "model": {}},
     )
-    with pytest.raises(ValueError, match="Invalid --set format"):
+    with pytest.raises(ValueError, match="Invalid override format"):
         cli_module.main(
             config=str(config_path),
             source=None,

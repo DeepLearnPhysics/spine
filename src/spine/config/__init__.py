@@ -28,6 +28,7 @@ from .errors import (
 from .inference import get_inference_cfg, to_inference_config
 from .load import load_config, load_config_file
 from .normalize import normalize_config
+from .operations import apply_overrides
 
 __version__ = API_VERSION
 
@@ -37,6 +38,7 @@ __all__ = [
     "normalize_config",
     "get_inference_cfg",
     "to_inference_config",
+    "apply_overrides",
     "download_from_url",
     "get_cache_dir",
     "ConfigError",

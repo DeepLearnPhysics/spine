@@ -21,6 +21,7 @@ __all__ = [
     "deep_merge",
     "expand_env_vars",
     "parse_value",
+    "apply_overrides",
     "apply_collection_operation",
     "apply_overrides_and_removals",
     "set_nested_value",
@@ -79,6 +80,47 @@ def parse_value(value_str: Any) -> Any:
         return yaml.safe_load(value_str)
     except yaml.YAMLError:
         return value_str
+
+
+def apply_overrides(
+    config: Dict[str, Any], overrides: List[str] | None
+) -> Dict[str, Any]:
+    """Apply serialized configuration overrides using dot notation.
+
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary
+    overrides : List[str], optional
+        Overrides written as ``key.path=value``
+
+    Returns
+    -------
+    Dict[str, Any]
+        Modified configuration
+
+    Raises
+    ------
+    ValueError
+        If an override does not follow the ``key.path=value`` format
+    """
+    if not overrides:
+        return config
+
+    for override in overrides:
+        if "=" not in override:
+            raise ValueError(
+                f"Invalid override format: '{override}'. "
+                f"Expected format: 'key.path=value'"
+            )
+
+        key_path, value_str = override.split("=", 1)
+
+        # Parse basic scalars and collections before updating the nested key.
+        value = parse_value(value_str.strip())
+        config, _ = set_nested_value(config, key_path.strip(), value)
+
+    return config
 
 
 def expand_env_vars(value: Any) -> Any:

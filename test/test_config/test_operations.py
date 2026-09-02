@@ -5,6 +5,7 @@ import pytest
 from spine.config.errors import ConfigOperationError, ConfigPathError, ConfigTypeError
 from spine.config.operations import (
     apply_collection_operation,
+    apply_overrides,
     apply_overrides_and_removals,
     deep_merge,
     expand_env_vars,
@@ -57,6 +58,33 @@ class TestParseValue:
         """Test invalid YAML content is returned unchanged."""
         raw = "[1, 2"
         assert parse_value(raw) == raw
+
+
+class TestApplyOverrides:
+    """Tests for serialized configuration overrides."""
+
+    def test_apply_overrides_parses_and_sets_nested_values(self):
+        """Multiple dot-path overrides should use standard value parsing."""
+        config = {"model": {}}
+
+        result = apply_overrides(
+            config,
+            ["model.dtype=float64", "model.options=[1, 2]"],
+        )
+
+        assert result is config
+        assert result["model"] == {"dtype": "float64", "options": [1, 2]}
+
+    def test_apply_overrides_accepts_no_overrides(self):
+        """An absent override list should leave the configuration untouched."""
+        config = {"model": {}}
+
+        assert apply_overrides(config, None) is config
+
+    def test_apply_overrides_rejects_invalid_assignment(self):
+        """Every serialized override must separate its path and value."""
+        with pytest.raises(ValueError, match="Invalid override format"):
+            apply_overrides({}, ["model.dtype"])
 
 
 class TestExpandEnvVars:
