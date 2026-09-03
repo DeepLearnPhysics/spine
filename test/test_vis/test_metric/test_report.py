@@ -143,6 +143,8 @@ def test_build_report_renders_expected_pngs(tmp_path):
         "ppn_purity.png",
         "ppn_purity_by_class.png",
         "ppn_resolution.png",
+        "ppn_resolution_efficiency_by_class.png",
+        "ppn_resolution_purity_by_class.png",
         "clustering_fragment_ari.png",
         "clustering_fragment_ari_by_class.png",
         "clustering_fragment_eff.png",
@@ -254,6 +256,49 @@ def test_point_recipe_validates_thresholds_and_distance_column(tmp_path):
     recipe = PointProposalRecipe("ppn", {})
     with pytest.raises(ValueError, match="Missing `dist` column"):
         recipe.reduce({"truth_to_reco": [path], "reco_to_truth": [path]})
+
+
+def test_point_recipe_filters_and_reduces_thresholds_by_class(tmp_path):
+    """Selected shapes should define aggregate and per-class denominators."""
+    path = tmp_path / "points.csv"
+    pd.DataFrame(
+        {
+            "dist": [0.5, 2.0, -1.0, 0.25],
+            "shape": [0, 0, 1, 3],
+            "closest_shape": [0, 1, -1, 3],
+        }
+    ).to_csv(path, index=False)
+    recipe = PointProposalRecipe(
+        "ppn",
+        {
+            "classes": ["shower", "track", "delta"],
+            "overall_classes": ["shower", "track"],
+            "distance_thresholds": [1.0, 3.0],
+        },
+    )
+
+    summary = recipe.reduce({"truth_to_reco": [path], "reco_to_truth": [path]})
+    direction = summary["directions"]["efficiency"]
+
+    # The delta row is absent from both aggregate counts and class summaries.
+    assert direction["total"] == 3
+    assert direction["matched"] == 2
+    assert direction["threshold_fraction"] == {"1.0": 1 / 3, "3.0": 2 / 3}
+    assert direction["by_class"]["Shower"]["total"] == 2
+    assert direction["by_class"]["Shower"]["threshold_fraction"] == {
+        "1.0": 0.5,
+        "3.0": 1.0,
+    }
+    assert direction["by_class"]["Track"]["total"] == 1
+    assert direction["by_class"]["Track"]["threshold_fraction"] == {
+        "1.0": 0.0,
+        "3.0": 0.0,
+    }
+    assert direction["by_class"]["Delta"]["total"] == 1
+    assert direction["by_class"]["Delta"]["threshold_fraction"] == {
+        "1.0": 1.0,
+        "3.0": 1.0,
+    }
 
 
 def test_point_renderer_allows_summaries_without_class_breakdowns(tmp_path):

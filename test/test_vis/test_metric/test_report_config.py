@@ -76,6 +76,13 @@ def test_generic_report_includes_standard_and_mapped_semantics():
         "Shower": ["shower", "michel", "delta", "low_energy"],
         "Track": ["track"],
     }
+    assert metrics["ppn"]["classes"] == [
+        "shower",
+        "track",
+        "michel",
+        "delta",
+    ]
+    assert metrics["ppn"]["overall_classes"] == ["shower", "track", "michel"]
 
 
 def test_generic_orientation_is_restricted_to_tracks():

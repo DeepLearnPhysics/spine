@@ -19,7 +19,7 @@ import pandas as pd
 
 from spine.vis.metric.distribution import histogram_quantiles
 
-REPORT_SCHEMA_VERSION = "1.2.0"
+REPORT_SCHEMA_VERSION = "1.3.0"
 DEFAULT_CHUNKSIZE = 100_000
 
 

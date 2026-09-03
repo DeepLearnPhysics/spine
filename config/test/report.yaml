@@ -24,6 +24,8 @@ metrics:
     name: point_proposal
     truth_to_reco: "**/*point_eval_truth_to_reco.csv"
     reco_to_truth: "**/*point_eval_reco_to_truth.csv"
+    classes: [shower, track, michel, delta]
+    overall_classes: [shower, track, michel]
     distance_thresholds: [1.0, 2.0, 5.0]
     distance_range: [0.0, 5.0]
     distance_unit: cm

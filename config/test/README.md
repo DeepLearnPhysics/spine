@@ -33,7 +33,11 @@ reporter does not contain scheduler-specific logic.
 
 PPN distances are streamed in configurable chunks. `distance_scale` can be used
 when the analyzer distance unit needs conversion before thresholds and
-histograms are evaluated. Clustering metric ranges are configurable through a
+histograms are evaluated. Its `classes` selection controls the separate
+per-class curves, while `overall_classes` independently controls the aggregate
+efficiency/purity population. The generic configuration reports delta rays as
+a separate class but conventionally excludes them from the overall curves.
+Clustering metric ranges are configurable through a
 `metric_ranges` mapping; ARI defaults to `[-1, 1]`, while efficiency and purity
 default to `[0, 1]`.
 
