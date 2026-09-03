@@ -42,6 +42,7 @@ Bin modules
 
    spine.bin.cli
    spine.bin.config
+   spine.bin.dataset
    spine.bin.info
    spine.bin.report
    spine.bin.source

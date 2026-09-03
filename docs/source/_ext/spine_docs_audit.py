@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 import shlex
 import textwrap
@@ -84,10 +85,27 @@ def _validate_yaml(path: Path, content: str, location: str, problems: list[str])
         return None
 
 
-def _long_cli_options(path: Path) -> set[str]:
-    """Collect long options declared by argparse in a CLI source module."""
-    text = path.read_text(encoding="utf-8")
-    return set(re.findall(r'["\'](--[a-z][a-z0-9-]*)["\']', text))
+def _long_cli_options(module_name: str) -> set[str]:
+    """Collect long options from an executable's authoritative parser."""
+    module = importlib.import_module(module_name)
+    parsers = [module.build_parser()]
+    options: set[str] = set()
+    while parsers:
+        parser = parsers.pop()
+        for action in parser._actions:
+            options.update(
+                option for option in action.option_strings if option.startswith("--")
+            )
+
+            # Subcommand options live on their own parsers rather than the
+            # executable's root parser.
+            choices = getattr(action, "choices", None)
+            if isinstance(choices, dict):
+                parsers.extend(
+                    choice for choice in choices.values() if hasattr(choice, "_actions")
+                )
+
+    return options
 
 
 def _validate_cli_example(
@@ -137,8 +155,8 @@ def audit_production_docs(app, config) -> None:
         if "generated" not in path.relative_to(source_dir).parts
     )
     cli_options = {
-        "spine": _long_cli_options(repository / "src/spine/bin/cli.py"),
-        "spine-config": _long_cli_options(repository / "src/spine/bin/config.py"),
+        "spine": _long_cli_options("spine.bin.cli"),
+        "spine-config": _long_cli_options("spine.bin.config"),
     }
     exact_config_reference = re.compile(r"(?<![\w/{])config/[\w./-]+\.ya?ml")
     for path in rst_paths:

@@ -369,8 +369,14 @@ def main(
     run(cfg)
 
 
-def cli() -> None:
-    """Main CLI entry point with conditional torch imports."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the authoritative SPINE command-line parser.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser containing every supported ``spine`` option.
+    """
     parser = argparse.ArgumentParser(
         description="SPINE - Scalable Particle Imaging with Neural Embeddings",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -536,6 +542,13 @@ def cli() -> None:
         "(e.g., --set io.loader.batch_size=8). "
         "Can be used multiple times for multiple overrides.",
     )
+
+    return parser
+
+
+def cli() -> None:
+    """Parse command-line arguments and run the requested SPINE operation."""
+    parser = build_parser()
 
     # Parse the arguments
     args = parser.parse_args()
