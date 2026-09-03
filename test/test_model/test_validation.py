@@ -36,7 +36,12 @@ def test_build_loader_config_replaces_ordinary_source():
     """Ordinary validation should inherit schema but not training randomness."""
     loader = ordinary_loader()
     derived = ValidationManager.build_loader_config(
-        loader, {"file_keys": "validation.root"}, seed=3
+        loader,
+        {
+            "file_keys": "validation.root",
+            "entry_fraction_range": [0.5, 1.0],
+        },
+        seed=3,
     )
 
     assert loader["dataset"]["file_keys"] == "train.root"
@@ -44,6 +49,7 @@ def test_build_loader_config_replaces_ordinary_source():
     assert derived["dataset"]["schema"] == loader["dataset"]["schema"]
     assert "augment" not in derived["dataset"]
     assert "n_entry" not in derived["dataset"]
+    assert derived["dataset"]["entry_fraction_range"] == [0.5, 1.0]
     assert "entry_list" not in derived
     assert "sampler" not in derived
     assert derived["shuffle"] is False
@@ -72,13 +78,17 @@ def test_build_loader_config_preserves_joint_overlay_structure():
         "sources": {
             "primary": {"file_keys": "primary_val.root"},
             "secondary": {"file_list": "secondary_val.txt"},
-        }
+        },
+        "n_entry": 12,
     }
 
     derived = ValidationManager.build_loader_config(loader, cfg, seed=11)
 
     assert "file_keys" not in derived["dataset"]["base"]
-    assert derived["dataset"]["primary"] == {"file_keys": "primary_val.root"}
+    assert derived["dataset"]["primary"] == {
+        "file_keys": "primary_val.root",
+        "n_entry": 12,
+    }
     assert derived["dataset"]["secondary"] == {"file_list": "secondary_val.txt"}
     assert "augment" not in derived["dataset"]
     assert derived["sampler"] == {
@@ -101,7 +111,8 @@ def test_build_loader_config_replaces_aligned_mixed_sources():
         "sources": {
             "larcv": {"file_keys": "validation.root"},
             "hdf5": {"file_keys": "validation.h5"},
-        }
+        },
+        "run_event_list": "validation_events.txt",
     }
 
     derived = ValidationManager.build_loader_config(loader, cfg, seed=2)
@@ -109,6 +120,7 @@ def test_build_loader_config_replaces_aligned_mixed_sources():
     assert derived["dataset"]["larcv"]["file_keys"] == "validation.root"
     assert derived["dataset"]["hdf5"]["file_keys"] == "validation.h5"
     assert derived["dataset"]["hdf5_key_map"] == {"old": "new"}
+    assert derived["dataset"]["run_event_list"] == "validation_events.txt"
     assert "sampler" not in derived
 
 
@@ -411,6 +423,12 @@ def test_validation_source_configuration_errors():
     with pytest.raises(KeyError, match="unexpected"):
         ValidationManager.validate_source(
             {"file_keys": "val.root", "unexpected": True}, "source"
+        )
+
+    with pytest.raises(TypeError, match="entry filters.*primary"):
+        ValidationManager.apply_entry_filters(
+            {"name": "joint", "primary": "primary.yaml"},
+            {"n_entry": 2},
         )
 
     joint["dataset"]["primary"] = "primary.yaml"

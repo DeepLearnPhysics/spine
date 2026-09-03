@@ -1,6 +1,7 @@
 """Contains a reader class dedicated to loading data from LArCV files."""
 
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -49,6 +50,7 @@ class LArCVReader(ReaderBase):
         create_run_map: bool = False,
         run_info_key: str | None = None,
         allow_missing: bool = False,
+        entry_fraction_range: Sequence[float] | None = None,
     ) -> None:
         """Initialize the LArCV file reader.
 
@@ -83,6 +85,8 @@ class LArCVReader(ReaderBase):
             Key of the tree in the file to get the run information from
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
+        entry_fraction_range : sequence[float], optional
+            Half-open fractional range of the resolved entry order to select
         """
         # Check that ROOT and larcv are available
         if not ROOT_AVAILABLE:
@@ -173,6 +177,7 @@ class LArCVReader(ReaderBase):
             run_event_list,
             skip_run_event_list,
             allow_missing,
+            entry_fraction_range,
         )
 
     def get(self, idx: int) -> dict[str, Any]:

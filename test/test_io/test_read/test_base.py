@@ -119,6 +119,9 @@ def test_reader_base_process_run_info_and_entry_selection(tmp_path):
     reader.process_entry_list(n_entry=2, n_skip=1)
     assert np.array_equal(reader.entry_index, np.asarray([1, 2]))
 
+    reader.process_entry_list(entry_fraction_range=[0.2, 0.8])
+    assert np.array_equal(reader.entry_index, np.asarray([1, 2, 3]))
+
     reader = DummyReader(
         num_entries=5,
         run_info=[(1, 0, i) for i in range(5)],
@@ -159,8 +162,10 @@ def test_reader_base_process_entry_list_errors():
     reader = DummyReader(num_entries=3, run_info=[(1, 0, i) for i in range(3)])
     reader.process_run_info()
 
-    with pytest.raises(ValueError, match="Cannot specify `n_entry`"):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         reader.process_entry_list(n_entry=1, entry_list=[0])
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        reader.process_entry_list(n_entry=1, entry_fraction_range=[0.0, 0.5])
     with pytest.raises(ValueError, match="Cannot specify both `entry_list`"):
         reader.process_entry_list(entry_list=[0], skip_entry_list=[1])
     with pytest.raises(ValueError, match="Cannot specify both `run_event_list`"):
@@ -171,6 +176,21 @@ def test_reader_base_process_entry_list_errors():
         reader.process_entry_list(n_entry=5)
     with pytest.raises(IndexError, match="No entries selected"):
         reader.process_entry_list(skip_entry_list=[0, 1, 2])
+
+    with pytest.raises(TypeError, match="exactly two real numbers"):
+        reader.process_entry_list(entry_fraction_range=[0.5])
+    with pytest.raises(TypeError, match="exactly two real numbers"):
+        reader.process_entry_list(entry_fraction_range="0.0,0.5")
+    with pytest.raises(TypeError, match="exactly two real numbers"):
+        reader.process_entry_list(entry_fraction_range=0.5)
+    with pytest.raises(TypeError, match="exactly two real numbers"):
+        reader.process_entry_list(entry_fraction_range=[0.0, "half"])
+    with pytest.raises(ValueError, match="0 <= start < stop <= 1"):
+        reader.process_entry_list(entry_fraction_range=[0.8, 0.2])
+    with pytest.raises(ValueError, match="0 <= start < stop <= 1"):
+        reader.process_entry_list(entry_fraction_range=[0.0, np.inf])
+    with pytest.raises(IndexError, match="No entries selected"):
+        reader.process_entry_list(entry_fraction_range=[0.0, 0.1])
 
 
 def test_reader_base_process_entry_list_bounds_and_run_map_errors():

@@ -518,6 +518,7 @@ def test_main_overrides_validation_source(
         config_overrides=None,
         val_source=val_source,
         val_source_list=val_source_list,
+        val_nskip=2,
     )
 
     validation = captured["cfg"]["validation"]
@@ -525,6 +526,7 @@ def test_main_overrides_validation_source(
     alternate_key = "file_list" if expected_key == "file_keys" else "file_keys"
     assert alternate_key not in validation
     assert validation["fraction"] == 0.5
+    assert validation["n_skip"] == 2
 
 
 def test_main_overrides_composite_validation_sources(monkeypatch, tmp_path):
@@ -594,7 +596,7 @@ def test_main_rejects_validation_source_for_inference(monkeypatch, tmp_path):
         lambda _path: {"io": {"reader": {}}, "model": {}},
     )
 
-    with pytest.raises(ValueError, match="cannot be used with --inference"):
+    with pytest.raises(ValueError, match="Validation dataset overrides"):
         cli_module.main(
             config=str(config_path),
             source=None,
@@ -1034,6 +1036,16 @@ def test_cli_entry_point_paths(monkeypatch):
                 nskip=1,
                 entry_list="entries.txt",
                 skip_entry_list="skip.txt",
+                run_event_list="run_events.txt",
+                skip_run_event_list="skip_run_events.txt",
+                entry_fraction_range=(0.0, 0.5),
+                val_num_entries=3,
+                val_nskip=2,
+                val_entry_list="val_entries.txt",
+                val_skip_entry_list="val_skip.txt",
+                val_run_event_list="val_run_events.txt",
+                val_skip_run_event_list="val_skip_run_events.txt",
+                val_entry_fraction_range=(0.5, 1.0),
                 log_dir="logs",
                 weight_prefix="weights",
                 weight_path="weights.ckpt",
@@ -1089,6 +1101,9 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["epochs"] is None
     assert main_calls[0]["iterations"] == 100
     assert main_calls[0]["n"] == 2
+    assert main_calls[0]["run_event_list"] == "run_events.txt"
+    assert main_calls[0]["val_n"] == 3
+    assert main_calls[0]["val_entry_fraction_range"] == (0.5, 1.0)
     assert main_calls[0]["tensorboard"] is True
     assert main_calls[0]["tensorboard_dir"] == "tb"
     assert main_calls[0]["module_weight"] == ["uresnet_ppn=uresnet.ckpt"]

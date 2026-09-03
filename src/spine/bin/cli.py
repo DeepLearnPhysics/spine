@@ -9,12 +9,13 @@ from textwrap import dedent
 from warnings import warn
 
 from spine.banner import format_banner
-from spine.bin.info import get_version, show_info
-from spine.bin.source import (
-    apply_source_overrides,
-    apply_validation_source_overrides,
-    get_input_config,
+from spine.bin.dataset import (
+    DatasetSelection,
+    add_dataset_arguments,
+    apply_dataset_selection,
+    apply_validation_dataset_selection,
 )
+from spine.bin.info import get_version, show_info
 from spine.bin.weight import apply_module_weight_overrides
 from spine.config import apply_overrides, load_config_file, to_inference_config
 from spine.config.loader import resolve_config_path
@@ -39,6 +40,16 @@ def main(
     module_weight: list[str] | None = None,
     val_source: list[str] | None = None,
     val_source_list: str | list[str] | None = None,
+    run_event_list: str | None = None,
+    skip_run_event_list: str | None = None,
+    entry_fraction_range: tuple[float, float] | None = None,
+    val_n: int | None = None,
+    val_nskip: int | None = None,
+    val_entry_list: str | None = None,
+    val_skip_entry_list: str | None = None,
+    val_run_event_list: str | None = None,
+    val_skip_run_event_list: str | None = None,
+    val_entry_fraction_range: tuple[float, float] | None = None,
     world_size: int | None = None,
     batch_size: int | None = None,
     minibatch_size: int | None = None,
@@ -101,6 +112,26 @@ def main(
     val_source_list : str or list[str], optional
         Validation file-list paths, optionally qualified by composite-dataset
         source names
+    run_event_list : str, optional
+        Path to run/subrun/event triplets to process
+    skip_run_event_list : str, optional
+        Path to run/subrun/event triplets to skip
+    entry_fraction_range : tuple[float, float], optional
+        Half-open fractional range of input entries to process
+    val_n : int, optional
+        Number of validation entries to process
+    val_nskip : int, optional
+        Number of initial validation entries to skip
+    val_entry_list : str, optional
+        Path to validation entry indexes to process
+    val_skip_entry_list : str, optional
+        Path to validation entry indexes to skip
+    val_run_event_list : str, optional
+        Path to validation run/subrun/event triplets to process
+    val_skip_run_event_list : str, optional
+        Path to validation run/subrun/event triplets to skip
+    val_entry_fraction_range : tuple[float, float], optional
+        Half-open fractional range of validation entries to process
     world_size : int, optional
         Number of local processes/devices to use
     batch_size : int, optional
@@ -151,15 +182,42 @@ def main(
     parent_path = str(pathlib.Path(cfg_file).parent)
     cfg["base"]["parent_path"] = parent_path
 
+    # Validate mutually exclusive arguments before applying them to the configuration
     if batch_size is not None and minibatch_size is not None:
         raise ValueError("--batch-size and --minibatch-size are mutually exclusive.")
     if epochs is not None and iterations is not None:
         raise ValueError("--epochs and --iterations are mutually exclusive.")
     if tensorboard is False and tensorboard_dir is not None:
         raise ValueError("--tensorboard-dir cannot be used with --no-tensorboard.")
-    if inference and (val_source is not None or val_source_list is not None):
+
+    # Build dataset selection objects for training and validation. These objects
+    # are used to apply the selection to the configuration and to validate that
+    # the selection is compatible with the configuration.
+    input_selection = DatasetSelection(
+        source=source,
+        source_list=source_list,
+        n_entry=n,
+        n_skip=nskip,
+        entry_list=entry_list,
+        skip_entry_list=skip_entry_list,
+        run_event_list=run_event_list,
+        skip_run_event_list=skip_run_event_list,
+        entry_fraction_range=entry_fraction_range,
+    )
+    validation_selection = DatasetSelection(
+        source=val_source,
+        source_list=val_source_list,
+        n_entry=val_n,
+        n_skip=val_nskip,
+        entry_list=val_entry_list,
+        skip_entry_list=val_skip_entry_list,
+        run_event_list=val_run_event_list,
+        skip_run_event_list=val_skip_run_event_list,
+        entry_fraction_range=val_entry_fraction_range,
+    )
+    if inference and validation_selection.configured:
         raise ValueError(
-            "--val-source and --val-source-list cannot be used with --inference."
+            "Validation dataset overrides cannot be used with --inference."
         )
 
     # Convert the loaded training configuration before applying explicit CLI
@@ -193,35 +251,19 @@ def main(
     if "io" not in cfg:
         raise KeyError("Configuration file must contain an `io` block.")
 
-    # Apply source selectors separately because composite datasets route them
-    # into named source blocks rather than the dataset root.
-    apply_source_overrides(cfg["io"], source, source_list)
-
-    # Override the remaining input information into the configuration.
-    io_mapping = {
-        "n_entry": n,
-        "n_skip": nskip,
-        "entry_list": entry_list,
-        "skip_entry_list": skip_entry_list,
-    }
-    input_cfg = None
-    for io_key, io_value in io_mapping.items():
-        if io_value is not None:
-            if input_cfg is None:
-                input_cfg, _ = get_input_config(cfg["io"])
-            input_cfg[io_key] = io_value
+    # Dataset selection routing is shared between ordinary and composite input.
+    apply_dataset_selection(cfg["io"], input_selection)
 
     # Validation source selectors follow the training dataset topology while
     # remaining independent of the training paths themselves.
-    if val_source is not None or val_source_list is not None:
+    if validation_selection.configured:
         validation = cfg.setdefault("validation", {})
         if not isinstance(validation, dict):
             raise TypeError("The `validation` block must be a mapping.")
-        apply_validation_source_overrides(
+        apply_validation_dataset_selection(
             validation,
             cfg["io"],
-            val_source,
-            val_source_list,
+            validation_selection,
         )
 
     # Override runtime and loader resource settings. Batch shape and worker
@@ -389,70 +431,15 @@ def cli() -> None:
         help="Path to the configuration file (requires torch dependencies)",
     )
 
-    # Source options may coexist when they address different composite inputs.
-    parser.add_argument(
-        "-s",
-        "--source",
-        nargs="+",
-        type=str,
-        metavar="[TARGET=]PATH",
-        help="Input paths, optionally qualified by a composite source name",
-    )
-    parser.add_argument(
-        "-S",
-        "--source-list",
-        nargs="+",
-        metavar="[TARGET=]LIST",
-        help="Input file lists, optionally qualified by composite source names",
-    )
-
-    # Validation source options use the same target-aware contract as input.
-    parser.add_argument(
-        "--val-source",
-        nargs="+",
-        type=str,
-        metavar="[TARGET=]PATH",
-        help="Validation paths, optionally qualified by a composite source name",
-    )
-    parser.add_argument(
-        "--val-source-list",
-        nargs="+",
-        metavar="[TARGET=]LIST",
-        help="Validation file lists, optionally qualified by composite source names",
-    )
+    # Main and validation datasets expose the same selection contract.
+    add_dataset_arguments(parser)
+    add_dataset_arguments(parser, validation=True)
 
     # Add output arguments
     parser.add_argument("-o", "--output", help="Path to the output file")
     parser.add_argument("--output-dir", help="Path to the output directory")
     parser.add_argument(
         "--output-suffix", help="Suffix to append to generated output file names"
-    )
-
-    # Add dataset entry and skip arguments
-    parser.add_argument(
-        "-n",
-        "--num-entries",
-        dest="num_entries",
-        type=int,
-        help="Number of dataset entries to load",
-    )
-
-    parser.add_argument(
-        "--skip-entries",
-        "--nskip",
-        dest="nskip",
-        type=int,
-        help="Number of dataset entries to skip",
-    )
-
-    parser.add_argument(
-        "--entry-list",
-        help="Path to a text file containing a list of entries to process",
-    )
-
-    parser.add_argument(
-        "--skip-entry-list",
-        help="Path to a text file containing a list of entries to skip",
     )
 
     # Add logging and weight storage arguments
@@ -588,6 +575,16 @@ def cli() -> None:
         module_weight=args.module_weight,
         val_source=args.val_source,
         val_source_list=args.val_source_list,
+        run_event_list=args.run_event_list,
+        skip_run_event_list=args.skip_run_event_list,
+        entry_fraction_range=args.entry_fraction_range,
+        val_n=args.val_num_entries,
+        val_nskip=args.val_nskip,
+        val_entry_list=args.val_entry_list,
+        val_skip_entry_list=args.val_skip_entry_list,
+        val_run_event_list=args.val_run_event_list,
+        val_skip_run_event_list=args.val_skip_run_event_list,
+        val_entry_fraction_range=args.val_entry_fraction_range,
         world_size=args.world_size,
         batch_size=args.batch_size,
         minibatch_size=args.minibatch_size,

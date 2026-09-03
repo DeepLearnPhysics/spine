@@ -50,6 +50,7 @@ class StageHDF5Reader(HDF5Reader):
         ignore_incomplete: bool = False,
         stage_map: Mapping[str, str] | None = None,
         keys: Sequence[str] | None = None,
+        entry_fraction_range: Sequence[float] | None = None,
     ) -> None:
         """Initialize the stage-cache reader.
 
@@ -66,7 +67,8 @@ class StageHDF5Reader(HDF5Reader):
             products from the selected stage(s) are exposed.
         file_keys, file_list, limit_num_files, max_print_files, n_entry, n_skip, \
         entry_list, skip_entry_list, build_classes, skip_unknown_attrs, \
-        allow_missing, keep_open, swmr, ignore_incomplete : optional
+        allow_missing, keep_open, swmr, ignore_incomplete, \
+        entry_fraction_range : optional
             See :class:`spine.io.read.HDF5Reader`. These options control file
             discovery, entry selection, object reconstruction, file-handle
             lifetime, and incomplete-stage handling.
@@ -121,6 +123,7 @@ class StageHDF5Reader(HDF5Reader):
             None,
             None,
             allow_missing,
+            entry_fraction_range,
         )
 
         # Finish the inherited object reconstruction and file metadata setup

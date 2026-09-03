@@ -77,6 +77,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         swmr: bool = False,
         ignore_incomplete: bool = False,
         keys: list[str] | tuple[str, ...] | None = None,
+        entry_fraction_range: Sequence[float] | None = None,
     ) -> None:
         """Initalize the HDF5 file reader.
 
@@ -148,6 +149,8 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             true reader-level projection and avoids reading unrequested data
             in either layout. Source-provenance products remain eligible so
             reader-owned runtime indexes can be reconstructed.
+        entry_fraction_range : sequence[float], optional
+            Half-open fractional range of the resolved entry order to select
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -276,6 +279,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             run_event_list,
             skip_run_event_list,
             allow_missing,
+            entry_fraction_range,
         )
 
         # Store other attributes

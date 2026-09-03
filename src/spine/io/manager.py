@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from spine.utils.conditional import TORCH_AVAILABLE
@@ -832,6 +832,7 @@ class IOManager:
         skip_entry_list: list[int] | None = None,
         run_event_list: list[tuple[int, int, int]] | None = None,
         skip_run_event_list: list[tuple[int, int, int]] | None = None,
+        entry_fraction_range: Sequence[float] | None = None,
     ) -> None:
         """Restrict the reader entry list.
 
@@ -849,6 +850,8 @@ class IOManager:
             Run/subrun/event triplets to keep.
         skip_run_event_list : list[tuple[int, int, int]], optional
             Run/subrun/event triplets to skip.
+        entry_fraction_range : sequence[float], optional
+            Half-open fractional range of the resolved entry order to keep.
         """
         if self.reader is None:
             raise RuntimeError("Cannot filter entries without an initialized reader.")
@@ -860,6 +863,7 @@ class IOManager:
             skip_entry_list,
             run_event_list,
             skip_run_event_list,
+            entry_fraction_range,
         )
         self.loader_iter = None
 

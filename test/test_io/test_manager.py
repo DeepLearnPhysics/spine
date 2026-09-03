@@ -599,9 +599,17 @@ def test_io_manager_apply_filter(monkeypatch):
     manager = IOManager(reader={"name": "hdf5"}, iterations=-1)
     manager.loader_iter = object()
     manager.apply_filter(1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)])
+    manager.apply_filter(entry_fraction_range=(0.25, 0.75))
 
     assert reader.calls == [
-        ("process_entry_list", (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)]))
+        (
+            "process_entry_list",
+            (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)], None),
+        ),
+        (
+            "process_entry_list",
+            (None, None, None, None, None, None, (0.25, 0.75)),
+        ),
     ]
     assert manager.loader_iter is None
 

@@ -346,6 +346,7 @@ class ValidationManager:
             "skip_entry_list",
             "run_event_list",
             "skip_run_event_list",
+            "entry_fraction_range",
         }
     )
 
@@ -368,10 +369,12 @@ class ValidationManager:
     ) -> None:
         """Build a validation loader and optional validation policies.
 
-        ``cfg`` only describes validation sources, the fraction of the loader
-        to visit, early stopping and best-checkpoint selection. The training
-        loader supplies the dataset schema, batching, collation and worker
-        configuration.
+        ``cfg`` only describes validation sources, entry selection, the
+        fraction of the selected loader to visit, early stopping and
+        best-checkpoint selection. ``entry_fraction_range`` chooses a stable
+        dataset subset, whereas ``fraction`` limits each validation pass. The
+        training loader supplies the dataset schema, batching, collation and
+        worker configuration.
 
         Parameters
         ----------
@@ -509,6 +512,10 @@ class ValidationManager:
         cls.strip_runtime_options(dataset)
         dataset_name = dataset.get("name")
 
+        # Entry filters are independent of source replacement and validation
+        # scheduling, so consume them before validating the remaining schema.
+        entry_filters = {key: cfg.pop(key) for key in cls.FILTER_KEYS if key in cfg}
+
         # Replace sources according to the dataset topology
         if dataset_name == "joint":
             sources = cls.pop_composite_sources(cfg, {"primary", "secondary"})
@@ -536,6 +543,8 @@ class ValidationManager:
             source = cls.pop_simple_source(cfg)
             cls.apply_source(dataset, source)
             loader_cfg.pop("sampler", None)
+
+        cls.apply_entry_filters(dataset, entry_filters)
 
         # Reject options outside the intentionally narrow validation schema
         if cfg:
@@ -706,6 +715,46 @@ class ValidationManager:
         for key in (*cls.SOURCE_KEYS, *cls.FILTER_KEYS):
             dataset.pop(key, None)
         dataset.update(source)
+
+    @classmethod
+    def apply_entry_filters(
+        cls,
+        dataset: dict[str, Any],
+        filters: Mapping[str, Any],
+    ) -> None:
+        """Apply validation entry filters at the traversal-owning level.
+
+        Ordinary and mixed datasets accept filters at their root. Joint
+        datasets are traversed by their primary source, while the secondary
+        source remains an independent overlay pool.
+
+        Parameters
+        ----------
+        dataset : dict
+            Derived validation dataset configuration modified in place
+        filters : mapping
+            Reader entry-selection options to apply
+
+        Raises
+        ------
+        TypeError
+            If a joint primary source is not an inline mapping
+        """
+        if not filters:
+            return
+
+        target = dataset
+        if dataset.get("name") == "joint":
+            primary = dataset.get("primary")
+            if not isinstance(primary, Mapping):
+                raise TypeError(
+                    "Validation entry filters require an inline joint "
+                    "`primary` dataset."
+                )
+            target = dict(primary)
+            dataset["primary"] = target
+
+        target.update(filters)
 
     def run(self, iteration: int, epoch: float | None = None) -> dict[str, float]:
         """Evaluate and average scalar outputs over validation batches.

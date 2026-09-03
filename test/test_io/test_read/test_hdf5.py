@@ -951,6 +951,15 @@ def test_hdf5_reader_v2_append_and_nested_lists(tmp_path):
     assert [array.tolist() for array in reader.get(2)["clusters"]] == [[1, 2], [3]]
     reader.close()
 
+    subset = HDF5Reader(
+        str(path),
+        build_classes=False,
+        entry_fraction_range=(0.5, 1.0),
+    )
+    assert np.array_equal(subset.entry_index, [2, 3])
+    assert subset[0]["file_entry_index"] == 2
+    subset.close()
+
 
 def test_hdf5_reader_dispatches_mixed_v1_v2_files(tmp_path):
     """One public reader should normalize legacy and offset files identically."""
@@ -1013,7 +1022,12 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = StageHDF5Reader(
+        "deghosting",
+        str(path),
+        build_classes=False,
+        entry_fraction_range=(0.0, 1.0),
+    )
     entry = reader.get(0)
     np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[1.0, 2.0]]))
     assert entry["source_file_entry_index"] == 11

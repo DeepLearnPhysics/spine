@@ -8,6 +8,7 @@ import glob
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from numbers import Real
 from typing import Any
 
 import numpy as np
@@ -310,6 +311,7 @@ class ReaderBase(ABC):
         run_event_list: str | list[list[int]] | None = None,
         skip_run_event_list: str | list[list[int]] | None = None,
         allow_missing: bool = False,
+        entry_fraction_range: Sequence[float] | None = None,
     ) -> None:
         """Create a list of entries that can be accessed by :meth:`__getitem__`.
 
@@ -333,6 +335,9 @@ class ReaderBase(ABC):
             as a file path or a list of triplets
         allow_missing : bool, default False
             If `True`, allows missing entries in the entry or event list
+        entry_fraction_range : sequence[float], optional
+            Half-open fractional range ``[start, stop)`` of the resolved entry
+            order to select. Bounds must satisfy ``0 <= start < stop <= 1``.
 
         Returns
         -------
@@ -340,26 +345,17 @@ class ReaderBase(ABC):
             List of integer entry IDs in the index
         """
         # Make sure the parameters are sensible
-        if np.any(
-            [
-                n_entry is not None,
-                n_skip is not None,
-                entry_list is not None,
-                skip_entry_list is not None,
-                run_event_list is not None,
-                skip_run_event_list is not None,
-            ]
-        ):
-            if not (
-                (n_entry is not None or n_skip is not None)
-                ^ (entry_list is not None or skip_entry_list is not None)
-                ^ (run_event_list is not None or skip_run_event_list is not None)
-            ):
-                raise ValueError(
-                    "Cannot specify `n_entry` or `n_skip` at the same time "
-                    "as `entry_list` or `skip_entry_list` or at the same time "
-                    "as `run_event_list` or `skip_run_event_list`."
-                )
+        selection_modes = (
+            n_entry is not None or n_skip is not None,
+            entry_list is not None or skip_entry_list is not None,
+            run_event_list is not None or skip_run_event_list is not None,
+            entry_fraction_range is not None,
+        )
+        if sum(selection_modes) > 1:
+            raise ValueError(
+                "Numerical, explicit-entry, run/event and fractional entry "
+                "selection modes are mutually exclusive."
+            )
 
         if n_entry is not None or n_skip is not None:
             n_skip = n_skip if n_skip else 0
@@ -384,7 +380,33 @@ class ReaderBase(ABC):
 
         # Create a list of entries to be loaded
         entry_list_arr = None
-        if n_entry or n_skip:
+        if entry_fraction_range is not None:
+            try:
+                if isinstance(entry_fraction_range, (str, bytes)):
+                    raise TypeError
+                start_value, stop_value = entry_fraction_range
+            except (TypeError, ValueError):
+                raise TypeError(
+                    "`entry_fraction_range` must contain exactly two real numbers."
+                ) from None
+            if not all(isinstance(value, Real) for value in (start_value, stop_value)):
+                raise TypeError(
+                    "`entry_fraction_range` must contain exactly two real numbers."
+                )
+
+            start, stop = float(start_value), float(stop_value)
+            if not np.isfinite([start, stop]).all() or not 0.0 <= start < stop <= 1.0:
+                raise ValueError(
+                    "`entry_fraction_range` must satisfy 0 <= start < stop <= 1."
+                )
+
+            # Flooring both boundaries produces adjacent, non-overlapping
+            # partitions whose union covers the original entry order.
+            lower = int(start * self.num_entries)
+            upper = int(stop * self.num_entries)
+            entry_list_arr = np.arange(lower, upper, dtype=np.int64)
+
+        elif n_entry or n_skip:
             entry_list_arr = np.arange(self.num_entries)
             if n_skip is not None and n_skip > 0:
                 entry_list_arr = entry_list_arr[n_skip:]
