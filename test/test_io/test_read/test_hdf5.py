@@ -301,7 +301,7 @@ def test_hdf5_reader_get_many_opens_once_per_file(monkeypatch, tmp_path):
     paths = []
     for file_idx in range(2):
         path = tmp_path / f"batch_{file_idx}.h5"
-        writer = HDF5Writer(str(path))
+        writer = HDF5Writer(str(path), format_version=2)
         writer(
             {
                 "index": np.asarray([0, 1]),
@@ -328,13 +328,19 @@ def test_hdf5_reader_get_many_opens_once_per_file(monkeypatch, tmp_path):
     reader = HDF5Reader(paths, build_classes=False, keep_open=False)
     init_calls = open_calls
 
-    batch = reader.get_many([3, 0, 2, 0])
+    batch = reader.get_many([0, 1, 3, 2, 3])
 
     assert open_calls - init_calls == 2
-    assert [entry["index"] for entry in batch] == [3, 0, 2, 0]
-    assert [entry["file_index"] for entry in batch] == [1, 0, 1, 0]
-    assert [entry["file_entry_index"] for entry in batch] == [1, 0, 0, 0]
-    assert [entry["value"].tolist() for entry in batch] == [[11], [0], [10], [0]]
+    assert [entry["index"] for entry in batch] == [0, 1, 3, 2, 3]
+    assert [entry["file_index"] for entry in batch] == [0, 0, 1, 1, 1]
+    assert [entry["file_entry_index"] for entry in batch] == [0, 1, 1, 0, 1]
+    assert [entry["value"].tolist() for entry in batch] == [
+        [0],
+        [1],
+        [11],
+        [10],
+        [11],
+    ]
     assert reader._file_handles == {}
 
 
@@ -354,6 +360,53 @@ def test_hdf5_reader_get_many_rejects_bad_index_before_open(monkeypatch, hdf5_da
         reader.get_many([0, len(reader)])
 
     assert open_calls == 0
+
+
+def test_hdf5_v2_batch_array_uses_one_offset_and_value_read(tmp_path):
+    """A contiguous array product should perform two physical dataset reads."""
+    path = tmp_path / "batch_reads.h5"
+    reader = HDF5Reader.__new__(HDF5Reader)
+    reader.keep_open = True
+    reader._initialize_product_backend()
+
+    class CountingDataset:
+        """Minimal dataset wrapper which records physical slice requests."""
+
+        def __init__(self, values):
+            self.values = np.asarray(values)
+            self.calls = []
+
+        def __getitem__(self, index):
+            self.calls.append(index)
+            return self.values[index]
+
+    values = CountingDataset(np.arange(6, dtype=np.int64))
+    offsets = CountingDataset([0, 2, 3, 6])
+    with h5py.File(path, "w") as out_file:
+        products = out_file.create_group("products")
+        group = products.create_group("value")
+        group.attrs["kind"] = "array"
+        cache_key = (str(path), group.name)
+        reader._product_handles[cache_key] = _ProductHandles(
+            kind="array",
+            values=values,
+            event_offsets=offsets,
+        )
+        data = [{}, {}, {}]
+
+        reader.load_product_many(products, 0, 3, data, "value")
+
+        with pytest.raises(ValueError, match="destination count"):
+            reader.load_product_many(products, 0, 2, [{}], "value")
+        reader.load_product_many(products, 0, 0, [], "value")
+
+    assert len(offsets.calls) == 1
+    assert len(values.calls) == 1
+    assert [event["value"].tolist() for event in data] == [
+        [0, 1],
+        [2],
+        [3, 4, 5],
+    ]
 
 
 def test_hdf5_reader_close_swallows_handle_close_errors():
@@ -741,8 +794,12 @@ def test_hdf5_reader_v2_skips_non_group_reconstruction_products(tmp_path):
         data = {"physical": np.asarray([1])}
 
         reader.reconstruct_products(products, 0, data)
+        reader.reconstruct_products_many(products, 0, 0, [])
+        batch = [{"physical": np.asarray([1])}]
+        reader.reconstruct_products_many(products, 0, 1, batch)
 
     np.testing.assert_array_equal(data["physical"], [1])
+    np.testing.assert_array_equal(batch[0]["physical"], [1])
 
 
 def test_hdf5_reader_v2_rejects_unlinked_product_group(tmp_path):
@@ -784,6 +841,8 @@ def test_hdf5_reader_v2_rejects_incomplete_cached_handles(tmp_path, kind):
 
         with pytest.raises(RuntimeError, match="missing|required|Incomplete"):
             reader.load_product(out_file, 0, {}, "product")
+        with pytest.raises(RuntimeError, match="missing|required|Incomplete"):
+            reader.load_product_many(out_file, 0, 1, [{}], "product")
 
 
 def test_hdf5_reader_reconstructs_empty_cluster_particle_table(tmp_path, monkeypatch):
@@ -1143,6 +1202,91 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
         [[1.0, 2.0]],
         [[3.0, 4.0]],
     ]
+
+
+def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):
+    """Contiguous stage reads should rebuild every supported V2 product kind."""
+    path = tmp_path / "stage_products.h5"
+    tensors = [
+        spine.data.TensorData(
+            features=np.full((index + 1, 2), index, dtype=np.float32),
+            feats_only=True,
+        )
+        for index in range(2)
+    ]
+    selections = [
+        spine.data.IndexData(np.asarray([index]), span=index + 2) for index in range(2)
+    ]
+    groups = [
+        spine.data.IndexListData(
+            [np.asarray([index]), np.asarray([index + 1, index + 2])],
+            span=index + 3,
+        )
+        for index in range(2)
+    ]
+    edges = [
+        spine.data.EdgeIndexData(
+            np.asarray([[0], [index]], dtype=np.int64),
+            span=index + 2,
+            directed=False,
+        )
+        for index in range(2)
+    ]
+    particles = [
+        spine.data.ObjectListData(
+            [RecoParticle(id=index, index=np.asarray([index], dtype=np.int64))],
+            RecoParticle(),
+            index_shifts={"id": index + 4},
+        )
+        for index in range(2)
+    ]
+    jagged = [
+        [
+            np.full((index + 1, 2), index, dtype=np.float32),
+            np.full((2 - index, 3), index + 1, dtype=np.float32),
+        ]
+        for index in range(2)
+    ]
+
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "graph",
+        {
+            "index": np.asarray([0, 1]),
+            "source_file_name": np.asarray(["source.root", "source.root"]),
+            "source_file_size": np.asarray([10, 10]),
+            "source_file_mtime_ns": np.asarray([20, 20]),
+            "tensor": tensors,
+            "selection": selections,
+            "groups": groups,
+            "edges": edges,
+            "particles": particles,
+            "jagged": jagged,
+            "label": ["first", "second"],
+        },
+    )
+    writer.finalize_stage("graph")
+    writer.close()
+
+    reader = StageHDF5Reader("graph", str(path))
+    batch = reader.get_many([0, 1])
+    reader.close()
+
+    for index, event in enumerate(batch):
+        assert isinstance(event["tensor"], spine.data.TensorData)
+        assert event["tensor"].shape == (index + 1, 2)
+        assert isinstance(event["selection"], spine.data.IndexData)
+        assert event["selection"].span == index + 2
+        assert isinstance(event["groups"], spine.data.IndexListData)
+        assert event["groups"].span == index + 3
+        assert isinstance(event["edges"], spine.data.EdgeIndexData)
+        assert event["edges"].directed is False
+        assert isinstance(event["particles"], spine.data.ObjectListData)
+        assert event["particles"].index_shifts == {"id": index + 4}
+        assert event["particles"][0].id == index
+        assert event["label"] == ("first", "second")[index]
+        np.testing.assert_array_equal(event["jagged"][0], jagged[index][0])
+        np.testing.assert_array_equal(event["jagged"][1], jagged[index][1])
 
 
 def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):

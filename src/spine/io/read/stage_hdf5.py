@@ -594,3 +594,43 @@ class StageHDF5Reader(HDF5Reader):
         # Expose the user-facing global entry after all stage products are merged
         data["index"] = idx
         return data
+
+    def _load_v2_run(
+        self,
+        file_idx: int,
+        entries: list[tuple[int, int, int]],
+        in_file: h5py.File,
+    ) -> list[dict[str, object]]:
+        """Decode one contiguous run from the resolved stage products.
+
+        This is the staged-cache counterpart to the flat V2 reader path. Each
+        selected stage product, including its private reconstruction children,
+        is loaded once for the complete event run.
+        """
+        first = entries[0][2]
+        last = entries[-1][2] + 1
+        data: list[dict[str, object]] = []
+        for _, idx, entry_idx in entries:
+            event: dict[str, object] = {
+                "file_index": file_idx,
+                "file_entry_index": entry_idx,
+                "source_file_entry_index": entry_idx,
+            }
+            event.update(self._source_info.get(file_idx, {}))
+            data.append(event)
+
+        product_stage_map = self._resolved_products[file_idx]
+        for stage_name in sorted(set(product_stage_map.values())):
+            stage_group = self.get_stage_group(
+                in_file, self.file_paths[file_idx], stage_name
+            )
+            products = self.get_stage_products(stage_group)
+            for key, resolved_stage in product_stage_map.items():
+                if resolved_stage == stage_name:
+                    self.load_product_many(products, first, last, data, key)
+            self.reconstruct_products_many(products, first, last, data)
+
+        # Stored products cannot override the reader-facing global index.
+        for (_, idx, _), event in zip(entries, data):
+            event["index"] = idx
+        return data

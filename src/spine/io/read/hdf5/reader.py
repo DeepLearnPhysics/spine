@@ -629,11 +629,12 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
                 in_file.close()
 
     def get_many(self, indices: Sequence[int]) -> list[dict[str, Any]]:
-        """Load a batch, opening each participating file at most once.
+        """Load a batch using contiguous V2 reads where possible.
 
         Input order, duplicate indexes, entry filtering, and scalar decoding
-        semantics are preserved. Only the physical file-handle lifetime is
-        widened from one entry to one batch.
+        semantics are preserved. V2 entries which are adjacent within one
+        physical file are decoded as a run; V1 and isolated entries retain the
+        scalar path. Each participating file is opened at most once.
 
         Parameters
         ----------
@@ -673,21 +674,81 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         for position, idx, file_idx, entry_idx in resolved:
             grouped.setdefault(file_idx, []).append((position, idx, entry_idx))
 
-        # Reuse one transient or persistent handle for each participating file
+        # Reuse one transient or persistent handle for each participating file.
         results: list[dict[str, Any] | None] = [None] * len(resolved)
         for file_idx, entries in grouped.items():
             in_file, should_close = self._open_file(file_idx)
             try:
-                for position, idx, entry_idx in entries:
-                    results[position] = self._load_entry(
-                        idx, file_idx, entry_idx, in_file
-                    )
+                run_start = 0
+                for index in range(1, len(entries) + 1):
+                    if (
+                        index < len(entries)
+                        and entries[index][2] == entries[index - 1][2] + 1
+                    ):
+                        continue
+
+                    run = entries[run_start:index]
+                    if self.file_format_versions[file_idx] == 2 and len(run) > 1:
+                        batch = self._load_v2_run(file_idx, run, in_file)
+                        for (position, _, _), event in zip(run, batch):
+                            results[position] = event
+                    else:
+                        for position, idx, entry_idx in run:
+                            results[position] = self._load_entry(
+                                idx, file_idx, entry_idx, in_file
+                            )
+                    run_start = index
             finally:
                 if should_close:
                     in_file.close()
 
         # Reads were grouped by file; return them in the caller's original order
         return cast(list[dict[str, Any]], results)
+
+    def _load_v2_run(
+        self,
+        file_idx: int,
+        entries: list[tuple[int, int, int]],
+        in_file: h5py.File,
+    ) -> list[dict[str, Any]]:
+        """Decode one contiguous run of V2 events from an open file.
+
+        Parameters
+        ----------
+        file_idx : int
+            Index of the physical file containing the run.
+        entries : list[tuple[int, int, int]]
+            Output position, user-facing index, and file-local entry index for
+            each event. File-local indexes must form an increasing sequence.
+        in_file : h5py.File
+            Open readable handle for ``file_idx``.
+
+        Returns
+        -------
+        list[dict]
+            Decoded events in run order.
+        """
+        first = entries[0][2]
+        last = entries[-1][2] + 1
+
+        # Seed administrative metadata before stored provenance is decoded.
+        data = []
+        for _, idx, entry_idx in entries:
+            event = {"file_index": file_idx, "file_entry_index": entry_idx}
+            event.update(self.get_source_provenance(file_idx, entry_idx))
+            data.append(event)
+
+        products = require_group(in_file, "products")
+        for key in products:
+            if key is not None and self.should_load_key(key):
+                self.load_product_many(products, first, last, data, key)
+        self.reconstruct_products_many(products, first, last, data)
+
+        # Match scalar semantics: the exposed index belongs to this reader,
+        # regardless of any index value serialized in the source file.
+        for (_, idx, _), event in zip(entries, data):
+            event["index"] = idx
+        return data
 
     def _load_entry(
         self,
