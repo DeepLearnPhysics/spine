@@ -6,6 +6,7 @@ from .flip import FlipAugment
 from .jitter import JitterAugment
 from .manager import AugmentManager
 from .mask import MaskAugment
+from .response import ResponseAugment
 from .rotate import RotateAugment
 from .translate import TranslateAugment
 
@@ -19,6 +20,7 @@ __all__ = [
     "FlipAugment",
     "JitterAugment",
     "MaskAugment",
+    "ResponseAugment",
     "RotateAugment",
     "TranslateAugment",
 ]

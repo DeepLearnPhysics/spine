@@ -9,6 +9,7 @@ from .crop import CropAugment
 from .flip import FlipAugment
 from .jitter import JitterAugment
 from .mask import MaskAugment
+from .response import ResponseAugment
 from .rotate import RotateAugment
 from .translate import TranslateAugment
 
@@ -18,6 +19,7 @@ class AugmentManager:
 
     _modules = {
         "mask": MaskAugment,
+        "response": ResponseAugment,
         "crop": CropAugment,
         "jitter": JitterAugment,
         "flip": FlipAugment,
