@@ -115,9 +115,9 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch | None,
-        clusts: IndexBatch,
         node_pred: TensorBatch,
+        clust_label: ClusterLabelBatch | None = None,
+        clusts: IndexBatch | None = None,
         coord_label: TensorBatch | None = None,
         group_pred: TensorBatch | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
@@ -130,12 +130,14 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : ClusterLabelBatch
-            (N, 1 + D + N_f) Tensor of cluster labels for the batch
-        clusts : IndexBatch
-            (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, 2) Node prediction logits (binary output)
+        clust_label : ClusterLabelBatch, optional
+            (N, 1 + D + N_f) Cluster labels used to construct live primary
+            targets. May be omitted with cached supervision.
+        clusts : IndexBatch, optional
+            (C) Cluster-to-voxel index used to construct live targets. May be
+            omitted when ``labels`` and ``valid_mask`` are supplied.
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Label start, end, time and shape for each point
         group_pred : TensorBatch, optional
@@ -179,10 +181,10 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
             primary_ids = labels
             static_valid = prepare_cached_target(labels, valid_mask, node_pred, "node")
         else:
-            if clust_label is None:
+            if clust_label is None or clusts is None:
                 raise ValueError(
                     "Shower-primary loss requires either cached supervision or "
-                    "structured cluster labels."
+                    "both structured cluster labels and clusters."
                 )
             primary_ids, static_valid, count_rejected = self._build_target(
                 clust_label,

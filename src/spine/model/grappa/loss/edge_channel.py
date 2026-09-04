@@ -138,10 +138,10 @@ class EdgeChannelLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch | None,
-        clusts: IndexBatch,
         edge_index: EdgeIndexBatch,
         edge_pred: TensorBatch,
+        clust_label: ClusterLabelBatch | None = None,
+        clusts: IndexBatch | None = None,
         true_edge_index: EdgeIndexBatch | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
         labels: TensorBatch | None = None,
@@ -153,15 +153,17 @@ class EdgeChannelLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : ClusterLabelBatch
-            (N, 1 + D + N_f) Tensor of cluster labels for the batch
-        clusts : IndexBatch
-            (C) Index which maps each cluster to a list of voxel IDs
         edge_index : EdgeIndexBatch
             (2, E) Sparse incidence matrix between clusters
         edge_pred : TensorBatch
             (E, 2) Edge prediction logits (binary output)
-        true_edge_index : EdgeIndexBatch
+        clust_label : ClusterLabelBatch, optional
+            (N, 1 + D + N_f) Cluster labels used to construct live edge
+            targets. May be omitted with cached supervision.
+        clusts : IndexBatch, optional
+            (C) Cluster-to-voxel index used to construct live targets. May be
+            omitted when ``labels`` and ``valid_mask`` are supplied.
+        true_edge_index : EdgeIndexBatch, optional
             (2, E') True reference sparse incidence matrix
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
@@ -206,7 +208,7 @@ class EdgeChannelLoss(torch.nn.Module):
                 static_valid = self._prepare_cached_forest_target(
                     forest_group_ids,
                     valid_mask,
-                    clusts,
+                    edge_index,
                     edge_pred,
                 )
                 edge_assn, forest_valid = edge_assignment_forest_batch(
@@ -224,10 +226,10 @@ class EdgeChannelLoss(torch.nn.Module):
                 static_valid = valid_array
                 cache_target = edge_assn
         else:
-            if clust_label is None:
+            if clust_label is None or clusts is None:
                 raise ValueError(
                     "Edge classification requires either cached supervision or "
-                    "structured cluster labels."
+                    "both structured cluster labels and clusters."
                 )
             (
                 edge_assn,
@@ -415,7 +417,7 @@ class EdgeChannelLoss(torch.nn.Module):
     def _prepare_cached_forest_target(
         group_ids: TensorBatch,
         valid_mask: TensorBatch,
-        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
         edge_pred: TensorBatch,
     ) -> np.ndarray:
         """Validate cached forest primitives on their distinct axes.
@@ -430,8 +432,8 @@ class EdgeChannelLoss(torch.nn.Module):
             Cached node group IDs used to rebuild the target spanning forest.
         valid_mask : TensorBatch
             Cached static edge-validity mask.
-        clusts : IndexBatch
-            Current graph nodes and their event partitioning.
+        edge_index : EdgeIndexBatch
+            Current graph whose node spans define the target partitioning.
         edge_pred : TensorBatch
             Current edge logits and their event partitioning.
 
@@ -446,11 +448,11 @@ class EdgeChannelLoss(torch.nn.Module):
         group_counts = group_ids.counts
         if not isinstance(group_counts, np.ndarray):
             group_counts = group_counts.detach().cpu().numpy()
-        cluster_counts = clusts.counts
-        if not isinstance(cluster_counts, np.ndarray):
-            cluster_counts = cluster_counts.detach().cpu().numpy()
-        if group_ids.shape[0] != len(clusts.index_list) or not np.array_equal(
-            group_counts, cluster_counts
+        node_spans = edge_index.spans
+        if not isinstance(node_spans, np.ndarray):
+            node_spans = node_spans.detach().cpu().numpy()
+        if group_ids.shape[0] != int(np.sum(node_spans)) or not np.array_equal(
+            group_counts, node_spans
         ):
             raise ValueError("Cached forest group labels must align with graph nodes.")
 

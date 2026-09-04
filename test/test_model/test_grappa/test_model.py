@@ -392,6 +392,16 @@ def test_grappa_forward_validates_required_explicit_inputs(
     with pytest.raises(ValueError, match="node_features or node encoder"):
         model(data, clusts=graph_clusters, edge_index=edge_index)
 
+    with pytest.raises(ValueError, match="Building edges requires both"):
+        model()
+
+    node_features = TensorBatch(torch.ones((3, 33)), graph_clusters.counts)
+    with pytest.raises(ValueError, match="Building edges requires both"):
+        model(node_features=node_features)
+
+    with pytest.raises(ValueError, match="Running the node encoder requires both"):
+        model(clusts=graph_clusters, edge_index=edge_index)
+
 
 def test_grappa_forward_routes_encoded_features(
     graph_data,
@@ -447,6 +457,218 @@ def test_grappa_forward_routes_encoded_features(
     assert result["global_features"].shape == (2, 2)
 
 
+def test_grappa_forward_accepts_fully_materialized_graph():
+    """Run message passing and grouping without voxel or cluster products."""
+    model = GrapPA(shower_model_config())
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert edges is not None
+            assert globals_ is None
+            assert index.device == nodes.device
+            assert batch_ids.tolist() == [0, 0, 1]
+            return {"edge_features": edges}
+
+    class EdgeHead(torch.nn.Module):
+        def forward(self, features):
+            values = features.torch_tensor()
+            return TensorBatch(torch.cat((-values, values), dim=1), features.counts)
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = ["edge_pred"]
+    model.global_pred_keys = []
+    model.edge_pred = EdgeHead()
+    model.return_features = True
+    model.make_groups = True
+    model.grouping_method = "score"
+
+    node_features = TensorBatch(torch.ones((3, 2)), counts=[2, 1])
+    edge_features = TensorBatch(torch.ones((2, 1)), counts=[2, 0])
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0, 1], [1, 0]], dtype=torch.long),
+        counts=[2, 0],
+        spans=[2, 1],
+        directed=False,
+    )
+
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+
+    assert "clusts" not in result
+    assert result["node_features"] is node_features
+    assert result["edge_features"] is edge_features
+    assert result["group_pred"].counts.tolist() == [2, 1]
+
+
+def test_grappa_materialized_training_forward_and_backward():
+    """Train the real GrapPA network from cached graph features and targets."""
+    model = GrapPA(shower_model_config())
+    node_features = TensorBatch(torch.randn((3, model.gnn.node_feats)), counts=[3])
+    edge_features = TensorBatch(torch.randn((6, model.gnn.edge_feats)), counts=[6])
+    edge_index = EdgeIndexBatch(
+        torch.tensor(
+            [[0, 1, 0, 2, 1, 2], [1, 0, 2, 0, 2, 1]],
+            dtype=torch.long,
+        ),
+        counts=[6],
+        spans=[3],
+        directed=False,
+    )
+
+    output = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+    output.update(
+        node_target=TensorBatch(torch.tensor([0.0, 1.0, 0.0]), counts=[3]),
+        node_valid=TensorBatch(torch.ones(3), counts=[3]),
+        edge_target=TensorBatch(torch.ones(6), counts=[6]),
+        edge_valid=TensorBatch(torch.ones(6), counts=[6]),
+    )
+    objective = GrapPALoss(
+        {
+            "node_loss": {"name": "class", "target": "pid"},
+            "edge_loss": {"name": "channel", "target": "group"},
+        }
+    )
+
+    result = objective(**output)
+    result["loss"].backward()
+
+    assert torch.isfinite(result["loss"])
+    assert any(parameter.grad is not None for parameter in model.parameters())
+
+
+def test_grappa_validates_materialized_graph_partitions():
+    """Reject cached features whose event partitions differ from the graph."""
+    model = GrapPA(shower_model_config())
+    node_features = TensorBatch(torch.ones((3, model.gnn.node_feats)), counts=[1, 2])
+    edge_features = TensorBatch(torch.ones((1, model.gnn.edge_feats)), counts=[0, 1])
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0], [1]], dtype=torch.long),
+        counts=[1, 0],
+        spans=[2, 1],
+        directed=True,
+    )
+
+    with pytest.raises(ValueError, match="Node feature counts"):
+        model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+    node_features = TensorBatch(torch.ones((3, model.gnn.node_feats)), counts=[2, 1])
+    with pytest.raises(ValueError, match="Edge feature counts"):
+        model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+
+def test_grappa_validates_materialized_feature_contracts():
+    """Report missing, malformed and mispartitioned cached feature families."""
+    model = GrapPA(shower_model_config())
+    node_features = TensorBatch(torch.ones((3, 2)), counts=[2, 1])
+    edge_features = TensorBatch(torch.ones((1, 1)), counts=[1, 0])
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0], [1]], dtype=torch.long),
+        counts=[1, 0],
+        spans=[2, 1],
+        directed=True,
+    )
+
+    class SizedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+    model.gnn = SizedGNN()
+    np.testing.assert_array_equal(model._counts_numpy([2, 1]), [2, 1])
+
+    bad_nodes = TensorBatch(torch.ones((3, 3)), counts=[2, 1])
+    with pytest.raises(ValueError, match="Node features contain"):
+        model._validate_materialized_inputs(
+            bad_nodes, edge_features, None, edge_index, None
+        )
+
+    with pytest.raises(ValueError, match="expects 1 edge features"):
+        model._validate_materialized_inputs(node_features, None, None, edge_index, None)
+
+    bad_edges = TensorBatch(torch.ones((1, 2)), counts=[1, 0])
+    with pytest.raises(ValueError, match="Edge features contain"):
+        model._validate_materialized_inputs(
+            node_features, bad_edges, None, edge_index, None
+        )
+
+    model.gnn.global_feats = 1
+    with pytest.raises(ValueError, match="expects 1 global features"):
+        model._validate_materialized_inputs(
+            node_features, edge_features, None, edge_index, None
+        )
+
+    wrong_batch_globals = TensorBatch(torch.ones((1, 1)), counts=[1])
+    with pytest.raises(ValueError, match="same batch size"):
+        model._validate_materialized_inputs(
+            node_features,
+            edge_features,
+            wrong_batch_globals,
+            edge_index,
+            None,
+        )
+
+    wide_globals = TensorBatch(torch.ones((2, 2)), counts=[1, 1])
+    with pytest.raises(ValueError, match="Global features contain"):
+        model._validate_materialized_inputs(
+            node_features, edge_features, wide_globals, edge_index, None
+        )
+
+    bad_shapes = TensorBatch(torch.zeros(3), counts=[1, 2])
+    valid_globals = TensorBatch(torch.ones((2, 1)), counts=[1, 1])
+    with pytest.raises(ValueError, match="Node shapes must align"):
+        model._validate_materialized_inputs(
+            node_features,
+            edge_features,
+            valid_globals,
+            edge_index,
+            bad_shapes,
+        )
+
+
+def test_grappa_materialized_path_requires_missing_encoder_inputs():
+    """A configured dynamic encoder still requires data and membership."""
+    model = GrapPA(shower_model_config())
+    node_features = TensorBatch(torch.ones((3, model.gnn.node_feats)), counts=[2, 1])
+    edge_features = TensorBatch(torch.ones((1, model.gnn.edge_feats)), counts=[1, 0])
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0], [1]], dtype=torch.long),
+        counts=[1, 0],
+        spans=[2, 1],
+        directed=True,
+    )
+
+    with pytest.raises(ValueError, match="Running the edge encoder requires both"):
+        model(node_features=node_features, edge_index=edge_index)
+
+    model.global_encoder = torch.nn.Identity()
+    with pytest.raises(ValueError, match="Running the global encoder requires both"):
+        model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+
 def test_grappa_rejects_missing_gnn_prediction_features(
     graph_data, graph_clusters
 ) -> None:
@@ -492,6 +714,8 @@ def test_grappa_dbscan_cluster_path_and_shape_contract(
     model.graph_constructor.max_length = np.ones((5, 5))
     with pytest.raises(TypeError, match="structured cluster labels"):
         model._get_shapes(graph_data.to_tensor(), graph_clusters)
+    with pytest.raises(ValueError, match="requires cluster membership"):
+        model._get_shapes(graph_labels, None)
 
 
 def test_grappa_endpoint_encoder_contract(
@@ -569,27 +793,27 @@ def test_grappa_group_construction_modes(graph_data, graph_clusters):
     model.edge_pred_keys = ["edge_pred"]
 
     model.grouping_method = "threshold"
-    model._make_groups(result, graph_clusters, edge_index)
+    model._make_groups(result, edge_index, graph_clusters.counts)
     assert "group_pred" in result
 
     model.grouping_method = "score"
     model.grouping_through_track = True
     with pytest.raises(ValueError, match="provide shapes"):
-        model._make_groups(result, graph_clusters, edge_index)
+        model._make_groups(result, edge_index, graph_clusters.counts)
     model._make_groups(
         result,
-        graph_clusters,
         edge_index,
+        graph_clusters.counts,
         TensorBatch(np.array([SHOWR_SHP, TRACK_SHP, TRACK_SHP]), [2, 1]),
     )
 
     model.edge_pred_keys = []
     with pytest.raises(ValueError, match="provide edge predictions"):
-        model._make_groups(result, graph_clusters, edge_index)
+        model._make_groups(result, edge_index, graph_clusters.counts)
     model.edge_pred_keys = ["edge_pred"]
     model.grouping_method = "invalid"
     with pytest.raises(RuntimeError, match="Unexpected grouping"):
-        model._make_groups(result, graph_clusters, edge_index)
+        model._make_groups(result, edge_index, graph_clusters.counts)
 
 
 def test_grappa_loss_validates_configuration_outputs_and_return_type(

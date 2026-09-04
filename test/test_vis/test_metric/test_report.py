@@ -257,6 +257,10 @@ def test_point_recipe_validates_thresholds_and_distance_column(tmp_path):
     with pytest.raises(ValueError, match="Missing `dist` column"):
         recipe.reduce({"truth_to_reco": [path], "reco_to_truth": [path]})
 
+    pd.DataFrame({"dist": [0.5]}).to_csv(path, index=False)
+    with pytest.raises(ValueError, match="Missing `shape` column"):
+        recipe.reduce({"truth_to_reco": [path], "reco_to_truth": [path]})
+
 
 def test_point_recipe_filters_and_reduces_thresholds_by_class(tmp_path):
     """Selected shapes should define aggregate and per-class denominators."""

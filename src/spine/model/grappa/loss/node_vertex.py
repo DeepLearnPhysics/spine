@@ -230,9 +230,9 @@ class NodeVertexLoss(torch.nn.Module):
             overlap_cache,
         )
         result_primary = self.primary_loss(
-            clust_label,
-            clusts,
             primary_pred,
+            clust_label=clust_label,
+            clusts=clusts,
             node_quality_mask=(quality_mask if self.quality_filter.active else None),
             overlap_cache=overlap_cache,
         )

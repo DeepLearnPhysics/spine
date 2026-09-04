@@ -410,7 +410,7 @@ class GrapPA(torch.nn.Module):
 
     def forward(
         self,
-        data: ClusterLabelBatch | TensorBatch,
+        data: ClusterLabelBatch | TensorBatch | None = None,
         coord_label: TensorBatch | None = None,
         clusts: IndexBatch | None = None,
         edge_index: EdgeIndexBatch | None = None,
@@ -426,12 +426,13 @@ class GrapPA(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
+        data : TensorBatch, optional
             Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`, where
             `N` is the total number of voxels, the leading column stores the
             batch ID, `D` is the image dimensionality and `N_f` is the number
             of features. When `clusts` is not provided, the features must also
-            contain the labels needed to build clusters on the fly.
+            contain the labels needed to build clusters on the fly. May be
+            omitted when the graph and its input features are materialized.
         coord_label : TensorBatch, optional
             (P, 1 + 2*D + 2) Tensor of label points (start/end/time/shape)
         clusts : IndexBatch, optional
@@ -460,8 +461,9 @@ class GrapPA(torch.nn.Module):
 
         Returns
         -------
-        clusts : IndexBatch
-            (C, N_c, N_{c,i}) Cluster indexes
+        clusts : IndexBatch, optional
+            (C, N_c, N_{c,i}) Cluster indexes. Present only when supplied or
+            constructed by the dynamic path.
         edge_index : EdgeIndexBatch
             (E, 2) Incidence matrix
         node_features : TensorBatch
@@ -476,39 +478,70 @@ class GrapPA(torch.nn.Module):
             (C, N_e) Edge predictions (logits)
         global_pred : TensorBatch
             (C, N_e) Global predictions (logits)
+
+        Notes
+        -----
+        Dynamic execution constructs missing graph products from ``data`` and
+        ``clusts``. Materialized execution may omit both and provide the graph
+        index and feature batches directly. Each encoder enforces its own raw
+        input requirements, so partially materialized configurations remain
+        supported without weakening validation.
         """
         result: dict[str, Any] = {}
-        voxel_data = (
-            data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
-        )
+        voxel_data = None
+        if data is not None:
+            voxel_data = (
+                data.to_tensor_batch() if isinstance(data, ClusterLabelBatch) else data
+            )
 
-        # Encode the node boundaries as clusters if they are not provided directly
-        if clusts is None:
+        # Construct membership only when a downstream dynamic operation needs
+        # it. Supplying raw data beside a fully materialized graph is harmless.
+        needs_clusts = (
+            edge_index is None
+            or node_features is None
+            or (edge_features is None and self.edge_encoder is not None)
+            or (global_features is None and self.global_encoder is not None)
+            or (shapes is None and self.make_groups and self.grouping_through_track)
+        )
+        if clusts is None and needs_clusts and data is not None:
             if not isinstance(data, ClusterLabelBatch) and self.node_source != "voxel":
                 raise TypeError(
                     "Building clusters requires structured cluster labels. "
                     "Tensor input must be paired with explicit `clusts`."
                 )
             clusts = self._make_clusters(data, coord_label=coord_label)
-        result["clusts"] = clusts
-
-        # If needed, infer per-cluster shapes once and reuse them downstream
-        shapes = self._get_shapes(data, clusts, shapes)
+        if clusts is not None:
+            result["clusts"] = clusts
 
         # Build the graph if it is not provided directly
         closest_index = None
         if edge_index is None:
+            if data is None or clusts is None:
+                raise ValueError(
+                    "Building edges requires both `data` and `clusts`; otherwise "
+                    "provide a materialized `edge_index`."
+                )
             if self.graph_constructor is None:
                 raise ValueError(
                     "Must provide edge_index or graph configuration to build it."
                 )
+            shapes = self._get_shapes(data, clusts, shapes)
             edge_index, closest_index = self._make_edge_index(
                 data, clusts, shapes=shapes, groups=groups
             )
+        elif shapes is not None or (self.make_groups and self.grouping_through_track):
+            # Explicit shapes may be cached as floating-point tensors; restore
+            # their categorical representation before grouping uses them.
+            shapes = self._get_shapes(data, clusts, shapes)
         result["edge_index"] = edge_index
 
         # Fetch the node features
         if node_features is None:
+            if data is None or clusts is None:
+                raise ValueError(
+                    "Running the node encoder requires both `data` and `clusts`; "
+                    "otherwise provide materialized `node_features`."
+                )
             if self.node_encoder is None:
                 raise ValueError(
                     "Must provide node_features or node encoder configuration to build them."
@@ -554,6 +587,11 @@ class GrapPA(torch.nn.Module):
 
         # Fetch the edge features
         if edge_features is None and self.edge_encoder is not None:
+            if voxel_data is None or clusts is None:
+                raise ValueError(
+                    "Running the edge encoder requires both `data` and `clusts`; "
+                    "otherwise provide materialized `edge_features`."
+                )
             edge_features = cast(
                 TensorBatch,
                 self.edge_encoder(
@@ -566,23 +604,38 @@ class GrapPA(torch.nn.Module):
 
         # Fetch the global_features
         if global_features is None and self.global_encoder is not None:
+            if voxel_data is None or clusts is None:
+                raise ValueError(
+                    "Running the global encoder requires both `data` and `clusts`; "
+                    "otherwise provide materialized `global_features`."
+                )
             global_features = cast(TensorBatch, self.global_encoder(voxel_data, clusts))
 
         if global_features is not None and self.return_features:
             result["global_features"] = global_features
 
-        # Bring graph indexes to the feature device. Graph construction remains
-        # CPU-based, while the message-passing network operates on Torch tensors.
-        data_tensor = voxel_data.torch_tensor()
+        # Materialized products retain all graph partition metadata needed by
+        # the GNN. Validate event boundaries before touching their payloads.
+        self._validate_materialized_inputs(
+            node_features,
+            edge_features,
+            global_features,
+            edge_index,
+            shapes,
+        )
+
+        # Bring graph indexes to the node-feature device. Graph construction
+        # remains CPU-based, while message passing operates on Torch tensors.
+        node_tensor = node_features.torch_tensor()
         index = torch.as_tensor(
             edge_index.index,
             dtype=torch.long,
-            device=data_tensor.device,
+            device=node_tensor.device,
         )
         node_batch_ids = torch.as_tensor(
-            clusts.batch_ids,
+            node_features.batch_ids,
             dtype=torch.long,
-            device=data_tensor.device,
+            device=node_tensor.device,
         )
 
         # Pass through the model, update results
@@ -608,7 +661,12 @@ class GrapPA(torch.nn.Module):
 
         # If requested, build node groups from edge predictions
         if self.make_groups:
-            self._make_groups(result, clusts, edge_index, shapes=shapes)
+            self._make_groups(
+                result,
+                edge_index,
+                node_counts=node_features.counts,
+                shapes=shapes,
+            )
 
         return result
 
@@ -691,17 +749,17 @@ class GrapPA(torch.nn.Module):
 
     def _get_shapes(
         self,
-        data: ClusterLabelBatch | TensorBatch,
-        clusts: IndexBatch,
+        data: ClusterLabelBatch | TensorBatch | None,
+        clusts: IndexBatch | None,
         shapes: TensorBatch | None = None,
     ) -> TensorBatch | None:
         """Return per-cluster semantic labels if the graph logic needs them.
 
         Parameters
         ----------
-        data : TensorBatch
+        data : TensorBatch, optional
             Tensor of voxel/value pairs with shape `(N, 1 + D + N_f)`.
-        clusts : IndexBatch
+        clusts : IndexBatch, optional
             (C) List of indexes corresponding to each cluster
         shapes : TensorBatch, optional
             (C) Explicit semantic label per cluster
@@ -736,6 +794,10 @@ class GrapPA(torch.nn.Module):
             raise TypeError(
                 "Deriving semantic node labels requires structured cluster labels "
                 "or an explicit `shapes` tensor."
+            )
+        if clusts is None:
+            raise ValueError(
+                "Deriving semantic node labels requires cluster membership."
             )
         data_np = data.to_numpy()
         if self.node_source == "group":
@@ -799,8 +861,8 @@ class GrapPA(torch.nn.Module):
     def _make_groups(
         self,
         result: dict[str, Any],
-        clusts: IndexBatch,
         edge_index: EdgeIndexBatch,
+        node_counts: Sequence[int] | np.ndarray | torch.Tensor,
         shapes: TensorBatch | None = None,
     ) -> None:
         """Make node groups based on edge predictions.
@@ -809,10 +871,10 @@ class GrapPA(torch.nn.Module):
         ----------
         result : dict
             Model outputs containing the configured edge-prediction heads.
-        clusts : IndexBatch
-            (C) List of indexes corresponding to each cluster
         edge_index : EdgeIndexBatch
             (E, 2) Incidence matrix
+        node_counts : sequence[int]
+            (B) Number of graph nodes in each batch entry
         shapes : TensorBatch, optional
             (C) List of cluster semantic class used to restrict track association
         """
@@ -827,19 +889,19 @@ class GrapPA(torch.nn.Module):
 
         # Loop over the edge predictions, build node groups based on each of them
         edge_index_np = edge_index.to_numpy()
-        clusts_np = clusts.to_numpy()
+        node_counts_np = self._counts_numpy(node_counts)
         for key in edge_pred_keys:
             edge_pred = result[key].to_numpy()
             prefix = "group" + key.replace("edge", "").replace("_pred", "")
             if self.grouping_method == "threshold":
                 result[f"{prefix}_pred"] = node_assignment_batch(
-                    edge_index_np, edge_pred, clusts_np
+                    edge_index_np, edge_pred, node_counts_np
                 )
 
             elif self.grouping_method == "score":
                 if not self.grouping_through_track:
                     result[f"{prefix}_pred"] = node_assignment_score_batch(
-                        edge_index_np, edge_pred, clusts_np
+                        edge_index_np, edge_pred, node_counts_np
                     )
                 else:
                     if shapes is None:
@@ -854,7 +916,7 @@ class GrapPA(torch.nn.Module):
                     result[f"{prefix}_pred"] = node_assignment_score_batch(
                         edge_index_np,
                         edge_pred,
-                        clusts_np,
+                        node_counts_np,
                         track_node,
                     )
 
@@ -862,6 +924,123 @@ class GrapPA(torch.nn.Module):
                 raise RuntimeError(
                     f"Unexpected grouping method: {self.grouping_method}."
                 )
+
+    def _validate_materialized_inputs(
+        self,
+        node_features: TensorBatch,
+        edge_features: TensorBatch | None,
+        global_features: TensorBatch | None,
+        edge_index: EdgeIndexBatch,
+        shapes: TensorBatch | None,
+    ) -> None:
+        """Validate a materialized graph before message passing.
+
+        Cached feature rows must retain the same event partitioning as their
+        graph axis. Their widths must also match the configured GNN inputs;
+        otherwise an apparently valid cache would fail later inside a less
+        informative tensor operation.
+
+        Parameters
+        ----------
+        node_features : TensorBatch
+            Node feature matrix whose counts define the graph-node partition.
+        edge_features : TensorBatch, optional
+            Edge feature matrix, required when the GNN consumes edge features.
+        global_features : TensorBatch, optional
+            Event-level feature matrix, required when the GNN consumes global
+            features.
+        edge_index : EdgeIndexBatch
+            Materialized graph incidence matrix and node spans.
+        shapes : TensorBatch, optional
+            Node-aligned semantic labels used by restricted grouping.
+
+        Raises
+        ------
+        ValueError
+            If event partitions, feature widths or required feature families
+            do not satisfy the configured GNN contract.
+        """
+        # Node counts and graph spans describe the same per-event node axis.
+        node_counts = self._counts_numpy(node_features.counts)
+        edge_spans = self._counts_numpy(edge_index.spans)
+        if not np.array_equal(node_counts, edge_spans):
+            raise ValueError(
+                "Node feature counts must match the edge-index node spans."
+            )
+
+        # Validate payload widths before the GNN produces a matrix-shape error.
+        node_width = getattr(self.gnn, "node_feats", None)
+        if node_width is not None and node_features.shape[-1] != node_width:
+            raise ValueError(
+                f"Node features contain {node_features.shape[-1]} values per node, "
+                f"but the GNN expects {node_width}."
+            )
+
+        edge_width = getattr(self.gnn, "edge_feats", None)
+        if edge_features is None:
+            if edge_width:
+                raise ValueError(
+                    f"The GNN expects {edge_width} edge features; provide "
+                    "materialized `edge_features` or configure an edge encoder."
+                )
+        else:
+            if not np.array_equal(
+                self._counts_numpy(edge_features.counts),
+                self._counts_numpy(edge_index.counts),
+            ):
+                raise ValueError(
+                    "Edge feature counts must match the edge-index counts."
+                )
+            if edge_width is not None and edge_features.shape[-1] != edge_width:
+                raise ValueError(
+                    f"Edge features contain {edge_features.shape[-1]} values per "
+                    f"edge, but the GNN expects {edge_width}."
+                )
+
+        global_width = getattr(self.gnn, "global_feats", None)
+        if global_features is None:
+            if global_width:
+                raise ValueError(
+                    f"The GNN expects {global_width} global features; "
+                    "provide them or configure a global encoder."
+                )
+        elif global_features.batch_size != node_features.batch_size:
+            raise ValueError(
+                "Global features must have the same batch size as node features."
+            )
+        elif global_width is not None and global_features.shape[-1] != global_width:
+            raise ValueError(
+                f"Global features contain {global_features.shape[-1]} values per "
+                f"entry, but the GNN expects {global_width}."
+            )
+
+        # Optional categorical products must follow the node partition too.
+        if shapes is not None and not np.array_equal(
+            self._counts_numpy(shapes.counts), node_counts
+        ):
+            raise ValueError("Node shapes must align with node features.")
+
+    @staticmethod
+    def _counts_numpy(counts: Any) -> np.ndarray:
+        """Normalize compact batch-count metadata to a CPU integer array.
+
+        Parameters
+        ----------
+        counts : sequence[int], np.ndarray or torch.Tensor
+            Per-event item counts attached to a batched graph product.
+
+        Returns
+        -------
+        np.ndarray
+            One-dimensional ``int64`` counts used for backend-independent
+            partition comparisons.
+        """
+        if isinstance(counts, np.ndarray):
+            return counts.astype(np.int64, copy=False)
+        if isinstance(counts, torch.Tensor):
+            return counts.detach().cpu().numpy().astype(np.int64, copy=False)
+
+        return np.asarray(counts, dtype=np.int64)
 
 
 class GrapPALoss(torch.nn.Module):

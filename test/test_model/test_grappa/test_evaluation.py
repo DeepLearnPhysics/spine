@@ -14,6 +14,7 @@ from spine.model.grappa.evaluation import (
     edge_assignment_score,
     edge_purity_mask,
     grouping_loss,
+    node_assignment_batch,
     node_assignment_bipartite,
     node_assignment_score,
     node_purity_mask,
@@ -54,6 +55,13 @@ def test_cached_torch_targets_cross_numpy_evaluation_boundary():
     assert edge_valid.is_numpy
     assert edge_target.numpy_tensor().sum() == 2
     assert edge_valid.numpy_tensor().sum() == 2
+
+    # Group construction consumes only compact node counts, including when
+    # those counts arrive on Torch through a materialized cache.
+    groups = node_assignment_batch(
+        edge_index.to_numpy(), edge_prediction.to_numpy(), counts
+    )
+    assert groups.counts.tolist() == [3]
 
 
 def test_primary_bipartite_and_batch_assignments():

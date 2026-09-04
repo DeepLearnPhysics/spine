@@ -108,9 +108,9 @@ class NodeRegressionLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch | None,
-        clusts: IndexBatch,
         node_pred: TensorBatch,
+        clust_label: ClusterLabelBatch | None = None,
+        clusts: IndexBatch | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
         labels: TensorBatch | None = None,
         valid_mask: TensorBatch | None = None,
@@ -121,12 +121,14 @@ class NodeRegressionLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : ClusterLabelBatch
-            (N, 1 + D + N_f) Tensor of cluster labels for the batch
-        clusts : IndexBatch
-            (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, N_d) Node prediction
+        clust_label : ClusterLabelBatch, optional
+            (N, 1 + D + N_f) Cluster labels used to construct live targets.
+            May be omitted when cached ``labels`` and ``valid_mask`` are given.
+        clusts : IndexBatch, optional
+            (C) Cluster-to-voxel index used to construct live targets. May be
+            omitted with cached supervision.
         overlap_cache : ClusterOverlapCache, optional
             Cluster overlaps shared by the objectives in one GrapPA forward.
         labels : TensorBatch, optional
@@ -164,10 +166,10 @@ class NodeRegressionLoss(torch.nn.Module):
             node_assn = labels
             valid_array = prepare_cached_target(labels, valid_mask, node_pred, "node")
         else:
-            if clust_label is None:
+            if clust_label is None or clusts is None:
                 raise ValueError(
                     "Node regression requires either cached supervision or "
-                    "structured cluster labels."
+                    "both structured cluster labels and clusters."
                 )
             node_assn, valid_array, count_rejected = self._build_target(
                 clust_label,

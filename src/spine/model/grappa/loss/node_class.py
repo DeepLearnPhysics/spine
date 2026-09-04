@@ -129,9 +129,9 @@ class NodeClassLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch | None,
-        clusts: IndexBatch,
         node_pred: TensorBatch,
+        clust_label: ClusterLabelBatch | None = None,
+        clusts: IndexBatch | None = None,
         coord_label: TensorBatch | None = None,
         node_quality_mask: np.ndarray | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
@@ -144,12 +144,14 @@ class NodeClassLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : ClusterLabelBatch
-            (N, 1 + D + N_f) Tensor of cluster labels for the batch
-        clusts : IndexBatch
-            (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, 2) Node prediction logits (binary output)
+        clust_label : ClusterLabelBatch, optional
+            (N, 1 + D + N_f) Cluster labels used to construct live targets.
+            May be omitted when cached ``labels`` and ``valid_mask`` are given.
+        clusts : IndexBatch, optional
+            (C) Cluster-to-voxel index used to construct live targets. May be
+            omitted with cached supervision.
         coord_label : TensorBatch, optional
             (P, 1 + D + 8) Label start, end, time and shape for each point
         node_quality_mask : np.ndarray, optional
@@ -197,10 +199,10 @@ class NodeClassLoss(torch.nn.Module):
             count_rejected = 0
             apply_quality = False
         else:
-            if clust_label is None:
+            if clust_label is None or clusts is None:
                 raise ValueError(
                     "Node classification requires either cached supervision or "
-                    "structured cluster labels."
+                    "both structured cluster labels and clusters."
                 )
             node_assn, valid_array, count_rejected, apply_quality = self._build_target(
                 clust_label,

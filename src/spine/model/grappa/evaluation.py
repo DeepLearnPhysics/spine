@@ -5,18 +5,47 @@ It contains two classes of functions:
 - Functions used to quantify the performance of GNNs
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Any
+
 import numba as nb
 import numpy as np
+from numba.typed import List as NumbaList  # pylint: disable=no-name-in-module
+from numpy.typing import NDArray
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 import spine.math as sm
-from spine.data import EdgeIndexBatch, TensorBatch
+from spine.data import ArrayLike, EdgeIndexBatch, TensorBatch
 from spine.math.metrics import ami, ari, pur_eff, sbd
 
-int_array = nb.int64[:]
+
+def _node_counts_numpy(node_counts: Sequence[int] | ArrayLike) -> np.ndarray:
+    """Normalize graph-node partition metadata to a CPU integer array.
+
+    Parameters
+    ----------
+    node_counts : sequence[int] or torch.Tensor
+        Number of graph nodes associated with each event.
+
+    Returns
+    -------
+    np.ndarray
+        One-dimensional ``int64`` event counts suitable for NumPy grouping
+        utilities.
+    """
+    # Cached batch metadata may follow its feature payload onto an accelerator.
+    detach = getattr(node_counts, "detach", None)
+    if detach is not None:
+        node_counts = detach().cpu().numpy()
+
+    return np.asarray(node_counts, dtype=np.int64)
 
 
-def edge_assignment_batch(edge_index, group_ids):
+def edge_assignment_batch(
+    edge_index: EdgeIndexBatch, group_ids: TensorBatch
+) -> TensorBatch:
     """Batched version of :func:`edge_assignment`.
 
     Parameters
@@ -36,7 +65,11 @@ def edge_assignment_batch(edge_index, group_ids):
     return TensorBatch(edge_assn, edge_index.counts)
 
 
-def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
+def edge_assignment_from_graph_batch(
+    edge_index: EdgeIndexBatch,
+    true_edge_index: EdgeIndexBatch,
+    part_ids: TensorBatch,
+) -> TensorBatch:
     """Batched version of :func:`edge_assignment_from_graph`.
 
     Parameters
@@ -64,7 +97,11 @@ def edge_assignment_from_graph_batch(edge_index, true_edge_index, part_ids):
     return TensorBatch(edge_assn, edge_index.counts)
 
 
-def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
+def edge_assignment_forest_batch(
+    edge_index: EdgeIndexBatch,
+    edge_pred: TensorBatch,
+    group_ids: TensorBatch,
+) -> tuple[TensorBatch, TensorBatch]:
     """Batched version of :func:`edge_assignment_forest`.
 
     Parameters
@@ -110,7 +147,12 @@ def edge_assignment_forest_batch(edge_index, edge_pred, group_ids):
     )
 
 
-def edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
+def edge_assignment_score_batch(
+    edge_index: EdgeIndexBatch,
+    edge_pred: TensorBatch,
+    node_counts: Sequence[int] | ArrayLike,
+    track_node: TensorBatch | None = None,
+) -> tuple[EdgeIndexBatch, TensorBatch, np.ndarray]:
     """Batched version of :func:`edge_assignment_score`.
 
     Parameters
@@ -119,30 +161,33 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
         (2, E) Sparse incidence matrix
     edge_pred : TensorBatch
         (E, 2) Logits associated with each edge
-    clusts : IndexBatch
-        (C) List of cluster indexes
+    node_counts : sequence[int]
+        (B) Number of graph nodes in each batch entry
     track_node : TensorBatch, optional
         (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
+    EdgeIndexBatch
+        (2, E') Optimal incidence matrix, partitioned by event.
+    TensorBatch
+        (C) Optimal group ID for each graph node.
     np.ndarray
-        (E', 2) Optimal incidence matrix
-    np.ndarray
-        (C) Optimal group ID for each node
-    float
-        Score of the optimal incidence matrix
+        (B) Score of the optimal incidence matrix in each event.
     """
+    # Counts replace cluster membership as the authoritative node partition.
+    node_counts = _node_counts_numpy(node_counts)
+    node_edges = np.concatenate(([0], np.cumsum(node_counts)))
     edge_index_list = []
-    group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
+    group_ids = np.empty(int(np.sum(node_counts)), dtype=np.int64)
     scores = np.empty(edge_index.batch_size, dtype=edge_pred.dtype)
     edge_counts = np.empty(edge_index.batch_size, dtype=np.int64)
     offset = 0
     for b in range(edge_index.batch_size):
-        lower, upper = clusts.edges[b], clusts.edges[b + 1]
+        lower, upper = node_edges[b], node_edges[b + 1]
         track_node_b = track_node[b] if track_node is not None else None
         edge_index_b, group_ids_b, score_b = edge_assignment_score(
-            edge_index[b], edge_pred[b], clusts.counts[b], track_node_b
+            edge_index[b], edge_pred[b], node_counts[b], track_node_b
         )
 
         edge_index_list.append(edge_index_b + edge_index.offsets[b])
@@ -157,10 +202,14 @@ def edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
         np.vstack(edge_index_list).T, edge_counts, edge_index.spans, directed=True
     )
 
-    return new_edge_index, TensorBatch(group_ids, clusts.counts), scores
+    return new_edge_index, TensorBatch(group_ids, node_counts), scores
 
 
-def node_assignment_batch(edge_index, edge_pred, clusts):
+def node_assignment_batch(
+    edge_index: EdgeIndexBatch,
+    edge_pred: TensorBatch,
+    node_counts: Sequence[int] | ArrayLike,
+) -> TensorBatch:
     """Batched version of :func:`node_assignment`.
 
     Parameters
@@ -169,28 +218,37 @@ def node_assignment_batch(edge_index, edge_pred, clusts):
         (2, E) Sparse incidence matrix
     edge_pred : TensorBatch
         (E, 2) Logits associated with each edge
-    clusts : IndexBatch
-        (C) List of cluster indexes
+    node_counts : sequence[int]
+        (B) Number of graph nodes in each batch entry
 
     Returns
     -------
-        np.ndarray: (C) List of group ids
+    TensorBatch
+        (C) Predicted group ID for each node, partitioned by event.
     """
-    # Loop over on edges, reset the group IDs of connected node
-    group_ids = np.empty(len(clusts.index_list), dtype=np.int64)
+    node_counts = _node_counts_numpy(node_counts)
+    node_edges = np.concatenate(([0], np.cumsum(node_counts)))
+
+    # Loop over edges and reset the group IDs of connected nodes
+    group_ids = np.empty(int(np.sum(node_counts)), dtype=np.int64)
     offset = 0
     for b in range(edge_index.batch_size):
-        lower, upper = clusts.edges[b], clusts.edges[b + 1]
+        lower, upper = node_edges[b], node_edges[b + 1]
         if upper - lower > 0:
             group_ids[lower:upper] = offset + node_assignment(
-                edge_index[b], edge_pred[b], clusts.counts[b]
+                edge_index[b], edge_pred[b], node_counts[b]
             )
             offset = np.max(group_ids[lower:upper]) + 1
 
-    return TensorBatch(group_ids, counts=clusts.counts)
+    return TensorBatch(group_ids, counts=node_counts)
 
 
-def node_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
+def node_assignment_score_batch(
+    edge_index: EdgeIndexBatch,
+    edge_pred: TensorBatch,
+    node_counts: Sequence[int] | ArrayLike,
+    track_node: TensorBatch | None = None,
+) -> TensorBatch:
     """Finds the graph that produces the lowest grouping score and use
     union-find to find group IDs for each of the nodes in the graph.
 
@@ -200,20 +258,27 @@ def node_assignment_score_batch(edge_index, edge_pred, clusts, track_node=None):
         (2, E) Sparse incidence matrix
     edge_pred : TensorBatch
         (E, 2) Logits associated with each edge
-    clusts : IndexBatch
-        (C) List of cluster indexes
+    node_counts : sequence[int]
+        (B) Number of graph nodes in each batch entry
     track_node : TensorBatch, optional
         (C) Whether a node is a track fragment/particle or not
 
     Returns
     -------
-    np.ndarray
-        (C) Optimal group ID for each node
+    TensorBatch
+        (C) Optimal group ID for each node, partitioned by event.
     """
-    return edge_assignment_score_batch(edge_index, edge_pred, clusts, track_node)[1]
+    return edge_assignment_score_batch(edge_index, edge_pred, node_counts, track_node)[
+        1
+    ]
 
 
-def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
+def edge_purity_mask_batch(
+    edge_index: EdgeIndexBatch,
+    part_ids: TensorBatch,
+    group_ids: TensorBatch,
+    primary_ids: TensorBatch,
+) -> np.ndarray:
     """Batched version of :func:`edge_purity_mask`.
 
     Parameters
@@ -243,7 +308,9 @@ def edge_purity_mask_batch(edge_index, part_ids, group_ids, primary_ids):
     return valid_mask
 
 
-def node_purity_mask_batch(group_ids, primary_ids):
+def node_purity_mask_batch(
+    group_ids: TensorBatch, primary_ids: TensorBatch
+) -> np.ndarray:
     """Batched version of :func:`node_purity_mask`.
 
     Parameters
@@ -275,7 +342,9 @@ def node_purity_mask_batch(group_ids, primary_ids):
     return valid_mask
 
 
-def primary_assignment_batch(node_pred, group_ids=None):
+def primary_assignment_batch(
+    node_pred: TensorBatch, group_ids: TensorBatch | None = None
+) -> TensorBatch:
     """Batched version of :func:`primary_assignment`.
 
     Parameters
@@ -301,7 +370,7 @@ def primary_assignment_batch(node_pred, group_ids=None):
     return TensorBatch(primary_ids, node_pred.counts)
 
 
-def edge_assignment(edge_index, group_ids):
+def edge_assignment(edge_index: np.ndarray, group_ids: np.ndarray) -> np.ndarray:
     """Determines which edges are turned on based on the group ID of the
     clusters they are connecting.
 
@@ -324,7 +393,11 @@ def edge_assignment(edge_index, group_ids):
     return mask.astype(np.int64)
 
 
-def edge_assignment_from_graph(edge_index, true_edge_index, part_ids):
+def edge_assignment_from_graph(
+    edge_index: np.ndarray,
+    true_edge_index: np.ndarray,
+    part_ids: np.ndarray,
+) -> np.ndarray:
     """Determines which edges are turned on based on whether they appear in
     a reference list of true edges or not.
 
@@ -352,7 +425,11 @@ def edge_assignment_from_graph(edge_index, true_edge_index, part_ids):
     return compare_index(edge_index_part, true_edge_index)
 
 
-def edge_assignment_forest(edge_index, edge_pred, group_ids):
+def edge_assignment_forest(
+    edge_index: np.ndarray,
+    edge_pred: np.ndarray,
+    group_ids: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     """Determines which edges must be turned on based on to form a
     minimum-spanning tree (MST) for each node group.
 
@@ -422,8 +499,8 @@ def edge_assignment_forest(edge_index, edge_pred, group_ids):
 
 @nb.njit(cache=True)
 def node_assignment(
-    edge_index: nb.int64[:, :], edge_pred: nb.int64[:, :], num_nodes: nb.int64
-) -> nb.int64[:]:
+    edge_index: np.ndarray, edge_pred: np.ndarray, num_nodes: int
+) -> np.ndarray:
     """Assigns each node to a group, based on the edge assigment provided.
 
     This uses the locally-defined union find implementation.
@@ -450,11 +527,11 @@ def node_assignment(
 
 @nb.njit(cache=True)
 def node_assignment_bipartite(
-    edge_index: nb.int64[:, :],
-    edge_label: nb.int64[:],
-    primaries: nb.int64[:],
-    num_nodes: nb.int64,
-) -> nb.int64[:]:
+    edge_index: np.ndarray,
+    edge_label: np.ndarray,
+    primaries: np.ndarray,
+    num_nodes: int,
+) -> np.ndarray:
     """Assigns each node to a group represented by a primary node.
 
     This function loops over secondaries and associates it to the primary with
@@ -490,8 +567,8 @@ def node_assignment_bipartite(
 
 @nb.njit(cache=True)
 def primary_assignment(
-    node_pred: nb.float32[:, :], group_ids: nb.int64[:] = None
-) -> nb.boolean[:]:
+    node_pred: np.ndarray, group_ids: np.ndarray | None = None
+) -> np.ndarray:
     """Select shower primary fragments based on the node-score.
 
     If node groupings are provided, selects a single primary per node
@@ -523,7 +600,7 @@ def primary_assignment(
 
 
 @nb.njit(cache=True)
-def adjacency_matrix(edge_index: nb.int64[:, :], n: nb.int64) -> nb.boolean[:, :]:
+def adjacency_matrix(edge_index: np.ndarray, n: int) -> np.ndarray:
     """Creates a dense adjacency matrix from a list of connected edges in a
     graph, i.e. densify the graph incidence matrix.
 
@@ -549,8 +626,10 @@ def adjacency_matrix(edge_index: nb.int64[:, :], n: nb.int64) -> nb.boolean[:, :
 
 @nb.njit(cache=True)
 def grouping_loss(
-    pred_mat: nb.float32[:], target_mat: nb.boolean[:], loss: str = "ce"
-) -> np.float32:
+    pred_mat: NDArray[np.floating[Any]],
+    target_mat: NDArray[np.bool_],
+    loss: str = "ce",
+) -> float:
     """Defines the graph clustering score.
 
     Given a target adjacency matrix A and a predicted adjacency P, the score is
@@ -573,20 +652,20 @@ def grouping_loss(
     if loss == "ce":
         return sm.log_loss(target_mat, pred_mat)
     elif loss == "l1":
-        return np.mean(np.absolute(pred_mat - target_mat))
+        return float(np.mean(np.absolute(pred_mat - target_mat)))
     elif loss == "l2":
-        return np.mean((pred_mat - target_mat) * (pred_mat - target_mat))
+        return float(np.mean((pred_mat - target_mat) * (pred_mat - target_mat)))
     else:
         raise ValueError("Loss type not recognized")
 
 
 @nb.njit(cache=True)
 def edge_assignment_score(
-    edge_index: nb.int64[:, :],
-    edge_pred: nb.float32[:, :],
-    num_nodes: nb.int64,
-    track_node: nb.boolean[:] = None,
-) -> (nb.int64[:, :], nb.int64[:], nb.float32):
+    edge_index: np.ndarray,
+    edge_pred: np.ndarray,
+    num_nodes: int,
+    track_node: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, float]:
     """Finds the graph that produces the lowest grouping score by iteratively
     adding the next most likely edge, if it improves the the score. This method
     effectively builds a spanning tree.
@@ -642,7 +721,7 @@ def edge_assignment_score(
     best_groups = np.arange(num_nodes, dtype=np.int64)
     track_used = np.zeros(num_nodes, dtype=np.bool_)
     best_loss = grouping_loss(pred_adj.flatten(), empty_adj.flatten())
-    known_pairs = nb.typed.List.empty_list(nb.int64)
+    known_pairs = NumbaList.empty_list(nb.int64)
     for k, (a, b) in enumerate(ord_index):
         # If the edge connect two nodes already in the same group, proceed
         group_a, group_b = best_groups[a], best_groups[b]
@@ -698,11 +777,11 @@ def edge_assignment_score(
 
 @nb.njit(cache=True)
 def node_assignment_score(
-    edge_index: nb.int64[:, :],
-    edge_pred: nb.float32[:, :],
-    num_nodes: nb.int64,
-    track_node: nb.boolean[:] = None,
-) -> nb.int64[:]:
+    edge_index: np.ndarray,
+    edge_pred: np.ndarray,
+    num_nodes: int,
+    track_node: np.ndarray | None = None,
+) -> np.ndarray:
     """Finds the graph that produces the lowest grouping score and use
     union-find to find group IDs for each of the nodes in the graph.
 
@@ -726,7 +805,7 @@ def node_assignment_score(
 
 
 @nb.njit(cache=True)
-def node_purity_mask(group_ids: nb.int64[:], primary_ids: nb.int64[:]) -> nb.boolean[:]:
+def node_purity_mask(group_ids: np.ndarray, primary_ids: np.ndarray) -> np.ndarray:
     """Creates a mask that is `True` only for node which belong to a group
     with more exactly one primary.
 
@@ -762,11 +841,11 @@ def node_purity_mask(group_ids: nb.int64[:], primary_ids: nb.int64[:]) -> nb.boo
 
 @nb.njit(cache=True)
 def edge_purity_mask(
-    edge_index: nb.int64[:, :],
-    part_ids: nb.int64[:],
-    group_ids: nb.int64[:],
-    primary_ids: nb.int64[:],
-) -> nb.boolean[:]:
+    edge_index: np.ndarray,
+    part_ids: np.ndarray,
+    group_ids: np.ndarray,
+    primary_ids: np.ndarray,
+) -> np.ndarray:
     """Creates a mask that is `True` only for edges which connect two nodes
     that both belong to a common group which has a single clear primary.
 
@@ -795,7 +874,7 @@ def edge_purity_mask(
         (E) High purity edge mask
     """
     # Start by building a mask of valid nodes
-    node_purity_mask = np.ones(len(group_ids), dtype=np.bool_)
+    node_valid_mask = np.ones(len(group_ids), dtype=np.bool_)
     for g in np.unique(group_ids):
         group_mask = np.where(group_ids == g)[0]
         primary_ids_g = primary_ids[group_mask]
@@ -803,17 +882,19 @@ def edge_purity_mask(
         if len(np.unique(part_ids_g[primary_ids_g == 1])) != 1:
             # If there not exactly one primary particle ID, the group
             # is not valid
-            node_purity_mask[group_mask] = False
+            node_valid_mask[group_mask] = False
 
     # Edges that connect two invalid nodes are invalid
-    purity_mask = (
-        node_purity_mask[edge_index[:, 0]] | node_purity_mask[edge_index[:, 1]]
-    )
+    purity_mask = node_valid_mask[edge_index[:, 0]] | node_valid_mask[edge_index[:, 1]]
 
     return purity_mask
 
 
-def clustering_metrics(clusts, node_assn, node_pred):
+def clustering_metrics(
+    clusts: Sequence[np.ndarray],
+    node_assn: np.ndarray,
+    node_pred: np.ndarray,
+) -> tuple[float, float, float, float, float]:
     """Computes several clustering metrics for a set of clusters.
 
     Parameters
@@ -848,7 +929,12 @@ def clustering_metrics(clusts, node_assn, node_pred):
     return ari_val, ami_val, sbd_val, pur_val, eff_val
 
 
-def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):
+def voxel_efficiency_bipartite(
+    clusts: Sequence[np.ndarray],
+    node_assn: np.ndarray,
+    node_pred: np.ndarray,
+    primaries: Sequence[int] | np.ndarray,
+) -> float:
     """Computes the fraction of secondary voxels that are associated to the
     correct primary.
 
@@ -879,8 +965,8 @@ def voxel_efficiency_bipartite(clusts, node_assn, node_pred, primaries):
 
 @nb.njit(cache=True)
 def cluster_to_voxel_label(
-    clusts: nb.types.List(nb.int64[:]), node_labels: nb.int64[:]
-) -> nb.int64[:]:
+    clusts: Sequence[np.ndarray], node_labels: np.ndarray
+) -> np.ndarray:
     """Turns a list of labels on clusters to an array of labels on voxels.
 
     Parameters

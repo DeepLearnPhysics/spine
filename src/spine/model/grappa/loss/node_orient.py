@@ -93,10 +93,10 @@ class NodeOrientLoss(torch.nn.Module):
 
     def forward(
         self,
-        clust_label: ClusterLabelBatch | None,
-        coord_label: TensorBatch | None,
-        clusts: IndexBatch,
         node_pred: TensorBatch,
+        clust_label: ClusterLabelBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        clusts: IndexBatch | None = None,
         start_points: TensorBatch | None = None,
         end_points: TensorBatch | None = None,
         overlap_cache: ClusterOverlapCache | None = None,
@@ -109,15 +109,17 @@ class NodeOrientLoss(torch.nn.Module):
 
         Parameters
         ----------
-        clust_label : ClusterLabelBatch
-            (N, 1 + D + N_f) Tensor of cluster labels for the batch
-        coord_label : TensorBatch, optional
-            (P, 1 + D + 8) Tensor of start/end point labels for each
-            true particle in the image
-        clusts : IndexBatch
-            (C) Index which maps each cluster to a list of voxel IDs
         node_pred : TensorBatch
             (C, 2) Node prediction logits (binary output)
+        clust_label : ClusterLabelBatch, optional
+            (N, 1 + D + N_f) Cluster labels used to construct live orientation
+            targets. May be omitted with cached supervision.
+        coord_label : TensorBatch, optional
+            (P, 1 + D + 8) Tensor of start/end point labels for each
+            true particle. Only required while constructing live targets.
+        clusts : IndexBatch, optional
+            (C) Cluster-to-voxel index used to construct live targets. May be
+            omitted when ``labels`` and ``valid_mask`` are supplied.
         start_points : TensorBatch, optional
             (C, 3) Start point features associated with each node
         end_points : TensorBatch, optional
@@ -161,7 +163,13 @@ class NodeOrientLoss(torch.nn.Module):
         else:
             if any(
                 value is None
-                for value in (clust_label, coord_label, start_points, end_points)
+                for value in (
+                    clust_label,
+                    coord_label,
+                    clusts,
+                    start_points,
+                    end_points,
+                )
             ):
                 raise ValueError(
                     "Orientation loss requires either cached supervision or all "
@@ -169,6 +177,7 @@ class NodeOrientLoss(torch.nn.Module):
                 )
             assert clust_label is not None
             assert coord_label is not None
+            assert clusts is not None
             assert start_points is not None
             assert end_points is not None
             node_assn, valid_array, count_rejected = self._build_target(
