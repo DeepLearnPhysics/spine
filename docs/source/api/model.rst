@@ -80,3 +80,16 @@ The point-proposal implementation is available as
 ``spine.model.uresnet.ppn``. Its API is imported only in a model-capable
 runtime because the package defines PyTorch type aliases and modules at import
 time.
+
+GrapPA graph augmentation
+-------------------------
+
+Graph augmentations are configured inside the GrapPA model and applied only
+while the module is in training mode. Undirected edge dropout preserves the
+adjacent reciprocal-edge convention used by SPINE graphs.
+
+.. autosummary::
+   :toctree: generated
+
+   grappa.augment.EdgeDropout
+   grappa.augment.EdgeSelection

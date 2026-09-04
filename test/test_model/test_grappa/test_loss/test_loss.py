@@ -1214,3 +1214,62 @@ def test_edge_channel_filters_low_quality_endpoints(graph_labels):
             mode="forest",
             min_purity=[0.75, 0.75],
         )
+
+
+def test_edge_channel_filters_cached_supervision_after_dropout():
+    """Cached edge labels and validity follow the augmented graph selection."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]]),
+        counts=[2],
+        spans=[2],
+        directed=False,
+    )
+    edge_pred = TensorBatch(torch.tensor([[0.0, 1.0], [0.0, 1.0]]), counts=[2])
+    edge_keep = TensorBatch(
+        np.array([True, True, False, False]),
+        counts=[4],
+    )
+    labels = TensorBatch(np.array([1, 1, 0, 0]), counts=[4])
+    valid = TensorBatch(np.ones(4, dtype=bool), counts=[4])
+
+    result = EdgeChannelLoss(target="group")(
+        edge_index,
+        edge_pred,
+        labels=labels,
+        valid_mask=valid,
+        edge_keep=edge_keep,
+        return_target=True,
+    )
+
+    assert result["count"] == 2
+    np.testing.assert_array_equal(result["target"].data, [1, 1])
+    np.testing.assert_array_equal(result["valid"].data, [True, True])
+
+
+def test_edge_forest_dropout_preserves_node_aligned_cached_target():
+    """Forest dropout filters static edge validity but not node group IDs."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]]),
+        counts=[2],
+        spans=[2],
+        directed=False,
+    )
+    edge_pred = TensorBatch(torch.tensor([[0.0, 1.0], [0.0, 1.0]]), counts=[2])
+    edge_keep = TensorBatch(
+        np.array([False, False, True, True]),
+        counts=[4],
+    )
+    group_ids = TensorBatch(np.array([0, 0]), counts=[2])
+    valid = TensorBatch(np.ones(4, dtype=bool), counts=[4])
+
+    result = EdgeChannelLoss(target="group", mode="forest")(
+        edge_index,
+        edge_pred,
+        labels=group_ids,
+        valid_mask=valid,
+        edge_keep=edge_keep,
+        return_target=True,
+    )
+
+    assert result["target"] is group_ids
+    assert result["valid"].counts.tolist() == [2]

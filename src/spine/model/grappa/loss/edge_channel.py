@@ -16,6 +16,7 @@ from spine.model.common.quality import (
     ClusterQualityFilter,
 )
 from spine.model.common.weighting import get_class_weights
+from spine.model.grappa.augment import EdgeSelection
 from spine.model.grappa.evaluation import (
     edge_assignment_batch,
     edge_assignment_forest_batch,
@@ -146,6 +147,7 @@ class EdgeChannelLoss(torch.nn.Module):
         overlap_cache: ClusterOverlapCache | None = None,
         labels: TensorBatch | None = None,
         valid_mask: TensorBatch | None = None,
+        edge_keep: TensorBatch | None = None,
         return_target: bool = False,
         **kwargs: object,
     ) -> dict[str, torch.Tensor | TensorBatch | float | int]:
@@ -174,6 +176,10 @@ class EdgeChannelLoss(torch.nn.Module):
             which the current prediction-dependent tree is rebuilt.
         valid_mask : TensorBatch, optional
             Cached one-dimensional static edge validity mask.
+        edge_keep : TensorBatch, optional
+            Training-time selection aligned with the original cached graph.
+            Edge-aligned cached products are filtered before validation; the
+            node-aligned target used in ``forest`` mode is preserved.
         return_target : bool, default False
             If `True`, return stable supervision which can be reused safely in
             a later training iteration.
@@ -203,6 +209,14 @@ class EdgeChannelLoss(torch.nn.Module):
         count_rejected = 0
         if labels is not None:
             assert valid_mask is not None
+            # Cached supervision describes the graph before augmentation.
+            # Forest targets are node-aligned, while every validity mask and
+            # all other target modes are edge-aligned.
+            if edge_keep is not None:
+                edge_selection = EdgeSelection(edge_keep)
+                valid_mask = edge_selection.filter_tensor(valid_mask)
+                if self.mode != "forest":
+                    labels = edge_selection.filter_tensor(labels)
             if self.mode == "forest":
                 forest_group_ids = labels
                 static_valid = self._prepare_cached_forest_target(

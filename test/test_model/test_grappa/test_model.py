@@ -508,6 +508,113 @@ def test_grappa_forward_accepts_fully_materialized_graph():
     assert result["group_pred"].counts.tolist() == [2, 1]
 
 
+def test_grappa_edge_dropout_filters_materialized_graph(monkeypatch):
+    """Training filters cached indexes/features while evaluation is unchanged."""
+    config = shower_model_config()
+    config["augment"] = {"edge_dropout": {"probability": 0.5}}
+    model = GrapPA(config)
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert edges is not None
+            return {"edge_features": edges}
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    model.return_features = True
+    node_features = TensorBatch(torch.ones((3, 2)), counts=[3])
+    edge_features = TensorBatch(torch.arange(6).reshape(6, 1), counts=[6])
+    edge_index = EdgeIndexBatch(
+        torch.tensor(
+            [[0, 1, 0, 2, 1, 2], [1, 0, 2, 0, 2, 1]],
+            dtype=torch.long,
+        ),
+        counts=[6],
+        spans=[3],
+        directed=False,
+    )
+    monkeypatch.setattr(np.random, "random", lambda _: np.array([0.1, 0.8, 0.2]))
+
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+
+    assert result["edge_index"].counts.tolist() == [2]
+    assert result["edge_features"].data.tolist() == [[2], [3]]
+    assert result["edge_keep"].data.tolist() == [False, False, True, True, False, False]
+
+    model.eval()
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+    assert result["edge_index"] is edge_index
+    assert result["edge_features"] is edge_features
+    assert "edge_keep" not in result
+
+
+def test_grappa_edge_dropout_precedes_dynamic_edge_encoding(
+    graph_data,
+    graph_clusters,
+):
+    """Dynamic edge encoders receive the augmented graph, including no edges."""
+    config = shower_model_config()
+    config["graph"]["max_length"] = None
+    config["augment"] = {"edge_dropout": {"probability": 1.0}}
+    model = GrapPA(config)
+
+    class EdgeEncoder(torch.nn.Module):
+        feature_size = model.gnn.edge_feats
+
+        def forward(self, data, clusts, edge_index, **kwargs):
+            assert edge_index.counts.tolist() == [0, 0]
+            return TensorBatch(
+                torch.empty((0, self.feature_size)),
+                edge_index.counts,
+            )
+
+    class GNN(torch.nn.Module):
+        node_feats = model.gnn.node_feats
+        edge_feats = model.gnn.edge_feats
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert index.shape == (2, 0)
+            assert edges is not None and edges.shape[0] == 0
+            return {}
+
+    model.edge_encoder = EdgeEncoder()
+    model.gnn = GNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    node_features = TensorBatch(
+        torch.ones((3, model.gnn.node_feats)),
+        graph_clusters.counts,
+    )
+    shapes = TensorBatch(np.array([SHOWR_SHP, TRACK_SHP, TRACK_SHP]), [2, 1])
+
+    result = model(
+        graph_data.to_tensor(),
+        clusts=graph_clusters,
+        node_features=node_features,
+        shapes=shapes,
+    )
+
+    assert result["edge_index"].shape == (2, 0)
+
+
 def test_grappa_materialized_training_forward_and_backward():
     """Train the real GrapPA network from cached graph features and targets."""
     model = GrapPA(shower_model_config())

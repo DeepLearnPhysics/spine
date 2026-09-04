@@ -198,6 +198,7 @@ configuration.  Their class pages list the available transformation options.
    augment.FlipAugment
    augment.JitterAugment
    augment.MaskAugment
+   augment.ResponseAugment
    augment.RotateAugment
    augment.TranslateAugment
 

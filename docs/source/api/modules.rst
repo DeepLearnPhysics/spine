@@ -169,6 +169,7 @@ Io modules
    spine.io.augment.jitter
    spine.io.augment.manager
    spine.io.augment.mask
+   spine.io.augment.response
    spine.io.augment.rotate
    spine.io.augment.translate
    spine.io.dataset.base
@@ -271,6 +272,7 @@ Model modules
    spine.model.graph_spice.loss
    spine.model.graph_spice.model
    spine.model.graph_spice.orphan
+   spine.model.grappa.augment
    spine.model.grappa.encode.cnn
    spine.model.grappa.encode.empty
    spine.model.grappa.encode.geometric

@@ -33,6 +33,7 @@ from spine.model.grappa.evaluation import (
 )
 
 from ..registry import ModelSpec
+from .augment import EdgeDropout
 from .factories import (
     FeatureEncoder,
     GNNModel,
@@ -121,6 +122,7 @@ class GrapPA(torch.nn.Module):
         self.edge_encoder: FeatureEncoder | None = None
         self.global_encoder: FeatureEncoder | None = None
         self.dbscan: DBSCAN | None = None
+        self.edge_dropout: EdgeDropout | None = None
         self.return_features = False
         self.node_pred_keys: list[str] = []
         self.edge_pred_keys: list[str] = []
@@ -138,6 +140,7 @@ class GrapPA(torch.nn.Module):
         edge_encoder: dict[str, Any] | None = None,
         global_encoder: dict[str, Any] | None = None,
         dbscan: dict[str, Any] | None = None,
+        augment: dict[str, Any] | None = None,
         return_features: bool = False,
     ) -> None:
         """Process the top-level configuration block.
@@ -160,6 +163,9 @@ class GrapPA(torch.nn.Module):
             Global encoder configuration
         dbscan : dict, optional
             DBSCAN fragmentation configuration
+        augment : dict, optional
+            Training-only graph augmentation configuration. Currently accepts
+            an ``edge_dropout`` block with a drop ``probability``.
         return_features : bool, default False
             If `True`, the model will return the node/edge/global features
         """
@@ -202,11 +208,31 @@ class GrapPA(torch.nn.Module):
         if dbscan is not None:
             self.process_dbscan_config(**dbscan)
 
+        # Graph augmentations operate on both dynamically built and cached
+        # products at their shared materialized boundary.
+        if augment is not None:
+            self.process_augment_config(**augment)
+
         if self.make_groups and not self.edge_pred_keys:
             raise ValueError("Building groups requires an edge prediction head.")
 
         # Store whether to return the features
         self.return_features = return_features
+
+    def process_augment_config(
+        self,
+        edge_dropout: dict[str, Any] | None = None,
+    ) -> None:
+        """Process training-only graph augmentation options.
+
+        Parameters
+        ----------
+        edge_dropout : dict, optional
+            Random edge-dropout configuration. The ``probability`` entry is
+            the chance of dropping a directed edge or reciprocal edge pair.
+        """
+        if edge_dropout is not None:
+            self.edge_dropout = EdgeDropout(**edge_dropout)
 
     def process_node_config(
         self,
@@ -533,6 +559,15 @@ class GrapPA(torch.nn.Module):
             # Explicit shapes may be cached as floating-point tensors; restore
             # their categorical representation before grouping uses them.
             shapes = self._get_shapes(data, clusts, shapes)
+
+        # Apply graph dropout after all construction/restriction but before
+        # encoding. Cached edge features follow the identical edge selection.
+        if self.training and self.edge_dropout is not None:
+            edge_selection = self.edge_dropout(edge_index)
+            edge_index = edge_selection.filter_edge_index(edge_index)
+            result["edge_keep"] = edge_selection.keep
+            if edge_features is not None:
+                edge_features = edge_selection.filter_tensor(edge_features)
         result["edge_index"] = edge_index
 
         # Fetch the node features
