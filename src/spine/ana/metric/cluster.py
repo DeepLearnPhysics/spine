@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -32,6 +32,9 @@ class ClusterAna(AnaBase):
         ("particle", "group"),
         ("interaction", "interaction"),
     )
+
+    # Metrics supported by the shared contingency-table evaluation.
+    _metric_names = ("pur", "eff", "ari", "ami", "sbd")
 
     def __init__(
         self,
@@ -141,10 +144,13 @@ class ClusterAna(AnaBase):
                     "particle or interaction clustering label column."
                 )
 
-        # Convert metric strings to functions
-        self.metrics: dict[str, Callable[..., float]] = {
-            m: getattr(spine.math.metrics, m) for m in metrics
-        }
+        # Validate and retain metric order for deterministic output columns
+        invalid_metrics = set(metrics) - set(self._metric_names)
+        if invalid_metrics:
+            raise ValueError(
+                f"Unsupported clustering metrics: {sorted(invalid_metrics)}"
+            )
+        self.metrics = tuple(dict.fromkeys(metrics))
 
         # If objects are not used, remove them from the required keys
         keys = self.keys
@@ -287,73 +293,77 @@ class ClusterAna(AnaBase):
             }
             truth_mask = labels > -1
             reco_mask = preds > -1
-            for metric, func in self.metrics.items():
-                self._record_metric(
-                    row_dict,
-                    metric,
-                    func,
-                    labels,
-                    preds,
-                    truth_mask,
-                    reco_mask,
-                )
-                if self.per_shape and obj_type != "interaction":
-                    assert truth_shapes is not None
-                    for shape in range(LOWES_SHP):
-                        # Evaluate each truth class without allowing missing
-                        # predictions to masquerade as a cluster labeled -1.
-                        shape_reco_mask = reco_mask & (truth_shapes == shape)
-                        if reco_shapes is not None:
-                            shape_reco_mask = reco_mask & (reco_shapes == shape)
-                        self._record_metric(
-                            row_dict,
-                            f"{metric}_{shape}",
-                            func,
-                            labels,
-                            preds,
-                            truth_mask & (truth_shapes == shape),
-                            shape_reco_mask,
-                        )
+            self._record_metrics(
+                row_dict,
+                "",
+                labels,
+                preds,
+                truth_mask,
+                reco_mask,
+            )
+            if self.per_shape and obj_type != "interaction":
+                assert truth_shapes is not None
+                for shape in range(LOWES_SHP):
+                    # Evaluate each truth class without allowing missing
+                    # predictions to masquerade as a cluster labeled -1.
+                    truth_shape_mask = truth_shapes == shape
+                    shape_truth_mask = truth_mask & truth_shape_mask
+                    shape_reco_mask = reco_mask & truth_shape_mask
+                    if reco_shapes is not None:
+                        shape_reco_mask = reco_mask & (reco_shapes == shape)
+                    self._record_metrics(
+                        row_dict,
+                        f"_{shape}",
+                        labels,
+                        preds,
+                        shape_truth_mask,
+                        shape_reco_mask,
+                    )
 
             self.append(obj_type, **row_dict)
 
-    @staticmethod
-    def _record_metric(
+    def _record_metrics(
+        self,
         row_dict: dict[str, int | float],
-        name: str,
-        func: Callable[..., float],
+        suffix: str,
         labels: NDArray[np.int32],
         preds: NDArray[np.int32],
         truth_mask: NDArray[np.bool_],
         reco_mask: NDArray[np.bool_],
     ) -> None:
-        """Evaluate one metric and record the support used to define it.
+        """Evaluate requested metrics jointly and record their support.
 
         Truth and reconstruction counts describe the available point-level
         assignments independently. The comparable count is their overlap and
-        is the population passed to the metric. This makes an absent truth
-        class distinguishable from a class that exists but was not rebuilt.
+        is the population passed to every metric. Densification and contingency
+        table construction are consequently performed only once for this
+        overall or per-shape evaluation domain.
 
         Parameters
         ----------
         row_dict : dict
             Analyzer row to update.
-        name : str
-            Output metric name, including a semantic suffix when applicable.
-        func : callable
-            Clustering metric evaluated on comparable assignments.
+        suffix : str
+            Output suffix for a semantic class, or an empty string overall.
         labels, preds : np.ndarray
             Truth and reconstructed cluster assignments.
         truth_mask, reco_mask : np.ndarray
             Point masks defining the truth and reconstruction populations.
         """
         comparable_mask = truth_mask & (preds > -1)
-        value = float(func(labels[comparable_mask], preds[comparable_mask]))
-
-        row_dict[name] = value
-        row_dict[f"{name}_valid"] = int(np.isfinite(value))
-        row_dict[f"{name}_num_truth_points"] = int(np.count_nonzero(truth_mask))
-        row_dict[f"{name}_num_reco_points"] = int(np.count_nonzero(reco_mask))
-        row_dict[f"{name}_num_comparable_points"] = int(
-            np.count_nonzero(comparable_mask)
+        values = spine.math.metrics.cluster_metrics(
+            labels[comparable_mask],
+            preds[comparable_mask],
+            self.metrics,
         )
+
+        num_truth_points = int(np.count_nonzero(truth_mask))
+        num_reco_points = int(np.count_nonzero(reco_mask))
+        num_comparable_points = int(np.count_nonzero(comparable_mask))
+        for metric, value in values.items():
+            name = f"{metric}{suffix}"
+            row_dict[name] = value
+            row_dict[f"{name}_valid"] = int(np.isfinite(value))
+            row_dict[f"{name}_num_truth_points"] = num_truth_points
+            row_dict[f"{name}_num_reco_points"] = num_reco_points
+            row_dict[f"{name}_num_comparable_points"] = num_comparable_points

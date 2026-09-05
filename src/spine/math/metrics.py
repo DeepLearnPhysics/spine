@@ -16,6 +16,7 @@ __all__ = [
     "ami",
     "ari",
     "bd",
+    "cluster_metrics",
     "eff",
     "pur",
     "pur_eff",
@@ -41,7 +42,6 @@ def _comb2(n):
     return n * (n - 1) // 2
 
 
-@nb.jit(nopython=True, cache=True)
 def _adjusted_rand_score(labels_true, labels_pred):
     """Compute the Adjusted Rand Index between two cluster assignments.
 
@@ -74,16 +74,36 @@ def _adjusted_rand_score(labels_true, labels_pred):
     The implementation follows the chance-corrected formulation of Hubert and
     Arabie and avoids constructing a pairwise ``N x N`` matrix.
     """
-    if len(labels_true) != len(labels_pred):
-        raise ValueError("Labels must have the same length")
+    return cluster_metrics(labels_true, labels_pred, "ari")["ari"]
 
-    # ARI is pair-based and therefore undefined below two comparable samples.
-    if len(labels_true) < 2:
+
+@nb.jit(nopython=True, cache=True)
+def _adjusted_rand_from_table(
+    contingency,
+    truth_counts,
+    pred_counts,
+    num_samples,
+):
+    """Compute ARI from a precomputed contingency table.
+
+    Parameters
+    ----------
+    contingency : np.ndarray
+        ``(C_t, C_p)`` truth-versus-prediction assignment counts.
+    truth_counts : np.ndarray
+        ``(C_t)`` truth cluster populations.
+    pred_counts : np.ndarray
+        ``(C_p)`` predicted cluster populations.
+    num_samples : int
+        Number of comparable assignments represented by the table.
+
+    Returns
+    -------
+    float
+        Adjusted Rand Index, or ``NaN`` below two samples.
+    """
+    if num_samples < 2:
         return np.nan
-
-    nx = labels_true.max() + 1
-    ny = labels_pred.max() + 1
-    contingency = contingency_table(labels_true, labels_pred, nx, ny)
 
     # Count pairs shared by each truth/prediction cluster intersection.
     sum_comb_c = 0
@@ -92,20 +112,13 @@ def _adjusted_rand_score(labels_true, labels_pred):
             sum_comb_c += _comb2(contingency[i, j])
 
     sum_comb_k = 0
-    for i in range(contingency.shape[0]):
-        row_sum = 0
-        for j in range(contingency.shape[1]):
-            row_sum += contingency[i, j]
-        sum_comb_k += _comb2(row_sum)
+    for count in truth_counts:
+        sum_comb_k += _comb2(count)
 
     sum_comb_c_pred = 0
-    for j in range(contingency.shape[1]):
-        col_sum = 0
-        for i in range(contingency.shape[0]):
-            col_sum += contingency[i, j]
-        sum_comb_c_pred += _comb2(col_sum)
-
-    sum_comb_n = _comb2(len(labels_true))
+    for count in pred_counts:
+        sum_comb_c_pred += _comb2(count)
+    sum_comb_n = _comb2(num_samples)
     expected_index = sum_comb_k * sum_comb_c_pred / sum_comb_n
     max_index = (sum_comb_k + sum_comb_c_pred) / 2.0
 
@@ -116,83 +129,6 @@ def _adjusted_rand_score(labels_true, labels_pred):
     return (sum_comb_c - expected_index) / (max_index - expected_index)
 
 
-@nb.jit(nopython=True, cache=True)
-def _entropy(labels):
-    """Compute the Shannon entropy of a cluster assignment.
-
-    Parameters
-    ----------
-    labels : np.ndarray
-        ``(N)`` cluster IDs.
-
-    Returns
-    -------
-    float
-        Natural-log entropy of the empirical cluster distribution. Empty and
-        singleton assignments have zero entropy.
-    """
-    unique = np.unique(labels)
-    num_labels = len(labels)
-
-    if num_labels <= 1:
-        return 0.0
-
-    entropy = 0.0
-    for label in unique:
-        count = np.sum(labels == label)
-        if count > 0:
-            probability = count / num_labels
-            entropy -= probability * np.log(probability)
-
-    return entropy
-
-
-@nb.jit(nopython=True, cache=True)
-def _mutual_info(labels_true, labels_pred):
-    """Compute mutual information between two cluster assignments.
-
-    Parameters
-    ----------
-    labels_true : np.ndarray
-        ``(N)`` reference cluster IDs.
-    labels_pred : np.ndarray
-        ``(N)`` predicted cluster IDs.
-
-    Returns
-    -------
-    float
-        Mutual information derived from the assignment contingency table.
-    """
-    nx = labels_true.max() + 1
-    ny = labels_pred.max() + 1
-    contingency = contingency_table(labels_true, labels_pred, nx, ny)
-
-    num_samples = len(labels_true)
-    mutual_info = 0.0
-    for i in range(contingency.shape[0]):
-        for j in range(contingency.shape[1]):
-            count = contingency[i, j]
-            if count == 0:
-                continue
-
-            truth_count = 0
-            for k in range(contingency.shape[1]):
-                truth_count += contingency[i, k]
-
-            pred_count = 0
-            for k in range(contingency.shape[0]):
-                pred_count += contingency[k, j]
-
-            mutual_info += (
-                count
-                / num_samples
-                * np.log((num_samples * count) / (truth_count * pred_count))
-            )
-
-    return mutual_info
-
-
-@nb.jit(nopython=True, cache=True)
 def _adjusted_mutual_info_score(labels_true, labels_pred):
     """Compute Adjusted Mutual Information between two cluster assignments.
 
@@ -224,24 +160,61 @@ def _adjusted_mutual_info_score(labels_true, labels_pred):
     which keeps this implementation inexpensive for large assignments.
 
     """
-    if len(labels_true) != len(labels_pred):
-        raise ValueError("Labels must have the same length")
+    return cluster_metrics(labels_true, labels_pred, "ami")["ami"]
 
-    if len(labels_true) == 0:
-        return np.nan
 
-    num_truth_clusters = len(np.unique(labels_true))
-    num_pred_clusters = len(np.unique(labels_pred))
-    if num_truth_clusters == 1 and num_pred_clusters == 1:
+@nb.jit(nopython=True, cache=True)
+def _adjusted_mutual_info_from_table(
+    contingency,
+    truth_counts,
+    pred_counts,
+    num_samples,
+):
+    """Compute AMI from a precomputed contingency table.
+
+    Parameters
+    ----------
+    contingency : np.ndarray
+        ``(C_t, C_p)`` truth-versus-prediction assignment counts.
+    truth_counts : np.ndarray
+        ``(C_t)`` truth cluster populations.
+    pred_counts : np.ndarray
+        ``(C_p)`` predicted cluster populations.
+    num_samples : int
+        Number of comparable assignments represented by the table.
+
+    Returns
+    -------
+    float
+        Adjusted Mutual Information for a nonempty table.
+    """
+    if len(truth_counts) == 1 and len(pred_counts) == 1:
         return 1.0
-    if num_truth_clusters == 1 or num_pred_clusters == 1:
+    if len(truth_counts) == 1 or len(pred_counts) == 1:
         return 0.0
 
-    entropy_true = _entropy(labels_true)
-    entropy_pred = _entropy(labels_pred)
-    mutual_info = _mutual_info(labels_true, labels_pred)
+    entropy_true = 0.0
+    for count in truth_counts:
+        probability = count / num_samples
+        entropy_true -= probability * np.log(probability)
 
-    expected_mi = entropy_true * entropy_pred / np.log(len(labels_true))
+    entropy_pred = 0.0
+    for count in pred_counts:
+        probability = count / num_samples
+        entropy_pred -= probability * np.log(probability)
+
+    mutual_info = 0.0
+    for i in range(contingency.shape[0]):
+        for j in range(contingency.shape[1]):
+            count = contingency[i, j]
+            if count > 0:
+                mutual_info += (
+                    count
+                    / num_samples
+                    * np.log((num_samples * count) / (truth_counts[i] * pred_counts[j]))
+                )
+
+    expected_mi = entropy_true * entropy_pred / np.log(num_samples)
     mean_entropy = (entropy_true + entropy_pred) / 2.0
     if mean_entropy == expected_mi:
         return 1.0
@@ -281,6 +254,147 @@ def unique_labels(labels, batch_ids=None):
     return inverse, unique, counts
 
 
+def _normalize_metric_names(metric_names):
+    """Normalize and validate a requested clustering metric sequence."""
+    if isinstance(metric_names, str):
+        metric_names = (metric_names,)
+
+    metric_names = tuple(dict.fromkeys(metric_names))
+    supported = {"pur", "eff", "ari", "ami", "sbd"}
+    invalid = set(metric_names) - supported
+    if invalid:
+        raise ValueError(f"Unsupported clustering metrics: {sorted(invalid)}")
+
+    return metric_names
+
+
+def _purity_from_table(table, pred_counts, num_samples, per_cluster):
+    """Compute purity from a contingency table and prediction counts."""
+    dominant_truth = table.max(axis=0)
+    if per_cluster:
+        return float(np.mean(dominant_truth / pred_counts))
+
+    return float(np.sum(dominant_truth) / num_samples)
+
+
+def _efficiency_from_table(table, truth_counts, num_samples, per_cluster):
+    """Compute efficiency from a contingency table and truth counts."""
+    dominant_pred = table.max(axis=1)
+    if per_cluster:
+        return float(np.mean(dominant_pred / truth_counts))
+
+    return float(np.sum(dominant_pred) / num_samples)
+
+
+def _sbd_from_table(table, truth_counts, pred_counts):
+    """Compute symmetric Best Dice from a contingency table."""
+    denominators = truth_counts[:, None] + pred_counts[None, :]
+    dice = 2.0 * table / denominators
+    truth_to_pred = np.mean(dice.max(axis=0))
+    pred_to_truth = np.mean(dice.max(axis=1))
+    return float(min(truth_to_pred, pred_to_truth))
+
+
+def cluster_metrics(
+    truth,
+    pred,
+    metric_names=("pur", "eff", "ari"),
+    batch_ids=None,
+    per_cluster=True,
+):
+    """Compute multiple clustering metrics from shared sufficient statistics.
+
+    Both assignments are densified once and used to build a single contingency
+    table. Purity, efficiency, ARI, AMI, and symmetric Best Dice are then
+    derived from that table without repeating the dominant preprocessing work.
+
+    Parameters
+    ----------
+    truth : np.ndarray
+        ``(N)`` truth cluster IDs.
+    pred : np.ndarray
+        ``(N)`` predicted cluster IDs.
+    metric_names : str or sequence of str, default ('pur', 'eff', 'ari')
+        Metrics to compute. Supported values are ``pur``, ``eff``, ``ari``,
+        ``ami`` and ``sbd``.
+    batch_ids : np.ndarray, optional
+        ``(N)`` event IDs used to keep local cluster IDs event-specific.
+    per_cluster : bool, default True
+        Average purity and efficiency equally over their defining clusters. If
+        ``False``, weight those clusters by their number of assignments.
+
+    Returns
+    -------
+    dict[str, float]
+        Requested metric values keyed by name. Every value is ``NaN`` when no
+        comparable assignments are provided; ARI is also ``NaN`` for a single
+        assignment.
+
+    Raises
+    ------
+    ValueError
+        If the assignments have different lengths, batch IDs are misaligned,
+        or an unsupported metric is requested.
+    """
+    metric_names = _normalize_metric_names(metric_names)
+
+    if len(truth) != len(pred):
+        raise ValueError("Labels must have the same length")
+    if batch_ids is not None and len(batch_ids) != len(truth):
+        raise ValueError("Batch IDs must have the same length as labels")
+    if len(truth) == 0 or len(metric_names) == 0:
+        return {name: np.nan for name in metric_names}
+
+    # Densification makes the contingency table compact even when source IDs
+    # are sparse, large, or repeated independently in different events.
+    truth, _, truth_counts = unique_labels(truth, batch_ids)
+    pred, _, pred_counts = unique_labels(pred, batch_ids)
+    table = contingency_table(
+        truth,
+        pred,
+        len(truth_counts),
+        len(pred_counts),
+    )
+    num_samples = len(truth)
+
+    results = {}
+    if "pur" in metric_names:
+        results["pur"] = _purity_from_table(
+            table, pred_counts, num_samples, per_cluster
+        )
+
+    if "eff" in metric_names:
+        results["eff"] = _efficiency_from_table(
+            table, truth_counts, num_samples, per_cluster
+        )
+
+    if "ari" in metric_names:
+        results["ari"] = float(
+            _adjusted_rand_from_table(
+                table,
+                truth_counts,
+                pred_counts,
+                num_samples,
+            )
+        )
+
+    if "ami" in metric_names:
+        results["ami"] = float(
+            _adjusted_mutual_info_from_table(
+                table,
+                truth_counts,
+                pred_counts,
+                num_samples,
+            )
+        )
+
+    if "sbd" in metric_names:
+        results["sbd"] = _sbd_from_table(table, truth_counts, pred_counts)
+
+    # Preserve the requested ordering rather than the implementation order.
+    return {name: results[name] for name in metric_names}
+
+
 def pur(truth, pred, batch_ids=None, per_cluster=True):
     """Compute clustering purity.
 
@@ -304,18 +418,13 @@ def pur(truth, pred, batch_ids=None, per_cluster=True):
     float
         Assignment purity in ``[0, 1]``, or ``NaN`` when the inputs are empty.
     """
-    if len(truth) == 0:
-        return np.nan
-
-    truth, _, truth_counts = unique_labels(truth, batch_ids)
-    pred, _, pred_counts = unique_labels(pred, batch_ids)
-    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
-
-    if per_cluster:
-        purities = table.max(axis=0) / pred_counts
-        return purities.mean()
-
-    return np.sum(table.max(axis=0)) / len(pred)
+    return cluster_metrics(
+        truth,
+        pred,
+        "pur",
+        batch_ids,
+        per_cluster,
+    )["pur"]
 
 
 def eff(truth, pred, batch_ids=None, per_cluster=True):
@@ -342,18 +451,13 @@ def eff(truth, pred, batch_ids=None, per_cluster=True):
         Assignment efficiency in ``[0, 1]``, or ``NaN`` when the inputs are
         empty.
     """
-    if len(truth) == 0:
-        return np.nan
-
-    truth, _, truth_counts = unique_labels(truth, batch_ids)
-    pred, _, pred_counts = unique_labels(pred, batch_ids)
-    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
-
-    if per_cluster:
-        efficiencies = table.max(axis=1) / truth_counts
-        return efficiencies.mean()
-
-    return np.sum(table.max(axis=1)) / len(truth)
+    return cluster_metrics(
+        truth,
+        pred,
+        "eff",
+        batch_ids,
+        per_cluster,
+    )["eff"]
 
 
 def pur_eff(truth, pred, batch_ids=None, per_cluster=True):
@@ -379,21 +483,14 @@ def pur_eff(truth, pred, batch_ids=None, per_cluster=True):
         Assignment efficiency in ``[0, 1]``. Both results are ``NaN`` when
         the inputs are empty.
     """
-    if len(truth) == 0:
-        return np.nan, np.nan
-
-    truth, _, truth_counts = unique_labels(truth, batch_ids)
-    pred, _, pred_counts = unique_labels(pred, batch_ids)
-    table = contingency_table(truth, pred, len(truth_counts), len(pred_counts))
-
-    if per_cluster:
-        purities = table.max(axis=0) / pred_counts
-        efficiencies = table.max(axis=1) / truth_counts
-        return purities.mean(), efficiencies.mean()
-
-    purity = np.sum(table.max(axis=0)) / len(pred)
-    efficiency = np.sum(table.max(axis=1)) / len(truth)
-    return purity, efficiency
+    results = cluster_metrics(
+        truth,
+        pred,
+        ("pur", "eff"),
+        batch_ids,
+        per_cluster,
+    )
+    return results["pur"], results["eff"]
 
 
 def ari(truth, pred, batch_ids=None):
@@ -414,14 +511,7 @@ def ari(truth, pred, batch_ids=None):
         Adjusted Rand Index, or ``NaN`` when fewer than two assignments are
         comparable.
     """
-    if len(truth) < 2:
-        return np.nan
-
-    if batch_ids is not None:
-        truth = unique_labels(truth, batch_ids)[0]
-        pred = unique_labels(pred, batch_ids)[0]
-
-    return _adjusted_rand_score(truth, pred)
+    return cluster_metrics(truth, pred, "ari", batch_ids)["ari"]
 
 
 def ami(truth, pred, batch_ids=None):
@@ -441,14 +531,7 @@ def ami(truth, pred, batch_ids=None):
     float
         Adjusted Mutual Information, or ``NaN`` when the inputs are empty.
     """
-    if len(truth) == 0:
-        return np.nan
-
-    if batch_ids is not None:
-        truth = unique_labels(truth, batch_ids)[0]
-        pred = unique_labels(pred, batch_ids)[0]
-
-    return _adjusted_mutual_info_score(truth, pred)
+    return cluster_metrics(truth, pred, "ami", batch_ids)["ami"]
 
 
 def sbd(truth, pred, batch_ids=None):
@@ -472,31 +555,7 @@ def sbd(truth, pred, batch_ids=None):
         Symmetric Best Dice in ``[0, 1]``, or ``NaN`` when the inputs are
         empty.
     """
-    if len(truth) == 0:
-        return np.nan
-
-    truth, _, truth_counts = unique_labels(truth, batch_ids)
-    pred, _, pred_counts = unique_labels(pred, batch_ids)
-    truth_unique = np.arange(len(truth_counts))
-    pred_unique = np.arange(len(pred_counts))
-
-    truth_to_pred = bd(
-        truth,
-        truth_unique,
-        truth_counts,
-        pred,
-        pred_unique,
-        pred_counts,
-    )
-    pred_to_truth = bd(
-        pred,
-        pred_unique,
-        pred_counts,
-        truth,
-        truth_unique,
-        truth_counts,
-    )
-    return min(truth_to_pred, pred_to_truth)
+    return cluster_metrics(truth, pred, "sbd", batch_ids)["sbd"]
 
 
 def bd(truth, truth_unique, truth_counts, pred, pred_unique, pred_counts):

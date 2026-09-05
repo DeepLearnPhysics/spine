@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+import spine.math.metrics as metrics_module
 from spine.ana.metric.cluster import ClusterAna
 from spine.data import ClusterLabelData
 from spine.data.out import (
@@ -142,6 +143,50 @@ def test_cluster_ana_validates_configuration(monkeypatch):
             time_window=(0.0, 1.0),
         )
 
+    with pytest.raises(ValueError, match="Unsupported clustering metrics"):
+        ClusterAna(obj_type="particle", metrics=("unknown",))
+
+
+def test_cluster_ana_shares_contingency_table_across_metrics(monkeypatch):
+    """An evaluation domain should construct one table for all metrics."""
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    calls = 0
+    original = metrics_module.contingency_table
+
+    def count_calls(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(metrics_module, "contingency_table", count_calls)
+    ana = ClusterAna(
+        obj_type="particle",
+        use_objects=True,
+        per_shape=False,
+        metrics=("pur", "eff", "ari"),
+        truth_index_mode="index",
+    )
+    ana.process(
+        {
+            "points": np.zeros((4, 3), dtype=np.float32),
+            "truth_particles": [
+                TruthParticle(index=np.array([0, 1], dtype=np.int32)),
+                TruthParticle(index=np.array([2, 3], dtype=np.int32)),
+            ],
+            "reco_particles": [
+                RecoParticle(index=np.array([0, 2], dtype=np.int32)),
+                RecoParticle(index=np.array([1, 3], dtype=np.int32)),
+            ],
+        }
+    )
+
+    assert calls == 1
+    assert set(("pur", "eff", "ari")) <= rows[0].keys()
+
 
 def test_cluster_ana_raw_per_object_mode(monkeypatch):
     rows = []
@@ -188,6 +233,73 @@ def test_cluster_ana_raw_per_object_mode(monkeypatch):
     assert rows[0][1]["ari_2_num_truth_points"] == 0
     assert rows[0][1]["ari_2_num_reco_points"] == 0
     assert rows[0][1]["ari_2_num_comparable_points"] == 0
+
+
+def test_cluster_ana_direct_clusters_match_object_evaluation(monkeypatch):
+    """Direct full-chain clusters and equivalent objects should report alike."""
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    packed = np.asarray(
+        [
+            [0, 0, 0, 1, 0, 0],
+            [1, 0, 0, 1, 0, 0],
+            [2, 0, 0, 1, 1, 1],
+            [3, 0, 0, 1, 1, 1],
+        ],
+        dtype=np.float32,
+    )
+    labels = ClusterLabelData(
+        packed,
+        {
+            "group": np.array([0, 1], dtype=np.int32),
+            "shape": np.array([0, 1], dtype=np.int32),
+        },
+    )
+    reco_indexes = [
+        np.array([0, 2], dtype=np.int32),
+        np.array([1, 3], dtype=np.int32),
+    ]
+
+    direct = ClusterAna(
+        obj_type="particle",
+        use_objects=False,
+        per_shape=True,
+        metrics=("pur", "eff", "ari"),
+    )
+    direct.process(
+        {
+            "clust_label_adapt": labels,
+            "particle_clusts": reco_indexes,
+            "particle_shapes": [0, 1],
+        }
+    )
+    direct_row = rows.pop()
+
+    objects = ClusterAna(
+        obj_type="particle",
+        use_objects=True,
+        per_shape=True,
+        metrics=("pur", "eff", "ari"),
+        truth_index_mode="index",
+    )
+    objects.process(
+        {
+            "points": packed[:, :3],
+            "truth_particles": [
+                TruthParticle(index=np.array([0, 1], dtype=np.int32), shape=0),
+                TruthParticle(index=np.array([2, 3], dtype=np.int32), shape=1),
+            ],
+            "reco_particles": [
+                RecoParticle(index=reco_indexes[0], shape=0),
+                RecoParticle(index=reco_indexes[1], shape=1),
+            ],
+        }
+    )
+
+    assert rows == [direct_row]
 
 
 def test_cluster_ana_distinguishes_missing_class_from_reconstruction_failure(

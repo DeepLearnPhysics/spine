@@ -7,10 +7,10 @@ import spine.math.metrics as metrics_module
 from spine.math.metrics import (
     _adjusted_mutual_info_score,
     _adjusted_rand_score,
-    _entropy,
     ami,
     ari,
     bd,
+    cluster_metrics,
     eff,
     pur,
     pur_eff,
@@ -80,11 +80,6 @@ def test_adjusted_mutual_info_score_handles_common_cases():
     )
 
 
-def test_entropy_handles_singleton_input():
-    """Private entropy helper should handle singleton labels."""
-    assert _entropy(np.array([0], dtype=np.int32)) == 0.0
-
-
 def test_adjusted_mutual_info_score_rejects_length_mismatch():
     """AMI inputs must have matching lengths."""
     with pytest.raises(ValueError, match="same length"):
@@ -128,6 +123,41 @@ def test_cluster_metrics_cover_empty_global_and_per_cluster_modes():
     assert -1.0 <= ari(truth, pred, batches) <= 1.0
     assert -1.0 <= ami(truth, pred, batches) <= 1.0
     assert 0.0 <= sbd(truth, pred, batches) <= 1.0
+
+
+def test_cluster_metrics_share_one_contingency_table(monkeypatch):
+    """Joint evaluation should construct its sufficient statistics once."""
+    truth = np.array([0, 0, 1, 1, 2, 2], dtype=np.int64)
+    pred = np.array([0, 1, 1, 1, 2, 2], dtype=np.int64)
+    metric_names = ("pur", "eff", "ari", "ami", "sbd")
+    expected = {name: globals()[name](truth, pred) for name in metric_names}
+
+    calls = 0
+    original = metrics_module.contingency_table
+
+    def count_calls(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(metrics_module, "contingency_table", count_calls)
+    result = cluster_metrics(truth, pred, metric_names)
+
+    assert calls == 1
+    assert result == pytest.approx(expected)
+
+
+def test_cluster_metrics_validate_requested_metrics_and_alignment():
+    """Joint evaluation should reject unknown metrics and misaligned inputs."""
+    labels = np.arange(3, dtype=np.int64)
+
+    assert cluster_metrics(labels, labels, ()) == {}
+    with pytest.raises(ValueError, match="Unsupported clustering metrics"):
+        cluster_metrics(labels, labels, ("pur", "unknown"))
+    with pytest.raises(ValueError, match="Labels must have the same length"):
+        cluster_metrics(labels, labels[:-1])
+    with pytest.raises(ValueError, match="Batch IDs must have the same length"):
+        cluster_metrics(labels, labels, batch_ids=labels[:-1])
 
 
 def test_cluster_metrics_have_sensible_degenerate_partition_values():
