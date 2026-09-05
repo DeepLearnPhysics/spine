@@ -35,7 +35,10 @@ class ClusterSummaryRecipe(ReportRecipe):
     The serialized result stores overall and per-class distributions under
     ``levels``. Each distribution contains sufficient statistics, validity
     and assignment-support counts, and bin edges needed to reproduce its plot
-    exactly. Undefined aggregate statistics are serialized as JSON ``null``.
+    exactly. Custom metric ranges define the population included in the
+    histogram and descriptive statistics; finite values outside that range are
+    reported separately. Undefined aggregate statistics are serialized as
+    JSON ``null``.
     """
 
     name = "cluster_summary"
@@ -206,6 +209,8 @@ class ClusterSummaryRecipe(ReportRecipe):
         return {
             "count": 0,
             "rows": 0,
+            "finite": 0,
+            "out_of_range": 0,
             "sum": 0.0,
             "sum_sq": 0.0,
             "histogram": np.zeros(len(edges) - 1, dtype=np.int64),
@@ -226,9 +231,10 @@ class ClusterSummaryRecipe(ReportRecipe):
     ) -> None:
         """Add finite values and optional assignment-support information.
 
-        Only non-finite values are excluded from scalar statistics. Valid
-        finite values such as ARI ``-1`` and ``0`` are retained. Metric values
-        are expected to respect their configured histogram range.
+        Non-finite values are invalid. Finite values such as ARI ``-1`` and
+        ``0`` remain valid, but values outside the configured histogram range
+        are excluded from both the histogram and scalar moments. This keeps
+        every serialized distribution summary tied to one population.
 
         Parameters
         ----------
@@ -243,6 +249,14 @@ class ClusterSummaryRecipe(ReportRecipe):
         values = np.asarray(raw_values, dtype=np.float64)
         accumulator["rows"] += len(values)
         values = values[np.isfinite(values)]
+        accumulator["finite"] += len(values)
+
+        # NumPy histograms include the rightmost edge in the final bin. Apply
+        # the same closed outer bounds before accumulating scalar moments.
+        edges = accumulator["edges"]
+        in_range = (values >= edges[0]) & (values <= edges[-1])
+        accumulator["out_of_range"] += int(np.count_nonzero(~in_range))
+        values = values[in_range]
         accumulator["count"] += len(values)
         accumulator["sum"] += float(values.sum())
         accumulator["sum_sq"] += float(np.square(values).sum())
@@ -320,8 +334,10 @@ class ClusterSummaryRecipe(ReportRecipe):
         )
         result["validity"] = {
             "rows": accumulator["rows"],
-            "valid": accumulator["count"],
-            "invalid": accumulator["rows"] - accumulator["count"],
+            "valid": accumulator["finite"],
+            "invalid": accumulator["rows"] - accumulator["finite"],
+            "included": accumulator["count"],
+            "out_of_range": accumulator["out_of_range"],
         }
         has_support = accumulator["support_rows"] > 0
         result["support"] = {

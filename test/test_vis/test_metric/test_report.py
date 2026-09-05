@@ -268,7 +268,13 @@ def test_cluster_recipe_retains_finite_values_and_serializes_empty_as_null(tmp_p
     overall = summary["levels"]["fragment"]["metrics"]["ari"]
     assert overall["count"] == 2
     assert overall["mean"] == pytest.approx(-0.5)
-    assert overall["validity"] == {"rows": 3, "valid": 2, "invalid": 1}
+    assert overall["validity"] == {
+        "rows": 3,
+        "valid": 2,
+        "invalid": 1,
+        "included": 2,
+        "out_of_range": 0,
+    }
     assert overall["support"] == {
         "rows": 3,
         "truth_points": 9,
@@ -282,10 +288,44 @@ def test_cluster_recipe_retains_finite_values_and_serializes_empty_as_null(tmp_p
     assert empty["count"] == 0
     assert empty["mean"] is None
     assert empty["std"] is None
-    assert empty["validity"] == {"rows": 3, "valid": 0, "invalid": 3}
+    assert empty["validity"] == {
+        "rows": 3,
+        "valid": 0,
+        "invalid": 3,
+        "included": 0,
+        "out_of_range": 0,
+    }
     assert empty["support"]["missing_truth"] == 2
     assert empty["support"]["missing_reconstruction"] == 1
     assert '"mean": null' in json.dumps(empty, allow_nan=False)
+
+
+def test_cluster_recipe_range_filters_histogram_and_moments(tmp_path):
+    """Custom ranges should define one consistent summarized population."""
+    path = tmp_path / "cluster.csv"
+    pd.DataFrame({"ari": [-1.0, 0.0, 0.5, 1.0, np.nan]}).to_csv(path, index=False)
+    recipe = ClusterSummaryRecipe(
+        "clustering",
+        {
+            "metric_names": ["ari"],
+            "metric_ranges": {"ari": [0.0, 0.75]},
+            "bins": 3,
+        },
+    )
+
+    summary = recipe.reduce({"interaction": [path]})
+    distribution = summary["levels"]["interaction"]["metrics"]["ari"]
+
+    assert distribution["count"] == 2
+    assert distribution["mean"] == pytest.approx(0.25)
+    assert sum(distribution["histogram"]) == 2
+    assert distribution["validity"] == {
+        "rows": 5,
+        "valid": 4,
+        "invalid": 1,
+        "included": 2,
+        "out_of_range": 2,
+    }
 
 
 def test_cluster_recipe_rejects_missing_metric_columns(tmp_path):

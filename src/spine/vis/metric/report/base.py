@@ -19,7 +19,7 @@ import pandas as pd
 
 from spine.vis.metric.distribution import histogram_quantiles
 
-REPORT_SCHEMA_VERSION = "1.4.0"
+REPORT_SCHEMA_VERSION = "1.5.0"
 DEFAULT_CHUNKSIZE = 100_000
 
 
@@ -60,7 +60,7 @@ def distribution_summary(
     edges : np.ndarray
         Histogram edges, with one more element than ``histogram``.
     count : int
-        Number of finite values accumulated.
+        Number of values included in the histogram population.
     value_sum : float
         Sum of the accumulated values.
     value_sum_sq : float
@@ -69,8 +69,9 @@ def distribution_summary(
     Returns
     -------
     dict
-        Count, mean, standard deviation, approximate quantiles and histogram
-        counts. Empty distributions use ``None`` for undefined statistics.
+        Population count, mean, standard deviation, approximate quantiles and
+        histogram counts. Empty distributions use ``None`` for undefined
+        statistics.
 
     Notes
     -----

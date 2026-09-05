@@ -62,8 +62,12 @@ class ClusterAna(AnaBase):
             Evaluate the clustering accuracy for each object type (not relevant
             if running GrapPA standalone)
         per_shape : bool, default True
-            Evaluate the clustering accuracy for each object shape (not
-            relevant in the case of interactions)
+            Evaluate clustering separately over the truth points of each
+            object shape (not relevant for interactions). Reconstructed
+            semantic labels do not restrict the metric population: clustering
+            remains independent of semantic-classification accuracy. Separate
+            truth, reconstructed and comparable support counts expose semantic
+            mismatches alongside the metric.
         metrics : Sequence[str], default ('pur', 'eff', 'ari')
             List of clustering metrics to evaluate
         label_key : str, default 'clust_label_adapt'
@@ -304,8 +308,9 @@ class ClusterAna(AnaBase):
             if self.per_shape and obj_type != "interaction":
                 assert truth_shapes is not None
                 for shape in range(LOWES_SHP):
-                    # Evaluate each truth class without allowing missing
-                    # predictions to masquerade as a cluster labeled -1.
+                    # The metric domain follows the truth class and accepts
+                    # every valid reconstructed assignment. Reco-class support
+                    # is counted independently to expose semantic mismatches.
                     truth_shape_mask = truth_shapes == shape
                     shape_truth_mask = truth_mask & truth_shape_mask
                     shape_reco_mask = reco_mask & truth_shape_mask

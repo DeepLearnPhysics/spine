@@ -118,6 +118,45 @@ def test_cluster_ana_rebuilds_truth_and_reco_shapes_from_objects(monkeypatch):
     assert row["ari_1_num_reco_points"] == 2
 
 
+def test_cluster_ana_per_shape_metrics_follow_truth_class(monkeypatch):
+    """Semantic mistakes should not remove valid clustering assignments."""
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    ana = ClusterAna(
+        obj_type="particle",
+        use_objects=True,
+        per_shape=True,
+        metrics=("ari",),
+        truth_index_mode="index",
+    )
+
+    ana.process(
+        {
+            "points": np.zeros((5, 3), dtype=np.float32),
+            "truth_particles": [
+                TruthParticle(index=np.array([0, 1], dtype=np.int32), shape=0),
+                TruthParticle(index=np.array([2, 3], dtype=np.int32), shape=0),
+                TruthParticle(index=np.array([4], dtype=np.int32), shape=1),
+            ],
+            # Every cluster is correct, but every semantic shape is wrong.
+            "reco_particles": [
+                RecoParticle(index=np.array([0, 1], dtype=np.int32), shape=1),
+                RecoParticle(index=np.array([2, 3], dtype=np.int32), shape=1),
+                RecoParticle(index=np.array([4], dtype=np.int32), shape=0),
+            ],
+        }
+    )
+
+    row = rows[0]
+    assert row["ari_0"] == 1.0
+    assert row["ari_0_num_truth_points"] == 4
+    assert row["ari_0_num_reco_points"] == 1
+    assert row["ari_0_num_comparable_points"] == 4
+
+
 def test_cluster_ana_validates_configuration(monkeypatch):
     monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
 
