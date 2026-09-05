@@ -204,7 +204,7 @@ class ClusterAna(AnaBase):
         """
         # Loop over the different object types
         for obj_type in self.obj_type:
-            shapes: NDArray[np.int32] | None = None
+            truth_shapes: NDArray[np.int32] | None = None
 
             # Build the cluster labels for this object type
             if not self.use_objects:
@@ -217,7 +217,7 @@ class ClusterAna(AnaBase):
                     copy=False,
                 )
                 if self.per_shape and obj_type != "interaction":
-                    shapes = cluster_label.shapes.astype(
+                    truth_shapes = cluster_label.shapes.astype(
                         np.int32,
                         copy=False,
                     )
@@ -227,9 +227,14 @@ class ClusterAna(AnaBase):
                 # Rebuild the labels
                 num_points = len(data["points"])
                 labels = np.full(num_points, -1, dtype=np.int32)
+                if self.per_shape and obj_type != "interaction":
+                    truth_shapes = np.full(num_points, LOWES_SHP, dtype=np.int32)
                 num_truth = len(data[f"truth_{obj_type}s"])
                 for i, obj in enumerate(data[f"truth_{obj_type}s"]):
-                    labels[self.get_index(obj)] = i
+                    index = self.get_index(obj)
+                    labels[index] = i
+                    if truth_shapes is not None:
+                        truth_shapes[index] = obj.shape
 
             # Restrict the truth evaluation domain to the requested time window
             if self.time_window is not None:
@@ -249,24 +254,25 @@ class ClusterAna(AnaBase):
 
             # Build the cluster predictions for this object type
             preds = np.full(num_points, -1, dtype=np.int32)
+            reco_shapes: NDArray[np.int32] | None = None
             if self.per_object:
-                pred_shapes = np.full(num_points, LOWES_SHP, dtype=np.int32)
-                shapes = pred_shapes
+                if self.per_shape and obj_type != "interaction":
+                    reco_shapes = np.full(num_points, LOWES_SHP, dtype=np.int32)
                 if not self.use_objects:
                     # Use clusters directly from the full chain output
                     num_reco = len(data[f"{obj_type}_clusts"])
                     for i, index in enumerate(data[f"{obj_type}_clusts"]):
                         preds[index] = i
-                        if obj_type != "interaction":
-                            pred_shapes[index] = data[f"{obj_type}_shapes"][i]
+                        if reco_shapes is not None:
+                            reco_shapes[index] = data[f"{obj_type}_shapes"][i]
 
                 else:
                     # Use clusters from the object indexes
                     num_reco = len(data[f"reco_{obj_type}s"])
                     for i, obj in enumerate(data[f"reco_{obj_type}s"]):
                         preds[obj.index] = i
-                        if obj_type != "interaction":
-                            pred_shapes[obj.index] = obj.shape
+                        if reco_shapes is not None:
+                            reco_shapes[obj.index] = obj.shape
 
             else:
                 num_reco = len(data["clusts"])
@@ -279,15 +285,75 @@ class ClusterAna(AnaBase):
                 "num_truth": num_truth,
                 "num_reco": num_reco,
             }
+            truth_mask = labels > -1
+            reco_mask = preds > -1
             for metric, func in self.metrics.items():
-                valid_index = np.where((preds > -1) & (labels > -1))[0]
-                row_dict[metric] = func(labels[valid_index], preds[valid_index])
+                self._record_metric(
+                    row_dict,
+                    metric,
+                    func,
+                    labels,
+                    preds,
+                    truth_mask,
+                    reco_mask,
+                )
                 if self.per_shape and obj_type != "interaction":
-                    assert shapes is not None
+                    assert truth_shapes is not None
                     for shape in range(LOWES_SHP):
-                        shape_index = np.where((shapes == shape) & (labels > -1))[0]
-                        row_dict[f"{metric}_{shape}"] = func(
-                            labels[shape_index], preds[shape_index]
+                        # Evaluate each truth class without allowing missing
+                        # predictions to masquerade as a cluster labeled -1.
+                        shape_reco_mask = reco_mask & (truth_shapes == shape)
+                        if reco_shapes is not None:
+                            shape_reco_mask = reco_mask & (reco_shapes == shape)
+                        self._record_metric(
+                            row_dict,
+                            f"{metric}_{shape}",
+                            func,
+                            labels,
+                            preds,
+                            truth_mask & (truth_shapes == shape),
+                            shape_reco_mask,
                         )
 
             self.append(obj_type, **row_dict)
+
+    @staticmethod
+    def _record_metric(
+        row_dict: dict[str, int | float],
+        name: str,
+        func: Callable[..., float],
+        labels: NDArray[np.int32],
+        preds: NDArray[np.int32],
+        truth_mask: NDArray[np.bool_],
+        reco_mask: NDArray[np.bool_],
+    ) -> None:
+        """Evaluate one metric and record the support used to define it.
+
+        Truth and reconstruction counts describe the available point-level
+        assignments independently. The comparable count is their overlap and
+        is the population passed to the metric. This makes an absent truth
+        class distinguishable from a class that exists but was not rebuilt.
+
+        Parameters
+        ----------
+        row_dict : dict
+            Analyzer row to update.
+        name : str
+            Output metric name, including a semantic suffix when applicable.
+        func : callable
+            Clustering metric evaluated on comparable assignments.
+        labels, preds : np.ndarray
+            Truth and reconstructed cluster assignments.
+        truth_mask, reco_mask : np.ndarray
+            Point masks defining the truth and reconstruction populations.
+        """
+        comparable_mask = truth_mask & (preds > -1)
+        value = float(func(labels[comparable_mask], preds[comparable_mask]))
+
+        row_dict[name] = value
+        row_dict[f"{name}_valid"] = int(np.isfinite(value))
+        row_dict[f"{name}_num_truth_points"] = int(np.count_nonzero(truth_mask))
+        row_dict[f"{name}_num_reco_points"] = int(np.count_nonzero(reco_mask))
+        row_dict[f"{name}_num_comparable_points"] = int(
+            np.count_nonzero(comparable_mask)
+        )

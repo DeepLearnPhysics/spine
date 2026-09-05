@@ -3,10 +3,11 @@
 import numpy as np
 import pytest
 
+import spine.math.metrics as metrics_module
 from spine.math.metrics import (
+    _adjusted_mutual_info_score,
+    _adjusted_rand_score,
     _entropy,
-    adjusted_mutual_info_score,
-    adjusted_rand_score,
     ami,
     ari,
     bd,
@@ -18,51 +19,64 @@ from spine.math.metrics import (
 )
 
 
+def test_metrics_public_api_exposes_only_batch_aware_ari_and_ami():
+    """Low-level adjusted-score implementations should remain private helpers."""
+    assert "ari" in metrics_module.__all__
+    assert "ami" in metrics_module.__all__
+    assert "adjusted_rand_score" not in metrics_module.__all__
+    assert "adjusted_mutual_info_score" not in metrics_module.__all__
+
+
 def test_adjusted_rand_score_handles_perfect_random_and_empty_cases():
     """ARI should cover perfect, random-like and degenerate inputs."""
     perfect = np.array([0, 0, 1, 1], dtype=np.int32)
     crossed = np.array([0, 1, 0, 1], dtype=np.int32)
     one_cluster = np.zeros(4, dtype=np.int32)
 
-    assert adjusted_rand_score(perfect, perfect) == 1.0
-    assert adjusted_rand_score(crossed, perfect) <= 0.0
-    assert adjusted_rand_score(one_cluster, one_cluster) == 1.0
-    assert (
-        adjusted_rand_score(np.empty(0, dtype=np.int32), np.empty(0, dtype=np.int32))
-        == 1.0
+    assert _adjusted_rand_score(perfect, perfect) == 1.0
+    assert _adjusted_rand_score(crossed, perfect) <= 0.0
+    assert _adjusted_rand_score(one_cluster, one_cluster) == 1.0
+    assert _adjusted_rand_score(one_cluster, perfect) == 0.0
+    assert np.isnan(
+        _adjusted_rand_score(np.empty(0, dtype=np.int32), np.empty(0, dtype=np.int32))
+    )
+    assert np.isnan(
+        _adjusted_rand_score(
+            np.zeros(1, dtype=np.int32),
+            np.zeros(1, dtype=np.int32),
+        )
     )
 
 
 def test_adjusted_mutual_info_score_handles_common_cases():
-    """AMI should cover perfect, one-cluster and empty inputs."""
+    """AMI should cover perfect, one-cluster and undefined empty inputs."""
     perfect = np.array([0, 0, 1, 1], dtype=np.int32)
     crossed = np.array([0, 1, 0, 1], dtype=np.int32)
     one_cluster = np.zeros(4, dtype=np.int32)
 
-    assert adjusted_mutual_info_score(perfect, perfect) == 1.0
-    assert adjusted_mutual_info_score(one_cluster, one_cluster) == 1.0
-    assert adjusted_mutual_info_score(perfect, one_cluster) == 0.0
+    assert _adjusted_mutual_info_score(perfect, perfect) == 1.0
+    assert _adjusted_mutual_info_score(one_cluster, one_cluster) == 1.0
+    assert _adjusted_mutual_info_score(perfect, one_cluster) == 0.0
     assert (
-        adjusted_mutual_info_score(
+        _adjusted_mutual_info_score(
             np.array([0], dtype=np.int32),
             np.array([0], dtype=np.int32),
         )
         == 1.0
     )
-    assert adjusted_mutual_info_score(crossed, perfect) <= 1.0
+    assert _adjusted_mutual_info_score(crossed, perfect) <= 1.0
     assert (
-        adjusted_mutual_info_score(
+        _adjusted_mutual_info_score(
             np.array([0, 1], dtype=np.int32),
             np.array([0, 1], dtype=np.int32),
         )
         == 1.0
     )
-    assert (
-        adjusted_mutual_info_score(
+    assert np.isnan(
+        _adjusted_mutual_info_score(
             np.empty(0, dtype=np.int32),
             np.empty(0, dtype=np.int32),
         )
-        == 1.0
     )
 
 
@@ -74,7 +88,7 @@ def test_entropy_handles_singleton_input():
 def test_adjusted_mutual_info_score_rejects_length_mismatch():
     """AMI inputs must have matching lengths."""
     with pytest.raises(ValueError, match="same length"):
-        adjusted_mutual_info_score(
+        _adjusted_mutual_info_score(
             np.array([0, 1], dtype=np.int32),
             np.array([0], dtype=np.int32),
         )
@@ -83,7 +97,7 @@ def test_adjusted_mutual_info_score_rejects_length_mismatch():
 def test_adjusted_rand_score_rejects_length_mismatch():
     """ARI inputs must have matching lengths."""
     with pytest.raises(ValueError, match="same length"):
-        adjusted_rand_score(
+        _adjusted_rand_score(
             np.array([0, 1], dtype=np.int32),
             np.array([0], dtype=np.int32),
         )
@@ -92,12 +106,13 @@ def test_adjusted_rand_score_rejects_length_mismatch():
 def test_cluster_metrics_cover_empty_global_and_per_cluster_modes():
     """Public cluster metrics should support batch labels and both averaging modes."""
     empty = np.empty(0, dtype=np.int64)
-    assert pur(empty, empty) == -1.0
-    assert eff(empty, empty) == -1.0
-    assert pur_eff(empty, empty) == (-1.0, -1.0)
-    assert ari(empty, empty) == -1.0
-    assert ami(empty, empty) == -1.0
-    assert bd(empty, empty, empty, empty, empty, empty) == -1.0
+    assert np.isnan(pur(empty, empty))
+    assert np.isnan(eff(empty, empty))
+    assert all(np.isnan(value) for value in pur_eff(empty, empty))
+    assert np.isnan(ari(empty, empty))
+    assert np.isnan(ami(empty, empty))
+    assert np.isnan(sbd(empty, empty))
+    assert np.isnan(bd(empty, empty, empty, empty, empty, empty))
 
     truth = np.array([0, 0, 1, 1, 0, 0, 1, 1], dtype=np.int64)
     pred = np.array([0, 0, 0, 1, 0, 1, 1, 1], dtype=np.int64)
@@ -113,6 +128,36 @@ def test_cluster_metrics_cover_empty_global_and_per_cluster_modes():
     assert -1.0 <= ari(truth, pred, batches) <= 1.0
     assert -1.0 <= ami(truth, pred, batches) <= 1.0
     assert 0.0 <= sbd(truth, pred, batches) <= 1.0
+
+
+def test_cluster_metrics_have_sensible_degenerate_partition_values():
+    """All clustering scores should distinguish defined degeneracies from empties."""
+    one_cluster = np.zeros(4, dtype=np.int64)
+    two_clusters = np.array([0, 0, 1, 1], dtype=np.int64)
+
+    # Identical nonempty partitions are perfect for every metric.
+    assert pur(one_cluster, one_cluster) == 1.0
+    assert eff(one_cluster, one_cluster) == 1.0
+    assert pur_eff(one_cluster, one_cluster) == (1.0, 1.0)
+    assert ari(one_cluster, one_cluster) == 1.0
+    assert ami(one_cluster, one_cluster) == 1.0
+    assert sbd(one_cluster, one_cluster) == 1.0
+
+    # One cluster versus two is defined rather than an invalid sentinel.
+    assert pur(one_cluster, two_clusters) == 1.0
+    assert eff(one_cluster, two_clusters) == 0.5
+    assert pur_eff(one_cluster, two_clusters) == (1.0, 0.5)
+    assert ari(one_cluster, two_clusters) == 0.0
+    assert ami(one_cluster, two_clusters) == 0.0
+    assert sbd(one_cluster, two_clusters) == pytest.approx(2.0 / 3.0)
+
+    singleton = np.zeros(1, dtype=np.int64)
+    assert pur(singleton, singleton) == 1.0
+    assert eff(singleton, singleton) == 1.0
+    assert pur_eff(singleton, singleton) == (1.0, 1.0)
+    assert np.isnan(ari(singleton, singleton))
+    assert ami(singleton, singleton) == 1.0
+    assert sbd(singleton, singleton) == 1.0
 
 
 def test_unique_labels_and_best_dice_known_partition():

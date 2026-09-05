@@ -61,12 +61,60 @@ def test_cluster_ana_truth_index_mode_selects_truth_object_index(monkeypatch):
     assert row["num_truth"] == 2
     assert row["num_reco"] == 2
     assert row["ari"] == 1.0
+    assert row["ari_valid"] == 1
+    assert row["ari_num_truth_points"] == 4
+    assert row["ari_num_reco_points"] == 4
+    assert row["ari_num_comparable_points"] == 4
 
 
 def test_cluster_ana_truth_index_mode_defaults_to_index_adapt(monkeypatch):
     row = _run_particle_cluster_ana(monkeypatch)
 
     assert row["ari"] != 1.0
+
+
+def test_cluster_ana_rebuilds_truth_and_reco_shapes_from_objects(monkeypatch):
+    """Object-backed evaluation should retain independent class support counts."""
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    ana = ClusterAna(
+        obj_type="particle",
+        use_objects=True,
+        per_shape=True,
+        metrics=("ari",),
+        truth_index_mode="index",
+    )
+
+    ana.process(
+        {
+            "points": np.zeros((4, 3), dtype=np.float32),
+            "truth_particles": [
+                TruthParticle(
+                    index=np.array([0, 1], dtype=np.int32),
+                    shape=0,
+                ),
+                TruthParticle(
+                    index=np.array([2, 3], dtype=np.int32),
+                    shape=1,
+                ),
+            ],
+            "reco_particles": [
+                RecoParticle(index=np.array([0, 1], dtype=np.int32), shape=0),
+                RecoParticle(index=np.array([2, 3], dtype=np.int32), shape=1),
+            ],
+        }
+    )
+
+    row = rows[0]
+    assert row["ari_0"] == 1.0
+    assert row["ari_0_num_truth_points"] == 2
+    assert row["ari_0_num_reco_points"] == 2
+    assert row["ari_1"] == 1.0
+    assert row["ari_1_num_truth_points"] == 2
+    assert row["ari_1_num_reco_points"] == 2
 
 
 def test_cluster_ana_validates_configuration(monkeypatch):
@@ -135,6 +183,57 @@ def test_cluster_ana_raw_per_object_mode(monkeypatch):
     assert rows[0][1]["ari"] == 1.0
     assert rows[0][1]["ari_0"] == 1.0
     assert rows[0][1]["ari_1"] == 1.0
+    assert np.isnan(rows[0][1]["ari_2"])
+    assert rows[0][1]["ari_2_valid"] == 0
+    assert rows[0][1]["ari_2_num_truth_points"] == 0
+    assert rows[0][1]["ari_2_num_reco_points"] == 0
+    assert rows[0][1]["ari_2_num_comparable_points"] == 0
+
+
+def test_cluster_ana_distinguishes_missing_class_from_reconstruction_failure(
+    monkeypatch,
+):
+    """Per-class support should identify present truth with no reconstructed points."""
+    rows = []
+    monkeypatch.setattr(ClusterAna, "initialize_writer", lambda self, name: None)
+    monkeypatch.setattr(
+        ClusterAna, "append", lambda self, name, **kwargs: rows.append(kwargs)
+    )
+    labels = ClusterLabelData(
+        np.asarray(
+            [
+                [0, 0, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0],
+                [2, 0, 0, 1, 1, 1],
+                [3, 0, 0, 1, 1, 1],
+            ],
+            dtype=np.float32,
+        ),
+        {"shape": np.asarray([0, 1])},
+    )
+    ana = ClusterAna(
+        obj_type="fragment",
+        use_objects=False,
+        per_shape=True,
+        metrics=("ari",),
+    )
+
+    ana.process(
+        {
+            "clust_label_adapt": labels,
+            "fragment_clusts": [np.array([0, 1], dtype=np.int32)],
+            "fragment_shapes": [0],
+        }
+    )
+
+    row = rows[0]
+    assert np.isnan(row["ari_1"])
+    assert row["ari_1_valid"] == 0
+    assert row["ari_1_num_truth_points"] == 2
+    assert row["ari_1_num_reco_points"] == 0
+    assert row["ari_1_num_comparable_points"] == 0
+    assert np.isnan(row["ari_2"])
+    assert row["ari_2_num_truth_points"] == 0
 
 
 def test_cluster_ana_time_filters_raw_per_object_labels(monkeypatch):
@@ -186,7 +285,18 @@ def test_cluster_ana_time_filters_raw_per_object_labels(monkeypatch):
         }
     )
 
-    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
+    assert rows == [
+        {
+            "num_points": 4,
+            "num_truth": 1,
+            "num_reco": 2,
+            "ari": 1.0,
+            "ari_valid": 1,
+            "ari_num_truth_points": 2,
+            "ari_num_reco_points": 4,
+            "ari_num_comparable_points": 2,
+        }
+    ]
     np.testing.assert_array_equal(labels.data, labels_before)
 
 
@@ -234,6 +344,10 @@ def test_cluster_ana_standalone_mode(monkeypatch):
                 "num_truth": 2,
                 "num_reco": 2,
                 "ari": 1.0,
+                "ari_valid": 1,
+                "ari_num_truth_points": 4,
+                "ari_num_reco_points": 4,
+                "ari_num_comparable_points": 4,
             },
         )
     ]
@@ -287,7 +401,18 @@ def test_cluster_ana_time_filters_standalone_labels(monkeypatch):
         }
     )
 
-    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
+    assert rows == [
+        {
+            "num_points": 4,
+            "num_truth": 1,
+            "num_reco": 2,
+            "ari": 1.0,
+            "ari_valid": 1,
+            "ari_num_truth_points": 2,
+            "ari_num_reco_points": 4,
+            "ari_num_comparable_points": 2,
+        }
+    ]
 
 
 def test_cluster_ana_does_not_produce_per_shape_interaction_metrics(monkeypatch):
@@ -316,7 +441,18 @@ def test_cluster_ana_does_not_produce_per_shape_interaction_metrics(monkeypatch)
         }
     )
 
-    assert rows == [{"num_points": 2, "num_truth": 1, "num_reco": 1, "ari": 1.0}]
+    assert rows == [
+        {
+            "num_points": 2,
+            "num_truth": 1,
+            "num_reco": 1,
+            "ari": 1.0,
+            "ari_valid": 1,
+            "ari_num_truth_points": 2,
+            "ari_num_reco_points": 2,
+            "ari_num_comparable_points": 2,
+        }
+    ]
 
 
 @pytest.mark.parametrize("obj_type", ("fragment", "particle", "interaction"))
@@ -362,4 +498,15 @@ def test_cluster_ana_time_filters_truth_objects(monkeypatch, obj_type):
         }
     )
 
-    assert rows == [{"num_points": 4, "num_truth": 1, "num_reco": 2, "ari": 1.0}]
+    assert rows == [
+        {
+            "num_points": 4,
+            "num_truth": 1,
+            "num_reco": 2,
+            "ari": 1.0,
+            "ari_valid": 1,
+            "ari_num_truth_points": 2,
+            "ari_num_reco_points": 4,
+            "ari_num_comparable_points": 2,
+        }
+    ]

@@ -33,8 +33,9 @@ class ClusterSummaryRecipe(ReportRecipe):
     their analyzer records do not contain per-shape columns.
 
     The serialized result stores overall and per-class distributions under
-    ``levels``. Each distribution contains sufficient statistics and bin
-    edges needed to reproduce its plot exactly.
+    ``levels``. Each distribution contains sufficient statistics, validity
+    and assignment-support counts, and bin edges needed to reproduce its plot
+    exactly. Undefined aggregate statistics are serialized as JSON ``null``.
     """
 
     name = "cluster_summary"
@@ -146,7 +147,11 @@ class ClusterSummaryRecipe(ReportRecipe):
                         f"Missing clustering columns {sorted(missing)} in {path}."
                     )
                 for metric, accumulator in accumulators.items():
-                    self._update_accumulator(accumulator, chunk[metric].to_numpy())
+                    self._update_accumulator(
+                        accumulator,
+                        chunk[metric].to_numpy(),
+                        self._metric_support(chunk, metric),
+                    )
                     # Per-shape analyzer columns follow ``<metric>_<shape>``.
                     # Mapping several shapes into one group pools their
                     # sufficient statistics in the same accumulator.
@@ -158,6 +163,7 @@ class ClusterSummaryRecipe(ReportRecipe):
                                 self._update_accumulator(
                                     group_accumulator,
                                     chunk[column].to_numpy(),
+                                    self._metric_support(chunk, column),
                                 )
                 counts.update(path, chunk)
                 row_count += len(chunk)
@@ -199,21 +205,30 @@ class ClusterSummaryRecipe(ReportRecipe):
         """
         return {
             "count": 0,
+            "rows": 0,
             "sum": 0.0,
             "sum_sq": 0.0,
             "histogram": np.zeros(len(edges) - 1, dtype=np.int64),
             "edges": edges,
+            "support_rows": 0,
+            "truth_points": 0,
+            "reco_points": 0,
+            "comparable_points": 0,
+            "missing_truth": 0,
+            "missing_reconstruction": 0,
         }
 
     @staticmethod
     def _update_accumulator(
-        accumulator: dict[str, Any], raw_values: np.ndarray
+        accumulator: dict[str, Any],
+        raw_values: np.ndarray,
+        support: Mapping[str, np.ndarray] | None = None,
     ) -> None:
-        """Add finite values within the configured metric range.
+        """Add finite values and optional assignment-support information.
 
-        Values outside the histogram range are excluded from both the
-        histogram and scalar moments so every serialized statistic describes
-        the same population.
+        Only non-finite values are excluded from scalar statistics. Valid
+        finite values such as ARI ``-1`` and ``0`` are retained. Metric values
+        are expected to respect their configured histogram range.
 
         Parameters
         ----------
@@ -221,10 +236,13 @@ class ClusterSummaryRecipe(ReportRecipe):
             Mutable state returned by :meth:`_new_accumulator`.
         raw_values : np.ndarray
             Values read from one CSV chunk.
+        support : mapping of str to np.ndarray, optional
+            Truth, reconstruction and comparable point counts recorded beside
+            the metric by the clustering analyzer.
         """
         values = np.asarray(raw_values, dtype=np.float64)
-        lower, upper = accumulator["edges"][[0, -1]]
-        values = values[np.isfinite(values) & (values >= lower) & (values <= upper)]
+        accumulator["rows"] += len(values)
+        values = values[np.isfinite(values)]
         accumulator["count"] += len(values)
         accumulator["sum"] += float(values.sum())
         accumulator["sum_sq"] += float(np.square(values).sum())
@@ -232,6 +250,52 @@ class ClusterSummaryRecipe(ReportRecipe):
             values,
             bins=accumulator["edges"],
         )[0]
+
+        if support is not None:
+            truth = np.asarray(support["truth"], dtype=np.int64)
+            reco = np.asarray(support["reco"], dtype=np.int64)
+            comparable = np.asarray(support["comparable"], dtype=np.int64)
+            accumulator["support_rows"] += len(truth)
+            accumulator["truth_points"] += int(truth.sum())
+            accumulator["reco_points"] += int(reco.sum())
+            accumulator["comparable_points"] += int(comparable.sum())
+            accumulator["missing_truth"] += int(np.count_nonzero(truth == 0))
+            accumulator["missing_reconstruction"] += int(
+                np.count_nonzero((truth > 0) & (comparable == 0))
+            )
+
+    @staticmethod
+    def _metric_support(
+        chunk: pd.DataFrame, metric: str
+    ) -> dict[str, np.ndarray] | None:
+        """Read point-support columns associated with one metric column.
+
+        Older analyzer files remain reportable: when the support columns are
+        absent, distribution validity can still be inferred from finite metric
+        values, while unavailable support totals are emitted as JSON ``null``.
+
+        Parameters
+        ----------
+        chunk : pandas.DataFrame
+            Analyzer output chunk.
+        metric : str
+            Overall or per-class metric column name.
+
+        Returns
+        -------
+        dict or None
+            Truth, reconstruction and comparable point arrays, or ``None``
+            when the analyzer file predates support accounting.
+        """
+        suffixes = {
+            "truth": "num_truth_points",
+            "reco": "num_reco_points",
+            "comparable": "num_comparable_points",
+        }
+        columns = {key: f"{metric}_{suffix}" for key, suffix in suffixes.items()}
+        if not all(column in chunk for column in columns.values()):
+            return None
+        return {key: chunk[column].to_numpy() for key, column in columns.items()}
 
     @staticmethod
     def _finish_accumulator(accumulator: Mapping[str, Any]) -> dict[str, Any]:
@@ -254,6 +318,24 @@ class ClusterSummaryRecipe(ReportRecipe):
             value_sum=accumulator["sum"],
             value_sum_sq=accumulator["sum_sq"],
         )
+        result["validity"] = {
+            "rows": accumulator["rows"],
+            "valid": accumulator["count"],
+            "invalid": accumulator["rows"] - accumulator["count"],
+        }
+        has_support = accumulator["support_rows"] > 0
+        result["support"] = {
+            "rows": accumulator["support_rows"],
+            "truth_points": accumulator["truth_points"] if has_support else None,
+            "reco_points": accumulator["reco_points"] if has_support else None,
+            "comparable_points": (
+                accumulator["comparable_points"] if has_support else None
+            ),
+            "missing_truth": accumulator["missing_truth"] if has_support else None,
+            "missing_reconstruction": (
+                accumulator["missing_reconstruction"] if has_support else None
+            ),
+        }
         result["histogram_edges"] = accumulator["edges"].tolist()
         return result
 

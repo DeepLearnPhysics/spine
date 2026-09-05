@@ -213,7 +213,16 @@ def test_input_counts_prefers_physical_event_identity(tmp_path):
 def test_cluster_recipe_reduces_per_class_columns(tmp_path):
     """Per-shape analyzer columns should feed their class distributions."""
     path = tmp_path / "cluster.csv"
-    pd.DataFrame({"ari": [0.5], "ari_0": [0.75]}).to_csv(path, index=False)
+    pd.DataFrame(
+        {
+            "ari": [0.5],
+            "ari_0": [0.75],
+            "ari_0_valid": [1],
+            "ari_0_num_truth_points": [4],
+            "ari_0_num_reco_points": [3],
+            "ari_0_num_comparable_points": [3],
+        }
+    ).to_csv(path, index=False)
     recipe = ClusterSummaryRecipe(
         "clustering", {"metric_names": ["ari"], "classes": ["shower"]}
     )
@@ -223,6 +232,60 @@ def test_cluster_recipe_reduces_per_class_columns(tmp_path):
     assert summary["levels"]["fragment"]["by_class"]["Shower"]["ari"][
         "mean"
     ] == pytest.approx(0.75)
+    support = summary["levels"]["fragment"]["by_class"]["Shower"]["ari"]["support"]
+    assert support == {
+        "rows": 1,
+        "truth_points": 4,
+        "reco_points": 3,
+        "comparable_points": 3,
+        "missing_truth": 0,
+        "missing_reconstruction": 0,
+    }
+
+
+def test_cluster_recipe_retains_finite_values_and_serializes_empty_as_null(tmp_path):
+    """ARI sentinels must be non-finite while legitimate -1 and 0 remain data."""
+    path = tmp_path / "cluster.csv"
+    pd.DataFrame(
+        {
+            "ari": [-1.0, 0.0, np.nan],
+            "ari_valid": [1, 1, 0],
+            "ari_num_truth_points": [4, 3, 2],
+            "ari_num_reco_points": [4, 3, 0],
+            "ari_num_comparable_points": [4, 3, 0],
+            "ari_0": [np.nan, np.nan, np.nan],
+            "ari_0_valid": [0, 0, 0],
+            "ari_0_num_truth_points": [0, 0, 2],
+            "ari_0_num_reco_points": [0, 0, 0],
+            "ari_0_num_comparable_points": [0, 0, 0],
+        }
+    ).to_csv(path, index=False)
+    recipe = ClusterSummaryRecipe(
+        "clustering", {"metric_names": ["ari"], "classes": ["shower"]}
+    )
+
+    summary = recipe.reduce({"fragment": [path]})
+    overall = summary["levels"]["fragment"]["metrics"]["ari"]
+    assert overall["count"] == 2
+    assert overall["mean"] == pytest.approx(-0.5)
+    assert overall["validity"] == {"rows": 3, "valid": 2, "invalid": 1}
+    assert overall["support"] == {
+        "rows": 3,
+        "truth_points": 9,
+        "reco_points": 7,
+        "comparable_points": 7,
+        "missing_truth": 0,
+        "missing_reconstruction": 1,
+    }
+
+    empty = summary["levels"]["fragment"]["by_class"]["Shower"]["ari"]
+    assert empty["count"] == 0
+    assert empty["mean"] is None
+    assert empty["std"] is None
+    assert empty["validity"] == {"rows": 3, "valid": 0, "invalid": 3}
+    assert empty["support"]["missing_truth"] == 2
+    assert empty["support"]["missing_reconstruction"] == 1
+    assert '"mean": null' in json.dumps(empty, allow_nan=False)
 
 
 def test_cluster_recipe_rejects_missing_metric_columns(tmp_path):

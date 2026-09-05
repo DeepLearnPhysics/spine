@@ -216,8 +216,7 @@ Math modules
 .. autosummary::
    :toctree: generated/modules
 
-   spine.math.metrics.base
-   spine.math.metrics.cluster
+   spine.math.metrics
 
 Model modules
 -------------
