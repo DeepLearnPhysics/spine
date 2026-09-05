@@ -4,10 +4,12 @@ import numpy as np
 import pytest
 import torch
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch, TensorSchema
 from spine.model.grappa.augment import (
     EdgeDropout,
     EdgeSelection,
+    FeatureMask,
+    FeatureNoise,
     NodeDropout,
     NodeSelection,
 )
@@ -130,6 +132,118 @@ def test_edge_selection_composes_original_axis_masks() -> None:
 
     with pytest.raises(ValueError, match="must align"):
         first.compose(EdgeSelection(TensorBatch(np.ones(3), counts=[1, 2])))
+
+
+def test_feature_mask_samples_named_columns_per_event(monkeypatch) -> None:
+    """Each event shares a decision for every resolved feature column."""
+    schema = TensorSchema(
+        feature_fields={"position": (0, 1), "value": (2,)}, feats_only=True
+    )
+    batch = TensorBatch(np.arange(15.0).reshape(5, 3), counts=[2, 3], schema=schema)
+    monkeypatch.setattr(
+        np.random,
+        "random",
+        lambda shape: np.array([[0.1, 0.9], [0.8, 0.2]]),
+    )
+
+    result = FeatureMask(0.5, columns="position", fill_value=-1.0)(batch)
+
+    np.testing.assert_array_equal(
+        result.data,
+        [
+            [-1.0, 1.0, 2.0],
+            [-1.0, 4.0, 5.0],
+            [6.0, -1.0, 8.0],
+            [9.0, -1.0, 11.0],
+            [12.0, -1.0, 14.0],
+        ],
+    )
+    np.testing.assert_array_equal(batch.data, np.arange(15.0).reshape(5, 3))
+    assert result.schema is schema
+
+
+def test_feature_mask_supports_elementwise_torch_scalars(monkeypatch) -> None:
+    """Element masks preserve Torch autograd and scalar feature layout."""
+    values = torch.tensor([1.0, 2.0, 3.0], requires_grad=True)
+    batch = TensorBatch(values, counts=[2, 1])
+    monkeypatch.setattr(
+        np.random, "random", lambda shape: np.array([[0.1], [0.9], [0.2]])
+    )
+
+    result = FeatureMask(0.5, granularity="element")(batch)
+    result.data.sum().backward()
+
+    assert result.data.tolist() == [0.0, 2.0, 0.0]
+    assert values.grad.tolist() == [0.0, 1.0, 0.0]
+
+
+def test_feature_noise_supports_event_relative_noise(monkeypatch) -> None:
+    """Relative event noise applies one column perturbation to all event rows."""
+    batch = TensorBatch(np.ones((3, 3)), counts=[2, 1])
+    monkeypatch.setattr(
+        np.random,
+        "normal",
+        lambda size: np.array([[1.0, -1.0], [2.0, 0.5]]),
+    )
+
+    result = FeatureNoise([0.1, 0.2], columns=[0, -1], mode="relative")(batch)
+
+    np.testing.assert_allclose(
+        result.data,
+        [[1.1, 1.0, 0.8], [1.1, 1.0, 0.8], [1.2, 1.0, 1.1]],
+    )
+    np.testing.assert_array_equal(batch.data, np.ones((3, 3)))
+
+
+def test_feature_noise_supports_elementwise_torch_noise(monkeypatch) -> None:
+    """Additive element noise stays on the Torch backend and remains differentiable."""
+    values = torch.ones((2, 2), requires_grad=True)
+    batch = TensorBatch(values, counts=[2])
+    monkeypatch.setattr(
+        np.random,
+        "normal",
+        lambda size: np.array([[1.0, 2.0], [3.0, 4.0]]),
+    )
+
+    result = FeatureNoise(0.5, granularity="element")(batch)
+    result.data.sum().backward()
+
+    assert isinstance(result.data, torch.Tensor)
+    assert result.data.tolist() == [[1.5, 2.0], [2.5, 3.0]]
+    assert values.grad.tolist() == [[1.0, 1.0], [1.0, 1.0]]
+
+
+def test_feature_augmentations_validate_configuration_and_inputs() -> None:
+    """Reject invalid selectors, distributions and incompatible features."""
+    with pytest.raises(ValueError, match="granularity"):
+        FeatureMask(0.1, granularity="batch")
+    with pytest.raises(ValueError, match="must not be empty"):
+        FeatureMask(0.1, columns=[])
+    with pytest.raises(TypeError, match="integer indexes or field names"):
+        FeatureMask(0.1, columns=[0.5])
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        FeatureMask(1.1)
+    with pytest.raises(ValueError, match="mode"):
+        FeatureNoise(0.1, mode="scale")
+    with pytest.raises(ValueError, match="finite nonnegative"):
+        FeatureNoise([-0.1])
+    with pytest.raises(ValueError, match="finite nonnegative"):
+        FeatureNoise(np.nan)
+    with pytest.raises(ValueError, match="must not be empty"):
+        FeatureNoise([])
+
+    batch = TensorBatch(np.ones((2, 2)), counts=[2])
+    with pytest.raises(IndexError, match="out of bounds"):
+        FeatureMask(0.1, columns=2)(batch)
+    with pytest.raises(KeyError, match="Unknown feature field"):
+        FeatureMask(0.1, columns="missing")(batch)
+    with pytest.raises(ValueError, match="one value per"):
+        FeatureNoise([0.1, 0.2], columns=[0])(batch)
+    with pytest.raises(TypeError, match="floating-point"):
+        FeatureNoise(0.1)(TensorBatch(np.ones((2, 2), dtype=np.int64), counts=[2]))
+
+    torch_batch = TensorBatch(torch.ones((1, 1)), counts=[1])
+    assert FeatureMask(0.0)(torch_batch).data.tolist() == [[1.0]]
 
 
 def test_node_dropout_samples_individual_nodes_per_event(monkeypatch) -> None:

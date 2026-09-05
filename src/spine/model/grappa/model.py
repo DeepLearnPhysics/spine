@@ -33,7 +33,14 @@ from spine.model.grappa.evaluation import (
 )
 
 from ..registry import ModelSpec
-from .augment import EdgeDropout, EdgeSelection, NodeDropout, NodeSelection
+from .augment import (
+    EdgeDropout,
+    EdgeSelection,
+    FeatureMask,
+    FeatureNoise,
+    NodeDropout,
+    NodeSelection,
+)
 from .factories import (
     FeatureEncoder,
     GNNModel,
@@ -124,6 +131,10 @@ class GrapPA(torch.nn.Module):
         self.dbscan: DBSCAN | None = None
         self.edge_dropout: EdgeDropout | None = None
         self.node_dropout: NodeDropout | None = None
+        self.node_feature_mask: FeatureMask | None = None
+        self.edge_feature_mask: FeatureMask | None = None
+        self.node_feature_noise: FeatureNoise | None = None
+        self.edge_feature_noise: FeatureNoise | None = None
         self.return_features = False
         self.node_pred_keys: list[str] = []
         self.edge_pred_keys: list[str] = []
@@ -224,6 +235,8 @@ class GrapPA(torch.nn.Module):
         self,
         edge_dropout: dict[str, Any] | None = None,
         node_dropout: dict[str, Any] | None = None,
+        feature_mask: dict[str, dict[str, Any]] | None = None,
+        feature_noise: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         """Process training-only graph augmentation options.
 
@@ -236,11 +249,47 @@ class GrapPA(torch.nn.Module):
             Random node-dropout configuration. Besides ``probability``, an
             optional ``group_by`` cluster-label field makes one shared decision
             for each physical node group.
+        feature_mask : dict, optional
+            Node and/or edge feature-mask blocks. Each accepts a masking
+            ``probability``, optional ``columns``, ``granularity`` and
+            ``fill_value``.
+        feature_noise : dict, optional
+            Node and/or edge Gaussian feature-noise blocks. Each accepts
+            ``sigma``, optional ``columns``, ``granularity`` and ``mode``.
         """
         if edge_dropout is not None:
             self.edge_dropout = EdgeDropout(**edge_dropout)
         if node_dropout is not None:
             self.node_dropout = NodeDropout(**node_dropout)
+        if feature_mask is not None:
+            self._process_feature_augment(feature_mask, FeatureMask, "mask")
+        if feature_noise is not None:
+            self._process_feature_augment(feature_noise, FeatureNoise, "noise")
+
+    def _process_feature_augment(
+        self,
+        config: dict[str, dict[str, Any]],
+        constructor: type[FeatureMask] | type[FeatureNoise],
+        name: str,
+    ) -> None:
+        """Construct node/edge instances of one feature augmentation.
+
+        Parameters
+        ----------
+        config : dict
+            Mapping from ``"node"`` and/or ``"edge"`` to constructor options.
+        constructor : type
+            :class:`FeatureMask` or :class:`FeatureNoise`.
+        name : str
+            Attribute suffix used to store the configured augmenter.
+        """
+        for target, target_config in config.items():
+            if target not in ("node", "edge"):
+                raise ValueError(
+                    f"Feature augmentation target must be 'node' or 'edge', "
+                    f"not `{target}`."
+                )
+            setattr(self, f"{target}_feature_{name}", constructor(**target_config))
 
     def process_node_config(
         self,
@@ -740,6 +789,29 @@ class GrapPA(torch.nn.Module):
                 else edge_selection.compose(incident_selection)
             )
             result["node_keep"] = node_selection.keep
+
+        # Corrupt features only after the structural graph is finalized. Noise
+        # precedes masking so additive perturbations cannot refill masked values.
+        if self.training:
+            if self.node_feature_noise is not None:
+                node_features = self.node_feature_noise(node_features)
+            if self.node_feature_mask is not None:
+                node_features = self.node_feature_mask(node_features)
+
+            if self.edge_feature_noise is not None:
+                if edge_features is None:
+                    raise ValueError(
+                        "Edge feature noise requires materialized or encoded "
+                        "`edge_features`."
+                    )
+                edge_features = self.edge_feature_noise(edge_features)
+            if self.edge_feature_mask is not None:
+                if edge_features is None:
+                    raise ValueError(
+                        "Edge feature masking requires materialized or encoded "
+                        "`edge_features`."
+                    )
+                edge_features = self.edge_feature_mask(edge_features)
 
         result["edge_index"] = edge_index
         if edge_selection is not None:

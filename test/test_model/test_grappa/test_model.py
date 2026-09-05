@@ -639,6 +639,102 @@ def test_grappa_edge_dropout_precedes_dynamic_edge_encoding(
     assert result["edge_index"].shape == (2, 0)
 
 
+def test_grappa_augments_materialized_node_and_edge_features(monkeypatch):
+    """Noise then masking operate at the common pre-GNN feature boundary."""
+    config = shower_model_config()
+    config["augment"] = {
+        "feature_noise": {
+            "node": {"sigma": 1.0, "columns": [0]},
+            "edge": {"sigma": 0.5, "columns": [1], "mode": "relative"},
+        },
+        "feature_mask": {
+            "node": {"probability": 1.0, "columns": [0]},
+            "edge": {"probability": 1.0, "columns": [0]},
+        },
+    }
+    model = GrapPA(config)
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 2
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert edges is not None
+            if model.training:
+                assert nodes.data.tolist() == [[0.0, 1.0]] * 3
+                assert edges.data.tolist() == [[0.0, 2.0], [0.0, 2.0]]
+            return {}
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    model.return_features = True
+    node_features = TensorBatch(torch.ones((3, 2)), counts=[2, 1])
+    edge_features = TensorBatch(torch.ones((2, 2)), counts=[2, 0])
+    edge_index = EdgeIndexBatch(
+        torch.tensor([[0, 1], [1, 0]]),
+        counts=[2, 0],
+        spans=[2, 1],
+        directed=False,
+    )
+    noise_samples = iter((np.ones((2, 1)), np.array([[2.0], [3.0]])))
+    monkeypatch.setattr(np.random, "normal", lambda size: next(noise_samples))
+    monkeypatch.setattr(np.random, "random", lambda shape: np.zeros(shape))
+
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+
+    assert result["node_features"].data.tolist() == [[0.0, 1.0]] * 3
+    assert result["edge_features"].data.tolist() == [[0.0, 2.0], [0.0, 2.0]]
+    assert node_features.data.tolist() == [[1.0, 1.0]] * 3
+
+    model.eval()
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+    assert result["node_features"] is node_features
+    assert result["edge_features"] is edge_features
+
+
+def test_grappa_validates_feature_augmentation_targets_and_products():
+    """Reject unknown feature families and absent configured edge features."""
+    config = shower_model_config()
+    config["augment"] = {"feature_mask": {"global": {"probability": 0.1}}}
+    with pytest.raises(ValueError, match="target must be 'node' or 'edge'"):
+        GrapPA(config)
+
+    config = shower_model_config()
+    config.pop("edge_encoder")
+    config["augment"] = {
+        "feature_noise": {"edge": {"sigma": 0.1}},
+        "feature_mask": {"edge": {"probability": 0.1}},
+    }
+    model = GrapPA(config)
+    model.make_groups = False
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    node_features = TensorBatch(torch.ones((1, model.gnn.node_feats)), counts=[1])
+    edge_index = EdgeIndexBatch(
+        torch.empty((2, 0), dtype=torch.long), [0], [1], directed=False
+    )
+
+    with pytest.raises(ValueError, match="Edge feature noise requires"):
+        model(node_features=node_features, edge_index=edge_index)
+
+    model.edge_feature_noise = None
+    with pytest.raises(ValueError, match="Edge feature masking requires"):
+        model(node_features=node_features, edge_index=edge_index)
+
+
 def test_grappa_grouped_node_dropout_filters_materialized_graph(monkeypatch):
     """Materialized node groups drive coherent node and incident-edge removal."""
     config = shower_model_config()

@@ -12,7 +12,14 @@ from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.utils.conditional import torch
 
-__all__ = ["EdgeDropout", "EdgeSelection", "NodeDropout", "NodeSelection"]
+__all__ = [
+    "EdgeDropout",
+    "EdgeSelection",
+    "FeatureMask",
+    "FeatureNoise",
+    "NodeDropout",
+    "NodeSelection",
+]
 
 
 class _BatchSelection:
@@ -240,6 +247,258 @@ class NodeSelection(_BatchSelection):
             edge_index.directed,
         )
         return filtered, edge_selection
+
+
+class _FeatureAugment:
+    """Shared feature-column and sampling helpers for graph augmentation."""
+
+    def __init__(
+        self,
+        columns: int | str | Sequence[int | str] | None,
+        granularity: str,
+    ) -> None:
+        if granularity not in ("event", "element"):
+            raise ValueError(
+                "Feature augmentation `granularity` must be 'event' or 'element'."
+            )
+
+        self.columns = self._normalize_columns(columns)
+        self.granularity = granularity
+
+    def _resolve_columns(self, batch: TensorBatch) -> np.ndarray:
+        """Map logical indexes and schema fields onto packed tensor columns."""
+        feature_columns = batch.feature_columns()
+        if self.columns is None:
+            return feature_columns
+
+        resolved = []
+        for column in self.columns:
+            if isinstance(column, str):
+                resolved.extend(batch.feature_columns(column).tolist())
+                continue
+
+            index = int(column)
+            if index < 0:
+                index += len(feature_columns)
+            if index < 0 or index >= len(feature_columns):
+                raise IndexError(
+                    f"Feature column {column} is out of bounds for a width of "
+                    f"{len(feature_columns)}."
+                )
+            resolved.append(int(feature_columns[index]))
+
+        # Repeated fields should not perturb one physical column more than once.
+        return np.asarray(list(dict.fromkeys(resolved)), dtype=np.int64)
+
+    def _expand_samples(self, samples: np.ndarray, batch: TensorBatch) -> np.ndarray:
+        """Expand event-level samples onto rows, or return element samples."""
+        if self.granularity == "element":
+            return samples
+
+        counts = batch.counts
+        if not isinstance(counts, np.ndarray):
+            counts = counts.detach().cpu().numpy()
+        counts = counts.astype(np.int64, copy=False)
+        return np.repeat(samples, counts, axis=0)
+
+    @staticmethod
+    def _copy_data(batch: TensorBatch) -> Any:
+        """Copy feature storage without detaching Torch autograd history."""
+        return batch.data.copy() if batch.is_numpy else batch.data.clone()
+
+    @staticmethod
+    def _feature_view(data: Any) -> Any:
+        """Represent scalar feature batches as a two-dimensional matrix."""
+        return data[:, None] if data.ndim == 1 else data
+
+    @staticmethod
+    def _rebuild(batch: TensorBatch, data: Any) -> TensorBatch:
+        """Rebuild an augmented batch while retaining logical metadata."""
+        return TensorBatch(
+            data,
+            batch.counts,
+            has_batch_col=batch.has_batch_col,
+            coord_cols=batch.coord_cols,
+            schema=batch.schema,
+            meta=batch.meta,
+        )
+
+    @staticmethod
+    def _normalize_columns(
+        columns: int | str | Sequence[int | str] | None,
+    ) -> list[int | str] | None:
+        """Normalize a scalar or sequence of logical feature selectors."""
+        if columns is None:
+            return None
+        if isinstance(columns, (int, str)):
+            columns = [columns]
+        else:
+            columns = list(columns)
+        if len(columns) == 0:
+            raise ValueError("Feature augmentation `columns` must not be empty.")
+        if any(not isinstance(column, (int, str)) for column in columns):
+            raise TypeError("Feature columns must be integer indexes or field names.")
+        return columns
+
+
+class FeatureMask(_FeatureAugment):
+    """Stochastically replace selected graph-feature columns.
+
+    A decision is sampled independently for each selected column. With the
+    default event granularity, all nodes or edges in one event share that
+    column decision. Element granularity samples each node or edge separately.
+
+    Parameters
+    ----------
+    probability : float
+        Probability of masking each selected event-column or element-column.
+        Must lie in the closed interval ``[0, 1]``.
+    columns : int, str or sequence, optional
+        Logical feature indexes or named schema fields to mask. If omitted,
+        all non-coordinate, non-batch feature columns are eligible.
+    granularity : str, default 'event'
+        Sampling unit, either ``"event"`` or ``"element"``.
+    fill_value : float, default 0.0
+        Value assigned to masked features.
+    """
+
+    def __init__(
+        self,
+        probability: float,
+        columns: int | str | Sequence[int | str] | None = None,
+        granularity: str = "event",
+        fill_value: float = 0.0,
+    ) -> None:
+        super().__init__(columns, granularity)
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("Feature-mask probability must be between 0 and 1.")
+
+        self.probability = float(probability)
+        self.fill_value = fill_value
+
+    def __call__(self, batch: TensorBatch) -> TensorBatch:
+        """Mask selected columns in a graph-feature batch.
+
+        Parameters
+        ----------
+        batch : TensorBatch
+            Node- or edge-feature batch to augment.
+
+        Returns
+        -------
+        TensorBatch
+            Augmented copy with the original partition and schema.
+        """
+        columns = self._resolve_columns(batch)
+        num_elements = len(batch.data)
+        num_units = batch.batch_size if self.granularity == "event" else num_elements
+        sampled = np.random.random((num_units, len(columns))) < self.probability
+        mask = self._expand_samples(sampled, batch)
+
+        data = self._copy_data(batch)
+        view = self._feature_view(data)
+        if batch.is_numpy:
+            view[:, columns] = np.where(mask, self.fill_value, view[:, columns])
+        else:
+            backend_mask = torch.as_tensor(mask, dtype=torch.bool, device=batch.device)
+            selected = view[:, columns]
+            fill = torch.as_tensor(
+                self.fill_value, dtype=selected.dtype, device=batch.device
+            )
+            view[:, columns] = torch.where(backend_mask, fill, selected)
+
+        return self._rebuild(batch, data)
+
+
+class FeatureNoise(_FeatureAugment):
+    """Apply Gaussian noise to selected continuous graph features.
+
+    Parameters
+    ----------
+    sigma : float or sequence of float
+        Gaussian standard deviation. A scalar is shared by all selected
+        columns; a sequence must contain one value per resolved column.
+    columns : int, str or sequence, optional
+        Logical feature indexes or named schema fields to perturb. If omitted,
+        all non-coordinate, non-batch feature columns are selected.
+    granularity : str, default 'event'
+        Sampling unit, either ``"event"`` or ``"element"``. Event-level noise
+        applies one perturbation per selected column to every row in an event.
+    mode : str, default 'additive'
+        ``"additive"`` computes ``x + noise``; ``"relative"`` computes
+        ``x * (1 + noise)``.
+    """
+
+    def __init__(
+        self,
+        sigma: float | Sequence[float],
+        columns: int | str | Sequence[int | str] | None = None,
+        granularity: str = "event",
+        mode: str = "additive",
+    ) -> None:
+        super().__init__(columns, granularity)
+        if mode not in ("additive", "relative"):
+            raise ValueError("Feature-noise `mode` must be 'additive' or 'relative'.")
+
+        sigma_array = np.asarray(sigma, dtype=np.float64)
+        if (
+            sigma_array.ndim > 1
+            or np.any(sigma_array < 0)
+            or not np.all(np.isfinite(sigma_array))
+        ):
+            raise ValueError(
+                "Feature-noise `sigma` must contain finite nonnegative values."
+            )
+        if sigma_array.ndim == 1 and len(sigma_array) == 0:
+            raise ValueError("Feature-noise `sigma` must not be empty.")
+
+        self.sigma = sigma_array
+        self.mode = mode
+
+    def __call__(self, batch: TensorBatch) -> TensorBatch:
+        """Perturb selected columns in a graph-feature batch.
+
+        Parameters
+        ----------
+        batch : TensorBatch
+            Continuous node- or edge-feature batch to augment.
+
+        Returns
+        -------
+        TensorBatch
+            Augmented copy with the original partition and schema.
+        """
+        columns = self._resolve_columns(batch)
+        is_floating = (
+            np.issubdtype(batch.data.dtype, np.floating)
+            if batch.is_numpy
+            else torch.is_floating_point(batch.data)
+        )
+        if not is_floating:
+            raise TypeError("Feature noise requires floating-point input features.")
+        if self.sigma.ndim == 1 and len(self.sigma) != len(columns):
+            raise ValueError(
+                "Feature-noise `sigma` must be scalar or have one value per "
+                "resolved feature column."
+            )
+        sigma = np.broadcast_to(self.sigma, (len(columns),))
+        num_elements = len(batch.data)
+        num_units = batch.batch_size if self.granularity == "event" else num_elements
+        sampled = np.random.normal(size=(num_units, len(columns))) * sigma
+        noise = self._expand_samples(sampled, batch)
+
+        data = self._copy_data(batch)
+        view = self._feature_view(data)
+        selected = view[:, columns]
+        if not batch.is_numpy:
+            noise = torch.as_tensor(noise, dtype=selected.dtype, device=batch.device)
+
+        if self.mode == "additive":
+            view[:, columns] = selected + noise
+        else:
+            view[:, columns] = selected * (1.0 + noise)
+
+        return self._rebuild(batch, data)
 
 
 class EdgeDropout:
