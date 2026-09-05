@@ -297,3 +297,36 @@ class RecombinationCalibrator:
             corr_values[c] = corr * values[c]
 
         return corr_values
+
+    def unprocess(
+        self,
+        values: NDArray[np.floating],
+        points: NDArray[np.floating] | None = None,
+        track: bool = False,
+    ) -> NDArray[np.floating]:
+        """Convert deposited energy into observable ionization charge.
+
+        Only the image-level flat-MIP approximation is invertible without
+        cluster membership and an ordered track representation. Track-aware
+        response simulation is therefore rejected explicitly.
+
+        Parameters
+        ----------
+        values : np.ndarray
+            ``(N)`` array of depositions in MeV.
+        points : np.ndarray, optional
+            Included for interface symmetry; unused by the flat model.
+        track : bool, default False
+            Whether to request track-aware recombination.
+
+        Returns
+        -------
+        np.ndarray
+            ``(N)`` array of observable ionization electrons.
+        """
+        if track:
+            raise ValueError(
+                "Track-aware recombination cannot be inverted without an "
+                "explicit track representation."
+            )
+        return values * self.mip_recomb / LAR_WION

@@ -11,6 +11,9 @@ def test_lifetime_calibrator_applies_drift_correction(fake_geo):
     corrected = calibrator.process(points, values, fake_geo, tpc_id=0)
 
     assert np.allclose(corrected, values * np.exp(np.array([4.0, 10.0]) / 20.0))
+    assert np.allclose(
+        calibrator.unprocess(points, corrected, fake_geo, tpc_id=0), values
+    )
 
 
 def test_lifetime_calibrator_uses_database(fake_geo):

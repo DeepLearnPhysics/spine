@@ -194,6 +194,7 @@ configuration.  Their class pages list the available transformation options.
    :toctree: generated
 
    augment.AugmentManager
+   augment.CalibrationAugment
    augment.CropAugment
    augment.FlipAugment
    augment.JitterAugment
@@ -201,6 +202,49 @@ configuration.  Their class pages list the available transformation options.
    augment.ResponseAugment
    augment.RotateAugment
    augment.TranslateAugment
+
+Calibration-aware response variation keeps the nominal detector description
+separate from the distributions sampled during training.  For example, this
+configuration maps nominal raw ADC response into a response with independently
+varied lifetime and gain, then adds image-level noise::
+
+   augment:
+     calibration:
+       features:
+         data: 0
+       sources: sources
+       run_info: run_info
+       nominal:
+         gain:
+           gain: 185.0
+         lifetime:
+           lifetime: 3000.0
+           driftv: 0.16
+       throws:
+         gain:
+           gain:
+             distribution: normal
+             sigma: 0.05
+             relative: true
+             scope: tpc
+             clip: [0.8, 1.2]
+         lifetime:
+           lifetime:
+             distribution: normal
+             sigma: 0.10
+             relative: true
+             scope: image
+             clip: [0.5, 1.5]
+       noise:
+         scale: 0.5
+         scope: voxel
+
+The default ``vary_response`` mode applies the nominal correction and then the
+inverse thrown calibration.  ``calibrate`` and ``simulate`` are available for
+inputs that should cross the calibration boundary directly.  Arbitrary signal
+response functions require an explicit ``inverse_response_func`` whenever an
+inverse mode is used; stochastic noise is applied only after deterministic
+response transformations.
 
 Parsers
 -------

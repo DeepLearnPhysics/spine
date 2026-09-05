@@ -164,6 +164,7 @@ Io modules
    :toctree: generated/modules
 
    spine.io.augment.base
+   spine.io.augment.calibration
    spine.io.augment.crop
    spine.io.augment.flip
    spine.io.augment.jitter

@@ -64,6 +64,41 @@ def test_manager_applies_modules_in_config_order(monkeypatch, fake_geo):
     assert np.allclose(corrected, [20.0, 30.0])
 
 
+def test_manager_can_invert_supported_calibration_chain(monkeypatch, fake_geo):
+    """Inverse execution should undo modules in reverse order."""
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(
+        gain={"gain": 2.0},
+        response={"response_func": "x + 1", "inverse_response_func": "x - 1"},
+    )
+    points = np.array([[1.0, 0.0, 0.0]])
+    values = np.array([10.0])
+    sources = np.array([[0, 0]])
+
+    _, corrected = manager(points, values, sources=sources)
+    _, restored = manager(points, corrected, sources=sources, inverse=True)
+
+    assert np.allclose(restored, values)
+
+
+def test_manager_rejects_inverse_for_forward_only_module(monkeypatch, fake_geo):
+    """Stochastic calibration operations cannot be silently inverted."""
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    manager = CalibrationManager(smearing={"scale": 1.0})
+
+    with pytest.raises(ValueError, match="does not support inversion"):
+        manager(
+            np.array([[1.0, 0.0, 0.0]]),
+            np.array([10.0]),
+            sources=np.array([[0, 0]]),
+            inverse=True,
+        )
+
+    manager = CalibrationManager(response={"response_func": "x + 1"})
+    with pytest.raises(ValueError, match="inverse_response_func"):
+        manager.validate_inverse()
+
+
 def test_manager_sorts_modules_by_descending_priority(monkeypatch, fake_geo):
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     manager = CalibrationManager(

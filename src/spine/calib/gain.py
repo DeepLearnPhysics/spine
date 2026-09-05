@@ -67,3 +67,24 @@ class GainCalibrator:
         """
         # Apply the gain factor to all values in the current TPC
         return values * self.gain.get(tpc_id, run_id)
+
+    def unprocess(
+        self, values: NDArray[np.floating], tpc_id: int, run_id: int | None = None
+    ) -> NDArray[np.floating]:
+        """Convert ionization electrons back into detector ADC units.
+
+        Parameters
+        ----------
+        values : np.ndarray
+            ``(N)`` array of depositions in ionization electrons.
+        tpc_id : int
+            ID of the TPC whose gain should be used.
+        run_id : int, optional
+            Run used to resolve a database-backed gain.
+
+        Returns
+        -------
+        np.ndarray
+            ``(N)`` array of depositions in ADC.
+        """
+        return values / self.gain.get(tpc_id, run_id)

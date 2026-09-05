@@ -86,6 +86,7 @@ class CalibrationManager:
         track: bool | None = None,
         meta: Meta | None = None,
         module_id: int | None = None,
+        inverse: bool = False,
     ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
         """Main calibration driver.
 
@@ -110,6 +111,10 @@ class CalibrationManager:
         module_id : int, optional
             If provided, shift points to the requested module assuming that the
             points currently live in module ID 0
+        inverse : bool, default False
+            Run the configured calibration chain in reverse to simulate
+            detector response from calibrated depositions. Every configured
+            module must provide an inverse operation.
 
         Returns
         -------
@@ -118,6 +123,9 @@ class CalibrationManager:
         np.ndarray
             (N) array of calibrated depositions in ADC, e- or MeV
         """
+        if inverse:
+            self.validate_inverse()
+
         # If necessary, convert all points to detector coordinates
         orig_points = points
         if meta is not None:
@@ -135,6 +143,11 @@ class CalibrationManager:
             if self.module_names[key] == "smearing" and module.scope == "image":
                 image_samples[key] = module.sample()
 
+        # Inverse response must undo the correction chain in reverse order.
+        module_items = list(self.modules.items())
+        if inverse:
+            module_items.reverse()
+
         # Loop over the TPCs, apply the relevant calibration corrections
         new_points = np.copy(points) if self.update_points else orig_points
         new_values = np.copy(values)
@@ -145,7 +158,7 @@ class CalibrationManager:
             tpc_points = points[tpc_indexes[t]]
             tpc_values = values[tpc_indexes[t]]
 
-            for key, module in self.modules.items():
+            for key, module in module_items:
                 name = self.module_names[key]
                 self.watch.start(key)
                 if name == "field":
@@ -153,17 +166,19 @@ class CalibrationManager:
                 elif name == "transparency":
                     tpc_values = module.process(tpc_points, tpc_values, t, run_id)
                 elif name == "lifetime":
-                    tpc_values = module.process(
-                        tpc_points, tpc_values, self.geo, t, run_id
-                    )
+                    method = module.unprocess if inverse else module.process
+                    tpc_values = method(tpc_points, tpc_values, self.geo, t, run_id)
                 elif name == "gain":
-                    tpc_values = module.process(tpc_values, t, run_id)
+                    method = module.unprocess if inverse else module.process
+                    tpc_values = method(tpc_values, t, run_id)
                 elif name == "response":
-                    tpc_values = module.process(tpc_values)
+                    method = module.unprocess if inverse else module.process
+                    tpc_values = method(tpc_values)
                 elif name == "smearing":
                     tpc_values = module.process(tpc_values, image_samples.get(key))
                 elif name == "recombination":
-                    tpc_values = module.process(tpc_values, tpc_points, track)
+                    method = module.unprocess if inverse else module.process
+                    tpc_values = method(tpc_values, tpc_points, bool(track))
                 else:
                     raise ValueError(f"Calibration module not recognized: {name}.")
                 self.watch.stop(key)
@@ -180,6 +195,26 @@ class CalibrationManager:
                 new_points = meta.to_px(new_points, floor=True)
 
         return new_points, new_values
+
+    def validate_inverse(self) -> None:
+        """Validate that the configured chain has a complete inverse.
+
+        Raises
+        ------
+        ValueError
+            If a module is intrinsically forward-only or lacks configuration
+            required by its inverse operation.
+        """
+        for key, module in self.modules.items():
+            name = self.module_names[key]
+            if not hasattr(module, "unprocess"):
+                raise ValueError(
+                    f"Calibration module `{name}` does not support inversion."
+                )
+            if name == "response" and module.inverse_response_func is None:
+                raise ValueError(
+                    "Response inversion requires an `inverse_response_func`."
+                )
 
     def process_points(
         self,

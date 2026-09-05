@@ -110,11 +110,55 @@ class LifetimeCalibrator:
         np.ndarray
             (N) array of corrected values
         """
-        # Get the corrections lifetimes/drift velocities
+        corrections = self.correction(points, geo, tpc_id, run_id)
+        return corrections * values
+
+    def unprocess(
+        self,
+        points: np.ndarray,
+        values: np.ndarray,
+        geo: Geometry,
+        tpc_id: int,
+        run_id: int | None = None,
+    ) -> NDArray[np.floating]:
+        """Apply electron attenuation to corrected charge depositions.
+
+        This is the inverse of :meth:`process` and therefore maps charge at
+        the ionization point back to the charge expected at the anode.
+
+        Parameters
+        ----------
+        points : np.ndarray
+            ``(N, 3)`` array of point coordinates.
+        values : np.ndarray
+            ``(N)`` array of lifetime-corrected depositions.
+        geo : Geometry
+            Detector geometry object.
+        tpc_id : int
+            ID of the TPC to use.
+        run_id : int, optional
+            Run used to resolve database-backed constants.
+
+        Returns
+        -------
+        np.ndarray
+            ``(N)`` array of attenuated charge depositions.
+        """
+        corrections = self.correction(points, geo, tpc_id, run_id)
+        return values / corrections
+
+    def correction(
+        self,
+        points: np.ndarray,
+        geo: Geometry,
+        tpc_id: int,
+        run_id: int | None = None,
+    ) -> NDArray[np.floating]:
+        """Return lifetime correction factors for points in one TPC."""
         lifetime = self.lifetime.get(tpc_id, run_id)
         driftv = self.driftv.get(tpc_id, run_id)
 
-        # Compute the distance to the anode plane
+        # Convert drift distance into the corresponding exponential loss.
         mod = tpc_id // geo.tpc.num_chambers_per_module
         tpc = tpc_id % geo.tpc.num_chambers_per_module
         daxis = geo.tpc[mod][tpc].drift_axis
@@ -125,6 +169,4 @@ class LifetimeCalibrator:
         max_drift = geo.tpc[mod][tpc].dimensions[daxis]
         drifts = np.clip(drifts, 0.0, max_drift)
 
-        # Convert the drift distances to correction factors
-        corrections = np.exp(drifts / lifetime / driftv)
-        return corrections * values
+        return np.exp(drifts / lifetime / driftv)

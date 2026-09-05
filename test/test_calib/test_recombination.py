@@ -15,6 +15,9 @@ def test_recombination_calibrator_applies_mip_correction():
     corrected = calibrator.process(values, track=False)
 
     assert np.allclose(corrected, values * LAR_WION / calibrator.mip_recomb)
+    assert np.allclose(calibrator.unprocess(corrected), values)
+    with pytest.raises(ValueError, match="Track-aware"):
+        calibrator.unprocess(corrected, track=True)
 
 
 def test_recombination_calibrator_rejects_unknown_model():

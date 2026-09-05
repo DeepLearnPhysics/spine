@@ -12,6 +12,7 @@ def test_gain_calibrator_applies_scalar_and_per_tpc_gain():
 
     assert np.allclose(scalar.process(values, tpc_id=1), [2.0, 4.0])
     assert np.allclose(per_tpc.process(values, tpc_id=1), [3.0, 6.0])
+    assert np.allclose(scalar.unprocess(scalar.process(values, 0), 0), values)
 
 
 def test_gain_calibrator_uses_database(value_db):

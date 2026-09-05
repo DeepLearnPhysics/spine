@@ -5,6 +5,7 @@ from typing import Any
 
 from spine.data import Meta, TensorData
 
+from .calibration import CalibrationAugment
 from .crop import CropAugment
 from .flip import FlipAugment
 from .jitter import JitterAugment
@@ -18,6 +19,7 @@ class AugmentManager:
     """Generic class to handle ordered data augmentation modules."""
 
     _modules = {
+        "calibration": CalibrationAugment,
         "mask": MaskAugment,
         "response": ResponseAugment,
         "crop": CropAugment,
