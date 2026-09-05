@@ -49,3 +49,4 @@ def test_ana_script_factory_omits_overwrite_when_unspecified(monkeypatch):
 
     assert module.value == 4
     assert module.overwrite is False
+    assert module.buffer_size == -1

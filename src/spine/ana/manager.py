@@ -61,7 +61,7 @@ class AnaManager(ModuleManager[AnaBase]):
         if not isinstance(prefix_output, bool):
             raise TypeError("`prefix_output` must be a boolean.")
 
-        buffer_size = config.pop("buffer_size", 1)
+        buffer_size = config.pop("buffer_size", -1)
         if not isinstance(buffer_size, int):
             raise TypeError("`buffer_size` must be an integer.")
 
@@ -93,7 +93,7 @@ class AnaManager(ModuleManager[AnaBase]):
         prefix: str | None,
         overwrite: bool | None = None,
         prefix_output: bool = False,
-        buffer_size: int = 1,
+        buffer_size: int = -1,
         **modules: dict[str, Any] | None,
     ) -> None:
         """Parse the analysis tool configuration.
@@ -109,9 +109,9 @@ class AnaManager(ModuleManager[AnaBase]):
             If `True`, overwrite the CSV logs if they already exist
         prefix_output : bool, optional
             If `True`, will prefix the output CSV names with the input file name
-        buffer_size : int, default 1
-            CSV file buffer size. 1 is line buffered (default),
-            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
+        buffer_size : int, default -1
+            CSV file buffer size. -1 uses efficient system buffering, 1 is
+            line buffered, and values above 1 specify the buffer size in bytes.
         **modules : dict
             List of analysis script modules
         """

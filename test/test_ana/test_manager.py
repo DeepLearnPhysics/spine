@@ -111,6 +111,20 @@ def test_ana_manager_validates_global_options():
         AnaManager({}, columnar=1)
 
 
+def test_ana_manager_uses_buffered_analysis_output_by_default(monkeypatch):
+    """Analysis writers should use system buffering unless overridden."""
+    buffer_sizes = []
+
+    def factory(name, cfg, overwrite, log_dir, prefix, buffer_size):
+        buffer_sizes.append(buffer_size)
+        return FakeAnaModule(name, cfg, [])
+
+    monkeypatch.setattr(manager_mod, "ana_script_factory", factory)
+    AnaManager({"demo": {"offset": 0}})
+
+    assert buffer_sizes == [-1]
+
+
 def test_ana_manager_runs_supported_columnar_modules(monkeypatch):
     calls = []
     monkeypatch.setattr(

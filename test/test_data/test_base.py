@@ -572,6 +572,33 @@ class TestDataBase:
         with pytest.raises(ValueError, match="Cannot expand the `data` attribute"):
             obj.scalar_dict(attrs=["data"])
 
+    def test_scalar_columns_match_scalar_dict(self):
+        """Bulk columns must follow the scalar dictionary contract."""
+        scalar_objects = [SimpleData(value=1), SimpleData(value=2)]
+        scalar_columns = scalar_objects[0].scalar_columns(
+            scalar_objects, attrs=("value",)
+        )
+        assert scalar_columns["value"].tolist() == [1, 2]
+
+        objects = [
+            ArrayData(),
+            ArrayData(
+                position=np.asarray([4.0, 5.0, 6.0], dtype=np.float32),
+                vector=np.asarray([1.0, 0.0], dtype=np.float64),
+                fixed_array=np.asarray([4, 5, 6], dtype=np.int32),
+                var_array=np.asarray([3], dtype=np.int32),
+            ),
+        ]
+        attrs = ("position", "fixed_array", "var_array")
+        lengths = {"var_array": 3}
+
+        columns = objects[0].scalar_columns(objects, attrs, lengths)
+        rows = [obj.scalar_dict(attrs, lengths) for obj in objects]
+
+        assert list(columns) == list(rows[0])
+        for name, values in columns.items():
+            assert values.tolist() == [row[name] for row in rows]
+
     def test_enum_dicts(self):
         """Test enum_dicts property."""
         obj = EnumData()
@@ -615,6 +642,16 @@ class TestDataBase:
         obj = IndexData()
 
         assert obj.index_attrs == ("id", "parent_id", "cluster_ids")
+
+    def test_array_schema_attrs(self):
+        """Test public array schema properties."""
+        obj = ArrayData()
+
+        assert obj.axes == ("x", "y", "z")
+        assert obj.pos_attrs == ("position",)
+        assert obj.vec_attrs == ("vector",)
+        assert obj.normed_vec_attrs == ()
+        assert obj.var_length_attrs == ("var_array",)
 
     def test_fixed_length_attrs(self):
         """Test fixed_length_attrs property."""

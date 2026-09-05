@@ -21,7 +21,7 @@ def ana_script_factory(
     overwrite: bool | None = None,
     log_dir: str | None = None,
     prefix: str | None = None,
-    buffer_size: int = 1,
+    buffer_size: int = -1,
 ) -> Any:
     """Instantiates an analyzer module from a configuration dictionary.
 
@@ -38,7 +38,7 @@ def ana_script_factory(
     prefix : str, optional
         Input file prefix. If requested, it will be used to prefix
         all the output CSV files.
-    buffer_size : int, default 1
+    buffer_size : int, default -1
         CSV file buffer size for analysis outputs
 
     Returns

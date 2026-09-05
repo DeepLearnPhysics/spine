@@ -88,6 +88,7 @@ def test_ana_base_filters_entry_and_manages_writers(monkeypatch):
     writer = ana.writers["out"]
     assert result == {"updated": 10}
     assert writer.file_name == "logs/prefix_dummy_out.csv"
+    assert writer.buffer_size == -1
     assert writer.rows == [{"index": 5, "file_index": 2, "run": 1, "value": 9}]
     assert writer.flushed
     assert writer.closed

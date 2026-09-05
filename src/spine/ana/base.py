@@ -73,7 +73,7 @@ class AnaBase(ABC):
         overwrite: bool = False,
         log_dir: str | None = None,
         prefix: str | None = None,
-        buffer_size: int = 1,
+        buffer_size: int = -1,
     ) -> None:
         """Initialize default analysis script object properties.
 
@@ -105,9 +105,9 @@ class AnaBase(ABC):
             Output CSV file directory (shared with driver log)
         prefix : str, default None
             Name to prefix every output CSV file with
-        buffer_size : int, default 1
-            CSV file buffer size. 1 is line buffered (safe default),
-            -1 uses system default, 0 is unbuffered, >1 is buffer size in bytes
+        buffer_size : int, default -1
+            CSV file buffer size. -1 uses efficient system buffering, 1 is
+            line buffered, and values above 1 specify the buffer size in bytes.
         """
         # Initialize default keys
         self.update_keys(

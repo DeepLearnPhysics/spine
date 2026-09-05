@@ -11,7 +11,13 @@ from spine.driver import Driver
 from spine.io.write import HDF5Writer
 
 
-def _config(path: Path, log_dir: Path, columnar: bool) -> dict:
+def _config(
+    path: Path,
+    log_dir: Path,
+    columnar: bool,
+    run_mode: str = "both",
+    match_mode: str = "reco_to_truth",
+) -> dict:
     return {
         "base": {
             "iterations": -1,
@@ -32,8 +38,8 @@ def _config(path: Path, log_dir: Path, columnar: bool) -> dict:
             "save": {
                 "obj_type": "particle",
                 "particle": ["id", "pid", "size"],
-                "run_mode": "both",
-                "match_mode": "reco_to_truth",
+                "run_mode": run_mode,
+                "match_mode": match_mode,
             },
         },
     }
@@ -92,3 +98,52 @@ def test_configured_event_and_columnar_save_are_identical(tmp_path):
 
     for name in ("save_reco_particles.csv", "save_truth_particles.csv"):
         assert (event_dir / name).read_bytes() == (columnar_dir / name).read_bytes()
+
+
+def test_directional_truth_save_matches_columnar_output(tmp_path):
+    """Truth-to-reco export should preserve misses without a reco-side CSV."""
+    path = tmp_path / "directional.h5"
+    data = {
+        "index": np.asarray([0]),
+        "run_info": [RunInfo(run=1, event=10)],
+        "reco_particles": [
+            ObjectList(
+                [RecoParticle(id=3, pid=2, index=np.asarray([1], dtype=np.int32))],
+                RecoParticle(),
+            )
+        ],
+        "truth_particles": [
+            ObjectList(
+                [
+                    TruthParticle(
+                        id=0,
+                        pid=2,
+                        index=np.asarray([1], dtype=np.int32),
+                        is_matched=True,
+                        match_ids=np.asarray([0], dtype=np.int32),
+                        match_overlaps=np.asarray([0.75], dtype=np.float32),
+                    ),
+                    TruthParticle(
+                        id=1,
+                        pid=4,
+                        index=np.asarray([2], dtype=np.int32),
+                    ),
+                ],
+                TruthParticle(),
+            )
+        ],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={})
+
+    event_dir = tmp_path / "event_directional"
+    columnar_dir = tmp_path / "columnar_directional"
+    args = {"run_mode": "truth", "match_mode": "truth_to_reco"}
+    _run(_config(path, event_dir, False, **args))
+    _run(_config(path, columnar_dir, True, **args))
+
+    name = "save_truth_particles.csv"
+    assert (event_dir / name).read_bytes() == (columnar_dir / name).read_bytes()
+    assert len((event_dir / name).read_text().splitlines()) == 3
+    assert not (event_dir / "save_reco_particles.csv").exists()
+    assert not (columnar_dir / "save_reco_particles.csv").exists()

@@ -32,6 +32,31 @@ configuration. Individual scripts declare their required fields through
 ``columnar_requests`` and receive projected columns plus event-boundary
 metadata through ``process_columnar``.
 
+Analysis CSV files use system buffering by default so object-heavy exports do
+not flush once per row. Set the top-level ``ana.buffer_size`` option to ``1``
+when line-buffered durability is more important than throughput, or to an
+explicit byte count when a particular buffer size is desired.
+
+Directional matched-object exports
+----------------------------------
+
+The ``save`` analyzer treats ``run_mode`` as the source of output rows and
+``match_mode`` as the direction of the best-match join. An efficiency-focused
+export can therefore write one row per truth object, including unmatched truth
+objects, without also writing reco-originated rows:
+
+.. code-block:: yaml
+
+   ana:
+     save:
+       obj_type: [particle, interaction]
+       run_mode: truth
+       match_mode: truth_to_reco
+
+Use ``run_mode: reco`` with ``match_mode: reco_to_truth`` for reco-side fake
+or purity studies. Existing ``run_mode: both`` configurations retain their
+bidirectional output.
+
 Configurable analysis scripts
 -----------------------------
 

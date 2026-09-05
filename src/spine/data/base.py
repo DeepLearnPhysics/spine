@@ -51,6 +51,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
+    Sequence,
     get_args,
     get_origin,
     get_type_hints,
@@ -477,70 +478,131 @@ class DataBase:
 
     def scalar_dict(
         self,
-        attrs: list[str] | None = None,
+        attrs: Sequence[str] | None = None,
         lengths: dict[str, int] | None = None,
         lite: bool = False,
     ) -> dict[str, float | int | str | bool]:
-        """Returns the data class attributes as a dictionary of scalars.
+        """Return the data class attributes as a dictionary of scalars.
 
         This is useful when storing data classes in CSV files, which expect
         a single scalar per column in the table.
 
         Parameters
         ----------
-        attrs : List[str], optional
+        attrs : Sequence[str], optional
             List of attribute names to include in the dictionary. If not
-            specified, all the keys are included.
-        lengths : Dict[str, int], optional
-            Specifies the length of variable-length attributes
+            specified, all scalar-compatible attributes are included.
+        lengths : dict[str, int], optional
+            Expansion lengths for variable-length attributes.
         lite : bool, default False
-            If `True`, the `_lite_skip_attrs` are dropped
+            If ``True``, omit attributes marked for lite serialization.
+
+        Returns
+        -------
+        dict[str, float or int or str or bool]
+            Scalar values keyed by their expanded column names.
         """
-        # Loop over the attributes of the data class
+        values = self.as_dict(lite)
+        result = {}
+        for name, attr, index in self._scalar_layout(attrs, lengths, lite):
+            value = values[attr]
+            if index is None:
+                result[name] = value
+            elif index < len(value):
+                result[name] = value[index].item()
+            else:
+                result[name] = None
+
+        return result
+
+    def scalar_columns(
+        self,
+        objects: Sequence["DataBase"],
+        attrs: Sequence[str] | None = None,
+        lengths: dict[str, int] | None = None,
+        lite: bool = False,
+    ) -> dict[str, np.ndarray]:
+        """Serialize a homogeneous object collection into scalar columns.
+
+        This is the bulk counterpart of :meth:`scalar_dict`. It uses the same
+        schema ordering, expanded names and variable-length rules while
+        avoiding an intermediate dictionary for every object.
+
+        Parameters
+        ----------
+        objects : Sequence[DataBase]
+            Objects whose values should populate the output rows. They must
+            follow the schema of this instance.
+        attrs : Sequence[str], optional
+            Attributes to include. If omitted, include all scalar-compatible
+            attributes exposed by this instance.
+        lengths : dict[str, int], optional
+            Expansion lengths for variable-length attributes.
+        lite : bool, default False
+            If ``True``, omit attributes marked for lite serialization.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Scalar arrays keyed by the same names as :meth:`scalar_dict`.
+        """
+        result = {}
+        for name, attr, index in self._scalar_layout(attrs, lengths, lite):
+            values = [getattr(obj, attr) for obj in objects]
+            if index is None:
+                # Object dtype preserves native scalar formatting when real
+                # values and default sentinels share a column.
+                result[name] = np.asarray(values, dtype=object)
+            else:
+                result[name] = np.asarray(
+                    [
+                        value[index].item() if index < len(value) else None
+                        for value in values
+                    ]
+                )
+
+        return result
+
+    def _scalar_layout(
+        self,
+        attrs: Sequence[str] | None,
+        lengths: dict[str, int] | None,
+        lite: bool,
+    ) -> list[tuple[str, str, int | None]]:
+        """Resolve attributes into ordered scalar column specifications."""
         lengths = lengths or {}
-        scalar_dict, found = {}, []
+        layout = []
+        found = []
+
+        # Inspect one schema-bearing instance to define both row-wise and
+        # column-wise serialization.
         for attr, value in self.as_dict(lite).items():
-            # If the attribute is not requested, skip
             if attrs is not None and attr not in attrs:
                 continue
-            else:
-                found.append(attr)
+            found.append(attr)
 
-            # Dispatch
             if np.isscalar(value):
-                # If the attribute is a scalar, store as is
-                scalar_dict[attr] = value
+                layout.append((attr, attr, None))
 
-            elif attr in (self._pos_attrs + self._vec_attrs):
-                # If the attribute is a position or vector, expand with axis
-                for i, v in enumerate(value):
-                    scalar_dict[f"{attr}_{self._axes[i]}"] = v.item()
+            elif attr in self.pos_attrs + self.vec_attrs:
+                layout.extend(
+                    (f"{attr}_{self.axes[i]}", attr, i) for i in range(len(value))
+                )
 
-            elif attr in self._fixed_length_attrs:
-                # If the attribute is a fixed-length array, expand with index
-                for i, v in enumerate(value):
-                    scalar_dict[f"{attr}_{i}"] = v.item()
+            elif attr in self.fixed_length_attrs:
+                layout.extend((f"{attr}_{i}", attr, i) for i in range(len(value)))
 
-            elif attr in self._var_length_attrs:
+            elif attr in self.var_length_attrs:
                 if attr in lengths:
-                    # If the attribute is a variable-length array with a length
-                    # provided, resize it to match that length and store it
-                    for i in range(lengths[attr]):
-                        if i < len(value):
-                            scalar_dict[f"{attr}_{i}"] = value[i].item()
-                        else:
-                            scalar_dict[f"{attr}_{i}"] = None
-
-                else:
-                    # If the attribute is a variable-length array of
-                    # indeterminate length, cannot store it as scalars
-                    if attrs is not None and attr in attrs:
-                        raise ValueError(
-                            f"Cannot cast the `{attr}` attribute of "
-                            f"`{self.__class__.__name__}` to scalars. To cast a "
-                            "variable-length array, must provide a fixed length."
-                        )
-                    continue
+                    layout.extend(
+                        (f"{attr}_{i}", attr, i) for i in range(lengths[attr])
+                    )
+                elif attrs is not None:
+                    raise ValueError(
+                        f"Cannot cast the `{attr}` attribute of "
+                        f"`{self.__class__.__name__}` to scalars. To cast a "
+                        "variable-length array, must provide a fixed length."
+                    )
 
             else:
                 raise ValueError(
@@ -549,13 +611,13 @@ class DataBase:
                 )
 
         if attrs is not None and len(attrs) != len(found):
-            class_name = self.__class__.__name__
-            miss = list(set(attrs).difference(set(found)))
+            missing = list(set(attrs).difference(found))
             raise AttributeError(
-                f"Attribute(s) {miss} do(es) not appear in {class_name}."
+                f"Attribute(s) {missing} do(es) not appear in "
+                f"{self.__class__.__name__}."
             )
 
-        return scalar_dict
+        return layout
 
     def value_with_units(self, attr: str) -> tuple[Any, str | None]:
         """Fetch an attribute value with its documented units.
@@ -591,6 +653,50 @@ class DataBase:
         return self._index_attrs
 
     @property
+    def axes(self) -> tuple[str, str, str]:
+        """Return the coordinate-axis labels used by spatial attributes.
+
+        Returns
+        -------
+        tuple[str, str, str]
+            Axis labels in their scalar serialization order.
+        """
+        return self._axes
+
+    @property
+    def pos_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of position attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of array attributes marked as spatial positions.
+        """
+        return self._pos_attrs
+
+    @property
+    def vec_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of vector attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of array attributes marked as spatial vectors.
+        """
+        return self._vec_attrs
+
+    @property
+    def normed_vec_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of unit-normalized vector attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of vector attributes normalized after unit conversion.
+        """
+        return self._normed_vec_attrs
+
+    @property
     def fixed_length_attrs(self) -> tuple[str, ...]:
         """Return the tuple of fixed-length array attributes.
 
@@ -601,6 +707,17 @@ class DataBase:
             metadata.
         """
         return self._fixed_length_attrs
+
+    @property
+    def var_length_attrs(self) -> tuple[str, ...]:
+        """Return the tuple of variable-length array attributes.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Names of array attributes with no fixed schema length.
+        """
+        return self._var_length_attrs
 
     @property
     def enum_dicts(self) -> dict[str, dict[str, int]]:

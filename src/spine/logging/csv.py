@@ -46,7 +46,7 @@ class CSVLogger:
       .. code-block:: yaml
 
           ana:
-            buffer_size: 1  # Line buffered (default, safe and fast)
+            buffer_size: -1  # System buffered (analysis default)
             my_analysis:
               ...
 
