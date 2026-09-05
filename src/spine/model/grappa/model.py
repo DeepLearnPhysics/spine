@@ -33,7 +33,7 @@ from spine.model.grappa.evaluation import (
 )
 
 from ..registry import ModelSpec
-from .augment import EdgeDropout
+from .augment import EdgeDropout, EdgeSelection, NodeDropout, NodeSelection
 from .factories import (
     FeatureEncoder,
     GNNModel,
@@ -123,6 +123,7 @@ class GrapPA(torch.nn.Module):
         self.global_encoder: FeatureEncoder | None = None
         self.dbscan: DBSCAN | None = None
         self.edge_dropout: EdgeDropout | None = None
+        self.node_dropout: NodeDropout | None = None
         self.return_features = False
         self.node_pred_keys: list[str] = []
         self.edge_pred_keys: list[str] = []
@@ -164,8 +165,8 @@ class GrapPA(torch.nn.Module):
         dbscan : dict, optional
             DBSCAN fragmentation configuration
         augment : dict, optional
-            Training-only graph augmentation configuration. Currently accepts
-            an ``edge_dropout`` block with a drop ``probability``.
+            Training-only graph augmentation configuration. Accepts
+            ``edge_dropout`` and ``node_dropout`` blocks.
         return_features : bool, default False
             If `True`, the model will return the node/edge/global features
         """
@@ -222,6 +223,7 @@ class GrapPA(torch.nn.Module):
     def process_augment_config(
         self,
         edge_dropout: dict[str, Any] | None = None,
+        node_dropout: dict[str, Any] | None = None,
     ) -> None:
         """Process training-only graph augmentation options.
 
@@ -230,9 +232,15 @@ class GrapPA(torch.nn.Module):
         edge_dropout : dict, optional
             Random edge-dropout configuration. The ``probability`` entry is
             the chance of dropping a directed edge or reciprocal edge pair.
+        node_dropout : dict, optional
+            Random node-dropout configuration. Besides ``probability``, an
+            optional ``group_by`` cluster-label field makes one shared decision
+            for each physical node group.
         """
         if edge_dropout is not None:
             self.edge_dropout = EdgeDropout(**edge_dropout)
+        if node_dropout is not None:
+            self.node_dropout = NodeDropout(**node_dropout)
 
     def process_node_config(
         self,
@@ -445,6 +453,8 @@ class GrapPA(torch.nn.Module):
         global_features: TensorBatch | None = None,
         shapes: TensorBatch | None = None,
         groups: TensorBatch | None = None,
+        node_dropout_group_ids: TensorBatch | None = None,
+        node_dropout_eligible: TensorBatch | None = None,
         points: TensorBatch | None = None,
         extra: TensorBatch | None = None,
     ) -> dict[str, Any]:
@@ -480,6 +490,14 @@ class GrapPA(torch.nn.Module):
         groups : TensorBatch, optional
             (C) List of node groups, one per cluster. If specified, removes
             connections between nodes that belong to different groups.
+        node_dropout_group_ids : TensorBatch, optional
+            (C) Node-aligned physical group labels used only by grouped node
+            dropout. Live labels can be derived from ``data`` and ``clusts``;
+            materialized training must provide them explicitly.
+        node_dropout_eligible : TensorBatch, optional
+            (C) Static node-aligned eligibility mask used by class-conditioned
+            node dropout. Live labels can be resolved from ``select``;
+            materialized training must provide the cached mask explicitly.
         points : TensorBatch, optional
             (C, 3/6) Tensor of start (and end) points
         extra : TensorBatch, optional
@@ -498,6 +516,16 @@ class GrapPA(torch.nn.Module):
             (C, N_e,f) Node features
         global_features : TensorBatch
             (C, N_g,f) Global features
+        node_dropout_group_ids : TensorBatch, optional
+            (C) Physical dropout groups, when feature return and grouped node
+            dropout are configured.
+        node_dropout_eligible : TensorBatch, optional
+            (C) Static dropout eligibility mask, when feature return and a
+            node-dropout ``select`` mapping are configured.
+        node_keep : TensorBatch, optional
+            (C_original) Training-time mask selecting retained graph nodes.
+        edge_keep : TensorBatch, optional
+            (E_original) Training-time mask selecting retained graph edges.
         node_pred : TensorBatch
             (C, N_n) Node predictions (logits)
         edge_pred : TensorBatch
@@ -528,6 +556,18 @@ class GrapPA(torch.nn.Module):
             or (edge_features is None and self.edge_encoder is not None)
             or (global_features is None and self.global_encoder is not None)
             or (shapes is None and self.make_groups and self.grouping_through_track)
+            or (
+                self.training
+                and self.node_dropout is not None
+                and self.node_dropout.group_by is not None
+                and node_dropout_group_ids is None
+            )
+            or (
+                self.training
+                and self.node_dropout is not None
+                and self.node_dropout.select is not None
+                and node_dropout_eligible is None
+            )
         )
         if clusts is None and needs_clusts and data is not None:
             if not isinstance(data, ClusterLabelBatch) and self.node_source != "voxel":
@@ -560,15 +600,14 @@ class GrapPA(torch.nn.Module):
             # their categorical representation before grouping uses them.
             shapes = self._get_shapes(data, clusts, shapes)
 
-        # Apply graph dropout after all construction/restriction but before
-        # encoding. Cached edge features follow the identical edge selection.
+        # Edge dropout precedes dynamic edge encoding so no work is spent on
+        # removed connections. Track the original-axis mask for cached targets.
+        edge_selection: EdgeSelection | None = None
         if self.training and self.edge_dropout is not None:
             edge_selection = self.edge_dropout(edge_index)
             edge_index = edge_selection.filter_edge_index(edge_index)
-            result["edge_keep"] = edge_selection.keep
             if edge_features is not None:
                 edge_features = edge_selection.filter_tensor(edge_features)
-        result["edge_index"] = edge_index
 
         # Fetch the node features
         if node_features is None:
@@ -617,9 +656,6 @@ class GrapPA(torch.nn.Module):
             else:
                 node_features = cast(TensorBatch, encoded_nodes)
 
-        if self.return_features:
-            result["node_features"] = node_features
-
         # Fetch the edge features
         if edge_features is None and self.edge_encoder is not None:
             if voxel_data is None or clusts is None:
@@ -634,9 +670,6 @@ class GrapPA(torch.nn.Module):
                 ),
             )
 
-        if self.return_features and edge_features is not None:
-            result["edge_features"] = edge_features
-
         # Fetch the global_features
         if global_features is None and self.global_encoder is not None:
             if voxel_data is None or clusts is None:
@@ -646,8 +679,81 @@ class GrapPA(torch.nn.Module):
                 )
             global_features = cast(TensorBatch, self.global_encoder(voxel_data, clusts))
 
-        if global_features is not None and self.return_features:
-            result["global_features"] = global_features
+        # Resolve physical group labels from live truth when possible. This is
+        # also exposed by feature-producing cache jobs for later materialized
+        # grouped augmentation.
+        if (
+            node_dropout_group_ids is None
+            and (self.training or self.return_features)
+            and self.node_dropout is not None
+            and self.node_dropout.group_by is not None
+            and isinstance(data, ClusterLabelBatch)
+            and clusts is not None
+        ):
+            node_dropout_group_ids = get_cluster_label_batch(
+                data, clusts, self.node_dropout.group_by
+            )
+        if (
+            node_dropout_eligible is None
+            and (self.training or self.return_features)
+            and self.node_dropout is not None
+            and self.node_dropout.select is not None
+            and isinstance(data, ClusterLabelBatch)
+            and clusts is not None
+        ):
+            node_dropout_eligible = self.node_dropout.build_eligibility(data, clusts)
+
+        # Node dropout acts at the common materialized boundary. Every
+        # node-aligned product and every incident edge follows one selection.
+        if self.training and self.node_dropout is not None:
+            node_selection = self.node_dropout(
+                node_features.counts,
+                node_dropout_group_ids,
+                node_dropout_eligible,
+            )
+            edge_index, incident_selection = node_selection.filter_edge_index(
+                edge_index
+            )
+            node_features = node_selection.filter_tensor(node_features)
+            if edge_features is not None:
+                edge_features = incident_selection.filter_tensor(edge_features)
+            if clusts is not None:
+                clusts = node_selection.filter_index(clusts)
+                result["clusts"] = clusts
+            if shapes is not None:
+                shapes = node_selection.filter_tensor(shapes)
+            if node_dropout_group_ids is not None:
+                node_dropout_group_ids = node_selection.filter_tensor(
+                    node_dropout_group_ids
+                )
+            if node_dropout_eligible is not None:
+                node_dropout_eligible = node_selection.filter_tensor(
+                    node_dropout_eligible
+                )
+            for key in ("start_points", "end_points"):
+                if key in result:
+                    result[key] = node_selection.filter_tensor(result[key])
+
+            edge_selection = (
+                incident_selection
+                if edge_selection is None
+                else edge_selection.compose(incident_selection)
+            )
+            result["node_keep"] = node_selection.keep
+
+        result["edge_index"] = edge_index
+        if edge_selection is not None:
+            result["edge_keep"] = edge_selection.keep
+        if self.return_features:
+            result["node_features"] = node_features
+            if edge_features is not None:
+                result["edge_features"] = edge_features
+            if global_features is not None:
+                result["global_features"] = global_features
+            if node_dropout_group_ids is not None:
+                result["node_dropout_group_ids"] = node_dropout_group_ids
+            if node_dropout_eligible is not None:
+                result["node_dropout_eligible"] = node_dropout_eligible
 
         # Materialized products retain all graph partition metadata needed by
         # the GNN. Validate event boundaries before touching their payloads.
@@ -1294,8 +1400,14 @@ class GrapPALoss(torch.nn.Module):
                         "and validity-mask cache contract."
                     )
                 if has_target:
-                    extra["labels"] = output[target_key]
-                    extra["valid_mask"] = output[valid_key]
+                    labels = output[target_key]
+                    valid_mask = output[valid_key]
+                    if t == "node" and "node_keep" in output:
+                        node_selection = NodeSelection(output["node_keep"])
+                        labels = node_selection.filter_tensor(labels)
+                        valid_mask = node_selection.filter_tensor(valid_mask)
+                    extra["labels"] = labels
+                    extra["valid_mask"] = valid_mask
                 extra["return_target"] = self.return_targets
 
                 # Compute the loss

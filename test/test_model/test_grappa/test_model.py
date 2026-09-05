@@ -189,6 +189,30 @@ def test_grappa_loss_shares_one_overlap_cache_across_objectives(graph_labels):
     assert first.cache == {}
 
 
+def test_grappa_loss_filters_cached_node_supervision_after_dropout():
+    """The loss wrapper maps original cached node targets to retained nodes."""
+
+    class CaptureNodeLoss(torch.nn.Module):
+        def forward(self, labels=None, valid_mask=None, **kwargs):
+            assert labels is not None and valid_mask is not None
+            assert labels.data.tolist() == [2, 4]
+            assert valid_mask.data.tolist() == [True, True]
+            return {"loss": torch.tensor(0.0), "accuracy": 1.0}
+
+    loss = GrapPALoss({"node_loss": {"name": "class", "target": "pid"}})
+    loss.node_loss = CaptureNodeLoss()
+    node_pred = TensorBatch(torch.zeros((2, 2)), counts=[2])
+
+    result = loss(
+        node_pred=node_pred,
+        node_keep=TensorBatch(np.array([True, False, True]), counts=[3]),
+        node_target=TensorBatch(np.array([2, 3, 4]), counts=[3]),
+        node_valid=TensorBatch(np.ones(3, dtype=bool), counts=[3]),
+    )
+
+    assert result["accuracy"] == 1.0
+
+
 def test_grappa_loss_returns_and_reuses_cached_targets(
     graph_labels,
     graph_clusters,
@@ -613,6 +637,191 @@ def test_grappa_edge_dropout_precedes_dynamic_edge_encoding(
     )
 
     assert result["edge_index"].shape == (2, 0)
+
+
+def test_grappa_grouped_node_dropout_filters_materialized_graph(monkeypatch):
+    """Materialized node groups drive coherent node and incident-edge removal."""
+    config = shower_model_config()
+    config["augment"] = {
+        "edge_dropout": {"probability": 0.5},
+        "node_dropout": {
+            "probability": 0.5,
+            "group_by": "ancestor",
+            "select": {"shape": ["shower", "track"]},
+        },
+    }
+    model = GrapPA(config)
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            if len(nodes.data) == 2:
+                assert nodes.data.tolist() == [[0.0, 0.0], [1.0, 1.0]]
+                assert index.tolist() == [[0, 1], [1, 0]]
+                assert edges is not None and edges.data.tolist() == [[0.0], [1.0]]
+            return {}
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    model.return_features = True
+    node_features = TensorBatch(
+        torch.arange(4, dtype=torch.float32).repeat(2, 1).T,
+        counts=[4],
+    )
+    edge_features = TensorBatch(torch.arange(6.0).reshape(6, 1), counts=[6])
+    edge_index = EdgeIndexBatch(
+        torch.tensor(
+            [[0, 1, 1, 2, 2, 3], [1, 0, 2, 1, 3, 2]],
+            dtype=torch.long,
+        ),
+        counts=[6],
+        spans=[4],
+        directed=False,
+    )
+    group_ids = TensorBatch(torch.tensor([0, 0, 1, 1]), counts=[4])
+    eligible = TensorBatch(torch.ones(4, dtype=torch.bool), counts=[4])
+    samples = iter((np.array([0.8, 0.8, 0.2]), np.array([0.8, 0.2])))
+    monkeypatch.setattr(np.random, "random", lambda _: next(samples))
+
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+        node_dropout_group_ids=group_ids,
+        node_dropout_eligible=eligible,
+    )
+
+    assert result["node_keep"].data.tolist() == [True, True, False, False]
+    assert result["edge_keep"].data.tolist() == [True, True, False, False, False, False]
+    assert result["node_dropout_group_ids"].data.tolist() == [0, 0]
+    assert result["node_dropout_eligible"].data.tolist() == [True, True]
+    assert result["edge_index"].spans.tolist() == [2]
+
+    model.eval()
+    result = model(
+        node_features=node_features,
+        edge_features=edge_features,
+        edge_index=edge_index,
+    )
+    assert result["node_features"] is node_features
+    assert "node_keep" not in result
+
+
+def test_grappa_grouped_node_dropout_derives_live_labels(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+):
+    """Live structured labels supply configured physical group membership."""
+    config = shower_model_config()
+    config["augment"] = {
+        "node_dropout": {
+            "probability": 1.0,
+            "group_by": "group",
+            "select": {"shape": ["shower", "track"]},
+        }
+    }
+    model = GrapPA(config)
+    model.return_features = True
+    model.make_groups = False
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+
+    class NodeEncoder(torch.nn.Module):
+        feature_size = model.gnn.node_feats
+
+        def forward(self, data, clusts, **kwargs):
+            features = TensorBatch(
+                torch.ones((3, self.feature_size)), graph_clusters.counts
+            )
+            points = TensorBatch(
+                torch.arange(18.0).reshape(3, 6), graph_clusters.counts
+            )
+            return features, points
+
+    model.node_encoder = NodeEncoder()
+    edge_features = TensorBatch(torch.empty((0, model.gnn.edge_feats)), counts=[0, 0])
+    edge_index = EdgeIndexBatch(
+        torch.empty((2, 0), dtype=torch.long),
+        counts=[0, 0],
+        spans=graph_clusters.counts,
+        directed=False,
+    )
+    monkeypatch.setattr(np.random, "randint", lambda _: 0)
+
+    result = model(
+        graph_labels,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        edge_features=edge_features,
+        shapes=TensorBatch(np.array([SHOWR_SHP, TRACK_SHP, TRACK_SHP]), [2, 1]),
+    )
+
+    assert result["node_keep"].data.tolist() == [True, False, True]
+    assert result["clusts"].counts.tolist() == [1, 1]
+    assert result["node_dropout_group_ids"].numpy_tensor().tolist() == [0, 0]
+    assert result["node_dropout_eligible"].data.tolist() == [True, True]
+    assert result["start_points"].counts.tolist() == [1, 1]
+    assert result["end_points"].counts.tolist() == [1, 1]
+
+    # Feature-cache production exposes the unaugmented static routing products.
+    model.eval()
+    cached = model(
+        graph_labels,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+        edge_features=edge_features,
+        shapes=TensorBatch(np.array([SHOWR_SHP, TRACK_SHP, TRACK_SHP]), [2, 1]),
+    )
+    assert cached["node_dropout_group_ids"].data.tolist() == [0, 1, 0]
+    assert cached["node_dropout_eligible"].data.tolist() == [True, True, True]
+
+
+def test_grappa_grouped_node_dropout_requires_materialized_groups():
+    """Materialized grouped training cannot infer absent physical labels."""
+    config = shower_model_config()
+    config["augment"] = {"node_dropout": {"probability": 0.5, "group_by": "group"}}
+    model = GrapPA(config)
+    node_features = TensorBatch(torch.ones((1, model.gnn.node_feats)), counts=[1])
+    edge_features = TensorBatch(torch.empty((0, model.gnn.edge_feats)), counts=[0])
+    edge_index = EdgeIndexBatch(
+        torch.empty((2, 0), dtype=torch.long), [0], [1], directed=False
+    )
+
+    with pytest.raises(ValueError, match="requires node-aligned"):
+        model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+
+def test_grappa_selected_node_dropout_requires_materialized_eligibility():
+    """Materialized class-conditioned training requires its cached mask."""
+    config = shower_model_config()
+    config["augment"] = {
+        "node_dropout": {"probability": 0.5, "select": {"shape": "delta"}}
+    }
+    model = GrapPA(config)
+    node_features = TensorBatch(torch.ones((1, model.gnn.node_feats)), counts=[1])
+    edge_features = TensorBatch(torch.empty((0, model.gnn.edge_feats)), counts=[0])
+    edge_index = EdgeIndexBatch(
+        torch.empty((2, 0), dtype=torch.long), [0], [1], directed=False
+    )
+
+    with pytest.raises(ValueError, match="node_dropout_eligible"):
+        model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
 
 
 def test_grappa_materialized_training_forward_and_backward():

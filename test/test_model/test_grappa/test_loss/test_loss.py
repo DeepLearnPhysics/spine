@@ -1273,3 +1273,34 @@ def test_edge_forest_dropout_preserves_node_aligned_cached_target():
 
     assert result["target"] is group_ids
     assert result["valid"].counts.tolist() == [2]
+
+
+def test_edge_forest_dropout_filters_cached_nodes_and_edges():
+    """Forest supervision follows both axes of node-augmented cached graphs."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]]),
+        counts=[2],
+        spans=[2],
+        directed=False,
+    )
+    edge_pred = TensorBatch(torch.tensor([[0.0, 1.0], [0.0, 1.0]]), counts=[2])
+    node_keep = TensorBatch(np.array([True, False, True]), counts=[3])
+    edge_keep = TensorBatch(
+        np.array([False, False, True, True, False, False]), counts=[6]
+    )
+    group_ids = TensorBatch(np.array([0, 5, 0]), counts=[3])
+    valid = TensorBatch(np.ones(6, dtype=bool), counts=[6])
+
+    result = EdgeChannelLoss(target="group", mode="forest")(
+        edge_index,
+        edge_pred,
+        labels=group_ids,
+        valid_mask=valid,
+        edge_keep=edge_keep,
+        node_keep=node_keep,
+        return_target=True,
+    )
+
+    np.testing.assert_array_equal(result["target"].data, [0, 0])
+    assert result["target"].counts.tolist() == [2]
+    assert result["valid"].counts.tolist() == [2]
