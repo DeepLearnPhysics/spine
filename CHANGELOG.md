@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **File-aware entry filtering**: Add the ``spine-filter`` scan/build workflow, fingerprinted per-source measurement caches, transactional dataset manifests, LArCV product-size inspection, and composable training/validation reader filters.
+
+### Changed
+- **Standalone configuration composition**: Load report and entry-filter configurations through the standard SPINE resolver, including search paths, nested includes, overrides/removals, environment expansion, and cycle detection.
+
 ## [1.1.0] - 2026-09-05
 
 ### Added

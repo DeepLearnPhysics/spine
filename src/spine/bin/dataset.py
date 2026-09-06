@@ -24,7 +24,7 @@ __all__ = [
     "apply_validation_dataset_selection",
 ]
 
-ENTRY_KEYS = (
+SELECTION_KEYS = (
     "n_entry",
     "n_skip",
     "entry_list",
@@ -33,6 +33,7 @@ ENTRY_KEYS = (
     "skip_run_event_list",
     "entry_fraction_range",
 )
+ENTRY_KEYS = ("entry_filter", *SELECTION_KEYS)
 
 
 @dataclass
@@ -63,10 +64,13 @@ class DatasetSelection:
         File containing run/subrun/event triplets to reject
     entry_fraction_range : tuple[float, float], optional
         Half-open fractional range of the resolved entry order to select
+    entry_filter : str, optional
+        File-aware eligibility manifest applied before ordinary selection
     """
 
     source: list[str] | None = None
     source_list: SourceValues = None
+    entry_filter: str | None = None
     n_entry: int | None = None
     n_skip: int | None = None
     entry_list: str | None = None
@@ -128,7 +132,7 @@ class DatasetSelection:
         prefix = "val_" if validation else ""
 
         def get(name: str):
-            return getattr(namespace, f"{prefix}{name}")
+            return getattr(namespace, f"{prefix}{name}", None)
 
         fraction_range = get("entry_fraction_range")
         if fraction_range is not None:
@@ -137,6 +141,7 @@ class DatasetSelection:
         return cls(
             source=get("source"),
             source_list=get("source_list"),
+            entry_filter=get("entry_filter"),
             n_entry=get("num_entries"),
             n_skip=get("nskip"),
             entry_list=get("entry_list"),
@@ -206,6 +211,11 @@ def add_dataset_arguments(
         dest=f"{dest_prefix}nskip",
         type=int,
         help=f"Number of {label.lower()}dataset entries to skip",
+    )
+    parser.add_argument(
+        option("entry-filter"),
+        dest=f"{dest_prefix}entry_filter",
+        help=f"Path to the {label.lower()}file-aware entry-filter manifest",
     )
     parser.add_argument(
         option("entry-list"),
@@ -280,13 +290,19 @@ def _apply_entry_overrides(
         if isinstance(base_cfg, Mapping):
             inherited_keys = set(base_cfg).intersection(ENTRY_KEYS)
 
-    for key in ENTRY_KEYS:
-        if key in inherited_keys:
-            # A source-level None masks a stale filter inherited from joint
-            # base without changing the independent secondary source.
-            target_cfg[key] = None
-        else:
-            target_cfg.pop(key, None)
+    # An entry filter is an eligibility constraint and composes with ordinary
+    # selectors. Supplying only this override must preserve a configured range.
+    selection_overrides = {
+        key: value for key, value in overrides.items() if key in SELECTION_KEYS
+    }
+    if selection_overrides:
+        for key in SELECTION_KEYS:
+            if key in inherited_keys:
+                # A source-level None masks a stale selector inherited from a
+                # joint base without changing the independent secondary source.
+                target_cfg[key] = None
+            else:
+                target_cfg.pop(key, None)
     target_cfg.update(overrides)
 
 
@@ -340,8 +356,11 @@ def apply_validation_dataset_selection(
     )
 
     # ValidationManager routes these filters after deriving the dataset shape.
+    # Eligibility composes with the configured selector, while an explicit
+    # selector replaces the previous mutually exclusive selection mode.
     entry_overrides = selection.entry_overrides
     if entry_overrides:
-        for key in ENTRY_KEYS:
-            validation_cfg.pop(key, None)
+        if any(key in entry_overrides for key in SELECTION_KEYS):
+            for key in SELECTION_KEYS:
+                validation_cfg.pop(key, None)
         validation_cfg.update(entry_overrides)

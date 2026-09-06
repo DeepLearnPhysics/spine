@@ -43,6 +43,7 @@ Bin modules
    spine.bin.cli
    spine.bin.config
    spine.bin.dataset
+   spine.bin.filter
    spine.bin.info
    spine.bin.report
    spine.bin.source
@@ -178,6 +179,9 @@ Io modules
    spine.io.dataset.joint
    spine.io.dataset.larcv
    spine.io.dataset.mixed
+   spine.io.filter.base
+   spine.io.filter.larcv
+   spine.io.filter.manager
    spine.io.manager
    spine.io.parse.hdf5.utils
    spine.io.parse.larcv.utils.particle

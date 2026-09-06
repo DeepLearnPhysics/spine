@@ -6,11 +6,24 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+import numpy as np
+
 from .base import BaseDataset, DataDict
 from .hdf5 import HDF5Dataset
 from .larcv import LArCVDataset
 
 __all__ = ["MixedDataset"]
+
+ENTRY_SELECTION_KEYS = (
+    "n_entry",
+    "n_skip",
+    "entry_list",
+    "skip_entry_list",
+    "run_event_list",
+    "skip_run_event_list",
+    "entry_fraction_range",
+)
+CACHE_ENTRY_DOMAINS = ("auto", "source", "filtered")
 
 
 class MixedDataset(BaseDataset):
@@ -37,6 +50,8 @@ class MixedDataset(BaseDataset):
         hdf5_align_keys: Mapping[str, str] | None = None,
         hdf5_key_map: Mapping[str, str] | None = None,
         allow_overwrite: bool = False,
+        entry_filter: str | None = None,
+        cache_entry_domain: str = "auto",
         **kwargs: Any,
     ) -> None:
         """Instantiate the mixed dataset.
@@ -61,6 +76,14 @@ class MixedDataset(BaseDataset):
             Optional rename map applied to HDF5 product keys before merging
         allow_overwrite : bool, default False
             If `True`, allow HDF5 products to overwrite colliding LArCV keys
+        entry_filter : str, optional
+            File-aware LArCV eligibility manifest. The HDF5 source is assumed
+            to contain either the original source domain or the accepted
+            entries in compact order, according to ``cache_entry_domain``.
+        cache_entry_domain : {"auto", "source", "filtered"}, default "auto"
+            Entry domain represented by HDF5 when ``entry_filter`` is active.
+            ``source`` retains all original entries, ``filtered`` contains only
+            accepted entries, and ``auto`` infers the layout from cardinality.
         **kwargs : Any
             Shared keyword arguments forwarded to both underlying dataset
             constructors. This is primarily used for reader-level options such
@@ -75,11 +98,53 @@ class MixedDataset(BaseDataset):
         self.hdf5_align_keys = dict(hdf5_align_keys or {})
         self.hdf5_key_map = dict(hdf5_key_map or {})
         self.allow_overwrite = allow_overwrite
+        if cache_entry_domain not in CACHE_ENTRY_DOMAINS:
+            raise ValueError(
+                f"Unknown `cache_entry_domain` `{cache_entry_domain}`; expected "
+                f"one of {CACHE_ENTRY_DOMAINS}."
+            )
 
-        # Initialize the aligned sources. Shared keyword arguments are forwarded
-        # to both datasets so reader-level filters preserve one-to-one ordering.
-        self.primary = LArCVDataset(**larcv, dtype=dtype, augment=None, **kwargs)
-        self.cache = HDF5Dataset(**hdf5, dtype=dtype, augment=None, **kwargs)
+        # Initialize the aligned sources. Shared positional selectors are
+        # forwarded to both datasets so they preserve one-to-one ordering.
+        larcv_config = dict(larcv)
+        if entry_filter is not None:
+            larcv_config["entry_filter"] = entry_filter
+        resolved_entry_filter = larcv_config.get("entry_filter")
+        self.primary = LArCVDataset(
+            **larcv_config,
+            dtype=dtype,
+            augment=None,
+            **kwargs,
+        )
+
+        # The raw-file manifest is intentionally not forwarded to HDF5. Without
+        # one, preserve the established behavior of applying shared selectors
+        # directly to both aligned inputs.
+        cache_kwargs = dict(kwargs)
+        if resolved_entry_filter is not None:
+            nested_selectors = [
+                key
+                for key in ENTRY_SELECTION_KEYS
+                if key in hdf5 and hdf5[key] is not None
+            ]
+            if nested_selectors:
+                raise ValueError(
+                    "When using `entry_filter`, configure mixed-dataset entry "
+                    "selection at the mixed root, not inside `hdf5`."
+                )
+            for key in ENTRY_SELECTION_KEYS:
+                cache_kwargs.pop(key, None)
+
+        self.cache = HDF5Dataset(
+            **hdf5,
+            dtype=dtype,
+            augment=None,
+            **cache_kwargs,
+        )
+
+        if resolved_entry_filter is not None:
+            self._select_cache_entries(cache_entry_domain)
+
         self.reader = self.primary.reader
         if len(self.primary) != len(self.cache):
             raise ValueError(
@@ -89,6 +154,64 @@ class MixedDataset(BaseDataset):
 
         # Initialize the augmenter
         self.build_augmenter(augment)
+
+    def _select_cache_entries(self, cache_entry_domain: str) -> None:
+        """Project HDF5 onto the final filtered LArCV selection.
+
+        Parameters
+        ----------
+        cache_entry_domain : {"auto", "source", "filtered"}
+            Configured HDF5 entry-domain policy. Auto detection compares the
+            cache cardinality with the complete raw and eligible populations.
+
+        Raises
+        ------
+        ValueError
+            If the requested domain is inconsistent with cache cardinality or
+            auto detection cannot identify either supported layout.
+        """
+        primary_reader = self.primary.reader
+        cache_reader = self.cache.reader
+        source_count = int(primary_reader.num_entries)
+        eligible = np.asarray(primary_reader.eligible_entry_index, dtype=np.int64)
+        cache_count = int(cache_reader.num_entries)
+
+        # Cardinality identifies whether the cache retained rejected entries.
+        domain = cache_entry_domain
+        if domain == "auto":
+            if cache_count == len(eligible):
+                domain = "filtered"
+            elif cache_count == source_count:
+                domain = "source"
+            else:
+                raise ValueError(
+                    "Could not infer the mixed HDF5 cache entry domain: cache "
+                    f"has {cache_count} entries, while the raw and filtered "
+                    f"domains contain {source_count} and {len(eligible)}."
+                )
+
+        expected_count = source_count if domain == "source" else len(eligible)
+        if cache_count != expected_count:
+            raise ValueError(
+                f"HDF5 `cache_entry_domain: {domain}` requires {expected_count} "
+                f"entries, found {cache_count}."
+            )
+
+        selected = np.asarray(primary_reader.entry_index, dtype=np.int64)
+        if domain == "filtered":
+            # Eligible indexes are source ordered. Their positions are exactly
+            # the compact entry indexes written by a filtered cache job.
+            compact = np.searchsorted(eligible, selected)
+            if np.any(compact >= len(eligible)) or not np.array_equal(
+                eligible[compact], selected
+            ):
+                raise ValueError(
+                    "The final LArCV selection is not contained in its eligible "
+                    "entry domain."
+                )
+            selected = compact
+
+        cache_reader.process_entry_list(entry_list=selected.tolist())
 
     def __len__(self) -> int:
         """Return the number of aligned entries.

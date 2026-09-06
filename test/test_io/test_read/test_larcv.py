@@ -342,3 +342,58 @@ def test_larcv_reader_requires_valid_run_info_key(monkeypatch):
             create_run_map=True,
             run_info_key="particle",
         )
+
+
+def test_larcv_reader_applies_filter_before_fraction(monkeypatch):
+    """Reader initialization should pass manifest survivors to base selection."""
+    calls = []
+
+    class DummyChain:
+        def __init__(self, name):
+            self.name = name
+            self.entries = 0
+
+        def AddFile(self, path):
+            del path
+            self.entries += 4
+
+        def GetEntries(self):
+            return self.entries
+
+    def eligible(path, **kwargs):
+        calls.append((path, kwargs))
+        return [0, 2, 3]
+
+    monkeypatch.setattr(
+        LArCVReader,
+        "process_file_paths",
+        lambda self, *args, **kwargs: setattr(self, "file_paths", ["dummy.root"]),
+    )
+    monkeypatch.setattr(larcv_read_module, "ROOT_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "LARCV_AVAILABLE", True)
+    monkeypatch.setattr(larcv_read_module, "larcv", CountingLArCV())
+    monkeypatch.setattr(larcv_read_module, "eligible_entries_from_manifest", eligible)
+    monkeypatch.setattr(
+        larcv_read_module,
+        "ROOT",
+        type("DummyROOT", (), {"TChain": DummyChain})(),
+    )
+
+    reader = LArCVReader(
+        file_keys="dummy.root",
+        tree_keys=["sparse3d"],
+        entry_filter="accepted.yaml",
+        entry_fraction_range=(0.0, 0.5),
+    )
+
+    assert reader.entry_index.tolist() == [0]
+    assert calls == [
+        (
+            "accepted.yaml",
+            {
+                "backend": "larcv",
+                "sources": ["dummy.root"],
+                "file_counts": [4],
+            },
+        )
+    ]

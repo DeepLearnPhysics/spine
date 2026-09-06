@@ -340,6 +340,7 @@ class ValidationManager:
     SOURCE_KEYS = frozenset({"file_keys", "file_list"})
     FILTER_KEYS = frozenset(
         {
+            "entry_filter",
             "n_entry",
             "n_skip",
             "entry_list",

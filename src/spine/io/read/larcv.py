@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from spine.io.filter import eligible_entries_from_manifest
 from spine.logging import logger
 from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
 
@@ -43,14 +44,15 @@ class LArCVReader(ReaderBase):
         max_print_files: int = 10,
         n_entry: int | None = None,
         n_skip: int | None = None,
-        entry_list: list[int] | None = None,
-        skip_entry_list: list[int] | None = None,
-        run_event_list: list[list[int]] | None = None,
-        skip_run_event_list: list[list[int]] | None = None,
+        entry_list: str | list[int] | None = None,
+        skip_entry_list: str | list[int] | None = None,
+        run_event_list: str | list[list[int]] | None = None,
+        skip_run_event_list: str | list[list[int]] | None = None,
         create_run_map: bool = False,
         run_info_key: str | None = None,
         allow_missing: bool = False,
         entry_fraction_range: Sequence[float] | None = None,
+        entry_filter: str | None = None,
     ) -> None:
         """Initialize the LArCV file reader.
 
@@ -87,6 +89,9 @@ class LArCVReader(ReaderBase):
             If `True`, allows missing entries in the entry or event list
         entry_fraction_range : sequence[float], optional
             Half-open fractional range of the resolved entry order to select
+        entry_filter : str, optional
+            File-aware eligibility manifest applied before ordinary entry
+            selection
         """
         # Check that ROOT and larcv are available
         if not ROOT_AVAILABLE:
@@ -168,7 +173,18 @@ class LArCVReader(ReaderBase):
         # Process the run information
         self.process_run_info()
 
-        # Process the entry list
+        # Translate file-local manifest exclusions into this reader's current
+        # global domain. A dataset-wide manifest may safely serve any subset.
+        eligible_entries = None
+        if entry_filter is not None:
+            eligible_entries = eligible_entries_from_manifest(
+                entry_filter,
+                backend=self.name,
+                sources=self.file_paths,
+                file_counts=file_counts,
+            )
+
+        # Apply ordinary entry selection to the surviving population.
         self.process_entry_list(
             n_entry,
             n_skip,
@@ -178,6 +194,7 @@ class LArCVReader(ReaderBase):
             skip_run_event_list,
             allow_missing,
             entry_fraction_range,
+            eligible_entries,
         )
 
     def get(self, idx: int) -> dict[str, Any]:

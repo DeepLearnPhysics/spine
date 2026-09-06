@@ -35,6 +35,14 @@ io:
         assert cfg["base"]["iterations"] == 100
         assert cfg["io"]["reader"]["batch_size"] == 4
 
+    def test_non_mapping_root(self, tmp_path):
+        """Top-level configuration data must be a mapping."""
+        config_file = tmp_path / "list.yaml"
+        config_file.write_text("- not\n- a\n- mapping\n")
+
+        with pytest.raises(ConfigTypeError, match="root.*must be a mapping"):
+            load_config_file(str(config_file))
+
     def test_top_level_include(self, tmp_path):
         """Test including another YAML file at the top level."""
         # Create base config
