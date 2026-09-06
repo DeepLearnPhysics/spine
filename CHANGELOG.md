@@ -1,12 +1,37 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - 2026-09-05
 
 ### Added
-- **Early-stopping progress**: Report the monitored validation value, change from the previous best, minimum delta, status, and patience progress inside each checkpoint section.
+- **Production CLI workflows**: Support named sources for joint and mixed datasets, mirror source and entry-selection overrides onto validation datasets, apply per-module checkpoint overrides, and export a fully composed model checkpoint without initializing data I/O.
+- **Materialized GrapPA training**: Run GrapPA directly from cached node features, edge features and graph indexes, and optionally cache resolved node and edge supervision targets with static validity masks while preserving iteration-dependent selection.
+- **Graph augmentation**: Add reciprocal-aware edge dropout, node and truth-group dropout with optional class selection, and independent feature masking and noise for materialized GrapPA inputs.
+- **Detector-response augmentation**: Add configurable signal response, noise and recombination distortions alongside stochastic calibration-parameter throws for lifetime, gain, signal shape, noise and recombination.
+- **Transactional staged caches**: Store internal stage products in HDF5 V2, publish independently produced stages through atomic sidecars, preserve source provenance, and replace incomplete or explicitly selected stages without rebuilding completed siblings.
+- **Cached full-chain entry points**: Declare externally supplied full-chain products, propagate cached PPN points as canonical state, and resume particle or interaction aggregation from cached upstream results.
+- **Metric reporting workflow**: Add the standalone report CLI and streaming reports for segmentation, PPN, clustering and node-level tasks, including configurable semantic mappings, bounded-memory reductions, JSON summaries and rendered figures.
+- **Track-breaking transform**: Add a configurable full-chain transform for splitting track-like fragments before downstream aggregation.
+- **Barycenter flash matching**: Add configurable optical-response selection, shared OpT0Finder model integration, hypothesis reporting and a maintained SBND configuration.
+- **Early-stopping progress**: Report the monitored validation value, change from the previous best, minimum delta, status and patience progress inside each checkpoint section.
+
+### Changed
+- **Staged-cache format**: Make the internal staged HDF5 reader and writer exclusively V2. Staged caches produced with the earlier disposable layout must be rebuilt; the general HDF5 reader retains its V1 and V2 compatibility contract.
+- **HDF5 minibatch throughput**: Coalesce contiguous V2 product reads across loader minibatches and keep the established V1 handle-reuse behavior.
+- **Analysis serialization**: Support directional truth-to-reco or reco-to-truth matched exports, serialize object collections in bulk through the canonical data-class schema, and use efficient system buffering by default for analysis CSV files.
+- **Clustering evaluation**: Share contingency tables across requested metrics, represent undefined comparisons with `NaN`, retain legitimate finite values such as ARI `-1`, and report truth, reconstruction and comparable support overall and by semantic class.
+- **Metric histogram semantics**: Apply custom clustering ranges consistently to histograms and moments while recording finite values excluded from the selected range; increment the report schema to `1.5.0`.
+- **Validation presentation**: Give on-the-fly validation its own inference-style log stream and group validation metrics, checkpoint paths and early-stopping state into clear bounded stdout sections.
+- **Composite loss outputs**: Remove duplicated parent-stage namespaces from cached GrapPA supervision products.
+- **Production documentation**: Expand CLI, configuration, workflow, troubleshooting and package API documentation with warning-strict documentation audits.
 
 ### Fixed
 - **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, let `TrainDrawer` discover standalone inference and on-the-fly validation logs together, and present each completed training step before its bounded validation and checkpoint section.
+- **Cached GrapPA supervision**: Reapply dynamic shower-purity selection at training time, normalize cached shape and target representations, accept cached orientation targets without endpoints, and convert Torch-backed grouping inputs before Numba evaluation.
+- **Cached aggregation coordinates**: Prefer canonical cached PPN points before falling back to truth coordinates when resuming GrapPA stages.
+- **Distributed cache execution**: Restore RNG state across devices, route mixed-dataset stage writes through sidecars, validate explicit stage maps and preserve cumulative post-processing provenance across repeated cache passes.
+- **CUDA cluster association**: Keep batch-index tensors on the same device while expanding particle associations.
+- **Model-only export**: Apply configuration and weight overrides before requiring an `io` section, making model-only checkpoint composition reachable from the CLI.
+- **Documentation and lightweight CLI checks**: Restore dependency inspection at its canonical CLI utility location and cover configuration failures and optional-runtime imports in CI.
 
 ## [1.0.4] - 2026-08-26
 
