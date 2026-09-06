@@ -18,6 +18,7 @@ from spine.io.filter import (
     scan_sources,
 )
 from spine.io.filter.base import canonical_source, resolve_sources
+from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
 
 
 class FakeInspector(EntryInspector):
@@ -562,24 +563,14 @@ def test_manifest_source_validation_errors(tmp_path, fake_backend):
         check(manifest, message)
 
 
-class FakeVector:
-    """Minimal LArCV vector proxy."""
-
-    def __init__(self, count):
-        self.count = count
-
-    def size(self):
-        return self.count
-
-
 class FakeProduct:
     """Minimal LArCV event-product proxy."""
 
     def __init__(self, count):
         self.count = count
 
-    def as_vector(self):
-        return FakeVector(self.count)
+    def size(self):
+        return self.count
 
 
 class FakeTree:
@@ -597,7 +588,7 @@ class FakeTree:
         self.product.count = self.counts[entry]
 
     def SetBranchStatus(self, *_args):
-        return None
+        raise AssertionError("The inspector must not change ROOT branch status.")
 
     def __getattr__(self, name):
         if name == f"{self.name}_branch":
@@ -611,14 +602,17 @@ class FakeRootFile:
     def __init__(self, trees):
         self.trees = trees
 
-    def Get(self, name):
-        return self.trees.get(name)
-
     def IsZombie(self):
         return False
 
     def Close(self):
         return None
+
+    def __getattr__(self, name):
+        try:
+            return self.trees[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
 
 
 def test_larcv_inspector_counts_products_and_checks_trees(monkeypatch):
@@ -634,7 +628,7 @@ def test_larcv_inspector_counts_products_and_checks_trees(monkeypatch):
     monkeypatch.setattr(
         larcv_filter_module,
         "ROOT",
-        SimpleNamespace(TFile=SimpleNamespace(Open=lambda *_args: root_file)),
+        SimpleNamespace(TFile=lambda *_args: root_file),
     )
     requests = {
         "sparse3d_reco": {"kind": "product_size"},
@@ -643,6 +637,7 @@ def test_larcv_inspector_counts_products_and_checks_trees(monkeypatch):
 
     num_entries, values = LArCVEntryInspector().inspect("input.root", requests)
 
+    assert LArCVEntryInspector.version == 2
     assert num_entries == 2
     assert values == {"sparse3d_reco": [2, 5], "particle_pcluster": [1, 3]}
     root_file.trees.pop("particle_pcluster_tree")
@@ -664,7 +659,7 @@ def test_larcv_inspector_rejects_inconsistent_counts(monkeypatch):
     monkeypatch.setattr(
         larcv_filter_module,
         "ROOT",
-        SimpleNamespace(TFile=SimpleNamespace(Open=lambda *_args: root_file)),
+        SimpleNamespace(TFile=lambda *_args: root_file),
     )
     requests = {
         "first": {"kind": "product_size"},
@@ -693,13 +688,11 @@ def test_larcv_inspector_runtime_and_product_errors(monkeypatch):
     monkeypatch.setattr(
         larcv_filter_module,
         "ROOT",
-        SimpleNamespace(TFile=SimpleNamespace(Open=lambda *_args: FakeRootFile({}))),
+        SimpleNamespace(TFile=lambda *_args: FakeRootFile({})),
     )
-    root_file = larcv_filter_module.ROOT.TFile.Open("input.root")
+    root_file = larcv_filter_module.ROOT.TFile("input.root")
     root_file.IsZombie = lambda: True
-    monkeypatch.setattr(
-        larcv_filter_module.ROOT.TFile, "Open", lambda *_args: root_file
-    )
+    monkeypatch.setattr(larcv_filter_module.ROOT, "TFile", lambda *_args: root_file)
     with pytest.raises(OSError, match="Could not open"):
         inspector.inspect("input.root", request)
 
@@ -712,3 +705,43 @@ def test_larcv_inspector_runtime_and_product_errors(monkeypatch):
     tree.product = SimpleNamespace(count=0)
     with pytest.raises(TypeError, match="does not expose"):
         inspector.inspect("input.root", request)
+
+
+@pytest.mark.skipif(
+    not (ROOT_AVAILABLE and LARCV_AVAILABLE),
+    reason="ROOT and LArCV are required to inspect a real LArCV file.",
+)
+def test_larcv_inspector_matches_direct_branch_access(larcv_data):
+    """Inspector counts must match direct event-product branch access."""
+    _ = larcv.__name__
+    root_file = ROOT.TFile(larcv_data, "r")
+
+    try:
+        # Use the first canonical product tree in the integration fixture.
+        tree_names = [
+            key.GetName()
+            for key in root_file.GetListOfKeys()
+            if key.GetName().endswith("_tree")
+        ]
+        assert len(tree_names) > 0
+        tree_name = tree_names[0]
+        product_name = tree_name[: -len("_tree")]
+        branch_name = f"{product_name}_branch"
+        tree = getattr(root_file, tree_name)
+
+        expected = []
+        for entry in range(int(tree.GetEntries())):
+            tree.GetEntry(entry)
+            expected.append(int(getattr(tree, branch_name).size()))
+    finally:
+        root_file.Close()
+
+    num_entries, values = LArCVEntryInspector().inspect(
+        larcv_data,
+        {product_name: {"kind": "product_size"}},
+    )
+
+    assert LArCVEntryInspector.version == 2
+    assert num_entries == len(expected)
+    assert any(count > 0 for count in expected)
+    assert values[product_name] == expected

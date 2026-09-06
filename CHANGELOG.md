@@ -34,6 +34,7 @@
 - **Production documentation**: Expand CLI, configuration, workflow, troubleshooting and package API documentation with warning-strict documentation audits.
 
 ### Fixed
+- **LArCV entry-filter counts**: Read event products through direct ROOT branch access without disabling sibling branches, and invalidate stale version-1 scan records that could contain empty-product counts.
 - **Crop augmentation coordinates**: Preserve subvoxel coordinates for continuous point products, validate the largest quantized crop against the source image deterministically, intersect explicit sampling bounds with the source volume, and allow activity-biased crops to select one coordinate product.
 - **On-the-fly validation logs**: Write checkpoint validation batches to dedicated `validation_log-*` segments, keep intermittent validation metrics out of fixed-schema training CSV files, let `TrainDrawer` discover standalone inference and on-the-fly validation logs together, and present each completed training step before its bounded validation and checkpoint section.
 - **Cached GrapPA supervision**: Reapply dynamic shower-purity selection at training time, normalize cached shape and target representations, accept cached orientation targets without endpoints, and convert Torch-backed grouping inputs before Numba evaluation.

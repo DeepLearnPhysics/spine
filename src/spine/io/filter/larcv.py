@@ -14,13 +14,13 @@ __all__ = ["LArCVEntryInspector"]
 class LArCVEntryInspector(EntryInspector):
     """Measure top-level LArCV product sizes without invoking SPINE parsers.
 
-    ``product_size`` denotes the length of the event product's ``as_vector``
-    representation.  Requested trees are opened independently and must expose
-    identical entry counts.
+    ``product_size`` denotes the length reported directly by the event product.
+    Requested trees are opened independently and must expose identical entry
+    counts.
     """
 
     name = "larcv"
-    version = 1
+    version = 2
 
     def inspect(
         self, source: str, measurements: Mapping[str, Mapping[str, Any]]
@@ -49,7 +49,7 @@ class LArCVEntryInspector(EntryInspector):
 
         # Register LArCV dictionaries before PyROOT materializes branch data.
         _ = larcv.__name__
-        root_file = ROOT.TFile.Open(source, "READ")
+        root_file = ROOT.TFile(source, "r")
         if not root_file or root_file.IsZombie():
             raise OSError(f"Could not open LArCV source: {source}")
 
@@ -65,9 +65,12 @@ class LArCVEntryInspector(EntryInspector):
 
                 tree_name = f"{name}_tree"
                 branch_name = f"{name}_branch"
-                tree = root_file.Get(tree_name)
-                if not tree:
-                    raise KeyError(f"Missing requested LArCV tree `{tree_name}`.")
+                try:
+                    tree = getattr(root_file, tree_name)
+                except AttributeError as exc:
+                    raise KeyError(
+                        f"Missing requested LArCV tree `{tree_name}`."
+                    ) from exc
 
                 count = int(tree.GetEntries())
                 if num_entries is None:
@@ -78,22 +81,17 @@ class LArCVEntryInspector(EntryInspector):
                         f"{num_entries}."
                     )
 
-                # Disable unrelated branches when the tree contains more than
-                # the canonical event-product branch.
-                if hasattr(tree, "SetBranchStatus"):
-                    tree.SetBranchStatus("*", 0)
-                    tree.SetBranchStatus(branch_name, 1)
-
+                # Let ROOT materialize the canonical event product normally.
+                # Disabling sibling branches can leave this proxy empty.
                 measured = []
                 for entry in range(count):
                     tree.GetEntry(entry)
                     product = getattr(tree, branch_name)
-                    if not hasattr(product, "as_vector"):
+                    if not hasattr(product, "size"):
                         raise TypeError(
-                            f"LArCV branch `{branch_name}` does not expose "
-                            "`as_vector()`."
+                            f"LArCV branch `{branch_name}` does not expose `size()`."
                         )
-                    measured.append(int(product.as_vector().size()))
+                    measured.append(int(product.size()))
                 values[name] = measured
 
             return int(num_entries or 0), values
