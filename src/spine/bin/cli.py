@@ -37,6 +37,7 @@ def main(
     weight_path: str | None,
     weight_list: str | None,
     config_overrides: list[str] | None,
+    entry_filter: str | None = None,
     module_weight: list[str] | None = None,
     val_source: list[str] | None = None,
     val_source_list: str | list[str] | None = None,
@@ -50,6 +51,7 @@ def main(
     val_run_event_list: str | None = None,
     val_skip_run_event_list: str | None = None,
     val_entry_fraction_range: tuple[float, float] | None = None,
+    val_entry_filter: str | None = None,
     world_size: int | None = None,
     batch_size: int | None = None,
     minibatch_size: int | None = None,
@@ -104,6 +106,8 @@ def main(
         the model weights
     config_overrides : list[str], optional
         List of config overrides in the form "key.path=value"
+    entry_filter : str, optional
+        File-aware eligibility manifest for the input dataset
     module_weight : list[str], optional
         Module checkpoint overrides in the form ``MODULE=PATH``
     val_source : list[str], optional
@@ -132,6 +136,8 @@ def main(
         Path to validation run/subrun/event triplets to skip
     val_entry_fraction_range : tuple[float, float], optional
         Half-open fractional range of validation entries to process
+    val_entry_filter : str, optional
+        File-aware eligibility manifest for the validation dataset
     world_size : int, optional
         Number of local processes/devices to use
     batch_size : int, optional
@@ -196,6 +202,7 @@ def main(
     input_selection = DatasetSelection(
         source=source,
         source_list=source_list,
+        entry_filter=entry_filter,
         n_entry=n,
         n_skip=nskip,
         entry_list=entry_list,
@@ -207,6 +214,7 @@ def main(
     validation_selection = DatasetSelection(
         source=val_source,
         source_list=val_source_list,
+        entry_filter=val_entry_filter,
         n_entry=val_n,
         n_skip=val_nskip,
         entry_list=val_entry_list,
@@ -580,6 +588,7 @@ def cli() -> None:
         nskip=args.nskip,
         entry_list=args.entry_list,
         skip_entry_list=args.skip_entry_list,
+        entry_filter=getattr(args, "entry_filter", None),
         log_dir=args.log_dir,
         weight_prefix=args.weight_prefix,
         weight_path=args.weight_path,
@@ -598,6 +607,7 @@ def cli() -> None:
         val_run_event_list=args.val_run_event_list,
         val_skip_run_event_list=args.val_skip_run_event_list,
         val_entry_fraction_range=args.val_entry_fraction_range,
+        val_entry_filter=getattr(args, "val_entry_filter", None),
         world_size=args.world_size,
         batch_size=args.batch_size,
         minibatch_size=args.minibatch_size,

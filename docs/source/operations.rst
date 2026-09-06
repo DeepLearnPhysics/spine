@@ -40,6 +40,70 @@ Retain these items together for each production campaign:
 - output files and their checksums;
 - scheduler job identifier, host/GPU allocation, and distributed world size.
 
+File-aware Entry Filtering
+--------------------------
+
+Pathological raw events should be rejected before a driver or parser loads
+their products. ``spine-filter`` first records requested per-entry product
+sizes in reusable, source-fingerprinted counter files, then builds one compact
+manifest whose rejected indexes are local to each source file::
+
+   spine-filter scan \
+     --config filter.yaml \
+     --source-list raw-files.txt \
+     --cache-dir filter-cache \
+     --workers 4
+
+   spine-filter build \
+     --config filter.yaml \
+     --source-list raw-files.txt \
+     --cache-dir filter-cache \
+     --output accepted.yaml \
+     --output-source-list accepted-files.txt
+
+The initial LArCV configuration language deliberately supports only product
+sizes and exclusive upper bounds. This example accepts an event exactly when
+``sparse3d_reco_count < 500000`` while retaining two diagnostic counts::
+
+   input:
+     name: larcv
+
+   measurements:
+     sparse3d_reco: {kind: product_size}
+     sparse3d_pcluster: {kind: product_size}
+     particle_pcluster: {kind: product_size}
+
+   filters:
+     sparse3d_reco: {max_count: 500000}
+
+Valid scan records are reused; changed source size, modification time, backend,
+inspector version, or measurement specification causes a rescan. ``--force``
+requests an unconditional rescan. Both counter records and final artifacts are
+published atomically.
+
+Apply the resulting manifest only to the raw LArCV reader::
+
+   spine -c train.yaml \
+     --source-list raw-files.txt \
+     --entry-filter accepted.yaml \
+     --val-entry-filter accepted-test.yaml
+
+The manifest may describe the complete dataset while a scheduler task reads
+only one listed source. Missing files, changed fingerprints, and entry-count
+mismatches are hard errors. The filter establishes eligibility before normal
+selection, so a configured ``entry_fraction_range`` splits the surviving
+sequence into adjacent, non-overlapping partitions. Numeric limits and skips
+also operate on survivors; explicit entry and run/event lists retain their
+source-domain meaning and are intersected with eligibility. Downstream HDF5
+caches already contain only accepted entries and must not reapply the raw-data
+manifest.
+
+For a mixed LArCV/HDF5 dataset, ``cache_entry_domain`` controls how the
+filtered raw selection maps onto the cache. ``filtered`` denotes a compact
+cache containing only eligible entries, while ``source`` denotes a cache that
+retains the original unfiltered entry domain. The default ``auto`` mode infers
+these layouts from their cardinalities and fails if neither is consistent.
+
 The normalized configuration embedded in checkpoints is valuable evidence but
 does not replace the launch command: CLI overrides are applied before the
 driver starts and are reflected in startup logs.

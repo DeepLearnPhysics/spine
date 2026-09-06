@@ -45,6 +45,23 @@ File Readers
    read.LArCVReader
    read.StageHDF5Reader
 
+Entry Filtering
+---------------
+
+File-aware filtering is performed before ordinary reader selection. The
+generic scan and manifest APIs delegate physical inspection to a backend such
+as :class:`filter.LArCVEntryInspector`.
+
+.. autosummary::
+   :toctree: generated
+
+   filter.EntryInspector
+   filter.LArCVEntryInspector
+   filter.scan_sources
+   filter.build_manifest
+   filter.load_entry_filter
+   filter.eligible_entries_from_manifest
+
 File Writers
 ------------
 

@@ -312,6 +312,7 @@ class ReaderBase(ABC):
         skip_run_event_list: str | list[list[int]] | None = None,
         allow_missing: bool = False,
         entry_fraction_range: Sequence[float] | None = None,
+        eligible_entries: Sequence[int] | np.ndarray | None = None,
     ) -> None:
         """Create a list of entries that can be accessed by :meth:`__getitem__`.
 
@@ -338,6 +339,10 @@ class ReaderBase(ABC):
         entry_fraction_range : sequence[float], optional
             Half-open fractional range ``[start, stop)`` of the resolved entry
             order to select. Bounds must satisfy ``0 <= start < stop <= 1``.
+        eligible_entries : sequence[int], optional
+            Global source-domain entries eligible for ordinary selection.
+            Format-specific filters use this initial constraint before numeric,
+            fractional, explicit-entry or run/event selection is applied.
 
         Returns
         -------
@@ -357,16 +362,6 @@ class ReaderBase(ABC):
                 "selection modes are mutually exclusive."
             )
 
-        if n_entry is not None or n_skip is not None:
-            n_skip = n_skip if n_skip else 0
-            n_entry = n_entry if n_entry else self.num_entries - n_skip
-            if n_skip + n_entry > self.num_entries:
-                raise ValueError(
-                    f"Incompatibility between `n_entry` ({n_entry}), "
-                    f"`n_skip` ({n_skip}) and the number of entries in the files "
-                    f"({self.num_entries})."
-                )
-
         if entry_list and skip_entry_list:
             raise ValueError(
                 "Cannot specify both `entry_list` and `skip_entry_list` at the same time."
@@ -378,8 +373,33 @@ class ReaderBase(ABC):
                 "`skip_run_event_list` at the same time."
             )
 
-        # Create a list of entries to be loaded
-        entry_list_arr = None
+        # A format-specific filter defines the ordered population on which
+        # positional selectors operate. Explicit selectors remain expressed in
+        # the original global source domain and are intersected below.
+        available = np.arange(self.num_entries, dtype=np.int64)
+        if eligible_entries is not None:
+            eligible = np.asarray(eligible_entries)
+            if eligible.dtype == bool:
+                if eligible.shape != (self.num_entries,):
+                    raise ValueError(
+                        "Boolean `eligible_entries` must match `num_entries`."
+                    )
+                available = np.flatnonzero(eligible).astype(np.int64)
+            else:
+                available = eligible.astype(np.int64, copy=False)
+                if available.ndim != 1:
+                    raise ValueError("`eligible_entries` must be one-dimensional.")
+                if np.any((available < 0) | (available >= self.num_entries)):
+                    raise ValueError("Values in `eligible_entries` outside of bounds.")
+                if len(np.unique(available)) != len(available):
+                    raise ValueError("Values in `eligible_entries` must be unique.")
+
+        # Retain the complete eligibility domain independently of any later
+        # positional selection. Composite datasets use it to translate raw
+        # source indexes onto compact caches.
+        self.eligible_entry_index = available.copy()
+
+        entry_index = available
         if entry_fraction_range is not None:
             try:
                 if isinstance(entry_fraction_range, (str, bytes)):
@@ -402,21 +422,26 @@ class ReaderBase(ABC):
 
             # Flooring both boundaries produces adjacent, non-overlapping
             # partitions whose union covers the original entry order.
-            lower = int(start * self.num_entries)
-            upper = int(stop * self.num_entries)
-            entry_list_arr = np.arange(lower, upper, dtype=np.int64)
+            lower = int(start * len(available))
+            upper = int(stop * len(available))
+            entry_index = available[lower:upper]
 
         elif n_entry or n_skip:
-            entry_list_arr = np.arange(self.num_entries)
-            if n_skip is not None and n_skip > 0:
-                entry_list_arr = entry_list_arr[n_skip:]
-            if n_entry is not None and n_entry > 0:
-                entry_list_arr = entry_list_arr[:n_entry]
+            resolved_skip = n_skip if n_skip else 0
+            resolved_count = n_entry if n_entry else len(available) - resolved_skip
+            if resolved_skip + resolved_count > len(available):
+                raise ValueError(
+                    f"Incompatibility between `n_entry` ({resolved_count}), "
+                    f"`n_skip` ({resolved_skip}) and the number of eligible "
+                    f"entries ({len(available)})."
+                )
+            entry_index = available[resolved_skip : resolved_skip + resolved_count]
 
         elif entry_list:
-            entry_list_arr = self.parse_entry_list(entry_list)
-            if not np.all(entry_list_arr < self.num_entries):
+            requested = self.parse_entry_list(entry_list)
+            if np.any((requested < 0) | (requested >= self.num_entries)):
                 raise ValueError("Values in entry_list outside of bounds.")
+            entry_index = requested[np.isin(requested, available)]
 
         elif run_event_list:
             self.process_run_info()
@@ -430,13 +455,17 @@ class ReaderBase(ABC):
                 if not allow_missing or (r, s, e) in self.run_map:
                     entry_list.append(self.get_run_event_index(r, s, e))
 
-            entry_list_arr = np.unique(entry_list).astype(int)
+            requested = np.unique(entry_list).astype(np.int64)
+            entry_index = requested[np.isin(requested, available)]
 
         elif skip_entry_list or skip_run_event_list:
             skip_entry_list_arr = None
             if skip_entry_list:
                 skip_entry_list_arr = self.parse_entry_list(skip_entry_list)
-                if not np.all(skip_entry_list_arr < self.num_entries):
+                if np.any(
+                    (skip_entry_list_arr < 0)
+                    | (skip_entry_list_arr >= self.num_entries)
+                ):
                     raise ValueError("Values in skip_entry_list outside of bounds.")
 
             elif skip_run_event_list:
@@ -456,18 +485,11 @@ class ReaderBase(ABC):
                 skip_entry_list_arr = np.array(skip_entry_list, dtype=int)
 
             if skip_entry_list_arr is not None:
-                entry_mask = np.ones(self.num_entries, dtype=bool)
-                entry_mask[skip_entry_list_arr] = False
-                entry_list_arr = np.where(entry_mask)[0]
+                entry_index = available[~np.isin(available, skip_entry_list_arr)]
 
-        # Apply entry list to the indexes
-        entry_index = np.arange(self.num_entries, dtype=np.int64)
-        if entry_list_arr is not None:
-            entry_index = entry_index[entry_list_arr]
-
-            if self.run_info is not None:
-                run_info = [self.run_info[i] for i in entry_list_arr]
-                self.run_map = {v: i for i, v in enumerate(run_info)}
+        if self.run_info is not None:
+            run_info = [self.run_info[i] for i in entry_index]
+            self.run_map = {value: i for i, value in enumerate(run_info)}
 
         if len(entry_index) == 0:
             raise IndexError(

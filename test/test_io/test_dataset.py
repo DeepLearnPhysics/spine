@@ -1480,6 +1480,196 @@ def test_mixed_dataset_forwards_shared_kwargs(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("domain", "cache_count", "expected"),
+    [
+        ("auto", 4, [1, 3]),
+        ("filtered", 4, [1, 3]),
+        ("auto", 5, [1, 4]),
+        ("source", 5, [1, 4]),
+    ],
+)
+def test_mixed_dataset_translates_filtered_cache_domains(
+    monkeypatch, domain, cache_count, expected
+):
+    """Raw and compact cache domains should receive the matching indexes."""
+    seen = {}
+
+    class DummyReader:
+        def __init__(self, count, indexes=None, eligible=None):
+            self.num_entries = count
+            self.entry_index = np.asarray(
+                indexes if indexes is not None else np.arange(count)
+            )
+            if eligible is not None:
+                self.eligible_entry_index = np.asarray(eligible)
+
+        def process_entry_list(self, entry_list=None, **_kwargs):
+            self.entry_index = np.asarray(entry_list)
+
+    class DummyDataset:
+        def __init__(self, reader):
+            self.reader = reader
+
+        def __len__(self):
+            return len(self.reader.entry_index)
+
+    def build_primary(**kwargs):
+        seen["primary"] = kwargs
+        return DummyDataset(DummyReader(5, [1, 4], [0, 1, 3, 4]))
+
+    def build_cache(**kwargs):
+        seen["cache"] = kwargs
+        return DummyDataset(DummyReader(cache_count))
+
+    monkeypatch.setattr(mixed_dataset_module, "LArCVDataset", build_primary)
+    monkeypatch.setattr(mixed_dataset_module, "HDF5Dataset", build_cache)
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+        entry_filter="accepted.yaml",
+        entry_fraction_range=(0.0, 0.5),
+        cache_entry_domain=domain,
+    )
+
+    assert seen["primary"]["entry_filter"] == "accepted.yaml"
+    assert seen["primary"]["entry_fraction_range"] == (0.0, 0.5)
+    assert "entry_filter" not in seen["cache"]
+    assert "entry_fraction_range" not in seen["cache"]
+    assert dataset.cache.reader.entry_index.tolist() == expected
+
+
+def test_mixed_dataset_cache_domain_auto_handles_no_rejections(monkeypatch):
+    """Equal raw and filtered domains should use their equivalent mapping."""
+
+    class DummyReader:
+        num_entries = 3
+        eligible_entry_index = np.arange(3)
+
+        def __init__(self, indexes):
+            self.entry_index = np.asarray(indexes)
+
+        def process_entry_list(self, entry_list=None, **_kwargs):
+            self.entry_index = np.asarray(entry_list)
+
+    class DummyDataset:
+        def __init__(self, indexes):
+            self.reader = DummyReader(indexes)
+
+        def __len__(self):
+            return len(self.reader.entry_index)
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **_kwargs: DummyDataset([0, 2])
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module, "HDF5Dataset", lambda **_kwargs: DummyDataset([0, 1, 2])
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": "dummy.root", "schema": {}},
+        hdf5={"file_keys": "dummy.h5"},
+        dtype="float32",
+        entry_filter="accepted.yaml",
+    )
+
+    assert dataset.cache.reader.entry_index.tolist() == [0, 2]
+
+
+@pytest.mark.parametrize(
+    ("domain", "cache_count", "selected", "message"),
+    [
+        ("auto", 3, [1, 4], "Could not infer"),
+        ("source", 4, [1, 4], "requires 5 entries"),
+        ("filtered", 5, [1, 4], "requires 4 entries"),
+        ("filtered", 4, [2], "not contained"),
+    ],
+)
+def test_mixed_dataset_rejects_inconsistent_cache_domains(
+    monkeypatch, domain, cache_count, selected, message
+):
+    """Cache cardinality must match the selected raw or filtered domain."""
+
+    class DummyReader:
+        def __init__(self, count, indexes, eligible=None):
+            self.num_entries = count
+            self.entry_index = np.asarray(indexes)
+            if eligible is not None:
+                self.eligible_entry_index = np.asarray(eligible)
+
+        def process_entry_list(self, **_kwargs):
+            raise AssertionError("Invalid domains must fail before selection.")
+
+    class DummyDataset:
+        def __init__(self, reader):
+            self.reader = reader
+
+        def __len__(self):
+            return len(self.reader.entry_index)
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **_kwargs: DummyDataset(DummyReader(5, selected, [0, 1, 3, 4])),
+    )
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "HDF5Dataset",
+        lambda **_kwargs: DummyDataset(
+            DummyReader(cache_count, np.arange(cache_count))
+        ),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        MixedDataset(
+            larcv={"file_keys": "dummy.root", "schema": {}},
+            hdf5={"file_keys": "dummy.h5"},
+            dtype="float32",
+            entry_filter="accepted.yaml",
+            cache_entry_domain=domain,
+        )
+
+
+def test_mixed_dataset_rejects_invalid_cache_domain_configuration(monkeypatch):
+    """Unknown domains and nested cache selectors should fail explicitly."""
+    with pytest.raises(ValueError, match="Unknown `cache_entry_domain`"):
+        MixedDataset(
+            larcv={},
+            hdf5={},
+            dtype="float32",
+            cache_entry_domain="compact",
+        )
+
+    class DummyDataset:
+        def __init__(self):
+            self.reader = type(
+                "Reader",
+                (),
+                {
+                    "num_entries": 1,
+                    "eligible_entry_index": np.asarray([0]),
+                    "entry_index": np.asarray([0]),
+                },
+            )()
+
+        def __len__(self):
+            return 1
+
+    monkeypatch.setattr(
+        mixed_dataset_module, "LArCVDataset", lambda **_kwargs: DummyDataset()
+    )
+
+    with pytest.raises(ValueError, match="mixed root"):
+        MixedDataset(
+            larcv={},
+            hdf5={"entry_list": [0]},
+            dtype="float32",
+            entry_filter="accepted.yaml",
+        )
+
+
 def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
     """Explicit HDF5 alignment mappings should override automatic source_* lookup."""
 

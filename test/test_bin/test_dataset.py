@@ -22,11 +22,15 @@ def test_dataset_arguments_are_symmetric():
         [
             "--source",
             "train.root",
+            "--entry-filter",
+            "train-filter.yaml",
             "--entry-fraction-range",
             "0.0",
             "0.5",
             "--val-source-list",
             "validation.txt",
+            "--val-entry-filter",
+            "validation-filter.yaml",
             "--val-run-event-list",
             "events.txt",
         ]
@@ -35,8 +39,10 @@ def test_dataset_arguments_are_symmetric():
     validation = DatasetSelection.from_namespace(args, validation=True)
 
     assert train.source == ["train.root"]
+    assert train.entry_filter == "train-filter.yaml"
     assert train.entry_fraction_range == (0.0, 0.5)
     assert validation.source_list == ["validation.txt"]
+    assert validation.entry_filter == "validation-filter.yaml"
     assert validation.run_event_list == "events.txt"
     assert train.configured
     assert DatasetSelection().configured is False
@@ -110,7 +116,7 @@ def test_apply_dataset_selection_routes_joint_filters_to_primary():
 
 
 def test_validation_selection_preserves_or_replaces_entry_filters():
-    """Source-only changes preserve filters; explicit filters replace the mode."""
+    """Source-only changes preserve filters; explicit selectors replace modes."""
     io = {"loader": {"dataset": {"file_keys": "train.root"}}}
     validation = {"file_keys": "old.root", "n_entry": 5}
 
@@ -130,3 +136,32 @@ def test_validation_selection_preserves_or_replaces_entry_filters():
         "file_keys": ["new.root"],
         "entry_fraction_range": (0.5, 1.0),
     }
+
+    apply_validation_dataset_selection(
+        validation,
+        io,
+        DatasetSelection(entry_filter="accepted.yaml"),
+    )
+    assert validation == {
+        "file_keys": ["new.root"],
+        "entry_filter": "accepted.yaml",
+        "entry_fraction_range": (0.5, 1.0),
+    }
+
+
+def test_entry_filter_composes_with_configured_selection():
+    """Adding only an eligibility manifest should preserve the selection mode."""
+    io = {
+        "reader": {
+            "file_keys": "input.root",
+            "entry_fraction_range": [0.0, 0.5],
+        }
+    }
+
+    apply_dataset_selection(
+        io,
+        DatasetSelection(entry_filter="accepted.yaml"),
+    )
+
+    assert io["reader"]["entry_filter"] == "accepted.yaml"
+    assert io["reader"]["entry_fraction_range"] == [0.0, 0.5]

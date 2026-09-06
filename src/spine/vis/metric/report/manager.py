@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from spine.config import load_config_file
+from spine.config.errors import ConfigTypeError
+from spine.config.loader import resolve_config_path
 
 from .base import REPORT_SCHEMA_VERSION, ReportRecipe
 from .cluster import ClusterSummaryRecipe
@@ -230,36 +235,37 @@ def _nested_input_counts(metric: Mapping[str, Any], count_name: str) -> list[int
     ]
 
 
-def _load_config(config_path: Path) -> Mapping[str, Any]:
-    """Load and minimally validate a standalone report YAML file.
+def _load_config(config_path: str | Path) -> tuple[Path, Mapping[str, Any]]:
+    """Resolve, compose and minimally validate a report configuration.
 
     Parameters
     ----------
-    config_path : Path
-        YAML configuration path.
+    config_path : str or Path
+        YAML configuration name or path.
 
     Returns
     -------
-    mapping
-        Parsed configuration containing a non-empty ``metrics`` mapping.
+    resolved_path : Path
+        Resolved top-level configuration path.
+    config : mapping
+        Fully composed configuration containing a non-empty ``metrics`` map.
 
     Raises
     ------
     TypeError
-        If the YAML root is not a mapping.
+        If the resolved configuration root is not a mapping.
     ValueError
         If ``metrics`` is absent, empty or not a mapping.
     """
-    import yaml
-
-    with config_path.open("r", encoding="utf-8") as stream:
-        config = yaml.safe_load(stream) or {}
-    if not isinstance(config, Mapping):
-        raise TypeError("Report configuration must be a mapping.")
+    resolved = Path(resolve_config_path(str(config_path), current_dir=os.getcwd()))
+    try:
+        config = load_config_file(str(resolved))
+    except ConfigTypeError as err:
+        raise TypeError("Report configuration must be a mapping.") from err
     metrics = config.get("metrics")
     if not isinstance(metrics, Mapping) or not metrics:
         raise ValueError("Report configuration must contain a non-empty `metrics` map.")
-    return config
+    return resolved, config
 
 
 def _refresh_input_counts(result: dict[str, Any]) -> None:
@@ -339,10 +345,9 @@ def build_report(
         If a recipe or output format is unsupported, or recipe validation
         fails.
     """
-    config_path = Path(config_path)
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
-    config = _load_config(config_path)
+    config_path, config = _load_config(config_path)
     metrics = config["metrics"]
     strict = bool(config.get("strict", True))
     formats = list(config.get("formats", ("png", "json")))

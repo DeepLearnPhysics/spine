@@ -20,7 +20,7 @@ from .api import (
     META_STRICT,
     META_VERSION,
 )
-from .errors import ConfigCycleError, ConfigIncludeError
+from .errors import ConfigCycleError, ConfigIncludeError, ConfigTypeError
 from .loader import ConfigLoader, resolve_config_path
 from .meta import (
     check_compatibility,
@@ -134,6 +134,12 @@ def load_config_recursive(
 
     if main_config is None:
         return {}, {}, [], {}
+    if not isinstance(main_config, dict):
+        source = cfg_path if cfg_path else "<string>"
+        raise ConfigTypeError(
+            f"Configuration root in `{source}` must be a mapping, got "
+            f"{type(main_config).__name__}."
+        )
 
     # Extract metadata
     metadata = extract_metadata(main_config, cfg_path if cfg_path else "<string>")

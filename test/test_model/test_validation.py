@@ -39,6 +39,7 @@ def test_build_loader_config_replaces_ordinary_source():
         loader,
         {
             "file_keys": "validation.root",
+            "entry_filter": "accepted.yaml",
             "entry_fraction_range": [0.5, 1.0],
         },
         seed=3,
@@ -49,6 +50,7 @@ def test_build_loader_config_replaces_ordinary_source():
     assert derived["dataset"]["schema"] == loader["dataset"]["schema"]
     assert "augment" not in derived["dataset"]
     assert "n_entry" not in derived["dataset"]
+    assert derived["dataset"]["entry_filter"] == "accepted.yaml"
     assert derived["dataset"]["entry_fraction_range"] == [0.5, 1.0]
     assert "entry_list" not in derived
     assert "sampler" not in derived

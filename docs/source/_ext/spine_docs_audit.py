@@ -157,6 +157,8 @@ def audit_production_docs(app, config) -> None:
     cli_options = {
         "spine": _long_cli_options("spine.bin.cli"),
         "spine-config": _long_cli_options("spine.bin.config"),
+        "spine-filter": _long_cli_options("spine.bin.filter"),
+        "spine-report": _long_cli_options("spine.bin.report"),
     }
     exact_config_reference = re.compile(r"(?<![\w/{])config/[\w./-]+\.ya?ml")
     for path in rst_paths:

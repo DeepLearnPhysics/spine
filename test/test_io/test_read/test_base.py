@@ -47,6 +47,32 @@ def test_reader_base_getters():
     assert reader.get_file_entry_index(2) == 2
 
 
+def test_reader_entry_eligibility_precedes_ordinary_selection():
+    """Entry filters should constrain, not conflict with, every selector mode."""
+    reader = DummyReader(num_entries=10)
+    eligible = [0, 2, 3, 6, 8, 9]
+
+    reader.process_entry_list(
+        eligible_entries=eligible, entry_fraction_range=(0.0, 0.5)
+    )
+    first = reader.entry_index.tolist()
+    reader.process_entry_list(
+        eligible_entries=eligible, entry_fraction_range=(0.5, 1.0)
+    )
+    second = reader.entry_index.tolist()
+    assert first == [0, 2, 3]
+    assert second == [6, 8, 9]
+    assert set(first).isdisjoint(second)
+    assert first + second == eligible
+
+    reader.process_entry_list(eligible_entries=eligible, n_skip=1, n_entry=2)
+    assert reader.entry_index.tolist() == [2, 3]
+    reader.process_entry_list(eligible_entries=eligible, entry_list=[1, 2, 8])
+    assert reader.entry_index.tolist() == [2, 8]
+    reader.process_entry_list(eligible_entries=eligible, skip_entry_list=[2, 9])
+    assert reader.entry_index.tolist() == [0, 3, 6, 8]
+
+
 def test_reader_base_process_file_paths(tmp_path):
     """ReaderBase should parse direct paths, text file lists, and remote URIs."""
     first = tmp_path / "a.h5"
@@ -191,6 +217,20 @@ def test_reader_base_process_entry_list_errors():
         reader.process_entry_list(entry_fraction_range=[0.0, np.inf])
     with pytest.raises(IndexError, match="No entries selected"):
         reader.process_entry_list(entry_fraction_range=[0.0, 0.1])
+
+    with pytest.raises(ValueError, match="must match `num_entries`"):
+        reader.process_entry_list(eligible_entries=np.asarray([True, False]))
+    with pytest.raises(ValueError, match="one-dimensional"):
+        reader.process_entry_list(eligible_entries=np.asarray([[0, 1]]))
+    with pytest.raises(ValueError, match="outside of bounds"):
+        reader.process_entry_list(eligible_entries=[0, 3])
+    with pytest.raises(ValueError, match="must be unique"):
+        reader.process_entry_list(eligible_entries=[0, 0])
+
+    reader.process_entry_list(
+        eligible_entries=np.asarray([True, False, True], dtype=bool)
+    )
+    assert reader.entry_index.tolist() == [0, 2]
 
 
 def test_reader_base_process_entry_list_bounds_and_run_map_errors():
