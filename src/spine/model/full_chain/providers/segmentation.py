@@ -34,7 +34,7 @@ class SegmentationStage(ChainStage):
         name: str,
         mode: str,
         model: UResNetSegmentation | UResNetPPN | None,
-        label_adapter: ClusterLabelAdapter,
+        label_adapter: ClusterLabelAdapter | None,
     ) -> None:
         """Initialize the semantic provider.
 
@@ -46,8 +46,9 @@ class SegmentationStage(ChainStage):
             Source of semantic predictions.
         model : UResNetSegmentation or UResNetPPN, optional
             Native learned model used in ``uresnet`` mode.
-        label_adapter : ClusterLabelAdapter
+        label_adapter : ClusterLabelAdapter, optional
             Utility that aligns structured truth with reconstructed semantics.
+            If omitted, adapted cluster labels are not produced.
         """
         super().__init__(name)
         if mode not in {"uresnet", "label"}:
@@ -135,7 +136,12 @@ class SegmentationStage(ChainStage):
 
         # Adapt truth clusters exactly once after the effective voxel set and
         # semantic predictions are known.
-        if seg_label is not None and clust_label is not None and self.mode == "uresnet":
+        if (
+            self.label_adapter is not None
+            and seg_label is not None
+            and clust_label is not None
+            and self.mode == "uresnet"
+        ):
             adapted = products.get("point_data", point_data)
             orig_index = adapted.orig_index
             adapted_label = self.label_adapter(
@@ -154,8 +160,9 @@ class SegmentationLossStage(ChainLossStage):
     """Align truth rows and route semantic or point supervision.
 
     Cached and on-the-fly deghosting can place truth and logits on different
-    row sets. The adapter reconciles those rows before invoking the standalone
-    UResNet or UResNet-PPN objective.
+    row sets. Semantic truth is reconciled with the current logits before the
+    standalone objective runs. Raw cluster truth remains unadapted so PPN
+    particle restriction is independent of semantic predictions.
     """
 
     def __init__(
@@ -240,14 +247,15 @@ class SegmentationLossStage(ChainLossStage):
             segmentation,
             data.get("orig_index"),
         )
-        # Preserve native standalone loss arguments while overriding products
-        # that require full-chain alignment or label adaptation.
+        # PPN particle restriction must remain tied to raw truth. Adapted
+        # labels are prediction-dependent and belong only to downstream
+        # reconstructed-domain objectives such as Graph-SPICE.
         inputs = dict(data)
         inputs.update(
             {
                 "seg_label": seg_label,
                 "segmentation": segmentation,
-                "clust_label": data.get("clust_label_adapt", data.get("clust_label")),
+                "clust_label": data.get("clust_label"),
             }
         )
         return self.loss(**inputs)
@@ -265,7 +273,9 @@ def build_segmentation_stage(
     name : str
         Stage name.
     config : dict
-        Semantic mode, native model block, and label-adapter options.
+        Semantic mode, native model block, and label-adapter options. Omitted
+        or true ``adapt_labels`` values build the default adapter, false
+        disables adaptation, and a mapping configures the adapter.
     owner : torch.nn.Module
         Full-chain model that owns the native network.
 
@@ -299,11 +309,20 @@ def build_segmentation_stage(
             model = UResNetSegmentation(uresnet)
             owner.add_module("uresnet", model)
 
-    # Label adaptation is independent of the selected semantic implementation.
-    adapter_config = config.get("adapt_labels") or {}
-    if not isinstance(adapter_config, dict):
-        raise TypeError("`adapt_labels` configuration must be a mapping.")
-    return SegmentationStage(name, mode, model, ClusterLabelAdapter(**adapter_config))
+    # Omitted adaptation preserves the historical default. An explicit false
+    # disables the work for segmentation-only chains, while true requests the
+    # default adapter and a mapping configures it directly.
+    adapt_labels = config.get("adapt_labels")
+    if adapt_labels is False:
+        label_adapter = None
+    elif adapt_labels is None or adapt_labels is True:
+        label_adapter = ClusterLabelAdapter()
+    elif isinstance(adapt_labels, dict):
+        label_adapter = ClusterLabelAdapter(**adapt_labels)
+    else:
+        raise TypeError("`adapt_labels` must be a boolean or mapping.")
+
+    return SegmentationStage(name, mode, model, label_adapter)
 
 
 def build_segmentation_loss(
