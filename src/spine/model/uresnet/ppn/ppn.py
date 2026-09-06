@@ -1061,13 +1061,19 @@ class PPNLoss(torch.nn.Module):
             if distance_matrix is None:
                 raise RuntimeError("Failed to compute the PPN distance matrix.")
 
-            # Mask out particle voxels for which the particle ID disagrees
+            # Mask out particle voxels for which the particle ID disagrees.
+            # Negative IDs represent coordinates without valid particle truth
+            # and must never match an invalid point association by accident.
             if labels is not None:
                 if label_particles is None:
                     raise ValueError(
                         "Point particle labels are required to restrict positives."
                     )
-                invalid_particle_mask = label_particles[:, None] != labels
+                invalid_particle_mask = (
+                    (label_particles[:, None] < 0)
+                    | (labels[None, :] < 0)
+                    | (label_particles[:, None] != labels[None, :])
+                )
                 distance_matrix[invalid_particle_mask] = torch.inf
 
             # Generate a positive mask for all particle voxels within some
@@ -1125,8 +1131,10 @@ class PPNLoss(torch.nn.Module):
         ppn_classify_endpoints_unique : TensorBatch, optional
             Endpoint logits on unique sparse sites.
         clust_label : ClusterLabelBatch, optional
-            ``(N, 1 + D + C)`` cluster-label table used to restrict particle
-            associations.
+            Raw cluster-label table used to restrict particle associations.
+            Particle IDs are aligned by sparse coordinate to
+            ``ppn_output_coords``; missing coordinates are treated as invalid
+            rather than as positive proposal sites.
         **_ : object
             Other upstream outputs ignored by this loss.
 
@@ -1216,6 +1224,7 @@ class PPNLoss(torch.nn.Module):
                 particle_labels,
                 coords_final.batch_coordinates,
                 "particle label",
+                missing_value=-1,
             )
             aligned_part_labels = TensorBatch(
                 aligned_part_labels,

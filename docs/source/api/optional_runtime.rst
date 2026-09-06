@@ -11,8 +11,12 @@ Full-chain segmentation provider
 The ``segmentation`` full-chain stage accepts ``mode: uresnet`` for learned
 segmentation or ``mode: label`` to use semantic truth. In learned mode, provide
 exactly one of ``uresnet`` and ``uresnet_ppn``. The optional ``adapt_labels``
-mapping configures truth-label alignment; ``point_proposal: ppn`` requires the
-combined ``uresnet_ppn`` model.
+setting controls reconstructed-domain truth-label alignment: omitting it or
+using ``true`` selects the default adapter, a mapping configures the adapter,
+and ``false`` disables adapted-label production. ``point_proposal: ppn``
+requires the combined ``uresnet_ppn`` model. PPN particle restriction always
+uses raw particle associations aligned to the final proposal coordinates;
+adapted labels remain available to Graph-SPICE and later objectives.
 
 .. py:class:: spine.model.full_chain.providers.segmentation.SegmentationStage(name, mode, model, label_adapter)
 
@@ -23,8 +27,8 @@ combined ``uresnet_ppn`` model.
    :param str mode: Either ``"uresnet"`` or ``"label"``.
    :param model: Configured UResNet or UResNet-PPN model, or ``None`` in label
       mode.
-   :param label_adapter: Adapter used to align structured truth with the
-      effective voxel set.
+   :param label_adapter: Optional adapter used to align structured truth with
+      the effective voxel set.
 
 .. py:class:: spine.model.full_chain.providers.segmentation.SegmentationLossStage(name, loss)
 

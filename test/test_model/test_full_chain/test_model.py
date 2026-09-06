@@ -790,7 +790,7 @@ def test_segmentation_stages_validate_modes_and_required_inputs() -> None:
 
 
 def test_segmentation_loss_stage_validates_and_routes_inputs() -> None:
-    """Semantic loss routing requires truth/logits and prefers adapted labels."""
+    """Semantic loss routing requires logits and preserves raw PPN truth."""
 
     class Loss:
         def __call__(self, **inputs):
@@ -802,18 +802,19 @@ def test_segmentation_loss_stage_validates_and_routes_inputs() -> None:
 
     labels = make_data(2)
     logits = TensorBatch(torch.zeros((2, 3)), [2])
+    raw = object()
     adapted = object()
     result = stage(
         {
             "seg_label": labels,
             "segmentation": logits,
-            "clust_label": object(),
+            "clust_label": raw,
             "clust_label_adapt": adapted,
         }
     )
     assert result["seg_label"] is labels
     assert result["segmentation"] is logits
-    assert result["clust_label"] is adapted
+    assert result["clust_label"] is raw
 
 
 @pytest.mark.parametrize(
@@ -833,13 +834,117 @@ def test_segmentation_loss_stage_validates_and_routes_inputs() -> None:
         ),
         ({"mode": "uresnet", "uresnet": []}, TypeError, "must be a mapping"),
         ({"mode": "uresnet", "uresnet_ppn": []}, TypeError, "must be a mapping"),
-        ({"mode": "label", "adapt_labels": "bad"}, TypeError, "must be a mapping"),
+        (
+            {"mode": "label", "adapt_labels": "bad"},
+            TypeError,
+            "boolean or mapping",
+        ),
     ],
 )
 def test_segmentation_builder_validates_configuration(config, error, message):
     """Semantic model selection is unambiguous at the provider boundary."""
     with pytest.raises(error, match=message):
         build_segmentation_stage("semantic", config, torch.nn.Module())
+
+
+def test_segmentation_builder_normalizes_label_adaptation() -> None:
+    """Omitted, boolean and mapping adapter forms have explicit semantics."""
+    default = build_segmentation_stage(
+        "semantic",
+        {"mode": "label"},
+        torch.nn.Module(),
+    )
+    enabled = build_segmentation_stage(
+        "semantic",
+        {"mode": "label", "adapt_labels": True},
+        torch.nn.Module(),
+    )
+    configured = build_segmentation_stage(
+        "semantic",
+        {"mode": "label", "adapt_labels": {"break_eps": 2.0}},
+        torch.nn.Module(),
+    )
+    disabled = build_segmentation_stage(
+        "semantic",
+        {"mode": "label", "adapt_labels": False},
+        torch.nn.Module(),
+    )
+
+    assert isinstance(default.label_adapter, ClusterLabelAdapter)
+    assert isinstance(enabled.label_adapter, ClusterLabelAdapter)
+    assert configured.label_adapter.break_params[0] == 2.0
+    assert disabled.label_adapter is None
+
+
+def test_segmentation_stage_can_skip_adapted_label_production() -> None:
+    """Disabling adaptation neither calls an adapter nor emits its product."""
+
+    class Model:
+        predicts_ppn = False
+        predicts_vertex = False
+
+        def __call__(self, data):
+            return {
+                "segmentation": TensorBatch(
+                    torch.zeros((len(data.tensor), 5)),
+                    [4],
+                )
+            }
+
+    stage = SegmentationStage(
+        "semantic",
+        "uresnet",
+        Model(),  # type: ignore[arg-type]
+        None,
+    )
+    result = stage(
+        ChainState(
+            data=make_data(),
+            seg_label=TensorBatch(torch.tensor([0, 0, 1, 1]), [4]),
+            clust_label=make_cluster_label(),
+        )
+    )
+
+    assert "clust_label" not in result.products
+    assert "clust_label_adapt" not in result.outputs
+
+
+def test_segmentation_stage_emits_enabled_adapted_labels() -> None:
+    """Enabled adaptation remains available to downstream objectives."""
+    adapted = object()
+
+    class Model:
+        predicts_ppn = False
+        predicts_vertex = False
+
+        def __call__(self, data):
+            return {
+                "segmentation": TensorBatch(
+                    torch.zeros((len(data.tensor), 5)),
+                    [4],
+                )
+            }
+
+    class Adapter:
+        def __call__(self, *_args, **_kwargs):
+            return adapted
+
+    stage = SegmentationStage(
+        "semantic",
+        "uresnet",
+        Model(),  # type: ignore[arg-type]
+        Adapter(),  # type: ignore[arg-type]
+    )
+    result = stage(
+        ChainState(
+            data=make_data(),
+            seg_label=TensorBatch(torch.tensor([0, 0, 1, 1]), [4]),
+            clust_label=make_cluster_label(),
+        )
+    )
+
+    assert result.products["clust_label"] is adapted
+    assert result.outputs["clust_label_adapt"] is adapted
 
 
 def test_segmentation_loss_builder_validates_configuration() -> None:
@@ -934,14 +1039,18 @@ def test_graph_spice_loss_adapter_validates_and_denamespaces() -> None:
     with pytest.raises(ValueError, match="requires `seg_pred`"):
         stage({"clust_label": make_cluster_label()})
 
+    raw = make_cluster_label()
+    adapted = make_cluster_label()
     result = stage(
         {
-            "clust_label": make_cluster_label(),
+            "clust_label": raw,
+            "clust_label_adapt": adapted,
             "seg_pred": TensorBatch(torch.tensor([0, 0, 1, 1]), [4]),
             "graph_spice_edge_attr": "edges",
         }
     )
     assert result["edge_attr"] == "edges"
+    assert result["clust_label"] is adapted
     assert result["seg_label"].shape == (4, 1)
 
 

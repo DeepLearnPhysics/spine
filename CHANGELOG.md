@@ -7,6 +7,7 @@
 
 ### Changed
 - **Standalone configuration composition**: Load report and entry-filter configurations through the standard SPINE resolver, including search paths, nested includes, overrides/removals, environment expansion, and cycle detection.
+- **PPN particle supervision**: Restrict PPN targets with raw particle associations aligned to the final sparse coordinates, keep reconstructed-domain label adaptation for downstream objectives, and allow segmentation-only full chains to disable adapted-label production.
 
 ## [1.1.0] - 2026-09-05
 

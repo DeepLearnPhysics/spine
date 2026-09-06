@@ -192,6 +192,32 @@ def test_coordinate_alignment_can_fill_missing_mask_sites():
     assert torch.equal(aligned, torch.tensor([1.0, 0.0]))
 
 
+@pytest.mark.parametrize(
+    "device",
+    ["cpu"] + (["cuda"] if torch.cuda.is_available() else []),
+)
+def test_coordinate_alignment_marks_missing_particle_truth(device):
+    """Missing PPN sites receive invalid IDs without changing backend or type."""
+    source_coords = torch.tensor([[0, 1, 1, 1]], device=device)
+    target_coords = torch.tensor(
+        [[0, 1, 1, 1], [0, 2, 2, 2]],
+        device=device,
+    )
+    particle_ids = torch.tensor([7], dtype=torch.long, device=device)
+
+    aligned = PPNLoss.align_coordinate_values(
+        source_coords,
+        particle_ids,
+        target_coords,
+        "particle label",
+        missing_value=-1,
+    )
+
+    assert aligned.tolist() == [7, -1]
+    assert aligned.dtype == particle_ids.dtype
+    assert aligned.device == particle_ids.device
+
+
 def test_ppn_loss_handles_an_empty_batch(cnn_config):
     loss = PPNLoss(cnn_config, {})
     counts = [0, 0]
@@ -275,6 +301,56 @@ def test_cluster_restriction_aligns_duplicate_input_rows(cnn_config):
     )
 
     assert torch.isfinite(result["loss"])
+
+
+@pytest.mark.parametrize(("cluster_x", "expected"), [(0.0, 1), (1.0, 0)])
+def test_cluster_restriction_uses_only_valid_aligned_particle_truth(
+    cnn_config,
+    cluster_x,
+    expected,
+):
+    """Raw associations restrict valid sites and reject missing coordinates."""
+    inputs = _positive_ppn_loss_inputs()
+    cluster_rows = torch.tensor([[0.0, cluster_x, 0.0, 0.0, 1.0, 0.0, 0.0]])
+    clust_label = ClusterLabelBatch(
+        TensorBatch(
+            cluster_rows,
+            counts=[1],
+            has_batch_col=True,
+            coord_cols=(1, 2, 3),
+        ),
+        {"particle": TensorBatch(torch.tensor([7]), counts=[1])},
+    )
+    loss = PPNLoss(
+        cnn_config,
+        {
+            "restrict_to_clusters": True,
+            "return_mask_labels": True,
+            "balance_mask_loss": False,
+        },
+    )
+
+    result = loss(clust_label=clust_label, **inputs)
+
+    assert result["mask_labels"][-1].torch_tensor().item() == expected
+
+
+def test_cluster_restriction_rejects_negative_particle_associations():
+    """Invalid voxel and target particle IDs cannot match one another."""
+    coords = torch.zeros((1, 3))
+    points = torch.zeros((1, 3))
+
+    positive, closest = PPNLoss.get_ppn_positives(
+        coords,
+        points,
+        resolution=1.0,
+        offset=0,
+        labels=torch.tensor([-1]),
+        label_particles=torch.tensor([-1]),
+    )
+
+    assert not bool(positive.item())
+    assert closest.item() == -1
 
 
 def test_true_ghost_mask_prunes_propagated_and_skip_features(cnn_config):
@@ -740,6 +816,35 @@ def test_combined_loss_routes_configured_proposal_tasks(cnn_config):
     assert result["uresnet_loss"] == 1.0
     assert result["ppn_loss"] == 2.0
     assert result["vertex_loss"] == 3.0
+
+
+def test_combined_loss_routes_raw_particle_associations(cnn_config):
+    """Standalone UResNet-PPN forwards its cluster truth unchanged."""
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        ppn={},
+        ppn_loss={},
+    )
+    seen = {}
+
+    class SegmentationLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return {"loss": torch.tensor(0.0), "accuracy": 1.0}
+
+    class ParticlePointLoss(torch.nn.Module):
+        def forward(self, _ppn_label, clust_label=None, **_result):
+            seen["clust_label"] = clust_label
+            return {"loss": torch.tensor(0.0), "accuracy": 1.0}
+
+    loss.seg_loss = SegmentationLoss()
+    loss.ppn_loss = ParticlePointLoss()
+    label = TensorBatch(torch.zeros(1), counts=[1])
+    raw = object()
+
+    loss(seg_label=label, ppn_label=label, clust_label=raw)
+
+    assert seen["clust_label"] is raw
 
 
 def test_vertex_only_loss_constructs_without_ppn(cnn_config):
