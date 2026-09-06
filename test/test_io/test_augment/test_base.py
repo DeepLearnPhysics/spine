@@ -128,6 +128,25 @@ def test_resolve_activity_stats_returns_activity_spread():
     assert np.allclose(spread, np.std(coords_cm, axis=0))
 
 
+def test_resolve_activity_stats_preserves_continuous_coordinates():
+    """Continuous activity points should not acquire a voxel-center offset."""
+    meta = make_meta(lower=(1.0, 2.0, 3.0), upper=(11.0, 12.0, 13.0))
+    coords = np.asarray([[1.25, 2.5, 3.75], [7.75, 8.5, 9.25]], dtype=np.float32)
+    tensor = TensorData(
+        coords=coords,
+        features=np.ones((2, 1), dtype=np.float32),
+        meta=meta,
+    )
+
+    center, spread = DummyAugment.resolve_activity_stats(
+        {"points": tensor}, ["points"], meta
+    )
+
+    coords_cm = meta.to_cm(coords)
+    assert np.allclose(center, np.mean(coords_cm, axis=0))
+    assert np.allclose(spread, np.std(coords_cm, axis=0))
+
+
 def test_resolve_activity_stats_returns_weighted_activity_spread():
     meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(10.0, 10.0, 10.0))
     coords = np.asarray([[1, 1, 1], [7, 7, 7], [7, 1, 1]], dtype=np.int64)

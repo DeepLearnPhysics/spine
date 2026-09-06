@@ -257,7 +257,10 @@ class AugmentBase(ABC):
             if len(value.coordinate_data) == 0:
                 continue
 
-            coords_cm = meta.to_cm(value.coordinate_data, center=True)
+            # Integer coordinates name voxel cells, whereas floating-point
+            # coordinates already locate continuous points inside the grid.
+            discrete = np.issubdtype(value.coordinate_data.dtype, np.integer)
+            coords_cm = meta.to_cm(value.coordinate_data, center=discrete)
             coords_list.append(coords_cm)
 
             if weighted:

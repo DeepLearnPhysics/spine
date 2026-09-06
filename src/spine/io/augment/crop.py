@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import Meta
+from spine.data import Meta, TensorData
 from spine.geo import GeoManager
 
 from .base import AugmentBase
@@ -24,6 +24,7 @@ class CropAugment(AugmentBase):
         use_geo_boundaries: bool = False,
         center_mode: str = "uniform",
         center_spread: np.ndarray | None = None,
+        center_key: str | None = None,
         center_feature_index: int = 0,
         active_volume: bool = False,
         keep_meta: bool = True,
@@ -51,6 +52,9 @@ class CropAugment(AugmentBase):
         center_spread : np.ndarray, optional
             Standard deviation of the Gaussian box-center proposal in cm when
             using an activity-based center mode. Scalar values are broadcast.
+        center_key : str, optional
+            Coordinate-bearing data product used to estimate the activity
+            center. By default, all coordinate products contribute.
         center_feature_index : int, default 0
             Feature column to use when ``center_mode="weighted_activity"``
         active_volume : bool, default False
@@ -131,10 +135,13 @@ class CropAugment(AugmentBase):
             )
         if center_feature_index < 0:
             raise ValueError("Cropping center_feature_index must be non-negative.")
+        if center_key is not None and center_mode == "uniform":
+            raise ValueError("Cropping center_key requires an activity center mode.")
 
         # Store sampling and output-frame behavior
         self.center_mode = center_mode
         self.center_spread = self.parse_optional_vector(center_spread, "center_spread")
+        self.center_key = center_key
         self.center_feature_index = int(center_feature_index)
         self.active_volume = active_volume
         self.keep_meta = keep_meta
@@ -185,7 +192,12 @@ class CropAugment(AugmentBase):
                 continue
 
             voxels, features = data[key].coordinate_data, data[key].features
-            voxels_cm = meta.to_cm(voxels, center=True)
+
+            # Integer coordinates identify voxel cells and are represented by
+            # their centers in detector space. Floating coordinates represent
+            # continuous points such as PPN targets and carry no half-cell shift.
+            discrete = np.issubdtype(voxels.dtype, np.integer)
+            voxels_cm = meta.to_cm(voxels, center=discrete)
             keep_mask = np.ones(len(voxels), dtype=bool)
             if crop_meta is not None:
                 keep_mask &= crop_meta.inner_mask(voxels_cm)
@@ -202,7 +214,9 @@ class CropAugment(AugmentBase):
             if self.keep_meta:
                 voxels = voxels[index]
             else:
-                voxels = output_meta.to_px(voxels_cm, floor=True).astype(voxels.dtype)
+                voxels = output_meta.to_px(voxels_cm, floor=discrete).astype(
+                    voxels.dtype
+                )
 
             # Update the product atomically with its new spatial metadata
             data[key].coordinate_data = voxels
@@ -286,15 +300,31 @@ class CropAugment(AugmentBase):
         Meta
             Metadata describing the cropped image volume
         """
-        if self.min_dimensions is None or self.range is None:
+        if (
+            self.min_dimensions is None
+            or self.max_dimensions is None
+            or self.range is None
+        ):
             raise ValueError("Box cropping dimensions are not configured.")
 
         # Resolve and validate the physical region available for sampling
-        lower = self.lower if self.lower is not None else meta.lower
-        upper = self.upper if self.upper is not None else meta.upper
-        if np.any(self.range > (upper - lower)):
+        configured_lower = self.lower if self.lower is not None else meta.lower
+        configured_upper = self.upper if self.upper is not None else meta.upper
+        lower = np.maximum(configured_lower, meta.lower)
+        upper = np.minimum(configured_upper, meta.upper)
+        if np.any(lower >= upper):
+            raise ValueError("Cropping bounds do not overlap the input image.")
+
+        # Validate the largest quantized crop up front. Every subsequent draw
+        # is then guaranteed to fit instead of failing for only some RNG states.
+        max_count = np.ceil(self.max_dimensions / meta.size).astype(int)
+        epsilon = 1.0e-6
+        start_min = np.ceil((lower - meta.lower) / meta.size - epsilon).astype(int)
+        stop_max = np.floor((upper - meta.lower) / meta.size + epsilon).astype(int)
+        if np.any(max_count > stop_max - start_min):
             raise ValueError(
-                "The cropping range is larger than the allowed cropping bounds."
+                "The maximum cropping dimensions do not fit within the "
+                "allowed input-image bounds."
             )
 
         # Sample dimensions, then quantize them to whole source voxels
@@ -306,9 +336,19 @@ class CropAugment(AugmentBase):
         center = None
         spread = self.center_spread
         if self.center_mode != "uniform":
+            activity_keys = keys
+            if self.center_key is not None:
+                source = data.get(self.center_key)
+                if not isinstance(source, TensorData) or source.coordinate_data is None:
+                    raise ValueError(
+                        f"Cropping center_key `{self.center_key}` must name a "
+                        "coordinate-bearing tensor."
+                    )
+                activity_keys = [self.center_key]
+
             center, activity_spread = self.resolve_activity_stats(
                 data,
-                keys,
+                activity_keys,
                 meta,
                 weighted=self.center_mode == "weighted_activity",
                 feature_index=self.center_feature_index,
