@@ -22,6 +22,7 @@ __all__ = [
     "cuda_max_memory_allocated",
     "is_tensor",
     "distributed_barrier",
+    "distributed_any",
     "distributed_all_gather_object",
     "capture_rng_state",
     "restore_rng_state",
@@ -207,6 +208,36 @@ def distributed_barrier():
         and torch.distributed.is_initialized()
     ):
         torch.distributed.barrier()
+
+
+def distributed_any(value: bool, device: Any = None) -> bool:
+    """Return whether any distributed rank reports a true control flag.
+
+    Parameters
+    ----------
+    value : bool
+        Process-local flag value.
+    device : torch.device or str, optional
+        Device on which to create the reduction scalar. NCCL process groups
+        require this to be the rank-local CUDA device.
+
+    Returns
+    -------
+    bool
+        Logical OR of the flag across all ranks, or the local value outside a
+        distributed process group.
+    """
+    if not (
+        TORCH_AVAILABLE
+        and torch.distributed.is_available()
+        and torch.distributed.is_initialized()
+    ):
+        return bool(value)
+
+    # A one-element MAX reduction implements a collective logical OR.
+    flag = torch.tensor(int(value), dtype=torch.uint8, device=device)
+    torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
+    return bool(flag.item())
 
 
 def distributed_all_gather_object(obj):

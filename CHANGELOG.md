@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Graceful training completion**: Treat ``SIGUSR1`` as a request to finish the current iteration, run configured validation, write a complete resumable checkpoint, flush outputs and exit successfully across all distributed ranks.
 - **File-aware entry filtering**: Add the ``spine-filter`` scan/build workflow, fingerprinted per-source measurement caches, transactional dataset manifests, LArCV product-size inspection, and composable training/validation reader filters.
 
 ### Changed

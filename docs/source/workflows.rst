@@ -204,6 +204,31 @@ schema and batching but replaces data sources and disables random augmentation
 and sampling. See :class:`spine.model.validation.ValidationManager` for metric,
 early-stopping, and best-checkpoint settings.
 
+Gracefully Complete Training
+----------------------------
+
+Send ``SIGUSR1`` to a running training process to accept its current progress.
+SPINE finishes the active iteration, synchronizes the request across DDP ranks,
+runs configured validation, writes a numbered resumable checkpoint, updates the
+best checkpoint when appropriate, flushes its outputs, and exits successfully.
+The signal handler itself only records the request; all model, logging and
+distributed work runs later at a safe iteration boundary.
+
+When SPINE runs as a Slurm job step, signal that step with, for example:
+
+.. code-block:: bash
+
+   scancel --signal=USR1 <job-id>.<step-id>
+
+``scancel --full`` also signals the batch shell. A wrapper using that form must
+handle ``SIGUSR1`` itself so that the shell does not terminate independently of
+SPINE. Downstream ``afterok`` work should be allowed to start only after the
+checkpoint section closes and the complete batch job reports status zero.
+
+``SIGTERM`` and ``SIGINT`` retain their ordinary unsuccessful interruption
+semantics. A graceful request received during an already-running scheduled
+checkpoint uses that completed checkpoint rather than writing a duplicate.
+
 Resume Or Initialize From A Checkpoint
 --------------------------------------
 

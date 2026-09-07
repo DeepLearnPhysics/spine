@@ -237,6 +237,7 @@ class LogManager:
         epoch: float,
         validation_batches: int | None,
         distributed: bool = False,
+        reason: str = "scheduled",
     ) -> None:
         """Open a human-readable checkpoint progress section.
 
@@ -255,6 +256,8 @@ class LogManager:
             indicates that on-the-fly validation is disabled.
         distributed : bool, default False
             Whether progress tables include a process-rank column.
+        reason : str, default "scheduled"
+            Human-readable reason for entering the checkpoint boundary.
         """
         # Match the section boundary to the associated progress-table width
         separator = "=" * LogManager.stdout_table_width(distributed)
@@ -265,10 +268,12 @@ class LogManager:
         logger.info(
             "%s\n"
             "CHECKPOINT\n"
+            "Reason:             %s\n"
             "Training iteration: %d\n"
             "Epoch:              %.3f\n"
             "Validation batches: %s\n",
             separator,
+            reason,
             iteration,
             epoch,
             validation_label,

@@ -10,6 +10,7 @@ import os
 from typing import Optional, Tuple
 
 from .config import normalize_config
+from .control import RunControl
 from .driver import Driver
 from .logging import configure_rank_logging, logger
 from .utils.conditional import TORCH_AVAILABLE, torch
@@ -57,11 +58,20 @@ def run(cfg: dict) -> None:
 
     else:
         # Single-node multi-GPU: launch processes using multiprocessing.spawn
-        torch.multiprocessing.spawn(
-            run_single,
-            args=(cfg, distributed, world_size, torch_sharing),
-            nprocs=world_size,
-        )
+        launcher_control = RunControl() if "train" in cfg else None
+        if launcher_control is not None:
+            # Slurm ``--full`` also signals this launcher. Keep it alive while
+            # independently signaled workers coordinate the actual stop.
+            launcher_control.install()
+        try:
+            torch.multiprocessing.spawn(
+                run_single,
+                args=(cfg, distributed, world_size, torch_sharing),
+                nprocs=world_size,
+            )
+        finally:
+            if launcher_control is not None:
+                launcher_control.restore()
 
 
 def run_single(
@@ -120,29 +130,43 @@ def run_single(
     # Configure rank-aware logging before initializing worker-owned modules
     configure_rank_logging(rank)
 
-    # Initialize the process-local device and optional DDP process group
-    if distributed:
-        assert rank is not None and world_size is not None
-        if torch_sharing is not None:
-            torch.multiprocessing.set_sharing_strategy(torch_sharing)
+    # Install the training signal before potentially expensive distributed and
+    # model initialization. The driver consumes the sticky request safely.
+    run_control = RunControl() if train else None
+    if run_control is not None:
+        run_control.install()
 
-        # Non-DDP inference still needs a rank-local device for independent
-        # model execution; data sharding is handled separately by the loader.
-        if cfg["base"].get("ddp", True):
-            setup_ddp(rank, world_size)
-        else:
-            set_process_device(rank)
-
-    # Build and execute the driver, then release distributed resources
+    # Build and execute the driver, then release process-owned runtime state.
+    ddp_initialized = False
     try:
+        if distributed:
+            assert rank is not None and world_size is not None
+            if torch_sharing is not None:
+                torch.multiprocessing.set_sharing_strategy(torch_sharing)
+
+            # Non-DDP inference still needs a rank-local device for independent
+            # model execution; data sharding is handled by the loader.
+            if cfg["base"].get("ddp", True):
+                setup_ddp(rank, world_size)
+                ddp_initialized = True
+            else:
+                set_process_device(rank)
+
         driver = Driver(cfg, rank)
+        if run_control is not None:
+            driver.run_control = run_control
         if train:
             driver.run()
         else:
             run_inference(driver)
     finally:
-        if distributed and cfg["base"].get("ddp", True):
-            torch.distributed.destroy_process_group()
+        try:
+            if ddp_initialized:
+                torch.distributed.destroy_process_group()
+        finally:
+            # Keep the handler active until distributed teardown is complete.
+            if run_control is not None:
+                run_control.restore()
 
 
 def run_inference(driver: Driver) -> None:

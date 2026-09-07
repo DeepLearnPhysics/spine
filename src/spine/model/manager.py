@@ -1045,6 +1045,7 @@ class ModelManager:
         config: Mapping[str, Any] | None = None,
         datasets: Mapping[str, Any] | None = None,
         runtime_state: Mapping[str, Any] | None = None,
+        completion: Mapping[str, Any] | None = None,
         world_size: int = 1,
     ) -> str:
         """Save the model state.
@@ -1056,6 +1057,7 @@ class ModelManager:
         - optimizer (optimizer parameter values)
         - lr_scheduler (optional scheduler parameter values)
         - runtime_state (per-rank RNG and loader continuation state)
+        - completion (optional intentional terminal condition)
         - manifest/config/datasets (artifact provenance)
         - validation (optional metrics and early-stopping progress)
 
@@ -1074,6 +1076,9 @@ class ModelManager:
             Resolved training and validation dataset provenance.
         runtime_state : mapping, optional
             Per-rank RNG and loader continuation state.
+        completion : mapping, optional
+            Description of an external terminal condition associated with this
+            checkpoint, such as an intentional graceful-stop request.
         world_size : int, default 1
             Number of training processes represented by the checkpoint.
 
@@ -1104,6 +1109,8 @@ class ModelManager:
             checkpoint["runtime_state"] = deepcopy(dict(runtime_state))
         if validation is not None:
             checkpoint["validation"] = dict(validation)
+        if completion is not None:
+            checkpoint["completion"] = deepcopy(dict(completion))
 
         checkpoint["manifest"] = CheckpointManifest.create(
             world_size,

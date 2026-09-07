@@ -625,6 +625,7 @@ def test_save_state_writes_rich_checkpoint_and_requires_prefix(tmp_path, monkeyp
         config={"model": {"name": "test"}},
         datasets={"train": {"files": ["train.root"]}},
         runtime_state={"world_size": 1, "ranks": []},
+        completion={"reason": "graceful_stop", "signal": "SIGUSR1"},
     )
     checkpoint = torch.load(tmp_path / "snapshot-3.ckpt", weights_only=True)
     assert checkpoint["format_version"] == 2
@@ -637,6 +638,10 @@ def test_save_state_writes_rich_checkpoint_and_requires_prefix(tmp_path, monkeyp
     assert checkpoint["lr_scheduler"] == scheduler.state_dict()
     assert checkpoint["runtime_state"] == {"world_size": 1, "ranks": []}
     assert checkpoint["validation"] == {"metrics": {"loss": 0.25}}
+    assert checkpoint["completion"] == {
+        "reason": "graceful_stop",
+        "signal": "SIGUSR1",
+    }
     assert (tmp_path / "snapshot-3.ckpt.sha256").exists()
     assert checkpoint_path == str(tmp_path / "snapshot-3.ckpt")
 
