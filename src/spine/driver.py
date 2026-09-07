@@ -1149,8 +1149,8 @@ class Driver:
                     assert self.validation.best_checkpoint is not None
                     best_path = self.validation.best_checkpoint.path
                     model.save_best_state(checkpoint_path, best_path)
-            except (OSError, RuntimeError, ValueError) as exc:
-                # Synchronize expected persistence failures across ranks.
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                # Synchronize every ordinary failure before any rank can exit.
                 save_error = exc
             finally:
                 if timed_save:

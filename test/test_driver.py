@@ -1515,8 +1515,12 @@ def test_run_checkpoint_rejects_non_training_model():
         drv.run_checkpoint({}, "timestamp", 0, 1.0)
 
 
-def test_run_checkpoint_propagates_main_rank_save_failure():
-    """A main-rank persistence error should survive status synchronization."""
+@pytest.mark.parametrize(
+    "error",
+    [OSError("disk full"), TypeError("invalid checkpoint payload")],
+)
+def test_run_checkpoint_propagates_main_rank_save_failure(error):
+    """Any ordinary main-rank failure should survive status synchronization."""
     drv = bare_driver()
 
     class FakeModel:
@@ -1529,7 +1533,7 @@ def test_run_checkpoint_propagates_main_rank_save_failure():
 
         @staticmethod
         def save_state(*_args, **_kwargs):
-            raise OSError("disk full")
+            raise error
 
     drv.model = FakeModel()
     drv.validation = None
@@ -1544,7 +1548,7 @@ def test_run_checkpoint_propagates_main_rank_save_failure():
     )
     drv.log_stdout = lambda *_args: None
 
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.raises(type(error), match=str(error)):
         drv.run_checkpoint({}, "timestamp", 0, 1.0)
 
 
