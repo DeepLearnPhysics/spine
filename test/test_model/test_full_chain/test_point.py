@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from spine.data import TensorBatch
+from spine.data import IndexBatch, TensorBatch
 from spine.model.full_chain import PointBatch
 
 
@@ -60,6 +60,19 @@ def test_point_selections_compose_original_indexes():
     assert point_data.orig_index.index.tolist() == [2, 3]
     assert point_data.data_q.feature(0).data.tolist() == [3, 4]
     assert point_data.data.counts.tolist() == [0, 2]
+
+
+def test_upstream_original_index_marks_input_as_adapted():
+    """Cached row mappings should be retained as stable public outputs."""
+    data = make_data([1, 2], counts=(1, 1))
+    orig_index = IndexBatch(np.array([0, 3]), spans=[2, 4], counts=[1, 1])
+
+    point_data = PointBatch.from_input(data, orig_index=orig_index)
+    outputs = point_data.public_outputs()
+
+    assert point_data.adapted
+    assert outputs["data_adapt"] is data
+    assert outputs["orig_index"] is orig_index
 
 
 def test_point_charge_replacement_copies_input():

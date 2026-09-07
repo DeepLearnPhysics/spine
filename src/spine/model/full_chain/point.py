@@ -45,7 +45,8 @@ class PointBatch:
     orig_index : IndexBatch, optional
         Mapping from the current rows to the rows of the driver input tensor.
     adapted : bool, default False
-        Whether the current row domain has been selected or filtered.
+        Whether the current row domain has been selected or filtered, either
+        upstream or by a stage in the current chain.
     """
 
     data: TensorBatch
@@ -77,14 +78,21 @@ class PointBatch:
         -------
         PointBatch
             Uncalibrated point family whose active and charge views both
-            reference ``data``.
+            reference ``data``. An existing original-row mapping marks the
+            family as already adapted.
 
         Raises
         ------
         ValueError
             If an optional aligned product does not share the data row domain.
         """
-        result = cls(data, data, sources=sources, orig_index=orig_index)
+        result = cls(
+            data,
+            data,
+            sources=sources,
+            orig_index=orig_index,
+            adapted=orig_index is not None,
+        )
         result._validate()
         return result
 

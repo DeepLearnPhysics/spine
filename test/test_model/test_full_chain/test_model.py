@@ -767,6 +767,46 @@ def test_segmentation_loss_aligns_cached_deghosted_rows() -> None:
     assert aligned_logits.shape[0] == 2
 
 
+def test_cached_point_mapping_reaches_segmentation_loss() -> None:
+    """Full-chain outputs should carry cached row mappings into its loss."""
+    logits = TensorBatch(torch.zeros((3, 3)), [3])
+
+    class CachedSegmentationStage(ChainStage):
+        def forward(self, _state: ChainState) -> StageResult:
+            return StageResult(outputs={"segmentation": logits})
+
+    provider_name = "test_cached_point_mapping"
+    register_provider(
+        ProviderSpec(
+            provider_name,
+            lambda name, _config, _owner: CachedSegmentationStage(name),
+        )
+    )
+    chain = FullChain(
+        chain={"stages": [{"name": "segmentation", "provider": provider_name}]}
+    )
+    orig_index = IndexBatch(torch.tensor([0, 2, 4]), spans=[5], counts=[3])
+    outputs = chain(data=make_data(3), orig_index=orig_index)
+
+    seg_label = TensorBatch(
+        torch.tensor([0, GHOST_SHP, 1, 2, GHOST_SHP]).float(),
+        [5],
+    )
+
+    class Loss:
+        def __call__(self, **inputs):
+            return inputs
+
+    result = SegmentationLossStage("segmentation", Loss())(
+        {"seg_label": seg_label, **outputs}
+    )
+
+    assert outputs["orig_index"] is orig_index
+    assert outputs["data_adapt"].shape[0] == 3
+    assert result["seg_label"].shape[0] == 2
+    assert result["segmentation"].shape[0] == 2
+
+
 def test_segmentation_stages_validate_modes_and_required_inputs() -> None:
     """Semantic adapters reject unknown modes and unavailable implementations."""
     adapter = ClusterLabelAdapter()
