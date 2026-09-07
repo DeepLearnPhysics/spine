@@ -1402,6 +1402,187 @@ def test_run_validates_before_checkpoint_and_stops_early():
     assert ("stop", "save") in FakeModel.watch.calls
 
 
+def test_run_sigusr1_request_forces_checkpoint_and_successful_completion(caplog):
+    """A graceful request should validate, checkpoint and stop after one batch."""
+    drv = bare_driver()
+    calls: list[object] = []
+
+    class FakeModel:
+        train = True
+        start_iteration = 0
+        device = "cpu"
+        watch = FakeWatchManager()
+
+        @staticmethod
+        def should_save(_iteration):
+            return False
+
+        @staticmethod
+        def step_checkpoint_scheduler(metrics):
+            calls.append(("scheduler", metrics))
+
+        @staticmethod
+        def save_state(iteration, epoch, validation, **kwargs):
+            calls.append(("save", iteration, epoch, validation, kwargs))
+            return "snapshot-0.ckpt"
+
+    class FakeValidation:
+        io = SimpleNamespace(dataset_provenance=lambda: {"files": ["validation.root"]})
+        num_iterations = 2
+
+        @staticmethod
+        def run(iteration, epoch):
+            calls.append(("validate", iteration, epoch))
+            return {"loss": 0.25}
+
+        @staticmethod
+        def update_best_checkpoint(metrics):
+            calls.append(("select_best", metrics))
+            return False
+
+        @staticmethod
+        def update_early_stopping(metrics):
+            calls.append(("early_stop", metrics))
+            return False
+
+        @staticmethod
+        def checkpoint_state(metrics):
+            return {"metrics": dict(metrics)}
+
+        @staticmethod
+        def close():
+            calls.append("validation_close")
+
+    drv.iterations = 3
+    drv.epochs = None
+    drv.model = FakeModel()
+    drv.validation = FakeValidation()
+    drv.main_process = True
+    drv.distributed = False
+    drv.rank = None
+    drv.world_size = 0
+    drv.cfg = {"base": {}, "train": {}}
+    drv.ana = None
+    drv.log_manager = SimpleNamespace(
+        append_tensorboard=lambda metrics, iteration: calls.append(
+            ("tensorboard", dict(metrics), iteration)
+        ),
+        close=lambda: calls.append("log_close"),
+    )
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=2,
+        prepare_iteration=lambda iteration: calls.append(("prepare", iteration)),
+        checkpoint_state=lambda next_iteration: {"next_iteration": next_iteration},
+        dataset_provenance=lambda: {"files": ["train.root"]},
+        close=lambda: calls.append("io_close"),
+    )
+    drv.initialize_log = lambda: None
+
+    def process(**kwargs):
+        calls.append(("process", kwargs["iteration"]))
+        os.kill(os.getpid(), driver_mod.RunControl.signal_number)
+        return {}
+
+    drv.process = process
+    drv.log_stdout = lambda *_args: calls.append("stdout")
+    drv.log = lambda *_args, **_kwargs: calls.append("log")
+    drv.run_control = driver_mod.RunControl()
+
+    with caplog.at_level("INFO", logger="spine"):
+        drv.run()
+
+    saves = [call for call in calls if isinstance(call, tuple) and call[0] == "save"]
+    assert len(saves) == 1
+    assert saves[0][1:4] == (0, 0.5, {"metrics": {"loss": 0.25}})
+    assert saves[0][4]["completion"] == {
+        "reason": "graceful_stop",
+        "signal": "SIGUSR1",
+    }
+    assert ("process", 1) not in calls
+    assert not any(call == ("start", "save") for call in FakeModel.watch.calls)
+    assert "Reason:             graceful completion (SIGUSR1)" in caplog.text
+    assert "Graceful completion finished successfully" in caplog.text
+    assert calls[-3:] == ["log_close", "validation_close", "io_close"]
+
+
+def test_run_checkpoint_rejects_non_training_model():
+    """A checkpoint boundary should only be entered during training."""
+    drv = bare_driver()
+    drv.model = SimpleNamespace(train=False)
+
+    with pytest.raises(RuntimeError, match="require a training model"):
+        drv.run_checkpoint({}, "timestamp", 0, 1.0)
+
+
+def test_run_checkpoint_propagates_main_rank_save_failure():
+    """A main-rank persistence error should survive status synchronization."""
+    drv = bare_driver()
+
+    class FakeModel:
+        train = True
+        watch = FakeWatchManager()
+
+        @staticmethod
+        def step_checkpoint_scheduler(_metrics):
+            return None
+
+        @staticmethod
+        def save_state(*_args, **_kwargs):
+            raise OSError("disk full")
+
+    drv.model = FakeModel()
+    drv.validation = None
+    drv.main_process = True
+    drv.distributed = False
+    drv.rank = None
+    drv.world_size = 0
+    drv.cfg = {"base": {}, "train": {}}
+    drv.io = SimpleNamespace(
+        checkpoint_state=lambda _next_iteration: {},
+        dataset_provenance=lambda: {},
+    )
+    drv.log_stdout = lambda *_args: None
+
+    with pytest.raises(OSError, match="disk full"):
+        drv.run_checkpoint({}, "timestamp", 0, 1.0)
+
+
+def test_run_checkpoint_reports_main_rank_failure_to_worker(monkeypatch):
+    """A worker should raise when synchronized status reports a main-rank error."""
+    drv = bare_driver()
+
+    class FakeModel:
+        train = True
+        watch = FakeWatchManager()
+
+        @staticmethod
+        def step_checkpoint_scheduler(_metrics):
+            return None
+
+    drv.model = FakeModel()
+    drv.validation = None
+    drv.main_process = False
+    drv.distributed = True
+    drv.rank = 1
+    drv.world_size = 2
+    drv.io = SimpleNamespace(checkpoint_state=lambda _next_iteration: {})
+    drv.log_stdout = lambda *_args: None
+    calls = 0
+
+    def gather(value):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [value, value]
+        return ["OSError: disk full", None]
+
+    monkeypatch.setattr(driver_mod.runtime, "distributed_all_gather_object", gather)
+
+    with pytest.raises(RuntimeError, match="failed on the main rank.*disk full"):
+        drv.run_checkpoint({}, "timestamp", 0, 1.0)
+
+
 def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     """An ordinary row followed by a save should retain one CSV schema."""
     drv = bare_driver()
@@ -1479,13 +1660,14 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     assert rows[1][save_index] == "nan"
     assert float(rows[2][save_index]) >= 0.0
     output = "\n".join(caplog.messages)
-    assert "CHECKPOINT\nTraining iteration: 1" in output
+    assert "CHECKPOINT\nReason:             scheduled" in output
+    assert "Training iteration: 1" in output
     assert "Validation batches: disabled" in output
     assert "Saving checkpoint..." in output
     assert "Checkpoint saved: snapshot-1.ckpt" in output
     assert output.count("=" * 69) == 2
     train_summary = output.index("Iter. 1 (epoch 2.000)")
-    checkpoint = output.index("CHECKPOINT\nTraining iteration: 1")
+    checkpoint = output.index("CHECKPOINT\nReason:             scheduled")
     assert train_summary < checkpoint
 
 

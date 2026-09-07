@@ -29,6 +29,7 @@ from .ana import AnaManager
 from .banner import BANNER_SEPARATOR
 from .config import normalize_config
 from .construct import BuildManager
+from .control import RunControl
 from .geo import GeoManager
 from .io import IOManager
 from .logging import LogManager, configure_rank_logging, logger
@@ -119,6 +120,7 @@ class Driver:
         # Initialize the timers and the configuration dictionary
         self.watch = StopwatchManager()
         self.watch.initialize("iteration")
+        self.run_control = RunControl()
 
         # Initialize the base driver configuration parameters
         self.initialize_base(**driver_base, rank=rank)
@@ -908,6 +910,19 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
+        # User signals are meaningful only for a live training loop. Retain a
+        # user-injected controller in tests and embedded applications.
+        model = self.model
+        training = model is not None and model.train
+        run_control = getattr(self, "run_control", None)
+        if run_control is None:
+            run_control = RunControl()
+            self.run_control = run_control
+        control_installed_here = False
+        if training:
+            control_installed_here = not run_control.installed
+            run_control.install()
+
         success = False
         try:
             # Get the iteration start (if model exists)
@@ -952,102 +967,38 @@ class Driver:
                 # Report globally representative training scalars under DDP.
                 self.reduce_training_metrics(data)
 
-                # Checkpoint boundaries are driver-owned so all ranks can
-                # validate before rank zero serializes the live weights.
-                stop_training = False
-                should_checkpoint = (
-                    self.model is not None
-                    and self.model.train
-                    and self.model.should_save(iteration)
+                # All ranks poll the signal at the same safe minibatch boundary.
+                graceful_stop = training and runtime.distributed_any(
+                    run_control.graceful_stop_requested,
+                    getattr(self.model, "device", None),
                 )
+                stop_training = False
+                scheduled_checkpoint = False
+                if training:
+                    assert model is not None
+                    scheduled_checkpoint = model.should_save(iteration)
+                should_checkpoint = scheduled_checkpoint or graceful_stop
                 if should_checkpoint:
-                    # Present the completed training step before entering the
-                    # checkpoint section. The authoritative CSV row is still
-                    # appended afterward so it includes checkpoint timings.
-                    self.log_stdout(data, tstamp, iteration, epoch)
-
-                    if self.main_process:
-                        validation_batches = (
-                            None
-                            if self.validation is None
-                            else self.validation.num_iterations
-                        )
-                        LogManager.log_checkpoint_start(
-                            iteration,
-                            epoch,
-                            validation_batches,
-                            self.distributed,
-                        )
-
-                    validation_state = None
-                    validation_metrics = None
-                    promote_best = False
-                    if self.validation is not None:
-                        validation_metrics = self.validation.run(iteration, epoch)
-                        self.log_manager.append_tensorboard(
-                            {
-                                f"val_{key}": value
-                                for key, value in validation_metrics.items()
-                            },
-                            iteration,
-                        )
-                        promote_best = self.validation.update_best_checkpoint(
-                            validation_metrics
-                        )
-                        stop_training = self.validation.update_early_stopping(
-                            validation_metrics
-                        )
-                        validation_state = self.validation.checkpoint_state(
-                            validation_metrics
-                        )
-
-                    # Checkpoint-bound schedulers advance before their state is saved.
-                    self.model.step_checkpoint_scheduler(validation_metrics)
-
-                    # Every rank contributes its stochastic and loader cursor
-                    # state before rank zero writes the shared checkpoint.
-                    local_runtime_state = {
-                        "rank": 0 if self.rank is None else self.rank,
-                        "rng": runtime.capture_rng_state(),
-                        "io": self.io.checkpoint_state(iteration + 1),
-                    }
-                    rank_states = runtime.distributed_all_gather_object(
-                        local_runtime_state
+                    reason = (
+                        "graceful completion (SIGUSR1)"
+                        if graceful_stop
+                        else "scheduled"
                     )
-                    checkpoint_runtime = {
-                        "world_size": max(1, self.world_size),
-                        "ranks": rank_states,
-                    }
+                    stop_training = self.run_checkpoint(
+                        data,
+                        tstamp,
+                        iteration,
+                        epoch,
+                        reason=reason,
+                        graceful_stop=graceful_stop,
+                    )
 
-                    if self.main_process:
-                        # Retain model-owned save timing around serialization
-                        LogManager.log_checkpoint_saving()
-                        self.model.watch.start("save")
-                        datasets = {"train": self.io.dataset_provenance()}
-                        if self.validation is not None:
-                            datasets["validation"] = (
-                                self.validation.io.dataset_provenance()
-                            )
-                        checkpoint_path = self.model.save_state(
-                            iteration,
-                            epoch,
-                            validation_state,
-                            config=self.cfg,
-                            datasets=datasets,
-                            runtime_state=checkpoint_runtime,
-                            world_size=max(1, self.world_size),
-                        )
-                        if promote_best:
-                            assert self.validation is not None
-                            assert self.validation.best_checkpoint is not None
-                            best_path = self.validation.best_checkpoint.path
-                            self.model.save_best_state(checkpoint_path, best_path)
-                        self.model.watch.stop("save")
-                        self.watch.update(self.model.watch, "model")
-                        LogManager.log_checkpoint_complete(
-                            checkpoint_path,
-                            self.distributed,
-                            best_path if promote_best else None,
+                    # A request arriving during scheduled validation or save
+                    # can use the checkpoint which just completed safely.
+                    if not graceful_stop:
+                        graceful_stop = runtime.distributed_any(
+                            run_control.graceful_stop_requested,
+                            getattr(self.model, "device", None),
                         )
 
                 # Log the output
@@ -1061,6 +1012,15 @@ class Driver:
 
                 # Release the memory for the next iteration
                 data = None
+                if graceful_stop:
+                    if self.main_process:
+                        logger.info(
+                            "Graceful completion finished successfully at "
+                            "iteration %d (epoch %.4f).",
+                            iteration,
+                            epoch,
+                        )
+                    break
                 if stop_training:
                     logger.info(
                         "Early stopping triggered at iteration %d (epoch %.4f).",
@@ -1070,7 +1030,155 @@ class Driver:
                     break
             success = True
         finally:
-            self.cleanup(finalize_writer=success)
+            try:
+                self.cleanup(finalize_writer=success)
+            finally:
+                if control_installed_here:
+                    run_control.restore()
+
+    def run_checkpoint(
+        self,
+        data: dict[str, Any],
+        tstamp: str,
+        iteration: int,
+        epoch: float,
+        *,
+        reason: str = "scheduled",
+        graceful_stop: bool = False,
+    ) -> bool:
+        """Validate and persist the training state at one safe boundary.
+
+        Parameters
+        ----------
+        data : dict[str, Any]
+            Completed training-batch output used for the stdout summary.
+        tstamp : str
+            Timestamp associated with the completed training iteration.
+        iteration : int
+            Global zero-based training iteration.
+        epoch : float
+            Training progress measured in epochs.
+        reason : str, default "scheduled"
+            Human-readable reason for creating the checkpoint.
+        graceful_stop : bool, default False
+            Whether this checkpoint terminates the training stage
+            intentionally after successful persistence.
+
+        Returns
+        -------
+        bool
+            Whether configured early stopping also requested termination.
+        """
+        model = self.model
+        if model is None or not model.train:
+            raise RuntimeError("Checkpoint boundaries require a training model.")
+
+        # Present the completed step before opening its checkpoint section. The
+        # CSV row is appended afterward so it includes any configured save time.
+        self.log_stdout(data, tstamp, iteration, epoch)
+        if self.main_process:
+            validation_batches = (
+                None if self.validation is None else self.validation.num_iterations
+            )
+            LogManager.log_checkpoint_start(
+                iteration,
+                epoch,
+                validation_batches,
+                self.distributed,
+                reason,
+            )
+
+        validation_state = None
+        validation_metrics = None
+        promote_best = False
+        stop_training = False
+        if self.validation is not None:
+            log_manager = self.log_manager
+            assert log_manager is not None
+            validation_metrics = self.validation.run(iteration, epoch)
+            log_manager.append_tensorboard(
+                {f"val_{key}": value for key, value in validation_metrics.items()},
+                iteration,
+            )
+            promote_best = self.validation.update_best_checkpoint(validation_metrics)
+            stop_training = self.validation.update_early_stopping(validation_metrics)
+            validation_state = self.validation.checkpoint_state(validation_metrics)
+
+        # Checkpoint-bound schedulers advance before their state is serialized.
+        model.step_checkpoint_scheduler(validation_metrics)
+
+        # Every rank contributes its exact continuation state to the artifact.
+        local_runtime_state = {
+            "rank": 0 if self.rank is None else self.rank,
+            "rng": runtime.capture_rng_state(),
+            "io": self.io.checkpoint_state(iteration + 1),
+        }
+        rank_states = runtime.distributed_all_gather_object(local_runtime_state)
+        checkpoint_runtime = {
+            "world_size": max(1, self.world_size),
+            "ranks": rank_states,
+        }
+        completion = (
+            {"reason": "graceful_stop", "signal": "SIGUSR1"} if graceful_stop else None
+        )
+
+        checkpoint_path = None
+        best_path = None
+        save_error = None
+        if self.main_process:
+            LogManager.log_checkpoint_saving()
+            timed_save = any(key == "save" for key, _ in model.watch.items())
+            if timed_save:
+                model.watch.start("save")
+            try:
+                datasets = {"train": self.io.dataset_provenance()}
+                if self.validation is not None:
+                    datasets["validation"] = self.validation.io.dataset_provenance()
+                checkpoint_path = model.save_state(
+                    iteration,
+                    epoch,
+                    validation_state,
+                    config=self.cfg,
+                    datasets=datasets,
+                    runtime_state=checkpoint_runtime,
+                    completion=completion,
+                    world_size=max(1, self.world_size),
+                )
+                if promote_best:
+                    assert self.validation is not None
+                    assert self.validation.best_checkpoint is not None
+                    best_path = self.validation.best_checkpoint.path
+                    model.save_best_state(checkpoint_path, best_path)
+            except (OSError, RuntimeError, ValueError) as exc:
+                # Synchronize expected persistence failures across ranks.
+                save_error = exc
+            finally:
+                if timed_save:
+                    model.watch.stop("save")
+                    self.watch.update(model.watch, "model")
+
+        # Non-main ranks must not tear down DDP before rank zero has committed
+        # the shared artifact. A serializable error status also prevents hangs
+        # for ordinary Python exceptions raised during persistence.
+        error_status = (
+            None if save_error is None else f"{type(save_error).__name__}: {save_error}"
+        )
+        save_statuses = runtime.distributed_all_gather_object(error_status)
+        errors = [status for status in save_statuses if status is not None]
+        if errors:
+            if save_error is not None:
+                raise save_error
+            raise RuntimeError(f"Checkpoint failed on the main rank: {errors[0]}")
+
+        if self.main_process:
+            assert checkpoint_path is not None
+            LogManager.log_checkpoint_complete(
+                checkpoint_path,
+                self.distributed,
+                best_path,
+            )
+
+        return stop_training
 
     def cleanup(self, finalize_writer: bool = True) -> None:
         """Close resources and finalize writer output after successful work.

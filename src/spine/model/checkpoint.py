@@ -373,6 +373,7 @@ def inspect_checkpoint(
         "global_step",
         "global_epoch",
         "validation",
+        "completion",
     )
     result = {
         "format_version": int(checkpoint.get("format_version", 1)),

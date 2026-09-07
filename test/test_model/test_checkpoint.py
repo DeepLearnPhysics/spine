@@ -134,6 +134,7 @@ def test_checkpoint_atomic_save_checksum_and_inspection(tmp_path, monkeypatch):
         "datasets": {"train": {"files": ["train.root"]}},
         "global_step": 3,
         "global_epoch": 1.5,
+        "completion": {"reason": "graceful_stop", "signal": "SIGUSR1"},
         "state_dict": {"weight": torch.ones(1)},
         "optimizer": {"state": {}},
         "lr_scheduler": {"last_epoch": 3},
@@ -152,6 +153,7 @@ def test_checkpoint_atomic_save_checksum_and_inspection(tmp_path, monkeypatch):
     assert info["format_version"] == 2
     assert info["config"] == checkpoint["config"]
     assert info["datasets"] == checkpoint["datasets"]
+    assert info["completion"] == checkpoint["completion"]
     assert info["has_optimizer"]
     assert info["has_lr_scheduler"]
     assert info["has_runtime_state"]

@@ -14,6 +14,7 @@ Core modules
    :toctree: generated/modules
 
    spine.banner
+   spine.control
    spine.driver
    spine.version
 

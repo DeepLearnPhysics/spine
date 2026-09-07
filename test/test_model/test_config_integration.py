@@ -115,7 +115,7 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert {"loss", "accuracy"} <= set(validation_df.columns)
 
     output = "\n".join(caplog.messages)
-    assert "CHECKPOINT\nTraining iteration: 0" in output
+    assert "CHECKPOINT\nReason:             scheduled\nTraining iteration: 0" in output
     assert "Epoch:              1.000" in output
     assert "Validation batches: 1" in output
     assert "VALIDATION START" in output
@@ -132,7 +132,7 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     separator = "=" * 69
     assert output.count(separator) == 2
     train_summary = output.index("Iter. 0 (epoch 1.000)")
-    checkpoint = output.index("CHECKPOINT\nTraining iteration: 0")
+    checkpoint = output.index("CHECKPOINT\nReason:             scheduled")
     assert train_summary < checkpoint
 
 

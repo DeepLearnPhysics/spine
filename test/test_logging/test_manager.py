@@ -331,7 +331,7 @@ def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
         lambda msg, *args: infos.append(msg % args if args else msg),
     )
 
-    LogManager.log_checkpoint_start(12, 1.5, 4)
+    LogManager.log_checkpoint_start(12, 1.5, 4, reason="graceful completion")
     LogManager.log_validation_start()
     LogManager.log_validation_complete({"loss": 0.25, "accuracy": 0.9})
     LogManager.log_checkpoint_saving()
@@ -342,7 +342,8 @@ def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
     LogManager.log_checkpoint_start(13, 1.6, None, distributed=True)
 
     output = "\n".join(infos)
-    assert "CHECKPOINT\nTraining iteration: 12" in output
+    assert "CHECKPOINT\nReason:             graceful completion" in output
+    assert "Training iteration: 12" in output
     assert "Validation batches: 4" in output
     assert "VALIDATION START" in output
     assert "VALIDATION COMPLETE\nMetrics:" in output
@@ -352,6 +353,7 @@ def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
     assert "Checkpoint saved: snapshot-12.ckpt" in output
     assert "Best checkpoint updated: snapshot-best.ckpt" in output
     assert "Validation batches: disabled" in output
+    assert "Reason:             scheduled" in output
     assert len(infos[0].splitlines()[0]) == 69
     assert len(infos[-1].splitlines()[0]) == 76
 
