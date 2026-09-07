@@ -1085,10 +1085,12 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
         "deghosting",
         str(path),
         build_classes=False,
+        keys=("dummy_data",),
         entry_fraction_range=(0.0, 1.0),
     )
     entry = reader.get(0)
     np.testing.assert_array_equal(entry["dummy_data"], np.asarray([[1.0, 2.0]]))
+    assert entry["file_entry_index"] == 0
     assert entry["source_file_entry_index"] == 11
     assert entry["source_file_name"] == source_path.name
     assert entry["source_file_size"] == source_path.stat().st_size
@@ -1171,7 +1173,7 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
             "source_file_name": np.asarray(["source.root", "source.root"]),
             "source_file_size": np.asarray([10, 10]),
             "source_file_mtime_ns": np.asarray([20, 20]),
-            "source_file_entry_index": np.asarray([0, 1]),
+            "source_file_entry_index": np.asarray([0, 2]),
             "dummy_data": [
                 np.asarray([[1.0, 2.0]]),
                 np.asarray([[3.0, 4.0]]),
@@ -1182,7 +1184,11 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
     writer.close()
 
     reader = StageHDF5Reader(
-        "deghosting", str(path), build_classes=False, keep_open=False
+        "deghosting",
+        str(path),
+        build_classes=False,
+        keep_open=False,
+        keys=("dummy_data",),
     )
     open_calls = 0
     real_file = h5py.File
@@ -1197,11 +1203,87 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
 
     assert open_calls == 1
     assert [entry["index"] for entry in batch] == [1, 0, 1]
+    assert [entry["file_entry_index"] for entry in batch] == [1, 0, 1]
+    assert [entry["source_file_entry_index"] for entry in batch] == [2, 0, 2]
     assert [entry["dummy_data"].tolist() for entry in batch] == [
         [[3.0, 4.0]],
         [[1.0, 2.0]],
         [[3.0, 4.0]],
     ]
+
+
+def test_stage_hdf5_reader_rejects_disagreeing_stage_source_entries(tmp_path):
+    """Referenced stages must describe one shared raw-source event axis."""
+    path = tmp_path / "stage_batch.h5"
+    source = {
+        "index": np.asarray([0, 1]),
+        "source_file_name": np.asarray(["source.root", "source.root"]),
+        "source_file_size": np.asarray([10, 10]),
+        "source_file_mtime_ns": np.asarray([20, 20]),
+        "source_file_entry_index": np.asarray([0, 2]),
+    }
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {**source, "data_adapt": [np.asarray([[1.0]]), np.asarray([[2.0]])]},
+    )
+    writer.finalize_stage("deghosting")
+    writer.write_stage(
+        "graph",
+        {**source, "node_features": [np.asarray([[3.0]]), np.asarray([[4.0]])]},
+    )
+    writer.finalize_stage("graph")
+    writer.close()
+
+    # Simulate a corrupt sibling stage which claims a different raw entry.
+    with h5py.File(path, "a") as out_file:
+        product = out_file["stages"]["graph"]["products"]["source_file_entry_index"]
+        product["values"][1] = 5
+
+    reader = StageHDF5Reader(
+        file_keys=str(path),
+        stage_map={"data_adapt": "deghosting", "node_features": "graph"},
+        keys=("data_adapt", "node_features"),
+        build_classes=False,
+    )
+    with pytest.raises(ValueError, match="report different.*source_file_entry_index"):
+        reader.get_many([0, 1])
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_nonscalar_source_entries(tmp_path):
+    """Source-entry provenance must contain one integer per cache event."""
+    path = tmp_path / "stage_batch.h5"
+    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0, 1]),
+            "source_file_name": np.asarray(["source.root", "source.root"]),
+            "source_file_size": np.asarray([10, 10]),
+            "source_file_mtime_ns": np.asarray([20, 20]),
+            "source_file_entry_index": np.asarray([0, 2]),
+            "data_adapt": [np.asarray([[1.0]]), np.asarray([[2.0]])],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    with h5py.File(path, "a") as out_file:
+        product = out_file["stages"]["deghosting"]["products"][
+            "source_file_entry_index"
+        ]
+        product.attrs["scalar"] = False
+
+    reader = StageHDF5Reader(
+        "deghosting",
+        str(path),
+        keys=("data_adapt",),
+        build_classes=False,
+    )
+    with pytest.raises(TypeError, match="must store.*as scalar integers"):
+        reader.get_many([0, 1])
+    reader.close()
 
 
 def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):

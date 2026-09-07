@@ -1541,6 +1541,79 @@ def test_mixed_dataset_translates_filtered_cache_domains(
     assert dataset.cache.reader.entry_index.tolist() == expected
 
 
+def test_mixed_dataset_aligns_compact_stage_cache_to_filtered_source(
+    monkeypatch, tmp_path
+):
+    """Persisted raw indexes should align a compact cache with filtered LArCV."""
+    raw_path = tmp_path / "source.root"
+    raw_path.write_bytes(b"source")
+    raw_stat = raw_path.stat()
+    source_entries = np.asarray([0, 2, 5])
+
+    cache_path = tmp_path / "cache.h5"
+    writer = StageHDF5Writer(str(cache_path), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.arange(3),
+            "source_file_name": np.asarray([raw_path.name] * 3),
+            "source_file_size": np.asarray([raw_stat.st_size] * 3),
+            "source_file_mtime_ns": np.asarray([raw_stat.st_mtime_ns] * 3),
+            "source_file_entry_index": source_entries,
+            "cached": [np.asarray([entry]) for entry in source_entries],
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    class FilteredReader:
+        num_entries = 6
+        eligible_entry_index = source_entries
+        entry_index = source_entries
+        file_paths = [str(raw_path)]
+
+    class FilteredDataset:
+        reader = FilteredReader()
+        data_keys = ("index", "file_index", "file_entry_index")
+        overlay_methods = {
+            "index": "cat",
+            "file_index": "cat",
+            "file_entry_index": "cat",
+        }
+
+        def __len__(self):
+            return len(source_entries)
+
+        def __getitem__(self, idx):
+            return {
+                "index": idx,
+                "file_index": 0,
+                "file_entry_index": int(source_entries[idx]),
+            }
+
+    monkeypatch.setattr(
+        mixed_dataset_module,
+        "LArCVDataset",
+        lambda **_kwargs: FilteredDataset(),
+    )
+
+    dataset = MixedDataset(
+        larcv={"file_keys": str(raw_path), "schema": {}},
+        hdf5={
+            "file_keys": str(cache_path),
+            "staged": True,
+            "stage": "deghosting",
+            "keys": ("cached",),
+        },
+        dtype="float32",
+        entry_filter="accepted.yaml",
+    )
+
+    entry = dataset[1]
+    assert entry["file_entry_index"] == 2
+    np.testing.assert_array_equal(entry["cached"], np.asarray([2]))
+
+
 def test_mixed_dataset_cache_domain_auto_handles_no_rejections(monkeypatch):
     """Equal raw and filtered domains should use their equivalent mapping."""
 

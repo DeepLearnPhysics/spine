@@ -17,6 +17,8 @@ from .hdf5.common import decode_string_attribute, require_group
 
 __all__ = ["StageHDF5Reader"]
 
+SOURCE_ENTRY_KEY = "source_file_entry_index"
+
 StageConfig = dict[str, object]
 StageConfigMap = dict[str, StageConfig | None]
 
@@ -571,11 +573,21 @@ class StageHDF5Reader(HDF5Reader):
         Handle ownership remains with the inherited scalar or batch access
         method. This decoder only reads from ``in_file`` and never closes it.
         """
-        # Seed the result with global and source-local administrative metadata
+        # Load the raw source entry index for this compact cache event. This is
+        # administrative metadata rather than a user-facing product, so it is
+        # always read even if the user did not request it.
+        source_entry_idx = self._load_source_entry_indices(
+            in_file,
+            file_idx,
+            entry_idx,
+            entry_idx + 1,
+        )[0]
+
+        # Keep the compact cache position distinct from its raw source entry.
         data: dict[str, object] = {
             "file_index": file_idx,
             "file_entry_index": entry_idx,
-            "source_file_entry_index": entry_idx,
+            SOURCE_ENTRY_KEY: source_entry_idx,
         }
         data.update(self._source_info.get(file_idx, {}))
         product_stage_map = self._resolved_products[file_idx]
@@ -587,7 +599,7 @@ class StageHDF5Reader(HDF5Reader):
             )
             products = self.get_stage_products(stage_group)
             for key, resolved_stage in product_stage_map.items():
-                if resolved_stage == stage_name:
+                if resolved_stage == stage_name and key != SOURCE_ENTRY_KEY:
                     self.load_product(products, entry_idx, data, key)
             self.reconstruct_products(products, entry_idx, data)
 
@@ -607,18 +619,28 @@ class StageHDF5Reader(HDF5Reader):
         selected stage product, including its private reconstruction children,
         is loaded once for the complete event run.
         """
+        # Load the raw source entry indexes for the entire contiguous run. This is
+        # administrative metadata rather than a user-facing product, so it is
+        # always read even if the user did not request it.
         first = entries[0][2]
         last = entries[-1][2] + 1
+        source_entry_indices = self._load_source_entry_indices(
+            in_file,
+            file_idx,
+            first,
+            last,
+        )
         data: list[dict[str, object]] = []
-        for _, idx, entry_idx in entries:
+        for (_, idx, entry_idx), source_entry_idx in zip(entries, source_entry_indices):
             event: dict[str, object] = {
                 "file_index": file_idx,
                 "file_entry_index": entry_idx,
-                "source_file_entry_index": entry_idx,
+                SOURCE_ENTRY_KEY: source_entry_idx,
             }
             event.update(self._source_info.get(file_idx, {}))
             data.append(event)
 
+        # Read each physical stage once and select only its resolved products
         product_stage_map = self._resolved_products[file_idx]
         for stage_name in sorted(set(product_stage_map.values())):
             stage_group = self.get_stage_group(
@@ -626,7 +648,7 @@ class StageHDF5Reader(HDF5Reader):
             )
             products = self.get_stage_products(stage_group)
             for key, resolved_stage in product_stage_map.items():
-                if resolved_stage == stage_name:
+                if resolved_stage == stage_name and key != SOURCE_ENTRY_KEY:
                     self.load_product_many(products, first, last, data, key)
             self.reconstruct_products_many(products, first, last, data)
 
@@ -634,3 +656,88 @@ class StageHDF5Reader(HDF5Reader):
         for (_, idx, _), event in zip(entries, data):
             event["index"] = idx
         return data
+
+    def _load_source_entry_indices(
+        self,
+        in_file: h5py.File,
+        file_idx: int,
+        first: int,
+        last: int,
+    ) -> list[int]:
+        """Load and validate raw-source entry indexes for a cache event run.
+
+        Source entry provenance is administrative metadata rather than an
+        optional model product. It must therefore be read even when the HDF5
+        dataset projects a narrow product schema. Every referenced stage that
+        stores the provenance axis must agree with its siblings.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open staged-cache file containing the requested event run.
+        file_idx : int
+            Index of the physical cache file in the reader file list.
+        first, last : int
+            Inclusive-exclusive compact event range within the cache file.
+
+        Returns
+        -------
+        list[int]
+            Original source-file entry index for every compact cache event.
+            Physical cache indexes are returned for older stages which do not
+            persist this provenance product.
+
+        Raises
+        ------
+        TypeError
+            If a stored source-entry product is not scalar integer data.
+        ValueError
+            If multiple referenced stages report different source entries.
+        """
+        source_entries: np.ndarray | None = None
+        source_stage: str | None = None
+        product_stage_map = self._resolved_products[file_idx]
+
+        for stage_name in sorted(set(product_stage_map.values())):
+            stage_group = self.get_stage_group(
+                in_file, self.file_paths[file_idx], stage_name
+            )
+            products = self.get_stage_products(stage_group)
+            if SOURCE_ENTRY_KEY not in products:
+                continue
+
+            # Reuse the contiguous V2 product reader for the provenance axis.
+            stage_data: list[dict[str, object]] = [{} for _ in range(last - first)]
+            self.load_product_many(
+                products,
+                first,
+                last,
+                stage_data,
+                SOURCE_ENTRY_KEY,
+            )
+            stage_entries = np.asarray(
+                [event[SOURCE_ENTRY_KEY] for event in stage_data]
+            )
+            if stage_entries.ndim != 1 or not np.issubdtype(
+                stage_entries.dtype, np.integer
+            ):
+                raise TypeError(
+                    f"Stage '{stage_name}' in '{self.file_paths[file_idx]}' must "
+                    f"store '{SOURCE_ENTRY_KEY}' as scalar integers."
+                )
+            stage_entries = stage_entries.astype(np.int64, copy=False)
+
+            if source_entries is None:
+                source_entries = stage_entries
+                source_stage = stage_name
+            elif not np.array_equal(source_entries, stage_entries):
+                raise ValueError(
+                    f"Stages '{source_stage}' and '{stage_name}' in "
+                    f"'{self.file_paths[file_idx]}' report different "
+                    f"'{SOURCE_ENTRY_KEY}' values for cache entries "
+                    f"[{first}, {last})."
+                )
+
+        if source_entries is None:
+            source_entries = np.arange(first, last, dtype=np.int64)
+        return source_entries.tolist()
