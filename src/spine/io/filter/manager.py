@@ -7,6 +7,7 @@ import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ INSPECTORS: dict[str, type[EntryInspector]] = {"larcv": LArCVEntryInspector}
 
 __all__ = [
     "build_manifest",
+    "eligible_cache_entries_from_manifest",
     "eligible_entries_from_manifest",
     "load_entry_filter",
     "load_filter_config",
@@ -478,6 +480,152 @@ def load_entry_filter(path: str | Path) -> dict[str, Any]:
     if not isinstance(manifest.get("input"), Mapping):
         raise TypeError("Entry-filter manifest requires an `input` mapping.")
     return dict(manifest)
+
+
+def eligible_cache_entries_from_manifest(
+    path: str | Path,
+    provenance: Sequence[Mapping[str, Any]],
+) -> list[int]:
+    """Project a source manifest onto provenance-bearing cache entries.
+
+    This path does not inspect cached physics products. Instead, it matches
+    each physical cache entry to one source record in an existing LArCV
+    manifest using the persisted source file name, size and modification time,
+    then applies that record's rejected source-entry indexes.
+
+    Parameters
+    ----------
+    path : str or Path
+        Existing LArCV entry-filter manifest.
+    provenance : sequence[mapping]
+        Per-cache-entry source provenance. Each mapping must contain all four
+        ``source_file_*`` fields exposed by :class:`spine.io.read.ReaderBase`.
+
+    Returns
+    -------
+    list[int]
+        Eligible entries in the cache's physical global entry domain.
+
+    Raises
+    ------
+    ValueError
+        If the manifest is not LArCV-backed, provenance is malformed, or one
+        cache source matches multiple manifest records.
+    KeyError
+        If required provenance is absent or a cache source is not represented
+        in the manifest.
+    """
+    manifest = load_entry_filter(path)
+    backend = manifest.get("input", {}).get("name")
+    if backend != "larcv":
+        raise ValueError(
+            "Cache provenance filtering currently requires a LArCV manifest, "
+            f"got `{backend}`."
+        )
+    if manifest.get("inspector_version") != LArCVEntryInspector.version:
+        raise ValueError(
+            f"Entry-filter inspector version `{manifest.get('inspector_version')}` "
+            f"does not match current `{LArCVEntryInspector.version}`."
+        )
+
+    # Index records by their persisted lightweight identity. Cache files store
+    # a basename rather than the original absolute source path.
+    records: dict[tuple[str, int | None, int | None], list[Mapping[str, Any]]] = {}
+    rejected_by_path: dict[str, set[int]] = {}
+    for record in manifest["sources"]:
+        if not isinstance(record, Mapping) or not isinstance(record.get("path"), str):
+            raise TypeError("Every manifest source must be a mapping with a path.")
+        source_path = record["path"]
+        size = _normalize_source_fingerprint(record.get("size"), "size")
+        mtime = _normalize_source_fingerprint(record.get("mtime_ns"), "mtime_ns")
+        identity = (os.path.basename(source_path), size, mtime)
+        records.setdefault(identity, []).append(record)
+        rejected_by_path[source_path] = _validated_rejected_entries(record)
+
+    eligible = []
+    for cache_entry, source in enumerate(provenance):
+        missing = set(
+            (
+                "source_file_name",
+                "source_file_size",
+                "source_file_mtime_ns",
+                "source_file_entry_index",
+            )
+        ) - set(source)
+        if missing:
+            raise KeyError(
+                "Cannot apply a source manifest to a cache without complete "
+                f"provenance; missing keys: {sorted(missing)}."
+            )
+
+        file_name = source["source_file_name"]
+        if isinstance(file_name, bytes):
+            file_name = file_name.decode()
+        if not isinstance(file_name, str):
+            raise TypeError("`source_file_name` must be a string.")
+        size = _normalize_source_fingerprint(source["source_file_size"], "size")
+        mtime = _normalize_source_fingerprint(
+            source["source_file_mtime_ns"], "mtime_ns"
+        )
+        identity = (os.path.basename(file_name), size, mtime)
+        candidates = records.get(identity, [])
+        if len(candidates) == 0:
+            raise KeyError(
+                "Cache source is missing from the entry-filter manifest: "
+                f"{identity[0]} (size={identity[1]}, mtime_ns={identity[2]})."
+            )
+        if len(candidates) > 1:
+            paths = sorted(str(candidate["path"]) for candidate in candidates)
+            raise ValueError(
+                "Cache source provenance matches multiple manifest records: "
+                f"{paths}."
+            )
+
+        record = candidates[0]
+        source_entry = source["source_file_entry_index"]
+        if (
+            isinstance(source_entry, bool)
+            or not isinstance(source_entry, Integral)
+            or source_entry < 0
+            or source_entry >= record["num_entries"]
+        ):
+            raise ValueError(
+                f"Invalid source entry `{source_entry}` for manifest source "
+                f"`{record['path']}`."
+            )
+        if int(source_entry) not in rejected_by_path[str(record["path"])]:
+            eligible.append(cache_entry)
+
+    return eligible
+
+
+def _normalize_source_fingerprint(value: Any, name: str) -> int | None:
+    """Normalize local integers and remote-source sentinel fingerprints."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise TypeError(f"Source fingerprint `{name}` must be an integer or None.")
+    value = int(value)
+    return None if value < 0 else value
+
+
+def _validated_rejected_entries(record: Mapping[str, Any]) -> set[int]:
+    """Validate and return one manifest record's rejected entry indexes."""
+    count = record.get("num_entries")
+    if isinstance(count, bool) or not isinstance(count, Integral) or count < 0:
+        raise ValueError(f"Invalid entry count for `{record.get('path')}`.")
+    rejected = record.get("rejected_entries")
+    if not isinstance(rejected, list) or any(
+        isinstance(entry, bool)
+        or not isinstance(entry, int)
+        or entry < 0
+        or entry >= count
+        for entry in rejected
+    ):
+        raise ValueError(f"Invalid rejected entry list for `{record.get('path')}`.")
+    if len(set(rejected)) != len(rejected):
+        raise ValueError(f"Duplicate rejected entries for `{record.get('path')}`.")
+    return set(rejected)
 
 
 def eligible_entries_from_manifest(

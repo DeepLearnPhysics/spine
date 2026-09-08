@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from yaml.parser import ParserError
 
+from spine.io.filter import eligible_cache_entries_from_manifest
 from spine.logging import logger
 
 from .hdf5 import HDF5Reader
@@ -53,6 +54,7 @@ class StageHDF5Reader(HDF5Reader):
         stage_map: Mapping[str, str] | None = None,
         keys: Sequence[str] | None = None,
         entry_fraction_range: Sequence[float] | None = None,
+        entry_filter: str | None = None,
     ) -> None:
         """Initialize the stage-cache reader.
 
@@ -70,10 +72,10 @@ class StageHDF5Reader(HDF5Reader):
         file_keys, file_list, limit_num_files, max_print_files, n_entry, n_skip, \
         entry_list, skip_entry_list, build_classes, skip_unknown_attrs, \
         allow_missing, keep_open, swmr, ignore_incomplete, \
-        entry_fraction_range : optional
+        entry_fraction_range, entry_filter : optional
             See :class:`spine.io.read.HDF5Reader`. These options control file
             discovery, entry selection, object reconstruction, file-handle
-            lifetime, and incomplete-stage handling.
+            lifetime, incomplete-stage handling, and source-manifest filtering.
         """
         # Store routing policy before inspecting the available stage schemas
         self.stage = stage
@@ -93,6 +95,7 @@ class StageHDF5Reader(HDF5Reader):
 
         # Build the global event axis and resolve products independently per file
         file_index = []
+        source_provenance: list[dict[str, object]] = []
         self.num_entries = 0
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         for i, path in enumerate(self.file_paths):
@@ -104,6 +107,15 @@ class StageHDF5Reader(HDF5Reader):
                 self._resolved_products[i] = product_stage_map
                 stage_lengths = self.get_stage_lengths(in_file, path, product_stage_map)
                 num_entries = self.validate_stage_lengths(path, stage_lengths)
+                if entry_filter is not None:
+                    source_provenance.extend(
+                        self._read_stage_source_manifest_provenance(
+                            in_file,
+                            i,
+                            num_entries,
+                        )
+                    )
+                    self._clear_product_handles()
                 file_index.append(i * np.ones(num_entries, dtype=np.int64))
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
@@ -117,6 +129,12 @@ class StageHDF5Reader(HDF5Reader):
         self.run_map = None
 
         # Apply the standard reader entry projection to the merged event axis
+        eligible_entries = None
+        if entry_filter is not None:
+            eligible_entries = eligible_cache_entries_from_manifest(
+                entry_filter,
+                source_provenance,
+            )
         self.process_entry_list(
             n_entry,
             n_skip,
@@ -126,6 +144,7 @@ class StageHDF5Reader(HDF5Reader):
             None,
             allow_missing,
             entry_fraction_range,
+            eligible_entries,
         )
 
         # Finish the inherited object reconstruction and file metadata setup
@@ -133,6 +152,71 @@ class StageHDF5Reader(HDF5Reader):
         self.skip_unknown_attrs = skip_unknown_attrs
         self.cfg = self.process_cfg()
         self.version = self.process_version()
+
+    def _read_stage_source_manifest_provenance(
+        self,
+        in_file: h5py.File,
+        file_idx: int,
+        num_entries: int,
+    ) -> list[dict[str, object]]:
+        """Read the canonical source identity of each staged-cache entry.
+
+        A staged cache stores file identity once under ``/source`` and stores
+        original entry indexes as a stage product. Both are required here;
+        the legacy physical-index fallback is intentionally unsafe for mapping
+        an external source manifest.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open staged cache.
+        file_idx : int
+            Cache-file index in this reader.
+        num_entries : int
+            Number of physical entries in the cache file.
+
+        Returns
+        -------
+        list[dict]
+            Per-entry source file identity and original source entry index.
+
+        Raises
+        ------
+        KeyError
+            If file identity or source-entry indexes were not persisted.
+        """
+        source_info = self._source_info[file_idx]
+        missing = set(self.source_keys[:-1]) - set(source_info)
+        if missing:
+            raise KeyError(
+                "Cannot apply an entry-filter manifest to a staged cache "
+                f"without source identity; missing fields: {sorted(missing)}."
+            )
+
+        stage_names = set(self._resolved_products[file_idx].values())
+        has_source_entries = any(
+            SOURCE_ENTRY_KEY
+            in self.get_stage_products(
+                self.get_stage_group(in_file, self.file_paths[file_idx], stage_name)
+            )
+            for stage_name in stage_names
+        )
+        if not has_source_entries:
+            raise KeyError(
+                "Cannot apply an entry-filter manifest to a staged cache "
+                f"without the '{SOURCE_ENTRY_KEY}' product."
+            )
+
+        source_entries = self._load_source_entry_indices(
+            in_file,
+            file_idx,
+            0,
+            num_entries,
+        )
+        return [
+            {**source_info, SOURCE_ENTRY_KEY: source_entry}
+            for source_entry in source_entries
+        ]
 
     @classmethod
     def validate_stage_file(cls, in_file: h5py.File, path: str) -> None:

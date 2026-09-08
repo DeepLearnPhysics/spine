@@ -61,6 +61,7 @@ as :class:`filter.LArCVEntryInspector`.
    filter.build_manifest
    filter.load_entry_filter
    filter.eligible_entries_from_manifest
+   filter.eligible_cache_entries_from_manifest
 
 File Writers
 ------------

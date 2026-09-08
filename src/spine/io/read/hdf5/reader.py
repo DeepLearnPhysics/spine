@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from yaml.parser import ParserError
 
+from spine.io.filter import eligible_cache_entries_from_manifest
 from spine.logging import logger
 
 from ..base import ReaderBase
@@ -78,6 +79,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         ignore_incomplete: bool = False,
         keys: list[str] | tuple[str, ...] | None = None,
         entry_fraction_range: Sequence[float] | None = None,
+        entry_filter: str | None = None,
     ) -> None:
         """Initalize the HDF5 file reader.
 
@@ -151,6 +153,9 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             reader-owned runtime indexes can be reconstructed.
         entry_fraction_range : sequence[float], optional
             Half-open fractional range of the resolved entry order to select
+        entry_filter : str, optional
+            LArCV entry-filter manifest projected onto this cache through its
+            persisted per-entry source provenance
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -171,6 +176,8 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         self._initialize_product_backend()
         self.requested_keys = set(keys) if keys is not None else None
         self.file_format_versions: list[int] = []
+        self.build_classes = build_classes
+        self.skip_unknown_attrs = skip_unknown_attrs
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
@@ -178,6 +185,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
 
         # Loop over the input files, build a map from index to file ID
         file_index, run_info = [], []
+        source_provenance: list[dict[str, Any]] = []
         self.num_entries = 0
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         for i, path in enumerate(self.file_paths):
@@ -248,6 +256,16 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
 
                 # Update the total number of entries
                 num_entries = len(events)
+                if entry_filter is not None:
+                    source_provenance.extend(
+                        self._read_flat_source_manifest_provenance(
+                            in_file,
+                            format_version,
+                            num_entries,
+                        )
+                    )
+                    # The initialization handle closes after this iteration.
+                    self._clear_product_handles()
                 file_index.append(i * np.ones(num_entries, dtype=np.int64))
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
@@ -271,6 +289,12 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         self.process_run_info()
 
         # Process the entry list
+        eligible_entries = None
+        if entry_filter is not None:
+            eligible_entries = eligible_cache_entries_from_manifest(
+                entry_filter,
+                source_provenance,
+            )
         self.process_entry_list(
             n_entry,
             n_skip,
@@ -280,12 +304,10 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             skip_run_event_list,
             allow_missing,
             entry_fraction_range,
+            eligible_entries,
         )
 
         # Store other attributes
-        self.build_classes = build_classes
-        self.skip_unknown_attrs = skip_unknown_attrs
-
         # Process the configuration used to produce the HDF5 file
         self.cfg = self.process_cfg()
 
@@ -294,6 +316,68 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
 
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
+
+    def _read_flat_source_manifest_provenance(
+        self,
+        in_file: h5py.File,
+        format_version: int,
+        num_entries: int,
+    ) -> list[dict[str, Any]]:
+        """Read source provenance needed to project an external manifest.
+
+        Administrative provenance is read independently of the configured
+        product projection. V2 products are loaded as contiguous arrays; the
+        legacy region-reference layout retains its event-wise decoding path.
+
+        Parameters
+        ----------
+        in_file : h5py.File
+            Open flat HDF5 file.
+        format_version : int
+            Physical HDF5 layout version for the file.
+        num_entries : int
+            Number of physical cache entries to inspect.
+
+        Returns
+        -------
+        list[dict]
+            Per-entry persisted source provenance.
+
+        Raises
+        ------
+        KeyError
+            If any required source-provenance product was not persisted.
+        """
+        product_root = (
+            in_file if format_version == 1 else require_group(in_file, "products")
+        )
+        missing = set(self.source_keys) - set(product_root)
+        if missing:
+            raise KeyError(
+                "Cannot apply an entry-filter manifest to HDF5 without "
+                f"persisted source provenance; missing products: {sorted(missing)}."
+            )
+
+        provenance: list[dict[str, Any]] = [{} for _ in range(num_entries)]
+        if format_version == 2:
+            for key in self.source_keys:
+                self.load_product_many(product_root, 0, num_entries, provenance, key)
+            return provenance
+
+        events = in_file["events"]
+        assert isinstance(events, h5py.Dataset)
+        names = events.dtype.names or ()
+        if not set(self.source_keys).issubset(names):
+            missing_refs = sorted(set(self.source_keys) - set(names))
+            raise KeyError(
+                "Cannot apply an entry-filter manifest to HDF5 without event "
+                f"provenance references; missing fields: {missing_refs}."
+            )
+        for entry_idx, data in enumerate(provenance):
+            event = events[entry_idx]
+            for key in self.source_keys:
+                self.load_region_product(in_file, event, data, key)
+        return provenance
 
     @property
     def num_chunks(self) -> int:

@@ -9,6 +9,7 @@ from .base import EntryInspector, SourceFingerprint, resolve_sources
 from .larcv import LArCVEntryInspector
 from .manager import (
     build_manifest,
+    eligible_cache_entries_from_manifest,
     eligible_entries_from_manifest,
     load_entry_filter,
     load_filter_config,
@@ -20,6 +21,7 @@ __all__ = [
     "LArCVEntryInspector",
     "SourceFingerprint",
     "build_manifest",
+    "eligible_cache_entries_from_manifest",
     "eligible_entries_from_manifest",
     "load_entry_filter",
     "load_filter_config",

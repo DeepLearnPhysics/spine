@@ -81,7 +81,7 @@ inspector version, or measurement specification causes a rescan. ``--force``
 requests an unconditional rescan. Both counter records and final artifacts are
 published atomically.
 
-Apply the resulting manifest only to the raw LArCV reader::
+Apply the resulting manifest to the raw LArCV reader::
 
    spine -c train.yaml \
      --source-list raw-files.txt \
@@ -94,9 +94,24 @@ mismatches are hard errors. The filter establishes eligibility before normal
 selection, so a configured ``entry_fraction_range`` splits the surviving
 sequence into adjacent, non-overlapping partitions. Numeric limits and skips
 also operate on survivors; explicit entry and run/event lists retain their
-source-domain meaning and are intersected with eligibility. Downstream HDF5
-caches already contain only accepted entries and must not reapply the raw-data
-manifest.
+source-domain meaning and are intersected with eligibility.
+
+An unfiltered flat or staged HDF5 cache can apply the same LArCV manifest
+without rescanning its cached products::
+
+   spine -c train-from-cache.yaml \
+     --source-list cache-files.txt \
+     --entry-filter accepted.yaml
+
+SPINE maps each physical cache entry back to the manifest using its persisted
+``source_file_name``, ``source_file_size``, ``source_file_mtime_ns`` and
+``source_file_entry_index`` provenance. Missing or ambiguous provenance is a
+hard error; SPINE never assumes that physical HDF5 order equals raw LArCV
+order. This operation only applies existing LArCV manifests. Native HDF5
+product inspection and manifest generation are not currently supported.
+
+A compact downstream cache which already contains only accepted entries should
+not reapply the raw-data manifest.
 
 For a mixed LArCV/HDF5 dataset, ``cache_entry_domain`` controls how the
 filtered raw selection maps onto the cache. ``filtered`` denotes a compact

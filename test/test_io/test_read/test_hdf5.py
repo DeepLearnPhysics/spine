@@ -11,6 +11,8 @@ from yaml.parser import ParserError
 import spine.data
 from spine.data import ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
+from spine.io.filter import eligible_cache_entries_from_manifest
+from spine.io.filter.larcv import LArCVEntryInspector
 from spine.io.read import HDF5Reader, StageHDF5Reader
 from spine.io.read.hdf5.common import (
     decode_string_attribute,
@@ -45,6 +47,335 @@ def _write_stage_cache(path, cfg=None):
     )
     writer.finalize_stage("deghosting")
     writer.close()
+
+
+def _write_source_manifest(path, source, num_entries, rejected):
+    """Write a minimal valid LArCV manifest for one source file."""
+    source = source.resolve()
+    stat_result = source.stat()
+    manifest = {
+        "format": "spine-entry-filter",
+        "schema_version": 1,
+        "input": {"name": "larcv"},
+        "inspector_version": LArCVEntryInspector.version,
+        "sources": [
+            {
+                "path": str(source),
+                "size": stat_result.st_size,
+                "mtime_ns": stat_result.st_mtime_ns,
+                "num_entries": num_entries,
+                "rejected_entries": list(rejected),
+            }
+        ],
+    }
+    path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+
+
+def test_cache_manifest_projection_validates_manifest_and_provenance(tmp_path):
+    """Cache projection should reject every unsafe provenance ambiguity."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    manifest_path = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest_path, source, 2, rejected=[])
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    source_stat = source.stat()
+    provenance = {
+        "source_file_name": source.name,
+        "source_file_size": source_stat.st_size,
+        "source_file_mtime_ns": source_stat.st_mtime_ns,
+        "source_file_entry_index": 0,
+    }
+
+    cases = (
+        ("backend", ValueError, "requires a LArCV manifest"),
+        ("version", ValueError, "inspector version"),
+        ("source_record", TypeError, "source must be a mapping"),
+        ("missing_provenance", KeyError, "complete provenance"),
+        ("source_name", TypeError, "must be a string"),
+        ("missing_source", KeyError, "missing from"),
+        ("ambiguous_source", ValueError, "multiple manifest records"),
+        ("source_entry", ValueError, "Invalid source entry"),
+        ("fingerprint", TypeError, "must be an integer"),
+        ("entry_count", ValueError, "Invalid entry count"),
+        ("rejected_entries", ValueError, "Invalid rejected entry list"),
+        ("duplicate_rejections", ValueError, "Duplicate rejected entries"),
+    )
+    for case, error, match in cases:
+        test_manifest = yaml.safe_load(yaml.safe_dump(manifest))
+        test_provenance = dict(provenance)
+        if case == "backend":
+            test_manifest["input"]["name"] = "hdf5"
+        elif case == "version":
+            test_manifest["inspector_version"] += 1
+        elif case == "source_record":
+            test_manifest["sources"] = [None]
+        elif case == "missing_provenance":
+            test_provenance.pop("source_file_entry_index")
+        elif case == "source_name":
+            test_provenance["source_file_name"] = 3
+        elif case == "missing_source":
+            test_provenance["source_file_name"] = "other.root"
+        elif case == "ambiguous_source":
+            test_manifest["sources"].append(dict(test_manifest["sources"][0]))
+        elif case == "source_entry":
+            test_provenance["source_file_entry_index"] = 2
+        elif case == "fingerprint":
+            test_provenance["source_file_size"] = "six"
+        elif case == "entry_count":
+            test_manifest["sources"][0]["num_entries"] = -1
+        elif case == "rejected_entries":
+            test_manifest["sources"][0]["rejected_entries"] = [2]
+        else:
+            test_manifest["sources"][0]["rejected_entries"] = [1, 1]
+
+        manifest_path.write_text(
+            yaml.safe_dump(test_manifest),
+            encoding="utf-8",
+        )
+        with pytest.raises(error, match=match):
+            eligible_cache_entries_from_manifest(manifest_path, [test_provenance])
+
+
+def test_cache_manifest_projection_accepts_remote_fingerprints(tmp_path):
+    """Unknown remote fingerprints should match without positional guesses."""
+    manifest_path = tmp_path / "accepted.yaml"
+    manifest = {
+        "format": "spine-entry-filter",
+        "schema_version": 1,
+        "input": {"name": "larcv"},
+        "inspector_version": LArCVEntryInspector.version,
+        "sources": [
+            {
+                "path": "root://host/source.root",
+                "size": None,
+                "mtime_ns": None,
+                "num_entries": 1,
+                "rejected_entries": [],
+            }
+        ],
+    }
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    provenance = {
+        "source_file_name": "source.root",
+        "source_file_size": -1,
+        "source_file_mtime_ns": -1,
+        "source_file_entry_index": 0,
+    }
+
+    assert eligible_cache_entries_from_manifest(manifest_path, [provenance]) == [0]
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_reader_applies_larcv_manifest_through_provenance(
+    tmp_path, format_version
+):
+    """Flat caches should translate raw manifest entries in either layout."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    source_stat = source.stat()
+    cache = tmp_path / f"cache-v{format_version}.h5"
+    writer = HDF5Writer(cache, overwrite=True, format_version=format_version)
+    writer(
+        {
+            "index": np.arange(3),
+            "source_file_name": np.asarray([source.name] * 3),
+            "source_file_size": np.asarray([source_stat.st_size] * 3),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns] * 3),
+            "source_file_entry_index": np.asarray([0, 1, 2]),
+            "value": np.asarray([10, 11, 12]),
+        },
+        cfg={},
+    )
+    writer.finalize()
+    writer.close()
+
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 3, rejected=[1])
+    reader = HDF5Reader(
+        str(cache),
+        build_classes=False,
+        keys=("value",),
+        entry_filter=str(manifest),
+    )
+
+    np.testing.assert_array_equal(reader.entry_index, [0, 2])
+    assert reader.get(1)["value"] == 12
+    reader.close()
+
+
+def test_hdf5_reader_source_manifest_composes_with_selection(tmp_path):
+    """Ordinary selectors should act on the manifest's survivor population."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    source_stat = source.stat()
+    cache = tmp_path / "cache.h5"
+    writer = HDF5Writer(cache, overwrite=True, format_version=2)
+    writer(
+        {
+            "index": np.arange(4),
+            "source_file_name": np.asarray([source.name] * 4),
+            "source_file_size": np.asarray([source_stat.st_size] * 4),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns] * 4),
+            "source_file_entry_index": np.arange(4),
+            "value": np.arange(4),
+        },
+        cfg={},
+    )
+    writer.finalize()
+    writer.close()
+
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 4, rejected=[1])
+    reader = HDF5Reader(
+        str(cache),
+        entry_filter=str(manifest),
+        n_skip=1,
+        n_entry=1,
+    )
+
+    np.testing.assert_array_equal(reader.eligible_entry_index, [0, 2, 3])
+    np.testing.assert_array_equal(reader.entry_index, [2])
+    reader.close()
+
+
+def test_hdf5_reader_rejects_source_manifest_without_provenance(tmp_path):
+    """A flat cache must not infer raw-source identity from physical order."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    cache = tmp_path / "cache.h5"
+    writer = HDF5Writer(
+        cache,
+        overwrite=True,
+        format_version=2,
+        keys=("value",),
+    )
+    writer({"index": np.asarray([0]), "value": np.asarray([1])})
+    writer.finalize()
+    writer.close()
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 1, rejected=[])
+
+    with pytest.raises(KeyError, match="persisted source provenance"):
+        HDF5Reader(str(cache), entry_filter=str(manifest))
+
+
+def test_hdf5_v1_reader_rejects_missing_event_provenance_reference(tmp_path):
+    """A V1 cache product without its event reference is not readable provenance."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    source_stat = source.stat()
+    cache = tmp_path / "cache.h5"
+    writer = HDF5Writer(cache, overwrite=True, format_version=1)
+    writer(
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray([source.name]),
+            "source_file_size": np.asarray([source_stat.st_size]),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns]),
+            "source_file_entry_index": np.asarray([0]),
+        },
+        cfg={},
+    )
+    writer.finalize()
+    writer.close()
+
+    # Preserve the product itself while removing only its per-event reference.
+    with h5py.File(cache, "r+") as out_file:
+        events = out_file["events"][:]
+        keep_names = tuple(
+            name for name in events.dtype.names if name != "source_file_entry_index"
+        )
+        reduced = np.empty(
+            events.shape, dtype=[(name, events.dtype[name]) for name in keep_names]
+        )
+        for name in keep_names:
+            reduced[name] = events[name]
+        del out_file["events"]
+        out_file.create_dataset("events", data=reduced)
+
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 1, rejected=[])
+    with pytest.raises(KeyError, match="event provenance references"):
+        HDF5Reader(str(cache), entry_filter=str(manifest))
+
+
+def test_stage_hdf5_reader_applies_larcv_manifest_through_provenance(tmp_path):
+    """A full staged cache should select physical rows by raw source entry."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    source_stat = source.stat()
+    cache = tmp_path / "stage-cache.h5"
+    writer = StageHDF5Writer(str(cache), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.arange(3),
+            "source_file_name": np.asarray([source.name] * 3),
+            "source_file_size": np.asarray([source_stat.st_size] * 3),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns] * 3),
+            "source_file_entry_index": np.asarray([0, 2, 5]),
+            "value": np.asarray([10, 12, 15]),
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 6, rejected=[1, 2, 3])
+    reader = StageHDF5Reader(
+        "deghosting",
+        str(cache),
+        build_classes=False,
+        keys=("value",),
+        entry_filter=str(manifest),
+    )
+
+    np.testing.assert_array_equal(reader.entry_index, [0, 2])
+    assert reader.get(1)["source_file_entry_index"] == 5
+    assert reader.get(1)["value"] == 15
+    reader.close()
+
+
+def test_stage_hdf5_reader_rejects_source_manifest_without_entry_provenance(
+    tmp_path,
+):
+    """A staged cache must persist raw entry indexes for manifest mapping."""
+    source = tmp_path / "source.root"
+    source.write_bytes(b"source")
+    source_stat = source.stat()
+    cache = tmp_path / "stage-cache.h5"
+    writer = StageHDF5Writer(str(cache), overwrite=True)
+    writer.write_stage(
+        "deghosting",
+        {
+            "index": np.asarray([0]),
+            "source_file_name": np.asarray([source.name]),
+            "source_file_size": np.asarray([source_stat.st_size]),
+            "source_file_mtime_ns": np.asarray([source_stat.st_mtime_ns]),
+            "value": np.asarray([10]),
+        },
+    )
+    writer.finalize_stage("deghosting")
+    writer.close()
+    manifest = tmp_path / "accepted.yaml"
+    _write_source_manifest(manifest, source, 1, rejected=[])
+
+    with pytest.raises(KeyError, match="source_file_entry_index"):
+        StageHDF5Reader("deghosting", str(cache), entry_filter=str(manifest))
+
+
+def test_stage_hdf5_reader_rejects_source_manifest_without_file_identity(tmp_path):
+    """Staged filtering must not guess a source file from its entry indexes."""
+    cache = tmp_path / "stage-cache.h5"
+    _write_stage_cache(cache)
+    reader = StageHDF5Reader.__new__(StageHDF5Reader)
+    reader._source_info = [{}]
+
+    with (
+        h5py.File(cache, "r") as in_file,
+        pytest.raises(KeyError, match="without source identity"),
+    ):
+        reader._read_stage_source_manifest_provenance(in_file, 0, 1)
 
 
 @pytest.mark.parametrize("payload", [1, "value: invalid", "[valid, 2]"])
