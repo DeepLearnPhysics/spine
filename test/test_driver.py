@@ -1515,6 +1515,106 @@ def test_run_checkpoint_rejects_non_training_model():
         drv.run_checkpoint({}, "timestamp", 0, 1.0)
 
 
+def test_run_stop_file_forces_checkpoint_and_successful_completion(
+    monkeypatch, tmp_path, caplog
+):
+    """A rank-zero marker should reuse the graceful checkpoint boundary."""
+    calls = []
+    drv = bare_driver()
+    marker = tmp_path / "graceful-stop"
+
+    class FakeModel:
+        train = True
+        start_iteration = 0
+        start_epoch = 0.0
+        device = None
+        watch = FakeWatchManager()
+
+        @staticmethod
+        def should_save(_iteration):
+            return False
+
+        @staticmethod
+        def step_checkpoint_scheduler(_metrics):
+            return None
+
+        @staticmethod
+        def save_state(iteration, epoch, validation_state, **kwargs):
+            calls.append(("save", iteration, epoch, validation_state, kwargs))
+            return "snapshot-0.ckpt"
+
+    class FakeValidation:
+        io = SimpleNamespace(dataset_provenance=lambda: {})
+        num_iterations = 1
+
+        @staticmethod
+        def run(iteration, epoch):
+            calls.append(("validate", iteration, epoch))
+            return {"loss": 0.5}
+
+        @staticmethod
+        def update_best_checkpoint(_metrics):
+            return False
+
+        @staticmethod
+        def update_early_stopping(_metrics):
+            return False
+
+        @staticmethod
+        def checkpoint_state(metrics):
+            return {"metrics": dict(metrics)}
+
+    drv.iterations = 2
+    drv.epochs = None
+    drv.model = FakeModel()
+    drv.validation = FakeValidation()
+    drv.main_process = True
+    drv.distributed = False
+    drv.rank = None
+    drv.world_size = 0
+    drv.cfg = {"base": {"graceful_stop_file": str(marker)}, "train": {}}
+    drv.ana = None
+    drv.log_manager = SimpleNamespace(
+        append_tensorboard=lambda metrics, iteration: calls.append(
+            ("tensorboard", dict(metrics), iteration)
+        ),
+        close=lambda: calls.append("log_close"),
+    )
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=1,
+        prepare_iteration=lambda iteration: None,
+        checkpoint_state=lambda next_iteration: {"next_iteration": next_iteration},
+        dataset_provenance=lambda: {},
+        close=lambda: calls.append("io_close"),
+    )
+    drv.initialize_log = lambda: None
+
+    def process(**_kwargs):
+        marker.touch()
+        return {}
+
+    drv.process = process
+    drv.log_stdout = lambda *_args: None
+    drv.log = lambda *_args, **_kwargs: None
+    drv.run_control = driver_mod.RunControl(str(marker))
+    monkeypatch.setattr(drv, "cleanup", lambda **_kwargs: None)
+
+    with caplog.at_level("INFO", logger="spine"):
+        drv.run()
+
+    saves = [call for call in calls if isinstance(call, tuple) and call[0] == "save"]
+    assert len(saves) == 1
+    assert ("validate", 0, 1.0) in calls
+    assert saves[0][3] == {"metrics": {"loss": 0.5}}
+    assert saves[0][4]["completion"] == {
+        "reason": "graceful_stop",
+        "file": str(marker),
+    }
+    assert "Reason:             graceful completion (marker file:" in caplog.text
+    assert "Graceful completion finished successfully" in caplog.text
+
+
 @pytest.mark.parametrize(
     "error",
     [OSError("disk full"), TypeError("invalid checkpoint payload")],

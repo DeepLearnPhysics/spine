@@ -144,6 +144,56 @@ def test_run_single_distributed_training_flow(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("rank, expected_path", [(0, "stop.marker"), (1, None)])
+def test_run_single_only_main_rank_polls_graceful_stop_file(
+    monkeypatch, rank, expected_path
+):
+    """Only rank zero should inspect a shared graceful-stop marker."""
+    controls = []
+
+    class DummyControl:
+        def __init__(self, graceful_stop_file=None):
+            controls.append(graceful_stop_file)
+
+        @staticmethod
+        def install():
+            return None
+
+        @staticmethod
+        def restore():
+            return None
+
+    class DummyDriver:
+        def __init__(self, _cfg, _rank):
+            self.run_control = None
+
+        @staticmethod
+        def run():
+            return None
+
+    torch_runtime = SimpleNamespace(
+        multiprocessing=SimpleNamespace(set_sharing_strategy=lambda _strategy: None),
+        distributed=SimpleNamespace(destroy_process_group=lambda: None),
+    )
+    monkeypatch.setattr(main, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(main, "torch", torch_runtime)
+    monkeypatch.setattr(main, "setup_ddp", lambda _rank, _world_size: None)
+    monkeypatch.setattr(main, "RunControl", DummyControl)
+    monkeypatch.setattr(main, "Driver", DummyDriver)
+
+    main.run_single(
+        rank=rank,
+        cfg={
+            "base": {"graceful_stop_file": "stop.marker"},
+            "train": {},
+        },
+        distributed=True,
+        world_size=2,
+    )
+
+    assert controls == [expected_path]
+
+
 def test_run_single_inference_weight_handling(monkeypatch):
     """Inference should handle missing, scalar, and multiple weight paths."""
     calls: list[tuple[str, object]] = []

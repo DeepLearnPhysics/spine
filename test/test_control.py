@@ -22,6 +22,11 @@ def test_run_control_records_and_restores_sigusr1_handler():
     try:
         os.kill(os.getpid(), signal.SIGUSR1)
         assert control.graceful_stop_requested
+        assert control.graceful_stop_description == "SIGUSR1"
+        assert control.completion_metadata == {
+            "reason": "graceful_stop",
+            "signal": "SIGUSR1",
+        }
     finally:
         control.restore()
         control.restore()
@@ -45,3 +50,24 @@ raise SystemExit(0 if control.graceful_stop_requested else 1)
     result = subprocess.run([sys.executable, "-c", script], check=False)
 
     assert result.returncode == 0
+
+
+def test_run_control_observes_marker_file_stickily(tmp_path):
+    """A marker should request completion once, even if later removed."""
+    marker = tmp_path / "stop.requested"
+    control = RunControl(str(marker))
+
+    assert not control.graceful_stop_requested
+    assert control.graceful_stop_description is None
+    assert control.completion_metadata is None
+
+    marker.touch()
+    assert control.graceful_stop_requested
+    assert control.graceful_stop_description == f"marker file: {marker}"
+    assert control.completion_metadata == {
+        "reason": "graceful_stop",
+        "file": str(marker),
+    }
+
+    marker.unlink()
+    assert control.graceful_stop_requested

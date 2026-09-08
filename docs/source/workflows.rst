@@ -207,23 +207,40 @@ early-stopping, and best-checkpoint settings.
 Gracefully Complete Training
 ----------------------------
 
-Send ``SIGUSR1`` to a running training process to accept its current progress.
-SPINE finishes the active iteration, synchronizes the request across DDP ranks,
-runs configured validation, writes a numbered resumable checkpoint, updates the
-best checkpoint when appropriate, flushes its outputs, and exits successfully.
-The signal handler itself only records the request; all model, logging and
-distributed work runs later at a safe iteration boundary.
+Use ``--graceful-stop-file`` to let a scheduler wrapper accept the current
+training progress without signaling the model, data-loader or file-reader
+processes. SPINE rank zero checks for the marker after each active minibatch.
+Once it appears, SPINE synchronizes the request across DDP ranks, runs configured
+validation, writes a numbered resumable checkpoint, updates the best checkpoint
+when appropriate, flushes its outputs, and exits successfully.
 
-When SPINE runs as a Slurm job step, signal that step with, for example:
+For example, launch SPINE with a submission-specific marker path:
 
 .. code-block:: bash
 
-   scancel --signal=USR1 <job-id>.<step-id>
+   spine -c train.yaml \
+     --graceful-stop-file /shared/work/job-123-attempt-1.stop
 
-``scancel --full`` also signals the batch shell. A wrapper using that form must
-handle ``SIGUSR1`` itself so that the shell does not terminate independently of
-SPINE. Downstream ``afterok`` work should be allowed to start only after the
-checkpoint section closes and the complete batch job reports status zero.
+A Slurm batch-shell trap can create that marker when the shell alone receives
+``SIGUSR1``:
+
+.. code-block:: bash
+
+   trap 'touch /shared/work/job-123-attempt-1.stop' USR1
+
+The path must be visible to both the batch shell and the SPINE container. The
+marker must also be unique to one submission attempt. Reusing an existing
+marker would intentionally stop a resumed job at its first safe boundary.
+Equivalent wrapper traps work with PBS, Singularity, Shifter and Apptainer.
+
+Direct ``SIGUSR1`` delivery to a SPINE training process remains supported. Its
+handler only records the request; all model, logging and distributed work runs
+later at a safe iteration boundary. Do not use ``scancel --full`` for this
+purpose: it can also signal data-loader and ROOT processes before SPINE reaches
+a safe checkpoint boundary.
+
+Downstream ``afterok`` work should be allowed to start only after the checkpoint
+section closes and the complete batch job reports status zero.
 
 ``SIGTERM`` and ``SIGINT`` retain their ordinary unsuccessful interruption
 semantics. A graceful request received during an already-running scheduled

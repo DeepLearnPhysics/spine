@@ -60,8 +60,8 @@ def run(cfg: dict) -> None:
         # Single-node multi-GPU: launch processes using multiprocessing.spawn
         launcher_control = RunControl() if "train" in cfg else None
         if launcher_control is not None:
-            # Slurm ``--full`` also signals this launcher. Keep it alive while
-            # independently signaled workers coordinate the actual stop.
+            # Keep the local launcher alive if it is signaled independently.
+            # Worker ranks still synchronize their own stop requests.
             launcher_control.install()
         try:
             torch.multiprocessing.spawn(
@@ -130,9 +130,14 @@ def run_single(
     # Configure rank-aware logging before initializing worker-owned modules
     configure_rank_logging(rank)
 
-    # Install the training signal before potentially expensive distributed and
-    # model initialization. The driver consumes the sticky request safely.
-    run_control = RunControl() if train else None
+    # Install process control before potentially expensive distributed and
+    # model initialization. Only rank zero polls the shared marker file; the
+    # driver distributes an observed request at the next minibatch boundary.
+    graceful_stop_file = cfg["base"].get("graceful_stop_file")
+    poll_stop_file = rank is None or rank == 0
+    run_control = (
+        RunControl(graceful_stop_file if poll_stop_file else None) if train else None
+    )
     if run_control is not None:
         run_control.install()
 

@@ -120,7 +120,6 @@ class Driver:
         # Initialize the timers and the configuration dictionary
         self.watch = StopwatchManager()
         self.watch.initialize("iteration")
-        self.run_control = RunControl()
 
         # Initialize the base driver configuration parameters
         self.initialize_base(**driver_base, rank=rank)
@@ -397,6 +396,7 @@ class Driver:
         ddp: bool | None = None,
         split_output: bool = False,
         tensorboard: bool | Mapping[str, Any] | None = None,
+        graceful_stop_file: str | None = None,
     ) -> None:
         """Initialize the driver state derived from the ``base`` block.
 
@@ -445,7 +445,10 @@ class Driver:
             TensorBoard logging configuration. ``False`` or ``None`` disable
             TensorBoard logging, ``True`` uses default settings, and a mapping
             overrides defaults such as output directory and flush interval.
-
+        graceful_stop_file : str, optional
+            Marker file polled by the main rank at safe minibatch boundaries.
+            Its presence requests validation, checkpointing and successful
+            completion of a training run.
         """
         # Set up the seed
         random.seed(seed)
@@ -478,6 +481,12 @@ class Driver:
         self.ddp = self.distributed if ddp is None else ddp
         if self.ddp and not self.distributed:
             raise ValueError("`ddp` requires distributed execution.")
+
+        # Set up the graceful stop controller. The main rank polls for a marker
+        # file, while other ranks receive the request via the signal handler.
+        self.graceful_stop_file = graceful_stop_file
+        self.run_control = RunControl(graceful_stop_file if self.main_process else None)
+
         # Store general parameters
         self.dtype = dtype
         self.log_dir = log_dir
@@ -967,7 +976,8 @@ class Driver:
                 # Report globally representative training scalars under DDP.
                 self.reduce_training_metrics(data)
 
-                # All ranks poll the signal at the same safe minibatch boundary.
+                # Rank zero may also poll a marker file here. The collective
+                # makes either request visible to every training rank.
                 graceful_stop = training and runtime.distributed_any(
                     run_control.graceful_stop_requested,
                     getattr(self.model, "device", None),
@@ -979,18 +989,26 @@ class Driver:
                     scheduled_checkpoint = model.should_save(iteration)
                 should_checkpoint = scheduled_checkpoint or graceful_stop
                 if should_checkpoint:
+                    request_description = (
+                        run_control.graceful_stop_description or "distributed request"
+                    )
                     reason = (
-                        "graceful completion (SIGUSR1)"
+                        f"graceful completion ({request_description})"
                         if graceful_stop
                         else "scheduled"
                     )
+                    completion = None
+                    if graceful_stop:
+                        completion = run_control.completion_metadata or {
+                            "reason": "graceful_stop"
+                        }
                     stop_training = self.run_checkpoint(
                         data,
                         tstamp,
                         iteration,
                         epoch,
                         reason=reason,
-                        graceful_stop=graceful_stop,
+                        completion=completion,
                     )
 
                     # A request arriving during scheduled validation or save
@@ -1044,7 +1062,7 @@ class Driver:
         epoch: float,
         *,
         reason: str = "scheduled",
-        graceful_stop: bool = False,
+        completion: Mapping[str, str] | None = None,
     ) -> bool:
         """Validate and persist the training state at one safe boundary.
 
@@ -1060,9 +1078,9 @@ class Driver:
             Training progress measured in epochs.
         reason : str, default "scheduled"
             Human-readable reason for creating the checkpoint.
-        graceful_stop : bool, default False
-            Whether this checkpoint terminates the training stage
-            intentionally after successful persistence.
+        completion : Mapping[str, str], optional
+            Successful terminal condition to record in checkpoint metadata.
+            Ordinary scheduled checkpoints leave this unset.
 
         Returns
         -------
@@ -1118,10 +1136,6 @@ class Driver:
             "world_size": max(1, self.world_size),
             "ranks": rank_states,
         }
-        completion = (
-            {"reason": "graceful_stop", "signal": "SIGUSR1"} if graceful_stop else None
-        )
-
         checkpoint_path = None
         best_path = None
         save_error = None

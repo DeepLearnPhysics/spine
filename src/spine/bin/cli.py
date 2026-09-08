@@ -61,6 +61,7 @@ def main(
     tensorboard: bool | None = None,
     tensorboard_dir: str | None = None,
     resume: bool | None = None,
+    graceful_stop_file: str | None = None,
     inference: bool = False,
     export_weights: str | None = None,
 ) -> None:
@@ -157,6 +158,9 @@ def main(
     resume : bool, optional
         Command-line override for complete training-state restoration. ``None``
         leaves resume selection to the configuration and automatic defaults.
+    graceful_stop_file : str, optional
+        Marker file whose presence requests graceful validation, checkpointing
+        and successful training completion at the next minibatch boundary.
     inference : bool, default False
         Convert a training configuration to deterministic inference before
         applying command-line overrides.
@@ -325,6 +329,8 @@ def main(
     # Override logging and weight storage paths if provided
     if log_dir is not None:
         cfg["base"]["log_dir"] = log_dir
+    if graceful_stop_file is not None:
+        cfg["base"]["graceful_stop_file"] = graceful_stop_file
 
     if tensorboard is not None:
         if tensorboard is False:
@@ -534,6 +540,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--graceful-stop-file",
+        metavar="PATH",
+        help="Stop-file marker polled by rank zero at minibatch boundaries",
+    )
+
+    parser.add_argument(
         "--inference",
         action="store_true",
         help="Convert a training configuration to inference before running it",
@@ -617,6 +629,7 @@ def cli() -> None:
         tensorboard=args.tensorboard,
         tensorboard_dir=args.tensorboard_dir,
         resume=args.resume,
+        graceful_stop_file=args.graceful_stop_file,
         inference=args.inference,
         export_weights=args.export_weights,
     )

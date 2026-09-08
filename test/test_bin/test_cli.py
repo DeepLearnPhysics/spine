@@ -369,6 +369,7 @@ def test_main_applies_runtime_resource_overrides(
         iterations=iterations,
         tensorboard=True,
         tensorboard_dir="tb",
+        graceful_stop_file="stop/requested",
     )
 
     cfg = captured["cfg"]
@@ -378,6 +379,7 @@ def test_main_applies_runtime_resource_overrides(
     assert alternate_duration not in cfg["base"]
     assert cfg["base"]["log_dir"] == "logs"
     assert cfg["base"]["tensorboard"] == {"flush_secs": 5, "log_dir": "tb"}
+    assert cfg["base"]["graceful_stop_file"] == "stop/requested"
     assert cfg["io"]["loader"][expected_key] == expected_value
     alternate_key = "minibatch_size" if expected_key == "batch_size" else "batch_size"
     assert alternate_key not in cfg["io"]["loader"]
@@ -1054,6 +1056,7 @@ def test_cli_entry_point_paths(monkeypatch):
                 export_weights=None,
                 config_overrides=["a=1"],
                 resume=None,
+                graceful_stop_file="stop/requested",
                 inference=False,
             )
 
@@ -1106,6 +1109,7 @@ def test_cli_entry_point_paths(monkeypatch):
     assert main_calls[0]["val_entry_fraction_range"] == (0.5, 1.0)
     assert main_calls[0]["tensorboard"] is True
     assert main_calls[0]["tensorboard_dir"] == "tb"
+    assert main_calls[0]["graceful_stop_file"] == "stop/requested"
     assert main_calls[0]["module_weight"] == ["uresnet_ppn=uresnet.ckpt"]
     assert main_calls[0]["export_weights"] is None
     assert main_calls[0]["output_dir"] == "outputs"
