@@ -81,6 +81,24 @@ The point-proposal implementation is available as
 runtime because the package defines PyTorch type aliases and modules at import
 time.
 
+Sparse CNN lattice phase
+------------------------
+
+UResNet-based backbones can randomize their alignment with strided sparse
+convolutions during training without moving detector coordinates or labels::
+
+   uresnet:
+     lattice:
+       period: auto
+
+One phase is sampled independently for each sparse image. The phase affects
+only the backend coordinate map and is disabled automatically in evaluation
+mode. Coordinate-convolution features, GraphSPICE and SPICE embeddings, and
+published PPN or vertex coordinates remain in the input coordinate frame.
+The automatic period follows the encoder depth and covers every alignment of
+its deepest convolution lattice. An explicit integer or per-axis sequence may
+be supplied instead when a study requires a fixed phase range.
+
 GrapPA graph augmentation
 -------------------------
 

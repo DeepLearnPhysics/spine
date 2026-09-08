@@ -1,6 +1,7 @@
 """Regression tests for the full reconstruction chain."""
 
 import copy
+import math
 import os
 import warnings
 from pathlib import Path
@@ -130,6 +131,26 @@ def run_full_chain(cfg: dict) -> tuple[tuple[float, float], ...]:
         outputs.append((float(output["loss"]), float(output["accuracy"])))
 
     return tuple(outputs)
+
+
+@pytest.mark.slow
+def test_full_chain_runs_with_independent_cnn_lattice_phases(
+    larcv_data: str,
+    tmp_path: Path,
+) -> None:
+    """Run segmentation/PPN and GraphSPICE phases inside one full chain."""
+    if not TORCH_AVAILABLE:
+        pytest.skip("PyTorch is required to run the full-chain lattice test.")
+
+    cfg = make_full_chain_config(larcv_data, tmp_path)
+    cfg["base"]["iterations"] = 1
+    modules = cfg["model"]["modules"]
+    modules["uresnet_ppn"]["uresnet"]["lattice"] = {"period": "auto"}
+    modules["graph_spice"]["embedder"]["uresnet"]["lattice"] = {"period": "auto"}
+
+    result = Driver(cfg).process(iteration=0)
+
+    assert math.isfinite(float(result["loss"]))
 
 
 def assert_full_chain_repeatable(

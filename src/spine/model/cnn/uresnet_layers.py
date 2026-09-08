@@ -17,6 +17,7 @@ from spine.model import sparse
 from .act_norm import act_factory, norm_factory
 from .blocks import ResNetBlock
 from .configuration import setup_cnn_configuration
+from .lattice import LatticePhase
 
 __all__ = [
     "EncoderOutput",
@@ -60,7 +61,8 @@ class UResNetEncoder(sparse.Network):
 
     Each level applies ``reps`` residual blocks before a stride-two sparse
     convolution moves to the next feature resolution. Feature widths increase
-    linearly from ``filters`` to ``depth * filters``.
+    linearly from ``filters`` to ``depth * filters``. Optional lattice-phase
+    randomization changes only the sparse backend coordinates during training.
     """
 
     def __init__(self, cfg: dict[str, Any]) -> None:
@@ -72,11 +74,25 @@ class UResNetEncoder(sparse.Network):
             Shared CNN configuration accepted by
             :func:`setup_cnn_configuration`.
         """
+        # Lattice phase is an execution option, not an architectural parameter
+        # shared with the convolution blocks.
+        cfg = dict(cfg)
+        lattice = cfg.pop("lattice", None)
+
         # Initialize the parent class
         super().__init__(cfg.get("data_dim", 3))
 
         # Process the configuration
         setup_cnn_configuration(self, **cfg)
+        self.lattice = (
+            None
+            if lattice is None
+            else LatticePhase.from_config(
+                self.dimension,
+                lattice,
+                total_stride=2 ** (self.depth - 1),
+            )
+        )
 
         # Initialize the input layer
         self.input_layer = sparse.Convolution(
@@ -138,6 +154,11 @@ class UResNetEncoder(sparse.Network):
         EncoderOutput
             Encoder feature planes and deepest representation.
         """
+        # Position-aware callers have already constructed their feature
+        # channels. Rephase only the sparse coordinate map at this boundary.
+        if self.lattice is not None:
+            x = self.lattice(x)
+
         x = self.input_layer(x)
         encoder_tensors = [x]
         for block, downsample in zip(
@@ -167,6 +188,10 @@ class UResNetDecoder(sparse.Network):
             Shared CNN configuration accepted by
             :func:`setup_cnn_configuration`.
         """
+        # The paired encoder exclusively owns lattice-phase randomization.
+        cfg = dict(cfg)
+        cfg.pop("lattice", None)
+
         # Initialize the parent class
         super().__init__(cfg.get("data_dim", 3))
 
@@ -268,6 +293,11 @@ class UResNet(sparse.Network):
             Shared CNN configuration accepted by
             :func:`setup_cnn_configuration`.
         """
+        # The encoder owns the optional lattice operation; the outer backbone
+        # and decoder consume only ordinary architectural configuration.
+        cfg = dict(cfg)
+        lattice = cfg.pop("lattice", None)
+
         # Initialize the parent class
         super().__init__(cfg.get("data_dim", 3))
 
@@ -275,7 +305,10 @@ class UResNet(sparse.Network):
         setup_cnn_configuration(self, **cfg)
 
         # Initialize the encoder/decoder blocks of the UResNet model
-        self.encoder = UResNetEncoder(cfg)
+        encoder_cfg = dict(cfg)
+        if lattice is not None:
+            encoder_cfg["lattice"] = lattice
+        self.encoder = UResNetEncoder(encoder_cfg)
         self.decoder = UResNetDecoder(cfg)
 
     def forward(

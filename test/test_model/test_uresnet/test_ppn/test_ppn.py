@@ -379,6 +379,41 @@ def test_true_ghost_mask_prunes_propagated_and_skip_features(cnn_config):
     assert torch.equal(final_coords[0, 1:], torch.tensor([1, 1, 1]))
 
 
+def test_ppn_publishes_canonical_coordinates_under_lattice_phase(
+    monkeypatch,
+    cnn_config,
+):
+    """PPN retains phased pyramid coordinates but restores final anchors."""
+    config = {
+        **cnn_config,
+        "num_classes": 5,
+        "lattice": {"period": 4},
+    }
+    model = UResNetPPN(config, ppn={})
+    rows = []
+    for x in range(4):
+        for y in range(4):
+            for z in range(4):
+                rows.append([0.0, x, y, z, x + y + z + 1.0])
+    data = TensorBatch(
+        torch.tensor(rows),
+        counts=[len(rows)],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+    )
+
+    def fixed_randint(_period, size, **kwargs):
+        return torch.full(size, 2, **kwargs)
+
+    monkeypatch.setattr(torch, "randint", fixed_randint)
+    result = model(data)
+
+    internal = result["ppn_coords"][-1].torch_tensor()
+    canonical = result["ppn_output_coords"].torch_tensor()
+    assert torch.equal(internal[:, :1], canonical[:, :1])
+    assert torch.equal(internal[:, 1:] - canonical[:, 1:], torch.full((64, 3), 2))
+
+
 def test_ghost_ppn_validates_and_uses_ghost_inputs(cnn_config):
     """Ghost PPN requires its selected mask source and supports predictions."""
     data = TensorBatch(
@@ -482,6 +517,27 @@ def test_vertex_loss_trains_foreground_and_offsets(cnn_config):
     assert result["mask_accuracy"] == 1.0
     assert result["reg_accuracy"] == 1.0
     assert len(result["mask_labels"]) == 1
+
+
+def test_vertex_loss_separates_internal_and_canonical_coordinates(cnn_config):
+    """Vertex masks use phased sites while offset targets stay canonical."""
+    inputs = _positive_vertex_loss_inputs()
+    shifted = TensorBatch(
+        inputs["vertex_coords"][0].torch_tensor() + torch.tensor([[0, 2, 2, 2]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    inputs["vertex_coords"] = [shifted]
+
+    result = VertexPPNLoss(
+        cnn_config,
+        {"balance_mask_loss": False},
+    )(**inputs)
+
+    assert torch.isfinite(result["loss"])
+    assert result["mask_accuracy"] == 1.0
 
 
 def test_vertex_loss_handles_empty_labels_and_predictions(cnn_config):
@@ -747,13 +803,13 @@ def test_vertex_loss_validates_prediction_alignment(cnn_config):
         loss(**{**inputs, "vertex_masks": []})
 
     other_coords = TensorBatch(
-        torch.tensor([[0, 1, 1, 1]]),
-        counts=[1],
+        torch.tensor([[0, 1, 1, 1], [0, 2, 2, 2]]),
+        counts=[2],
         has_batch_col=True,
         coord_cols=(1, 2, 3),
         schema=POINT_SCHEMA,
     )
-    with pytest.raises(ValueError, match="must match"):
+    with pytest.raises(ValueError, match="matching event counts"):
         loss(**{**inputs, "vertex_output_coords": other_coords})
 
     extra_points = TensorBatch(
@@ -1041,6 +1097,24 @@ def test_ppn_loss_supervises_endpoint_and_returns_masks(cnn_config):
     assert len(result["mask_labels"]) == 1
 
 
+def test_ppn_loss_separates_internal_and_canonical_coordinates(cnn_config):
+    """PPN masks use phased sites while point regression stays canonical."""
+    inputs = _positive_ppn_loss_inputs()
+    shifted = TensorBatch(
+        inputs["ppn_coords"][0].torch_tensor() + torch.tensor([[0, 2, 2, 2]]),
+        counts=[1],
+        has_batch_col=True,
+        coord_cols=(1, 2, 3),
+        schema=POINT_SCHEMA,
+    )
+    inputs["ppn_coords"] = [shifted]
+
+    result = PPNLoss(cnn_config, {"balance_mask_loss": False})(**inputs)
+
+    assert torch.isfinite(result["loss"])
+    assert result["mask_accuracy"] == 1.0
+
+
 def test_ppn_loss_filters_requested_point_classes(cnn_config):
     """A nonempty point-class filter retains matching proposal labels."""
     result = PPNLoss(cnn_config, {"point_classes": [1]})(**_positive_ppn_loss_inputs())
@@ -1060,13 +1134,13 @@ def test_ppn_loss_validates_output_alignment(cnn_config):
         empty_class_loss(**inputs)
 
     other_coords = TensorBatch(
-        torch.tensor([[0, 1, 1, 1]]),
-        counts=[1],
+        torch.tensor([[0, 1, 1, 1], [0, 2, 2, 2]]),
+        counts=[2],
         has_batch_col=True,
         coord_cols=(1, 2, 3),
         schema=POINT_SCHEMA,
     )
-    with pytest.raises(ValueError, match="must match"):
+    with pytest.raises(ValueError, match="matching event counts"):
         loss(**{**inputs, "ppn_output_coords": other_coords})
 
     extra_points = TensorBatch(

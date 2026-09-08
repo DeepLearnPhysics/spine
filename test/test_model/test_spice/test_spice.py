@@ -81,6 +81,31 @@ def test_spice_embedder_filters_and_predicts_current_contract():
     assert torch.all((result["seediness"].torch_tensor() <= 1.0))
 
 
+def test_spice_keeps_embedding_positions_canonical_under_lattice_phase(monkeypatch):
+    """SPICE rephases its CNN after constructing absolute-position features."""
+    data, semantics, _ = spice_batch()
+    config = spice_config()
+    config["uresnet"]["lattice"] = {"period": 4}
+    embedder = SPICEEmbedder(**config)
+    captured = []
+    assert embedder.encoder.lattice is not None
+    embedder.encoder.lattice.register_forward_hook(
+        lambda _module, _args, output: captured.append(output)
+    )
+
+    def fixed_randint(_period, size, **kwargs):
+        return torch.full(size, 2, **kwargs)
+
+    monkeypatch.setattr(torch, "randint", fixed_randint)
+    embedder(data, semantics)
+
+    sparse_input = captured[0]
+    assert sparse_input.lattice_phase.tolist() == [[2, 2, 2]]
+    canonical = sparse_input.canonical_reference_coordinates[:, 1:]
+    normalized = (canonical - 2.0) / 2.0
+    torch.testing.assert_close(sparse_input.aligned_features()[:, :3], normalized)
+
+
 def test_spice_clusterer_builds_shape_aware_fragments_and_assigns_remainder():
     """Embedding masks should form clusters and absorb low-probability tails."""
     embeddings = TensorBatch(

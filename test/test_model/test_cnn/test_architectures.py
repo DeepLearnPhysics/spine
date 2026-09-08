@@ -1,6 +1,7 @@
 """Smoke tests for maintained sparse CNN architecture variants."""
 
 import pytest
+import torch
 
 from spine.model import sparse
 from spine.model.cnn.blocks import SEResNetBlock
@@ -111,6 +112,72 @@ def test_sparse_residual_encoder_sizes_coordinate_convolution(
     output = encoder(sparse_table)
 
     assert output.shape == (2, 8)
+
+
+def test_uresnet_randomizes_only_sparse_lattice(monkeypatch, cnn_config, sparse_table):
+    """Training phase moves backend sites without changing their public frame."""
+    config = {**cnn_config, "lattice": {"period": 4}}
+    model = UResNet(config)
+
+    def fixed_randint(_period, size, **kwargs):
+        return torch.full(size, 2, **kwargs)
+
+    monkeypatch.setattr(torch, "randint", fixed_randint)
+    output = model(sparse_table, batch_size=2)
+    final = output["decoder_tensors"][-1]
+
+    expected = sparse_table[:, :4].int()
+    assert torch.equal(final.canonical_reference_coordinates, expected)
+    assert torch.equal(final.lattice_phase, torch.full((2, 3), 2))
+    assert torch.equal(final.C[:, 1:], expected[:, 1:] + 2)
+
+    model.eval()
+    canonical = model(sparse_table, batch_size=2)["decoder_tensors"][-1]
+    assert canonical.lattice_phase is None
+    assert torch.equal(canonical.C, expected)
+
+
+def test_uresnet_automatic_lattice_period_tracks_depth(cnn_config):
+    """Automatic phase coverage follows the number of encoder reductions."""
+    config = {**cnn_config, "depth": 4, "lattice": {"period": "auto"}}
+    model = UResNet(config)
+
+    assert model.encoder.lattice is not None
+    assert model.encoder.lattice.period == (8, 8, 8)
+
+
+def test_coordinate_convolution_precedes_lattice_phase(
+    monkeypatch,
+    cnn_config,
+    sparse_table,
+):
+    """Residual encoders derive position features from canonical coordinates."""
+    encoder = SparseResidualEncoder(
+        coord_conv=True,
+        feature_size=8,
+        lattice={"period": 4},
+        **cnn_config,
+    )
+    captured = {}
+    input_layer = encoder.input_layer
+
+    class Capture(torch.nn.Module):
+        def forward(self, tensor):
+            captured["coordinates"] = tensor.C.clone()
+            captured["features"] = tensor.F.clone()
+            return input_layer(tensor)
+
+    encoder.input_layer = Capture()
+
+    def fixed_randint(_period, size, **kwargs):
+        return torch.full(size, 1, **kwargs)
+
+    monkeypatch.setattr(torch, "randint", fixed_randint)
+    encoder(sparse_table)
+
+    expected_positions = sparse_table[:, 1:4] / cnn_config["spatial_size"]
+    assert torch.equal(captured["coordinates"][:, 1:], sparse_table[:, 1:4] + 1)
+    torch.testing.assert_close(captured["features"][:, :3], expected_positions)
 
 
 def test_global_pooling_does_not_require_spatial_size(cnn_config, sparse_table):

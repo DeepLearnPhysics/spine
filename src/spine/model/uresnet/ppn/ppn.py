@@ -138,6 +138,10 @@ class PointProposalDecoder(sparse.Network, Generic[ProposalOutputT]):
             If no task is supplied, task names collide, or the backbone is too
             shallow for a proposal path.
         """
+        # Lattice phase belongs exclusively to the shared backbone encoder;
+        # proposal decoders operate on the feature pyramid it produces.
+        backbone = dict(backbone)
+        backbone.pop("lattice", None)
         super().__init__(backbone.get("data_dim", 3))
         setup_cnn_configuration(self, **backbone)
         if self.depth < 2:
@@ -636,8 +640,7 @@ class PPN(PointProposalDecoder[PPNOutput]):
         ------
         ValueError
             If required ghost inputs are missing, labels do not align with the
-            input reference, or final proposal coordinates do not align with
-            the highest-resolution decoder plane.
+            input reference, or proposal outputs do not align by event.
         """
         x, proposal_outputs = self.decode(
             final_tensor,
@@ -653,7 +656,7 @@ class PPN(PointProposalDecoder[PPNOutput]):
         # Apply the task-specific heads after the shared decoder is complete.
         final_counts = x.counts
         ppn_output_coords = TensorBatch(
-            x.coordinates,
+            x.canonical_coordinates,
             final_counts,
             has_batch_col=True,
             coord_cols=tuple(range(1, self.dimension + 1)),
@@ -1119,9 +1122,11 @@ class PPNLoss(torch.nn.Module):
         ppn_layers : sequence of TensorBatch
             Foreground logits at each proposal resolution.
         ppn_coords : sequence of TensorBatch
-            Batched coordinates at each proposal resolution.
+            Internal sparse coordinates at each proposal resolution. These
+            include a training-time lattice phase when configured.
         ppn_output_coords : TensorBatch
-            Coordinates at the final proposal resolution.
+            Canonical coordinates at the final proposal resolution, used for
+            point association and regression anchors.
         ppn_classify_endpoints : TensorBatch, optional
             Row-aligned endpoint classification logits.
         ppn_points_unique : TensorBatch, optional
@@ -1185,11 +1190,10 @@ class PPNLoss(torch.nn.Module):
         # Compute the label mask for the final PPN layer. Record which
         # label point is closest to each image voxel (defines label for it)
         coords_final = ppn_coords[-1]
-        coords_final_tensor = coords_final.torch_tensor()
-        output_coords_tensor = ppn_output_coords.torch_tensor()
-        if not torch.equal(coords_final_tensor, output_coords_tensor):
+        if coords_final.counts.tolist() != ppn_output_coords.counts.tolist():
             raise ValueError(
-                "`ppn_output_coords` must match the final `ppn_coords` tensor."
+                "`ppn_output_coords` and final `ppn_coords` must have "
+                "matching event counts."
             )
         if loss_points.shape[0] != coords_final.shape[0]:
             raise ValueError(
@@ -1222,7 +1226,7 @@ class PPNLoss(torch.nn.Module):
             aligned_part_labels = self.align_coordinate_values(
                 clust_label.data.batch_coordinates,
                 particle_labels,
-                coords_final.batch_coordinates,
+                ppn_output_coords.batch_coordinates,
                 "particle label",
                 missing_value=-1,
             )
@@ -1253,7 +1257,7 @@ class PPNLoss(torch.nn.Module):
                 part_labels = aligned_part_labels[batch_index]
 
             # Assign positive/negative labels to each voxel in the image
-            points_entry = coords_final.coords[batch_index] + 0.5
+            points_entry = ppn_output_coords.coords[batch_index] + 0.5
             point_particles = None
             if aligned_part_labels is not None:
                 point_particles = ppn_label.feature("particle").values[batch_index]
@@ -1366,7 +1370,7 @@ class PPNLoss(torch.nn.Module):
             # Closest ppn point label (index) to given positive point
             closest_indices = closest_indices[pos_mask]
 
-            anchors = coords_final.coords.torch_tensor() + 0.5
+            anchors = ppn_output_coords.coords.torch_tensor() + 0.5
             pixel_pos = loss_points.feature("offsets").torch_tensor() + anchors
             pixel_logits = loss_points.feature("type_logits").torch_tensor()
 

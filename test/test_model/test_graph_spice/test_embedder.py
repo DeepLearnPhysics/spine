@@ -77,6 +77,37 @@ def test_embedder_uses_primary_feature_from_multifeature_input():
     assert result["hypergraph_features"].shape == (len(data.data), 8)
 
 
+def test_embedder_keeps_position_features_canonical_under_lattice_phase(
+    monkeypatch,
+):
+    """GraphSPICE exposes detector coordinates while its CNN sites are shifted."""
+    config = small_uresnet_config()
+    config["lattice"] = {"period": 4}
+    embedder = GraphSPICEEmbedder(
+        config,
+        feature_embedding_dim=2,
+        spatial_embedding_dim=3,
+        use_raw_features=False,
+    )
+    phases = []
+    embedder.backbone.encoder.lattice.register_forward_hook(
+        lambda _module, _args, output: phases.append(output.lattice_phase.clone())
+    )
+
+    def fixed_randint(_period, size, **kwargs):
+        return torch.full(size, 2, **kwargs)
+
+    monkeypatch.setattr(torch, "randint", fixed_randint)
+    data = point_cloud_batch()
+    result = embedder(data)
+
+    assert phases[0].tolist() == [[2, 2, 2]]
+    assert torch.equal(
+        result["coordinates"].torch_tensor(),
+        data.batch_coordinates,
+    )
+
+
 def test_embedder_rejects_incompatible_spatial_dimension():
     """Spatial offsets must have the same dimension as input coordinates."""
     with pytest.raises(ValueError, match="must match the input dimension"):

@@ -142,6 +142,8 @@ class SparseTensor:
         self._reference_counts = None
         self._unique_index = None
         self._inverse_index = None
+        self._lattice_phase = None
+        self._canonical_reference_coordinates = None
 
         if coordinates is not None:
             if coordinates.ndim != 2 or features.ndim != 2:
@@ -216,6 +218,10 @@ class SparseTensor:
             self._reference_counts = source._reference_counts
             self._unique_index = source._unique_index
             self._inverse_index = source._inverse_index
+            self._lattice_phase = source._lattice_phase
+            self._canonical_reference_coordinates = (
+                source._canonical_reference_coordinates
+            )
 
     @classmethod
     def from_backend(
@@ -248,6 +254,10 @@ class SparseTensor:
         obj._reference_counts = source._reference_counts if source is not None else None
         obj._unique_index = source._unique_index if source is not None else None
         obj._inverse_index = source._inverse_index if source is not None else None
+        obj._lattice_phase = source._lattice_phase if source is not None else None
+        obj._canonical_reference_coordinates = (
+            source._canonical_reference_coordinates if source is not None else None
+        )
         return obj
 
     @classmethod
@@ -287,6 +297,8 @@ class SparseTensor:
         obj._reference_counts = source._reference_counts
         obj._unique_index = source._unique_index
         obj._inverse_index = source._inverse_index
+        obj._lattice_phase = source._lattice_phase
+        obj._canonical_reference_coordinates = source._canonical_reference_coordinates
         return obj
 
     @staticmethod
@@ -421,6 +433,31 @@ class SparseTensor:
             return len(self)
         return len(self._reference_coordinates)
 
+    @property
+    def lattice_phase(self) -> torch.Tensor | None:
+        """Return the event-level phase applied to backend coordinates."""
+        return self._lattice_phase
+
+    @property
+    def canonical_coordinates(self) -> torch.Tensor:
+        """Return active coordinates before training-time lattice rephasing."""
+        if self._lattice_phase is None:
+            return self.C
+
+        coordinates = self.C.clone()
+        batch_ids = coordinates[:, 0].long()
+        coordinates[:, 1:] -= self._lattice_phase[batch_ids].to(coordinates.dtype)
+        return coordinates
+
+    @property
+    def canonical_reference_coordinates(self) -> torch.Tensor:
+        """Return canonical coordinates in the original logical row order."""
+        if self._canonical_reference_coordinates is not None:
+            return self._canonical_reference_coordinates
+        if self._reference_coordinates is not None:
+            return self._reference_coordinates
+        return self.C
+
     def __len__(self) -> int:
         """Return the number of active, unique sparse sites."""
         return len(self.F)
@@ -465,6 +502,71 @@ class SparseTensor:
     def _wrap(self, backend_tensor: Any) -> "SparseTensor":
         """Wrap a backend result and inherit this tensor's provenance."""
         return SparseTensor.from_backend(backend_tensor, self)
+
+    def rephase(self, phase: torch.Tensor) -> "SparseTensor":
+        """Return a tensor whose sparse coordinate map has an event phase.
+
+        Parameters
+        ----------
+        phase : torch.Tensor
+            ``(B, D)`` integer coordinate offsets, one per batch entry.
+
+        Returns
+        -------
+        SparseTensor
+            Sparse tensor with shifted backend coordinates and preserved
+            canonical/input-row provenance.
+
+        Raises
+        ------
+        ValueError
+            If the tensor is already rephased or the phase shape is invalid.
+        """
+        if self._lattice_phase is not None:
+            raise ValueError("Sparse tensor already carries a lattice phase.")
+        if phase.ndim != 2 or tuple(phase.shape) != (
+            self.batch_size,
+            self.dimension,
+        ):
+            raise ValueError(
+                "Lattice phase must have shape "
+                f"({self.batch_size}, {self.dimension}), got {tuple(phase.shape)}."
+            )
+
+        phase = phase.to(device=self.C.device, dtype=self.C.dtype)
+        shifted = self.C.clone()
+        shifted[:, 1:] += phase[shifted[:, 0].long()]
+        result = SparseTensor(
+            features=self.F,
+            coordinates=shifted,
+            tensor_stride=self.tensor_stride,
+            batch_size=self.batch_size,
+        )
+
+        # Backend lookup coordinates restore the original logical row order;
+        # canonical coordinates separately retain the caller's geometry.
+        reference = (
+            self._reference_coordinates
+            if self._reference_coordinates is not None
+            else self.C
+        )
+        shifted_reference = reference.clone()
+        shifted_reference[:, 1:] += phase[shifted_reference[:, 0].long()]
+        result._reference_coordinates = shifted_reference
+        result._reference_counts = (
+            self._reference_counts
+            if self._reference_counts is not None
+            else self._counts_from_coordinates(reference, self.batch_size)
+        )
+        result._canonical_reference_coordinates = (
+            self._canonical_reference_coordinates
+            if self._canonical_reference_coordinates is not None
+            else reference
+        )
+        result._lattice_phase = phase
+        result._unique_index = self._unique_index
+        result._inverse_index = self._inverse_index
+        return result
 
     def replace_features(self, features: torch.Tensor) -> "SparseTensor":
         """Return a tensor on the same coordinate map with new features.

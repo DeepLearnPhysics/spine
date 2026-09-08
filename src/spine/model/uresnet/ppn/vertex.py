@@ -208,7 +208,7 @@ class VertexPPN(PointProposalDecoder[VertexPPNOutput]):
         )
         vertex_outputs = proposal_outputs["vertex"]
         output_coords = TensorBatch(
-            x.coordinates,
+            x.canonical_coordinates,
             x.counts,
             has_batch_col=True,
             coord_cols=tuple(range(1, self.dimension + 1)),
@@ -362,9 +362,10 @@ class VertexPPNLoss(torch.nn.Module):
         vertex_layers : sequence of TensorBatch
             Foreground logits at every proposal resolution.
         vertex_coords : sequence of TensorBatch
-            Sparse coordinates corresponding to each foreground layer.
+            Internal sparse coordinates corresponding to each foreground
+            layer, including any training-time lattice phase.
         vertex_output_coords : TensorBatch
-            Coordinates of the final proposal feature plane.
+            Canonical coordinates of the final proposal feature plane.
         vertex_points_unique : TensorBatch, optional
             Predictions on unique sparse sites, preferred for supervision.
         **_ : object
@@ -389,11 +390,10 @@ class VertexPPNLoss(torch.nn.Module):
             raise ValueError(f"Expected {expected} vertex layers, got {details}.")
 
         coords_final = vertex_coords[-1]
-        if not torch.equal(
-            coords_final.torch_tensor(), vertex_output_coords.torch_tensor()
-        ):
+        if coords_final.counts.tolist() != vertex_output_coords.counts.tolist():
             raise ValueError(
-                "`vertex_output_coords` must match the final `vertex_coords` tensor."
+                "`vertex_output_coords` and final `vertex_coords` must have "
+                "matching event counts."
             )
         loss_points = (
             vertex_points if vertex_points_unique is None else vertex_points_unique
@@ -423,7 +423,7 @@ class VertexPPNLoss(torch.nn.Module):
                 )
                 continue
 
-            anchors = coords_final.coords[batch_index] + 0.5
+            anchors = vertex_output_coords.coords[batch_index] + 0.5
             positives, closest = PPNLoss.get_ppn_positives(
                 anchors,
                 points,
@@ -496,7 +496,7 @@ class VertexPPNLoss(torch.nn.Module):
         reg_loss = mask_losses.sum() * 0.0
         reg_accuracy = torch.tensor(1.0, dtype=dtype, device=device)
         if len(positive_indices) > 0:
-            anchors = coords_final.coords.torch_tensor() + 0.5
+            anchors = vertex_output_coords.coords.torch_tensor() + 0.5
             predictions = (loss_points.feature("offsets").torch_tensor() + anchors)[
                 positive_indices
             ]

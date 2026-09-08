@@ -76,6 +76,46 @@ def test_model_config_runs_one_iteration(case_name, larcv_data, tmp_path):
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
+@pytest.mark.parametrize(
+    "case_name", ["uresnet", "uresnet_ppn", "graph_spice", "spice"]
+)
+def test_sparse_model_config_runs_with_lattice_phase(case_name, larcv_data, tmp_path):
+    """Exercise lattice phase through each maintained UResNet-backed task."""
+    cfg = load_config_file(str(STANDALONE_MODEL_CONFIGS[case_name]), download=False)
+    cfg = deepcopy(cfg)
+
+    cfg["base"]["world_size"] = 0
+    cfg["base"].pop("epochs", None)
+    cfg["base"]["iterations"] = 1
+    cfg["base"]["log_dir"] = str(tmp_path / f"{case_name}_lattice")
+    cfg["io"]["loader"]["minibatch_size"] = 1
+    cfg["io"]["loader"]["num_workers"] = 0
+    cfg["io"]["loader"]["dataset"]["file_keys"] = larcv_data
+    cfg["model"]["weight_path"] = None
+
+    modules = cfg["model"]["modules"]
+    if case_name in {"uresnet", "uresnet_ppn"}:
+        uresnet = modules["uresnet"]
+    elif case_name == "graph_spice":
+        uresnet = modules["graph_spice"]["embedder"]["uresnet"]
+    else:
+        uresnet = modules[case_name]["uresnet"]
+    uresnet["lattice"] = {"period": "auto"}
+
+    cfg["train"]["weight_prefix"] = str(tmp_path / f"{case_name}_lattice" / "snapshot")
+    cfg["train"]["save_step"] = None
+
+    result = Driver(cfg).process(iteration=0)
+
+    assert math.isfinite(_as_float(result["loss"]))
+
+
+@pytest.mark.model
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not (TORCH_AVAILABLE and LARCV_AVAILABLE),
+    reason="The full model runtime and LArCV are required.",
+)
 def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog):
     """Run training and on-the-fly validation through the real driver loop."""
     cfg = load_config_file(str(STANDALONE_MODEL_CONFIGS["uresnet"]), download=False)

@@ -233,6 +233,7 @@ Model modules
    spine.model.cnn.blocks
    spine.model.cnn.configuration
    spine.model.cnn.encoder
+   spine.model.cnn.lattice
    spine.model.cnn.factories
    spine.model.cnn.fpn
    spine.model.cnn.mcdropout

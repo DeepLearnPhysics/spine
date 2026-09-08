@@ -18,6 +18,10 @@ def test_duplicate_coordinates_restore_original_rows():
     assert len(tensor) == 2
     assert tensor.reference_size == 3
     assert tensor.counts.tolist() == [1, 1, 0]
+    assert torch.equal(
+        tensor.canonical_reference_coordinates,
+        coordinates,
+    )
     expected = torch.tensor([[4.0], [4.0], [5.0]])
     assert torch.equal(tensor.aligned_features(), expected)
 
@@ -89,6 +93,7 @@ def test_unique_coordinates_preserve_native_order_without_provenance():
     assert torch.equal(tensor.C, coordinates)
     assert torch.equal(tensor.F, features)
     assert tensor._reference_coordinates is None
+    assert torch.equal(tensor.canonical_reference_coordinates, coordinates)
     assert tensor.aligned_features().data_ptr() == tensor.F.data_ptr()
     assert tensor.unique_index.tolist() == [0, 1, 2, 3]
     assert tensor.inverse_mapping.tolist() == [0, 1, 2, 3]
