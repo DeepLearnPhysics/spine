@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from spine.config import normalize_config, to_inference_config
+from spine.geo import GeoManager
 
 from .checkpoint import (
     CHECKPOINT_FORMAT_VERSION,
@@ -82,6 +83,13 @@ def export_model_weights(
     model_cfg.pop("loss_input", None)
     model_cfg["to_numpy"] = False
     model_cfg.setdefault("dtype", resolved.get("base", {}).get("dtype", "float32"))
+
+    # Model-only export bypasses the Driver, so initialize any geometry needed
+    # by full-chain module constructors at the export boundary.
+    geo_cfg = resolved.get("geo")
+    if geo_cfg is not None:
+        GeoManager.initialize_or_get(**geo_cfg)
+
     manager = ModelManager(**model_cfg)
     if not manager.loaded_weight_sources:
         raise ValueError("--export-weights requires at least one checkpoint input.")

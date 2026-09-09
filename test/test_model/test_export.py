@@ -112,6 +112,37 @@ def test_export_model_weights_composes_standalone_checkpoints(monkeypatch, tmp_p
         assert torch.equal(reloaded.net.state_dict()[key], value)
 
 
+def test_export_model_weights_initializes_geometry(monkeypatch, tmp_path):
+    """Composition initializes configured geometry before model construction."""
+    geometry = {}
+
+    def initialize_geometry(**cfg):
+        geometry.update(cfg)
+
+    def geometry_dependent_factory(_name):
+        assert geometry == {"detector": "protodune-sp", "tag": "protodunev7"}
+        return CompositeNetwork, None
+
+    monkeypatch.setattr(
+        "spine.model.export.GeoManager.initialize_or_get",
+        initialize_geometry,
+    )
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory",
+        geometry_dependent_factory,
+    )
+    encoder_path = tmp_path / "encoder.ckpt"
+    head_path = tmp_path / "head.ckpt"
+    save_component(encoder_path, torch.nn.Linear(2, 2))
+    save_component(head_path, torch.nn.Linear(2, 1))
+    cfg = make_config(encoder_path, head_path)
+    cfg["geo"] = {"detector": "protodune-sp", "tag": "protodunev7"}
+
+    export_model_weights(cfg, tmp_path / "composite.ckpt")
+
+    assert geometry == {"detector": "protodune-sp", "tag": "protodunev7"}
+
+
 def test_export_model_weights_rejects_unpopulated_state(monkeypatch, tmp_path):
     """Constructor-initialized state must never leak into an export."""
     monkeypatch.setattr(
