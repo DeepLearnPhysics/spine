@@ -90,6 +90,12 @@ def test_rotate_constructor_validates_arguments():
         RotateAugment(axes=(0, 3))
     with pytest.raises(ValueError):
         RotateAugment(k=1.5)
+    with pytest.raises(ValueError, match="cannot be empty"):
+        RotateAugment(k=[])
+    with pytest.raises(ValueError, match="only integers"):
+        RotateAugment(k=[0, 1.5])
+    with pytest.raises(ValueError, match="probability"):
+        RotateAugment(p=1.5)
 
 
 def test_rotate_with_zero_turns_returns_inputs_unchanged():
@@ -110,6 +116,29 @@ def test_rotate_sample_k_uses_random_draw_when_unset():
     np.random.seed(3)
     value = augment.sample_k()
     assert value in (0, 1, 2, 3)
+
+
+def test_rotate_augment_probability_can_skip_event(monkeypatch):
+    """The event-level gate returns data unchanged before sampling a turn."""
+    meta = make_meta()
+    tensor = make_tensor([[0, 0, 0]], meta)
+    data = {"voxels": tensor, "meta": meta}
+    augment = RotateAugment(k=2, p=0.5)
+    monkeypatch.setattr(np.random, "rand", lambda: 0.75)
+
+    result, rot_meta = augment(data, meta, ["voxels", "meta"], {})
+
+    assert result is data
+    assert rot_meta is meta
+    assert np.array_equal(result["voxels"].coords, np.asarray([[0, 0, 0]]))
+
+
+def test_rotate_sample_k_uses_configured_choices(monkeypatch):
+    """Restricted rotations sample uniformly by index from configured turns."""
+    augment = RotateAugment(k=[0, 2, 5])
+    monkeypatch.setattr(np.random, "randint", lambda _upper: 2)
+
+    assert augment.sample_k() == 1
 
 
 def test_rotate_coords_supports_half_and_three_quarter_turns():

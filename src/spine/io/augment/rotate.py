@@ -17,10 +17,11 @@ class RotateAugment(AugmentBase):
     def __init__(
         self,
         axes: tuple[int, int] = (0, 1),
-        k: int | None = None,
+        k: int | list[int] | tuple[int, ...] | None = None,
         center: np.ndarray | None = None,
         use_geo_center: bool = False,
         keep_meta: bool = True,
+        p: float = 1.0,
     ) -> None:
         """Initialize the rotater.
 
@@ -28,9 +29,9 @@ class RotateAugment(AugmentBase):
         ----------
         axes : Tuple[int, int], default (0, 1)
             Pair of axes defining the plane in which to rotate
-        k : int, optional
-            Number of 90-degree turns to apply. If not provided, sample
-            uniformly from 0 to 3 at call time
+        k : int or sequence of int, optional
+            Number of 90-degree turns to apply. A sequence is sampled
+            uniformly at call time. If omitted, sample uniformly from 0 to 3.
         center : np.ndarray, optional
             Explicit rotation center in detector coordinates (cm). If not
             provided, the historical image-frame rotation behavior is used.
@@ -40,27 +41,46 @@ class RotateAugment(AugmentBase):
             If ``True``, keep the detector frame fixed and drop points that
             rotate outside the current metadata bounds. If ``False``, rotate
             the image volume together with the points.
+        p : float, default 1.0
+            Event-level probability of applying the rotation. A skipped event
+            is returned unchanged without sampling a quarter-turn count.
 
         Returns
         -------
         None
             This method does not return anything
         """
-        # Validate the rotation plane and optional fixed quarter-turn count
+        # Validate the rotation plane and quarter-turn sampling policy
         if len(axes) != 2:
             raise ValueError("Must provide exactly two rotation axes.")
         if axes[0] == axes[1]:
             raise ValueError("Rotation axes must be different.")
         if np.any(np.asarray(axes) < 0) or np.any(np.asarray(axes) > 2):
             raise ValueError("Rotation axes must be in the range [0, 2].")
-        if k is not None and not isinstance(k, (int, np.integer)):
-            raise ValueError("Rotation `k` must be an integer number of quarter turns.")
+        k_value = None
+        k_choices = None
+        if isinstance(k, (int, np.integer)):
+            k_value = int(k) % 4
+        elif k is not None:
+            if not isinstance(k, (list, tuple)):
+                raise ValueError("Rotation `k` must be an integer or sequence.")
+            if len(k) == 0:
+                raise ValueError("Rotation `k` choices cannot be empty.")
+            if any(not isinstance(choice, (int, np.integer)) for choice in k):
+                raise ValueError("Rotation `k` choices must contain only integers.")
+            k_choices = tuple(int(choice) % 4 for choice in k)
+
+        p = float(p)
+        if not np.isfinite(p) or p < 0.0 or p > 1.0:
+            raise ValueError("Rotation probability must be in the range [0, 1].")
 
         self.axes = tuple(axes)
-        self.k = None if k is None else int(k) % 4
+        self.k = k_value
+        self.k_choices = k_choices
         self.center = None if center is None else np.asarray(center, dtype=np.float32)
         self.use_geo_center = use_geo_center
         self.keep_meta = keep_meta
+        self.p = p
 
     def apply(
         self,
@@ -87,6 +107,11 @@ class RotateAugment(AugmentBase):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and rotated metadata
         """
+        # Avoid an extra random draw in the default path, preserving the
+        # historical seeded quarter-turn sequence when ``p`` is one.
+        if self.p == 0.0 or (self.p < 1.0 and np.random.rand() >= self.p):
+            return data, meta
+
         k = self.sample_k()
         if k == 0:
             return data, meta
@@ -217,6 +242,9 @@ class RotateAugment(AugmentBase):
         """
         if self.k is not None:
             return self.k
+        if self.k_choices is not None:
+            index = int(np.random.randint(len(self.k_choices)))
+            return self.k_choices[index]
 
         return int(np.random.randint(4))
 
