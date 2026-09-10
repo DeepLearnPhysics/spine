@@ -10,6 +10,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Iterator
 
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
+
 from .manifest import CacheManifest, CacheSource, CacheStage
 
 __all__ = ["CacheRepository"]
@@ -61,9 +63,9 @@ class CacheRepository:
                     f"Cannot initialize cache repository in nonempty directory "
                     f"'{self.path}'."
                 )
-            self.path.mkdir(parents=True, exist_ok=True)
-            self.shard_dir.mkdir(exist_ok=True)
-            self.pending_dir.mkdir(exist_ok=True)
+            make_shared_directory(self.path, parents=True, exist_ok=True)
+            make_shared_directory(self.shard_dir, exist_ok=True)
+            make_shared_directory(self.pending_dir, exist_ok=True)
             with self._manifest_lock():
                 if not self.manifest_path.exists():
                     self._write_manifest(CacheManifest())
@@ -199,7 +201,10 @@ class CacheRepository:
         None
             Control while the repository lock is held by this process.
         """
+        lock_exists = self.lock_path.exists()
         with self.lock_path.open("a+", encoding="utf-8") as stream:
+            if not lock_exists:
+                set_shared_file_permissions(self.lock_path)
             fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
             try:
                 yield
@@ -225,4 +230,5 @@ class CacheRepository:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
+        set_shared_file_permissions(temporary)
         os.replace(temporary, self.manifest_path)

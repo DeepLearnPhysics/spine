@@ -19,6 +19,7 @@ from typing import Any
 from spine.config import load_config_file
 from spine.config.errors import ConfigTypeError
 from spine.config.loader import resolve_config_path
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 
 from .base import REPORT_SCHEMA_VERSION, ReportRecipe
 from .cluster import ClusterSummaryRecipe
@@ -307,6 +308,7 @@ def _write_summary(result: Mapping[str, Any], path: Path) -> None:
     with path.open("w", encoding="utf-8") as stream:
         json.dump(result, stream, indent=2, allow_nan=False)
         stream.write("\n")
+    set_shared_file_permissions(path)
 
 
 def build_report(
@@ -354,7 +356,7 @@ def build_report(
     supported_formats = {"json", "png", "pdf", "svg"}
     if unsupported := set(formats) - supported_formats:
         raise ValueError(f"Unsupported report formats: {sorted(unsupported)}.")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    make_shared_directory(output_dir, parents=True, exist_ok=True)
 
     result: dict[str, Any] = {
         "schema_version": REPORT_SCHEMA_VERSION,

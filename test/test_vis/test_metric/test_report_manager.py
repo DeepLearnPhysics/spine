@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import stat
 
 import pytest
 import yaml
@@ -39,6 +40,9 @@ def test_report_hashes_string_checkpoint_metadata(tmp_path):
         "path": str(checkpoint),
         "sha256": hashlib.sha256(b"weights").hexdigest(),
     }
+    output_dir = tmp_path / "output"
+    assert stat.S_IMODE(output_dir.stat().st_mode) == 0o2775
+    assert stat.S_IMODE((output_dir / "summary.json").stat().st_mode) == 0o664
 
 
 def test_report_preserves_configured_checkpoint_checksum(tmp_path):

@@ -14,6 +14,7 @@ def test_utils_contains_only_approved_shared_modules():
         "__init__",
         "conditional",
         "docstring",
+        "file",
         "ghost",
         "jit",
         "manager",

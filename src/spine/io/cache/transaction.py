@@ -7,6 +7,8 @@ import shutil
 import uuid
 from pathlib import Path
 
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
+
 from .manifest import CacheSource, CacheStage
 from .repository import CacheRepository
 
@@ -49,7 +51,7 @@ class CacheTransaction:
         self.base_generation = self.snapshot.generation
         self.generation = uuid.uuid4().hex
         self.pending_path = repository.pending_dir / self.generation
-        self.pending_path.mkdir(parents=True, exist_ok=False)
+        make_shared_directory(self.pending_path, parents=True)
         self.published = False
 
     def publish(
@@ -78,14 +80,16 @@ class CacheTransaction:
         # Each generation receives a fresh immutable directory. It remains
         # unreachable to readers until the manifest publication below.
         generation_dir = self.repository.shard_dir / self.stage / self.generation
-        generation_dir.mkdir(parents=True, exist_ok=False)
+        make_shared_directory(generation_dir, parents=True)
 
         # Rename on the repository filesystem is atomic and avoids a second
         # copy of the newly written stage before its short manifest commit.
         shards = {}
         for source in sources:
             destination = generation_dir / f"{source.id}.h5"
-            os.replace(pending_by_source[source.id], destination)
+            pending = pending_by_source[source.id]
+            set_shared_file_permissions(pending)
+            os.replace(pending, destination)
             shards[source.id] = str(destination.relative_to(self.repository.path))
 
         stage_record = CacheStage(

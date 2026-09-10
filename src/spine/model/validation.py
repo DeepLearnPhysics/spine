@@ -15,6 +15,7 @@ import numpy as np
 from spine.io import IOManager
 from spine.logging import LogManager
 from spine.utils.conditional import torch
+from spine.utils.file import make_shared_directory
 from spine.utils.stopwatch import StopwatchManager
 from spine.utils.torch import runtime
 
@@ -863,7 +864,7 @@ class ValidationManager:
         if log_dir is None:
             return None
         if not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
+            make_shared_directory(log_dir, parents=True, exist_ok=True)
 
         suffix = "" if not self.distributed else f"_proc{self.rank}"
         log_name = f"validation{suffix}_log-{iteration + 1:07d}.csv"

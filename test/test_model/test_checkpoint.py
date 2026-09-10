@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import stat
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -144,11 +147,17 @@ def test_checkpoint_atomic_save_checksum_and_inspection(tmp_path, monkeypatch):
         },
     }
 
-    digest = checkpoint_mod.save_checkpoint(checkpoint, path)
+    old_umask = os.umask(0o077)
+    try:
+        digest = checkpoint_mod.save_checkpoint(checkpoint, path)
+    finally:
+        os.umask(old_umask)
     info = inspect_checkpoint(path, verify=True)
 
     assert verify_checkpoint(path)
     assert (tmp_path / "snapshot-3.ckpt.sha256").exists()
+    assert stat.S_IMODE(path.stat().st_mode) == 0o664
+    assert stat.S_IMODE((tmp_path / "snapshot-3.ckpt.sha256").stat().st_mode) == 0o664
     assert info["sha256"] == digest
     assert info["format_version"] == 2
     assert info["config"] == checkpoint["config"]
@@ -210,6 +219,8 @@ def test_checkpoint_promotion_copies_artifact_and_checksum(tmp_path):
     assert destination.read_bytes() == source.read_bytes()
     assert checkpoint_mod.checkpoint_sha256(destination) == digest
     assert verify_checkpoint(destination)
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o664
+    assert stat.S_IMODE(Path(f"{destination}.sha256").stat().st_mode) == 0o664
 
 
 def test_checkpoint_promotion_cleans_temporary_copy_on_failure(tmp_path, monkeypatch):

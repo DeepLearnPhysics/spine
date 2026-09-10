@@ -240,7 +240,7 @@ def distributed_any(value: bool, device: Any = None) -> bool:
     return bool(flag.item())
 
 
-def distributed_all_gather_object(obj):
+def distributed_all_gather_object(obj: Any) -> list[Any]:
     """Gather a Python object from every distributed rank.
 
     Parameters
@@ -259,7 +259,7 @@ def distributed_all_gather_object(obj):
         and torch.distributed.is_available()
         and torch.distributed.is_initialized()
     ):
-        objects = [None] * torch.distributed.get_world_size()
+        objects: list[Any] = [None] * torch.distributed.get_world_size()
         torch.distributed.all_gather_object(objects, obj)
         return objects
 

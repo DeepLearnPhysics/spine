@@ -8,6 +8,7 @@ import numpy as np
 import yaml
 
 import spine.data
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 from spine.version import __version__
 
 from .common import DataFormat, decode_string_attribute, require_group
@@ -348,6 +349,7 @@ class HDF5Writer(
                 self._file_handles[file_id] = out_file
             else:
                 out_file = h5py.File(file_name, "w")
+            set_shared_file_permissions(file_name)
 
             try:
                 out_file.create_group("info")
@@ -454,7 +456,7 @@ class HDF5Writer(
         """Create the parent directory for an output file, if needed."""
         dir_name = os.path.dirname(file_name)
         if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
+            make_shared_directory(dir_name, parents=True, exist_ok=True)
 
     def _record_write(self, file_id: int, count: int, out_file: h5py.File) -> None:
         """Update flush bookkeeping for one file after appending entries."""

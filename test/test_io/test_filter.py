@@ -1,5 +1,7 @@
 """Tests for reusable file-aware entry filtering."""
 
+import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -411,6 +413,22 @@ def test_atomic_writers_remove_temporary_files_on_failure(tmp_path, monkeypatch)
     with pytest.raises(OSError, match="rename failed"):
         filter_manager._atomic_text_dump(["value"], tmp_path / "value.txt")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_atomic_filter_artifacts_are_collaboration_readable(tmp_path):
+    """Secure temporary creation must not leave published scans user-only."""
+    yaml_path = tmp_path / "nested" / "value.yaml"
+    text_path = tmp_path / "nested" / "value.txt"
+    old_umask = os.umask(0o077)
+    try:
+        filter_manager._atomic_yaml_dump({"value": 1}, yaml_path)
+        filter_manager._atomic_text_dump(["value"], text_path)
+    finally:
+        os.umask(old_umask)
+
+    assert stat.S_IMODE(yaml_path.stat().st_mode) == 0o664
+    assert stat.S_IMODE(text_path.stat().st_mode) == 0o664
+    assert stat.S_IMODE(yaml_path.parent.stat().st_mode) == 0o2775
 
 
 def test_manifest_serves_full_collection_and_subsets(tmp_path, fake_backend):

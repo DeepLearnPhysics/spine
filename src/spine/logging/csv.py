@@ -5,6 +5,8 @@ from collections.abc import Iterable, Mapping
 from types import TracebackType
 from typing import Any
 
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
+
 __all__ = ["CSVLogger"]
 
 
@@ -169,10 +171,12 @@ class CSVLogger:
             if mode == "w":
                 dir_name = os.path.dirname(self.file_name)
                 if dir_name:
-                    os.makedirs(dir_name, exist_ok=True)
+                    make_shared_directory(dir_name, parents=True, exist_ok=True)
             self.file_handle = open(
                 self.file_name, mode, encoding="utf-8", buffering=self.buffer_size
             )
+            if mode == "w":
+                set_shared_file_permissions(self.file_name)
 
     def close(self) -> None:
         """Close the file handle and ensure all data is written.

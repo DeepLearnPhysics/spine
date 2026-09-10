@@ -1,6 +1,8 @@
 """Tests for manifest-backed cache repositories."""
 
 import json
+import stat
+from pathlib import Path
 from types import SimpleNamespace
 
 import h5py
@@ -59,6 +61,15 @@ def test_cache_round_trip_and_manifest_snapshot(tmp_path):
     assert manifest.generation == 2
     assert manifest.stages["first"].shards == first_shard
     assert set(manifest.stages) == {"first", "second"}
+    repository = CacheRepository(str(path))
+    first_shard_path = repository.resolve_shard(
+        manifest.stages["first"].shards[manifest.sources[0].id]
+    )
+    assert stat.S_IMODE(path.stat().st_mode) == 0o2775
+    assert stat.S_IMODE(repository.shard_dir.stat().st_mode) == 0o2775
+    assert stat.S_IMODE(repository.manifest_path.stat().st_mode) == 0o664
+    assert stat.S_IMODE(repository.lock_path.stat().st_mode) == 0o664
+    assert stat.S_IMODE(Path(first_shard_path).stat().st_mode) == 0o664
 
     reader = CacheReader(path=str(path), keys=["x", "y"])
     assert reader[1]["x"] == 11

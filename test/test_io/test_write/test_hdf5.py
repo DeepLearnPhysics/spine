@@ -1,6 +1,7 @@
 """Test that the writer classes work as intended."""
 
 import os
+import stat
 
 import h5py
 import numpy as np
@@ -163,6 +164,7 @@ def test_hdf5_writer(hdf5_output, tensor_list, index_list, edge_index_list):
 
     # Write output
     writer(data)
+    assert stat.S_IMODE(os.stat(hdf5_output).st_mode) == 0o664
 
 
 @pytest.mark.parametrize("format_version", [1, 2])
