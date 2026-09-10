@@ -10,9 +10,16 @@ responsible for:
   (``MixedDataset``) or unaligned overlay pairs (``JointDataset``)
 """
 
+from .cache import CacheDataset
 from .hdf5 import HDF5Dataset
 from .joint import JointDataset
 from .larcv import LArCVDataset
 from .mixed import MixedDataset
 
-__all__ = ["HDF5Dataset", "JointDataset", "LArCVDataset", "MixedDataset"]
+__all__ = [
+    "CacheDataset",
+    "HDF5Dataset",
+    "JointDataset",
+    "LArCVDataset",
+    "MixedDataset",
+]

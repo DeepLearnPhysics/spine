@@ -168,7 +168,6 @@ class IOManager:
         # Derive log and output prefixes from the input file names.
         if self.reader is None:
             raise RuntimeError("I/O initialization did not produce a reader.")
-        self._validate_writer_config(writer, split_output)
         output_suffix = self._get_output_suffix(writer)
         self.log_prefix, self.output_prefix = self.get_prefixes(
             self.reader.file_paths,
@@ -309,22 +308,16 @@ class IOManager:
         if self.loader is not None and not unwrap:
             raise ValueError("Must unwrap the model output to write it to file.")
 
-        # A staged cache with no explicit output destination is being extended
-        # in place. Route the writer back to the cache reader's canonical files
-        # and isolate the new stage in sidecars until successful finalization.
+        # A cache writer with no explicit destination extends its input
+        # repository by publishing a new immutable stage generation.
         writer_cfg = dict(writer)
-        stage_reader = self._get_staged_cache_reader()
+        cache_reader = self._get_cache_reader()
         if (
-            writer_cfg.get("name") == "stage_hdf5"
-            and stage_reader is not None
-            and not writer_cfg.get("file_name")
-            and not writer_cfg.get("directory")
+            writer_cfg.get("name") == "cache"
+            and cache_reader is not None
+            and not writer_cfg.get("path")
         ):
-            writer_cfg.setdefault("sidecar", True)
-            if writer_cfg["sidecar"]:
-                writer_cfg.setdefault(
-                    "target_file_paths", list(stage_reader.file_paths)
-                )
+            writer_cfg["path"] = str(cache_reader.repository.path)
 
         # Register the write timer and initialize the writer.
         self.watch.initialize("write")
@@ -332,28 +325,27 @@ class IOManager:
             writer_cfg, prefix=self.output_prefix, split=split_output
         )
 
-    def _get_staged_cache_reader(self) -> Any | None:
-        """Return the staged HDF5 reader being extended, if present.
+    def _get_cache_reader(self) -> Any | None:
+        """Locate the manifest-backed cache reader being extended.
 
-        Reader-driven jobs expose the staged reader directly through
-        :attr:`reader`. A mixed loader keeps its LArCV reader there because it
-        owns iteration and provenance; its aligned HDF5 reader instead lives
-        under ``loader.dataset.cache.reader``. Sidecar routing must inspect the
-        latter without changing the manager's primary-reader semantics.
+        The cache may be the manager's primary reader or the aligned secondary
+        source inside a :class:`MixedDataset`. In either case, its repository
+        path becomes the default destination for a cache writer that omits an
+        explicit ``path``.
 
         Returns
         -------
         object or None
-            Staged HDF5 reader which owns the canonical cache paths, or
-            ``None`` when this job is not reading a staged cache.
+            Cache reader owning the input repository, or `None` when this run
+            does not consume a manifest-backed cache.
         """
-        if getattr(self.reader, "name", None) == "stage_hdf5":
+        if getattr(self.reader, "name", None) == "cache":
             return self.reader
 
         dataset = getattr(self.loader, "dataset", None)
         cache = getattr(dataset, "cache", None)
         cache_reader = getattr(cache, "reader", None)
-        if getattr(cache_reader, "name", None) == "stage_hdf5":
+        if getattr(cache_reader, "name", None) == "cache":
             return cache_reader
 
         return None
@@ -369,7 +361,7 @@ class IOManager:
         upstream = self.post_list or ()
         self.post_list = tuple(dict.fromkeys((*upstream, *post_processors)))
 
-        # Not every writer persists provenance (for example staged caches).
+        # Not every writer persists post-processing provenance.
         setter = getattr(self.writer, "set_post_processors", None)
         if setter is not None:
             setter(self.post_list)
@@ -459,28 +451,12 @@ class IOManager:
             return ""
 
         writer_name = writer.get("name")
-        default_suffixes = {"hdf5": "spine", "stage_hdf5": "stage"}
+        default_suffixes = {"hdf5": "spine"}
         if writer_name not in default_suffixes:
             return ""
 
         suffix = writer.get("suffix", default_suffixes[writer_name])
         return f"_{suffix}.h5"
-
-    def _validate_writer_config(
-        self, writer: Mapping[str, Any] | None, split_output: bool
-    ) -> None:
-        """Reject writer/base combinations with ambiguous output routing."""
-        if writer is None:
-            return
-
-        writer_name = writer.get("name")
-        if writer_name == "stage_hdf5" and not split_output:
-            raise ValueError(
-                "The `stage_hdf5` writer writes one cache file per input file "
-                "and requires `base.split_output: true`. Add "
-                "`split_output: true` to the `base` block, or use the regular "
-                "`hdf5` writer for a single combined output file."
-            )
 
     def format_log_name(self, log_name: str, log_dir: str) -> str:
         """Prefix and truncate a driver log name using the input-derived stem.

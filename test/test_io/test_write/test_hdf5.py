@@ -27,9 +27,11 @@ from spine.data import (
     TensorSchema,
     Trigger,
 )
+from spine.io.cache.backend.hdf5.reader import HDF5ShardReader
+from spine.io.cache.backend.hdf5.writer import HDF5ShardWriter
 from spine.io.collate import CollateAll
 from spine.io.parse import HDF5ClusterLabelParser
-from spine.io.read import HDF5Reader, StageHDF5Reader
+from spine.io.read import HDF5Reader
 from spine.io.write import *
 from spine.io.write.hdf5.common import (
     DataFormat,
@@ -51,13 +53,13 @@ def fixture_hdf5_output(tmp_path):
     return os.path.join(tmp_path, "dummy.h5")
 
 
-def stage_product_values(stage, key):
-    """Return the physical values dataset for one staged V2 product."""
+def shard_product_values(stage, key):
+    """Return the physical values dataset for one cache-shard V2 product."""
     return stage["products"][key]["values"][:]
 
 
-def staged_batch(source_name, values, index=0, source_size=10, source_mtime=20):
-    """Build one minimal source-routable staged-cache batch."""
+def shard_batch(source_name, values, index=0, source_size=10, source_mtime=20):
+    """Build one minimal source-routable cache-shard batch."""
     return {
         "index": np.asarray([index]),
         "source_file_name": np.asarray([source_name]),
@@ -774,9 +776,9 @@ def test_hdf5_writer_close_leaves_unfinalized_output_incomplete(hdf5_output):
         assert not out_file["info"].attrs["complete"]
 
 
-def test_stage_hdf5_writer_finalizes_stages_independently(hdf5_output):
+def test_hdf5_shard_writer_finalizes_stages_independently(hdf5_output):
     """Each cache stage should track completeness independently."""
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -807,7 +809,7 @@ def test_stage_hdf5_writer_finalizes_stages_independently(hdf5_output):
         assert len(out_file["stages"]["graph_spice"]["events"]) == 1
 
 
-def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
+def test_hdf5_shard_v2_round_trips_typed_products(hdf5_output):
     """Stage caches should preserve V2 product metadata and sidecars."""
     tensor = TensorData(
         coords=np.asarray([[1, 2, 3]], dtype=np.int32),
@@ -817,7 +819,7 @@ def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
         feature_fields={"value": (0,), "shape": (1,)},
     )
     selection = IndexData(np.asarray([1, 3], dtype=np.int64), span=5)
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -844,7 +846,7 @@ def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
     writer.close()
 
     with h5py.File(hdf5_output, "r") as in_file:
-        assert in_file["info"].attrs["format"] == "stage_hdf5"
+        assert in_file["info"].attrs["format"] == "cache"
         assert in_file["info"].attrs["format_version"] == 2
         stage = in_file["stages"]["deghosting"]
         assert set(stage) == {"events", "info", "products"}
@@ -853,7 +855,7 @@ def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
         assert "meta" in stage["products"]["coordinates"]
         assert "spans" in stage["products"]["selection"]
 
-    reader = StageHDF5Reader("deghosting", hdf5_output)
+    reader = HDF5ShardReader("deghosting", hdf5_output)
     entry = reader.get(0)
     reader.close()
 
@@ -868,16 +870,16 @@ def test_stage_hdf5_v2_round_trips_typed_products(hdf5_output):
     np.testing.assert_array_equal(restored_selection.features, [1, 3])
 
 
-def test_stage_hdf5_writer_rejects_legacy_cache(tmp_path):
-    """Legacy staged caches should be rebuilt rather than appended in place."""
+def test_hdf5_shard_writer_rejects_legacy_cache(tmp_path):
+    """Legacy cache shards should be rebuilt rather than appended in place."""
     path = tmp_path / "legacy.h5"
     with h5py.File(path, "w") as out_file:
         info = out_file.create_group("info")
-        info.attrs["format"] = "stage_hdf5"
+        info.attrs["format"] = "legacy_cache"
         info.attrs["format_version"] = 1
         out_file.create_group("stages")
 
-    writer = StageHDF5Writer(str(path))
+    writer = HDF5ShardWriter(str(path))
     with pytest.raises(ValueError, match="format version 1.*rebuild"):
         writer.write_stage(
             "deghosting",
@@ -898,12 +900,12 @@ def test_stage_hdf5_writer_rejects_legacy_cache(tmp_path):
         ({}, "missing info group"),
         (
             {"format": "hdf5", "format_version": 2},
-            "expected format 'stage_hdf5'",
+            "expected format 'cache'",
         ),
     ],
 )
-def test_stage_hdf5_writer_rejects_invalid_container(tmp_path, metadata, message):
-    """Existing outputs must identify themselves as staged V2 caches."""
+def test_hdf5_shard_writer_rejects_invalid_container(tmp_path, metadata, message):
+    """Existing outputs must identify themselves as cache-shard V2 caches."""
     path = tmp_path / "invalid.h5"
     with h5py.File(path, "w") as out_file:
         if metadata:
@@ -912,7 +914,7 @@ def test_stage_hdf5_writer_rejects_invalid_container(tmp_path, metadata, message
                 info.attrs[key] = value
         out_file.create_group("stages")
 
-    writer = StageHDF5Writer(str(path))
+    writer = HDF5ShardWriter(str(path))
     with pytest.raises(ValueError, match=message):
         writer._ensure_stage_file(str(path))
     writer.close()
@@ -928,7 +930,7 @@ def test_stage_hdf5_writer_rejects_invalid_container(tmp_path, metadata, message
         ("child", "missing child 'meta'"),
     ],
 )
-def test_stage_hdf5_writer_validates_active_v2_schema(tmp_path, malformation, message):
+def test_hdf5_shard_writer_validates_active_v2_schema(tmp_path, malformation, message):
     """Appending should diagnose each malformed stage-schema component."""
     path = tmp_path / "cache.h5"
     tensor = TensorData(
@@ -936,7 +938,7 @@ def test_stage_hdf5_writer_validates_active_v2_schema(tmp_path, malformation, me
         features=np.asarray([[4.0]]),
         meta=Meta(),
     )
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -967,14 +969,14 @@ def test_stage_hdf5_writer_validates_active_v2_schema(tmp_path, malformation, me
             del products["coordinates"]["meta"]
 
         with pytest.raises(ValueError, match=message):
-            StageHDF5Writer._validate_stage_schema(
+            HDF5ShardWriter._validate_stage_schema(
                 stage, str(path), "deghosting", state
             )
 
 
-def test_stage_hdf5_writer_overwrite_stage_preserves_other_stages(hdf5_output):
+def test_hdf5_shard_writer_overwrite_stage_preserves_other_stages(hdf5_output):
     """Rewriting one stage should leave sibling stages untouched."""
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1013,50 +1015,23 @@ def test_stage_hdf5_writer_overwrite_stage_preserves_other_stages(hdf5_output):
 
     with h5py.File(hdf5_output, "r") as out_file:
         np.testing.assert_array_equal(
-            stage_product_values(out_file["stages"]["deghosting"], "dummy_data"),
+            shard_product_values(out_file["stages"]["deghosting"], "dummy_data"),
             np.asarray([[1.0, 2.0]]),
         )
         np.testing.assert_array_equal(
-            stage_product_values(out_file["stages"]["graph_spice"], "dummy_data"),
+            shard_product_values(out_file["stages"]["graph_spice"], "dummy_data"),
             np.asarray([[5.0, 6.0]]),
         )
 
 
-def test_stage_hdf5_writer_lists_written_stages(hdf5_output):
-    """Stage cache writer should expose the written stage names."""
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
-    writer.write_stage(
-        "deghosting",
-        {
-            "index": np.asarray([0]),
-            "source_file_name": np.asarray(["source.root"]),
-            "source_file_size": np.asarray([10]),
-            "source_file_mtime_ns": np.asarray([20]),
-            "dummy_data": [np.asarray([[1.0, 2.0]])],
-        },
-    )
-    writer.write_stage(
-        "graph_spice",
-        {
-            "index": np.asarray([0]),
-            "source_file_name": np.asarray(["source.root"]),
-            "source_file_size": np.asarray([10]),
-            "source_file_mtime_ns": np.asarray([20]),
-            "dummy_data": [np.asarray([[3.0, 4.0]])],
-        },
-    )
-    assert writer.list_stages() == ("deghosting", "graph_spice")
-    writer.close()
-
-
-def test_stage_hdf5_writer_stores_source_provenance(tmp_path):
+def test_hdf5_shard_writer_stores_source_provenance(tmp_path):
     """Stage cache files should persist lightweight source-file provenance."""
     source_path = tmp_path / "source.root"
     source_path.write_bytes(b"source-bytes")
     cache_path = tmp_path / "cache.h5"
 
     stat_result = source_path.stat()
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
+    writer = HDF5ShardWriter(str(cache_path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1077,10 +1052,10 @@ def test_stage_hdf5_writer_stores_source_provenance(tmp_path):
         assert source_group.attrs["file_mtime_ns"] == stat_result.st_mtime_ns
 
 
-def test_stage_hdf5_writer_call_uses_configured_stage(tmp_path):
+def test_hdf5_shard_writer_call_uses_configured_stage(tmp_path):
     """The standard writer interface should target the configured stage."""
     cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), stage="deghosting", overwrite=True)
+    writer = HDF5ShardWriter(str(cache_path), stage="deghosting", overwrite=True)
     writer(
         {
             "index": np.asarray([0]),
@@ -1098,528 +1073,9 @@ def test_stage_hdf5_writer_call_uses_configured_stage(tmp_path):
         assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
 
 
-def test_stage_hdf5_writer_sidecar_publishes_with_open_reader(tmp_path, monkeypatch):
-    """Finalization should atomically publish a sidecar beside active readers."""
-    cache_path = tmp_path / "cache.h5"
-    upstream = staged_batch("source.root", [1.0, 2.0])
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", upstream)
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    # Keep a persistent reader handle on the canonical inode throughout the
-    # downstream write and atomic replacement.
-    reader = StageHDF5Reader(
-        "upstream", str(cache_path), build_classes=False, keep_open=True
-    )
-    np.testing.assert_array_equal(reader.get(0)["dummy_data"], [[1.0, 2.0]])
-
-    downstream = staged_batch("source.root", [3.0, 4.0])
-    writer = StageHDF5Writer(
-        str(cache_path),
-        stage="downstream",
-        sidecar=True,
-        target_file_paths=[str(cache_path)],
-    )
-    writer(downstream)
-    sidecar_path = next(iter(writer._sidecar_paths.values()))
-
-    assert os.path.exists(sidecar_path)
-    assert writer.list_stages() == ("downstream", "upstream")
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream"}
-
-    # Failure to remove the now-redundant sidecar must not invalidate a
-    # successfully published canonical cache.
-    real_remove = os.remove
-
-    def fail_sidecar_remove(path):
-        if path == sidecar_path:
-            raise OSError("cleanup failed")
-        return real_remove(path)
-
-    monkeypatch.setattr(
-        "spine.io.write.stage_hdf5.sidecar.os.remove", fail_sidecar_remove
-    )
-    writer.finalize()
-
-    # The reader which owns the replaced inode remains valid until it closes.
-    np.testing.assert_array_equal(reader.get(0)["dummy_data"], [[1.0, 2.0]])
-    reader.close()
-    writer.close()
-
-    assert os.path.exists(sidecar_path)
-    real_remove(sidecar_path)
-    assert not list(tmp_path.glob(".spine-*-*.h5"))
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream", "downstream"}
-        assert canonical["stages"]["downstream"]["info"].attrs["complete"]
-        np.testing.assert_array_equal(
-            stage_product_values(canonical["stages"]["downstream"], "dummy_data"),
-            [[3.0, 4.0]],
-        )
-
-
-def test_stage_hdf5_writer_sidecar_close_discards_failed_stage(tmp_path):
-    """Closing without finalization should leave the canonical cache unchanged."""
-    cache_path = tmp_path / "cache.h5"
-    batch = staged_batch("source.root", [1.0, 2.0])
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", batch)
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [3.0, 4.0]))
-    sidecar_path = next(iter(writer._sidecar_paths.values()))
-    writer.close()
-
-    assert not os.path.exists(sidecar_path)
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream"}
-
-
-def test_stage_hdf5_writer_sidecar_builds_new_cache_in_batches(tmp_path):
-    """Explicit sidecar mode should atomically publish a new canonical cache."""
-    cache_path = tmp_path / "new_cache.h5"
-    writer = StageHDF5Writer(str(cache_path), sidecar=True)
-    for index, value in ((0, 1.0), (1, 2.0)):
-        writer.write_stage(
-            "upstream", staged_batch("source.root", [value], index=index)
-        )
-
-    assert not cache_path.exists()
-    assert writer.list_stages() == ("upstream",)
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert canonical["stages"]["upstream"]["info"].attrs["complete"]
-        np.testing.assert_array_equal(
-            stage_product_values(canonical["stages"]["upstream"], "dummy_data"),
-            [[1.0], [2.0]],
-        )
-
-
-def test_stage_hdf5_writer_sidecar_merge_failure_preserves_target(
-    monkeypatch, tmp_path
-):
-    """A failed merge preparation should preserve the canonical cache."""
-    cache_path = tmp_path / "cache.h5"
-    batch = staged_batch("source.root", [1.0, 2.0])
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", batch)
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [3.0, 4.0]))
-    sidecar_path = next(iter(writer._sidecar_paths.values()))
-
-    def fail_merge(*args, **kwargs):
-        raise RuntimeError("merge failed")
-
-    monkeypatch.setattr(writer, "_prepare_merged_file", fail_merge)
-    with pytest.raises(RuntimeError, match="merge failed"):
-        writer.finalize_stage("downstream")
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream"}
-    writer.close()
-    assert not os.path.exists(sidecar_path)
-
-
-def test_stage_hdf5_writer_sidecar_cleans_prepared_files_on_late_failure(
-    monkeypatch, tmp_path
-):
-    """Multi-file preparation should clean earlier copies before publication."""
-    writer = StageHDF5Writer(str(tmp_path / "unused.h5"), sidecar=True)
-    target_a = str(tmp_path / "a.h5")
-    target_b = str(tmp_path / "b.h5")
-    sidecar_a = str(tmp_path / "a.sidecar.h5")
-    sidecar_b = str(tmp_path / "b.sidecar.h5")
-    for path in (sidecar_a, sidecar_b):
-        open(path, "a", encoding="utf-8").close()
-    writer._sidecar_paths = {
-        (target_a, "downstream"): sidecar_a,
-        (target_b, "downstream"): sidecar_b,
-    }
-    writer._sidecar_replace = {
-        (target_a, "downstream"): False,
-        (target_b, "downstream"): False,
-    }
-    merged_path = str(tmp_path / "prepared.h5")
-
-    def prepare(target_path, *args, **kwargs):
-        if target_path == target_b:
-            raise RuntimeError("late preparation failed")
-        open(merged_path, "a", encoding="utf-8").close()
-        return merged_path
-
-    monkeypatch.setattr(writer, "_prepare_merged_file", prepare)
-    with pytest.raises(RuntimeError, match="late preparation failed"):
-        writer._merge_sidecar_stage("downstream")
-
-    assert not os.path.exists(merged_path)
-    writer.close()
-
-
-def test_stage_hdf5_writer_sidecar_publish_failure_preserves_target(
-    monkeypatch, tmp_path
-):
-    """A failed atomic replacement should clean merge files and retain input."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [2.0]))
-
-    real_remove = os.remove
-    merge_paths = []
-
-    def fail_replace(*args, **kwargs):
-        raise OSError("publish failed")
-
-    def fail_merge_remove(path):
-        if os.path.basename(path).startswith(".spine-merge-"):
-            merge_paths.append(path)
-            raise OSError("cleanup failed")
-        return real_remove(path)
-
-    monkeypatch.setattr(os, "replace", fail_replace)
-    monkeypatch.setattr(os, "remove", fail_merge_remove)
-    with pytest.raises(OSError, match="publish failed"):
-        writer.finalize_stage("downstream")
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream"}
-    assert merge_paths and all(os.path.exists(path) for path in merge_paths)
-    for path in merge_paths:
-        real_remove(path)
-    writer.close()
-
-
-def test_stage_hdf5_writer_sidecar_detects_publish_race(tmp_path):
-    """A stage published by another writer must not be overwritten silently."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [2.0]))
-    with h5py.File(cache_path, "a") as canonical:
-        canonical.copy(
-            canonical["stages"]["upstream"],
-            canonical["stages"],
-            name="downstream",
-        )
-
-    with pytest.raises(RuntimeError, match="appeared"):
-        writer.finalize_stage("downstream")
-    writer.close()
-
-    with h5py.File(cache_path, "r") as canonical:
-        np.testing.assert_array_equal(
-            stage_product_values(canonical["stages"]["downstream"], "dummy_data"),
-            [[1.0]],
-        )
-
-
-@pytest.mark.parametrize(
-    ("corruption", "message"),
-    [
-        ("missing_stage", "does not contain stage"),
-        ("incomplete", "is incomplete"),
-        ("source", "source provenance differs"),
-    ],
-)
-def test_stage_hdf5_writer_sidecar_rejects_corrupt_sidecar(
-    tmp_path, corruption, message
-):
-    """Merge preparation should validate the completed sidecar container."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [2.0]))
-    target_path, stage = next(iter(writer._sidecar_paths))
-    sidecar_path = writer._sidecar_paths[(target_path, stage)]
-    writer._close_path_handle(sidecar_path)
-    with h5py.File(sidecar_path, "a") as sidecar:
-        sidecar["stages"]["downstream"]["info"].attrs["complete"] = True
-        if corruption == "missing_stage":
-            del sidecar["stages"]["downstream"]
-        elif corruption == "incomplete":
-            sidecar["stages"]["downstream"]["info"].attrs["complete"] = False
-        else:
-            sidecar["source"].attrs["file_name"] = "other.root"
-
-    with pytest.raises(RuntimeError, match=message):
-        writer._prepare_merged_file(
-            target_path,
-            sidecar_path,
-            stage,
-            replace=False,
-        )
-    writer.close()
-
-
-def test_stage_hdf5_writer_sidecar_overwrites_only_selected_stage(tmp_path):
-    """Sidecar replacement should preserve sibling stages."""
-    cache_path = tmp_path / "cache.h5"
-    original = staged_batch("source.root", [1.0, 2.0])
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    for stage in ("upstream", "downstream"):
-        writer.write_stage(stage, original)
-        writer.finalize_stage(stage)
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    with pytest.raises(RuntimeError, match="already complete"):
-        writer.write_stage("downstream", staged_batch("source.root", [3.0, 4.0]))
-    writer.close()
-
-    writer = StageHDF5Writer(
-        str(cache_path),
-        stage="downstream",
-        sidecar=True,
-        target_file_paths=[str(cache_path)],
-        overwrite_stage=True,
-    )
-    writer(staged_batch("source.root", [3.0, 4.0]))
-    writer.finalize()
-    writer.close()
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream", "downstream"}
-        np.testing.assert_array_equal(
-            stage_product_values(canonical["stages"]["upstream"], "dummy_data"),
-            [[1.0, 2.0]],
-        )
-        np.testing.assert_array_equal(
-            stage_product_values(canonical["stages"]["downstream"], "dummy_data"),
-            [[3.0, 4.0]],
-        )
-
-
-def test_stage_hdf5_writer_sidecar_routes_multiple_targets(tmp_path):
-    """Source provenance should route sidecars back to multiple input caches."""
-    targets = []
-    for source_name, size, mtime, value in (
-        ("a.root", 10, 20, 1.0),
-        ("b.root", 30, 40, 2.0),
-    ):
-        cache_path = tmp_path / f"{source_name}.h5"
-        writer = StageHDF5Writer(str(cache_path), overwrite=True)
-        writer.write_stage(
-            "upstream",
-            staged_batch(source_name, [value], source_size=size, source_mtime=mtime),
-        )
-        writer.finalize_stage("upstream")
-        writer.close()
-        targets.append(str(cache_path))
-
-    writer = StageHDF5Writer(
-        str(tmp_path / "unused.h5"),
-        sidecar=True,
-        target_file_paths=targets,
-    )
-    writer.write_stage(
-        "downstream",
-        {
-            "index": np.asarray([0, 0]),
-            "source_file_name": np.asarray(["a.root", "b.root"]),
-            "source_file_size": np.asarray([10, 30]),
-            "source_file_mtime_ns": np.asarray([20, 40]),
-            "source_file_entry_index": np.asarray([0, 0]),
-            "dummy_data": [np.asarray([[3.0]]), np.asarray([[4.0]])],
-        },
-    )
-    assert len(writer._sidecar_paths) == 2
-    writer.finalize_stage("downstream")
-    writer.close()
-
-    for target, expected in zip(targets, (3.0, 4.0)):
-        with h5py.File(target, "r") as canonical:
-            assert set(canonical["stages"]) == {"upstream", "downstream"}
-            np.testing.assert_array_equal(
-                stage_product_values(canonical["stages"]["downstream"], "dummy_data"),
-                [[expected]],
-            )
-
-
-def test_stage_hdf5_writer_sidecar_validates_target_routing(tmp_path):
-    """Canonical targets should be selected by unique source provenance."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    # An explicit target path cannot be paired with different source metadata.
-    writer = StageHDF5Writer(str(cache_path), sidecar=True)
-    with pytest.raises(RuntimeError, match="Cache source mismatch"):
-        writer.write_stage("downstream", staged_batch("other.root", [2.0]))
-    writer.close()
-
-    # An indexed same-file workflow cannot silently create an unknown target.
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    with pytest.raises(ValueError, match="No canonical staged cache matches"):
-        writer.write_stage("downstream", staged_batch("other.root", [2.0]))
-    writer.close()
-
-    duplicate_path = tmp_path / "duplicate.h5"
-    writer = StageHDF5Writer(str(duplicate_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [3.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-    with pytest.raises(ValueError, match="Multiple staged caches claim"):
-        StageHDF5Writer(
-            str(cache_path),
-            sidecar=True,
-            target_file_paths=[str(cache_path), str(duplicate_path)],
-        )
-
-
-@pytest.mark.parametrize("missing", ["group", "attribute"])
-def test_stage_hdf5_writer_sidecar_requires_target_source_metadata(tmp_path, missing):
-    """Same-file routing should reject canonical caches without provenance."""
-    cache_path = tmp_path / f"missing_{missing}.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-    with h5py.File(cache_path, "a") as canonical:
-        if missing == "group":
-            del canonical["source"]
-        else:
-            del canonical["source"].attrs["file_size"]
-
-    with pytest.raises(
-        ValueError, match="missing (its source group|source attributes)"
-    ):
-        StageHDF5Writer(
-            str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-        )
-
-
-@pytest.mark.parametrize(
-    ("source_entries", "message"),
-    [
-        ([0], "entries while sibling"),
-        ([1, 0], "source entry order differs"),
-    ],
-)
-def test_stage_hdf5_writer_sidecar_rejects_misaligned_stage(
-    tmp_path, source_entries, message
-):
-    """Sidecar publication should enforce the canonical event axis."""
-    cache_path = tmp_path / "cache.h5"
-    canonical_batch = {
-        "index": np.asarray([0, 1]),
-        "source_file_name": np.asarray(["source.root", "source.root"]),
-        "source_file_size": np.asarray([10, 10]),
-        "source_file_mtime_ns": np.asarray([20, 20]),
-        "source_file_entry_index": np.asarray([0, 1]),
-        "dummy_data": [np.asarray([[1.0]]), np.asarray([[2.0]])],
-    }
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", canonical_batch)
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    num_entries = len(source_entries)
-    downstream_batch = {
-        "index": np.arange(num_entries),
-        "source_file_name": np.asarray(["source.root"] * num_entries),
-        "source_file_size": np.asarray([10] * num_entries),
-        "source_file_mtime_ns": np.asarray([20] * num_entries),
-        "source_file_entry_index": np.asarray(source_entries),
-        "dummy_data": [np.asarray([[3.0 + idx]]) for idx in range(num_entries)],
-    }
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", downstream_batch)
-
-    with pytest.raises(ValueError, match=message):
-        writer.finalize_stage("downstream")
-    writer.close()
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream"}
-
-
-@pytest.mark.parametrize("source_axis", ["missing", "nonscalar"])
-def test_stage_hdf5_writer_sidecar_accepts_legacy_source_axis(tmp_path, source_axis):
-    """Alignment should fall back to event counts for legacy provenance."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-    with h5py.File(cache_path, "a") as canonical:
-        product = canonical["stages"]["upstream"]["products"]["source_file_entry_index"]
-        if source_axis == "missing":
-            del canonical["stages"]["upstream"]["products"]["source_file_entry_index"]
-        else:
-            product.attrs["scalar"] = False
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [2.0]))
-    writer.finalize_stage("downstream")
-    writer.close()
-
-    with h5py.File(cache_path, "r") as canonical:
-        assert set(canonical["stages"]) == {"upstream", "downstream"}
-
-
-def test_stage_hdf5_writer_sidecar_rejects_non_group_sibling(tmp_path):
-    """Malformed canonical stage children should fail before publication."""
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage("upstream", staged_batch("source.root", [1.0]))
-    writer.finalize_stage("upstream")
-    writer.close()
-    with h5py.File(cache_path, "a") as canonical:
-        canonical["stages"].create_dataset("broken", data=np.asarray([0]))
-
-    writer = StageHDF5Writer(
-        str(cache_path), sidecar=True, target_file_paths=[str(cache_path)]
-    )
-    writer.write_stage("downstream", staged_batch("source.root", [2.0]))
-    with pytest.raises(TypeError, match="must be a group"):
-        writer.finalize_stage("downstream")
-    writer.close()
-
-
-def test_stage_hdf5_writer_call_requires_configured_stage(tmp_path):
+def test_hdf5_shard_writer_call_requires_configured_stage(tmp_path):
     """The generic writer call path should fail without a configured stage."""
-    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    writer = HDF5ShardWriter(str(tmp_path / "cache.h5"), overwrite=True)
     with pytest.raises(RuntimeError, match="configured `stage`"):
         writer(
             {
@@ -1635,10 +1091,10 @@ def test_stage_hdf5_writer_call_requires_configured_stage(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_respects_explicit_keys(tmp_path):
+def test_hdf5_shard_writer_respects_explicit_keys(tmp_path):
     """Stage caches should persist only the requested stage products."""
     cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(
+    writer = HDF5ShardWriter(
         str(cache_path),
         overwrite=True,
         keys=["dummy_data"],
@@ -1667,10 +1123,10 @@ def test_stage_hdf5_writer_respects_explicit_keys(tmp_path):
         assert stage_group["events"].dtype == np.dtype(np.int64)
 
 
-def test_stage_hdf5_writer_preserves_source_entry_with_explicit_keys(tmp_path):
+def test_hdf5_shard_writer_preserves_source_entry_with_explicit_keys(tmp_path):
     """Stage caches should preserve source entry provenance from file_entry_index."""
     cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(
+    writer = HDF5ShardWriter(
         str(cache_path),
         overwrite=True,
         keys=["dummy_data"],
@@ -1694,11 +1150,11 @@ def test_stage_hdf5_writer_preserves_source_entry_with_explicit_keys(tmp_path):
         stage_group = out_file["stages"]["deghosting"]
         assert "source_file_entry_index" in stage_group["products"]
         np.testing.assert_array_equal(
-            stage_product_values(stage_group, "source_file_entry_index"), [7]
+            shard_product_values(stage_group, "source_file_entry_index"), [7]
         )
 
 
-def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
+def test_hdf5_shard_writer_rejects_mismatched_source(tmp_path):
     """Writing a later stage with different source provenance should fail."""
     source_a = tmp_path / "source_a.root"
     source_b = tmp_path / "source_b.root"
@@ -1708,7 +1164,7 @@ def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
 
     stat_a = source_a.stat()
     stat_b = source_b.stat()
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
+    writer = HDF5ShardWriter(str(cache_path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1722,7 +1178,7 @@ def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    writer = StageHDF5Writer(str(cache_path))
+    writer = HDF5ShardWriter(str(cache_path))
     with pytest.raises(RuntimeError, match="Cache source mismatch"):
         writer.write_stage(
             "graph_spice",
@@ -1737,10 +1193,10 @@ def test_stage_hdf5_writer_rejects_mismatched_source(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
+def test_hdf5_shard_writer_splits_batch_by_source(tmp_path):
     """A mixed-source batch should be routed into one cache file per source."""
     output = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(output), overwrite=True)
+    writer = HDF5ShardWriter(str(output), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1764,7 +1220,7 @@ def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
         assert out_file["source"].attrs["file_name"] == "source_a.root"
         assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
         np.testing.assert_array_equal(
-            stage_product_values(
+            shard_product_values(
                 out_file["stages"]["deghosting"], "source_file_entry_index"
             ),
             [5],
@@ -1774,24 +1230,24 @@ def test_stage_hdf5_writer_splits_batch_by_source(tmp_path):
         assert out_file["source"].attrs["file_name"] == "source_b.root"
         assert out_file["stages"]["deghosting"]["info"].attrs["complete"]
         np.testing.assert_array_equal(
-            stage_product_values(
+            shard_product_values(
                 out_file["stages"]["deghosting"], "source_file_entry_index"
             ),
             [6],
         )
 
 
-def test_stage_hdf5_writer_overwrite_removes_existing_output(hdf5_output):
+def test_hdf5_shard_writer_overwrite_removes_existing_output(hdf5_output):
     """Overwrite should remove an existing target cache file eagerly."""
     open(hdf5_output, "a", encoding="utf-8").close()
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, overwrite=True)
     assert not os.path.exists(hdf5_output)
     writer.close()
 
 
-def test_stage_hdf5_writer_close_swallows_handle_errors(hdf5_output, monkeypatch):
+def test_hdf5_shard_writer_close_swallows_handle_errors(hdf5_output):
     """Writer cleanup should clear state even if one handle raises on close."""
-    writer = StageHDF5Writer(hdf5_output)
+    writer = HDF5ShardWriter(hdf5_output)
 
     class BadHandle:
         def close(self):
@@ -1802,45 +1258,32 @@ def test_stage_hdf5_writer_close_swallows_handle_errors(hdf5_output, monkeypatch
 
     writer._handles["all"] = BadHandle()
     writer._handle_pid = 123
-    sidecar_path = f"{hdf5_output}.sidecar"
-    open(sidecar_path, "a", encoding="utf-8").close()
-    writer._sidecar_paths[(hdf5_output, "stage")] = sidecar_path
-    real_remove = os.remove
-
-    def fail_sidecar_remove(path):
-        if path == sidecar_path:
-            raise OSError("boom")
-        return real_remove(path)
-
-    monkeypatch.setattr("spine.io.write.stage_hdf5.file.os.remove", fail_sidecar_remove)
     writer.close()
     assert writer._handles == {}
     assert writer._handle_pid is None
-    assert os.path.exists(sidecar_path)
-    real_remove(sidecar_path)
 
 
-def test_stage_hdf5_writer_rejects_pid_change(hdf5_output, monkeypatch):
+def test_hdf5_shard_writer_rejects_pid_change(hdf5_output, monkeypatch):
     """Persistent staged-writer handles should stay process-local."""
-    writer = StageHDF5Writer(hdf5_output)
+    writer = HDF5ShardWriter(hdf5_output)
     writer._handle_pid = 1
-    monkeypatch.setattr("spine.io.write.stage_hdf5.file.os.getpid", lambda: 2)
+    monkeypatch.setattr("spine.io.cache.backend.hdf5.file.os.getpid", lambda: 2)
     with pytest.raises(RuntimeError, match="process-local"):
         writer._check_handle_pid()
 
 
-def test_stage_hdf5_writer_open_handle_keep_open_false(hdf5_output):
+def test_hdf5_shard_writer_open_handle_keep_open_false(hdf5_output):
     """Disabling persistent handles should return a close-on-use handle."""
-    writer = StageHDF5Writer(hdf5_output, keep_open=False, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, keep_open=False, overwrite=True)
     handle, should_close = writer._open_handle(hdf5_output)
     assert should_close is True
     handle.close()
     writer.close()
 
 
-def test_stage_hdf5_writer_open_handle_reopens_invalid_cached_handle(hdf5_output):
+def test_hdf5_shard_writer_open_handle_reopens_invalid_cached_handle(hdf5_output):
     """Persistent handle lookup should reopen invalid cached handles."""
-    writer = StageHDF5Writer(hdf5_output, overwrite=True)
+    writer = HDF5ShardWriter(hdf5_output, overwrite=True)
     handle, _ = writer._open_handle(hdf5_output)
     handle.close()
     reopened, should_close = writer._open_handle(hdf5_output)
@@ -1849,9 +1292,9 @@ def test_stage_hdf5_writer_open_handle_reopens_invalid_cached_handle(hdf5_output
     writer.close()
 
 
-def test_stage_hdf5_writer_get_batch_source_info_edges(hdf5_output):
+def test_hdf5_shard_writer_get_batch_source_info_edges(hdf5_output):
     """Source provenance extraction should cover missing, scalar, and bad inputs."""
-    writer = StageHDF5Writer(hdf5_output)
+    writer = HDF5ShardWriter(hdf5_output)
     with pytest.raises(KeyError, match="Missing keys"):
         writer.get_batch_source_info({"index": np.asarray([0])})
 
@@ -1892,12 +1335,12 @@ def test_stage_hdf5_writer_get_batch_source_info_edges(hdf5_output):
         )
 
 
-def test_stage_hdf5_writer_ensure_source_group_existing_matches_and_mismatches(
+def test_hdf5_shard_writer_ensure_source_group_existing_matches_and_mismatches(
     tmp_path,
 ):
     """Existing source groups should validate cache-file provenance."""
     path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer._ensure_stage_file(str(path))
     handle, should_close = writer._open_handle(str(path))
     try:
@@ -1919,10 +1362,10 @@ def test_stage_hdf5_writer_ensure_source_group_existing_matches_and_mismatches(
         writer.close()
 
 
-def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
+def test_hdf5_shard_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
     """Single-entry normalization and skip-key filtering should both work."""
     path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     batch, batch_size, stage_state = writer._prepare_batch(
         {
             "index": np.int64(0),
@@ -1938,7 +1381,7 @@ def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
     assert batch_size == 1
     assert isinstance(batch["index"], list)
     assert stage_state is not None
-    state = StageHDF5Writer(str(path), overwrite=True)
+    state = HDF5ShardWriter(str(path), overwrite=True)
     state.skip_keys = ["dummy_data"]
     _, _, stage_state = state._prepare_batch(batch, None)
     assert "dummy_data" not in stage_state.keys
@@ -1947,10 +1390,10 @@ def test_stage_hdf5_writer_prepare_batch_scalar_and_skip_keys(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
+def test_hdf5_shard_writer_output_path_and_split_missing_keys(tmp_path):
     """Output-path resolution and split validation should cover edge paths."""
     path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     assert writer.get_output_path({"file_name": "source.root"}) == str(path)
     assert writer.get_output_path({"file_name": "source.root"}, True).endswith(
         "source_stage.h5"
@@ -1960,25 +1403,43 @@ def test_stage_hdf5_writer_output_path_and_split_missing_keys(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_uses_explicit_directory(tmp_path):
+def test_hdf5_shard_writer_uses_explicit_directory(tmp_path):
     """Stage cache output paths should honor an explicit output directory."""
     directory = tmp_path / "cache_dir"
-    writer = StageHDF5Writer(
+    source_info = {
+        "file_name": "source.root",
+        "file_size": 10,
+        "file_mtime_ns": 20,
+    }
+    writer = HDF5ShardWriter(
         str(tmp_path / "cache.h5"), overwrite=True, directory=str(directory)
     )
-    assert writer.get_output_path({"file_name": "source.root"}) == os.path.join(
-        directory, "cache.h5"
-    )
-    assert writer.get_output_path({"file_name": "source.root"}, True) == os.path.join(
+    assert writer.get_output_path(source_info) == os.path.join(directory, "cache.h5")
+    assert writer.get_output_path(source_info, True) == os.path.join(
         directory, "source_stage.h5"
     )
     writer.close()
 
+    writer = HDF5ShardWriter(
+        str(tmp_path / "cache.h5"),
+        directory=str(directory),
+        source_id_names=True,
+    )
+    shard_path = writer.get_output_path(source_info)
+    assert os.path.dirname(shard_path) == str(directory)
+    assert os.path.basename(shard_path) != "source_stage.h5"
+    writer.close()
 
-def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
+    writer = HDF5ShardWriter(str(tmp_path / "cache.h5"), source_id_names=True)
+    with pytest.raises(ValueError, match="requires an output directory"):
+        writer.get_output_path(source_info)
+    writer.close()
+
+
+def test_hdf5_shard_writer_accepts_prefix_with_directory(tmp_path):
     """Stage cache naming should support prefix-based defaults under a new directory."""
     directory = tmp_path / "cache_dir"
-    writer = StageHDF5Writer(
+    writer = HDF5ShardWriter(
         file_name=None,
         prefix=["input.root"],
         overwrite=True,
@@ -1995,10 +1456,10 @@ def test_stage_hdf5_writer_accepts_prefix_with_directory(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_creates_missing_output_directory(tmp_path):
+def test_hdf5_shard_writer_creates_missing_output_directory(tmp_path):
     """Stage cache writes should create a configured output directory."""
     directory = tmp_path / "missing" / "cache"
-    writer = StageHDF5Writer(
+    writer = HDF5ShardWriter(
         file_name=None,
         prefix=["source.root"],
         overwrite=True,
@@ -2019,28 +1480,19 @@ def test_stage_hdf5_writer_creates_missing_output_directory(tmp_path):
     assert (directory / "source_stage.h5").is_file()
 
 
-def test_stage_hdf5_writer_requires_split_mode(tmp_path):
+def test_hdf5_shard_writer_requires_split_mode(tmp_path):
     """Stage caches should reject non-split writer configuration."""
-    writer = StageHDF5Writer(str(tmp_path / "cache.h5"))
+    writer = HDF5ShardWriter(str(tmp_path / "cache.h5"))
     assert writer.split is True
     writer.close()
 
     with pytest.raises(ValueError, match="split=True"):
-        StageHDF5Writer(str(tmp_path / "cache.h5"), split=False)
-
-    with pytest.raises(ValueError, match="cannot overwrite an entire cache"):
-        StageHDF5Writer(str(tmp_path / "cache.h5"), sidecar=True, overwrite=True)
-
-    with pytest.raises(ValueError, match="requires `sidecar=True`"):
-        StageHDF5Writer(
-            str(tmp_path / "cache.h5"),
-            target_file_paths=[str(tmp_path / "target.h5")],
-        )
+        HDF5ShardWriter(str(tmp_path / "cache.h5"), split=False)
 
 
-def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
+def test_hdf5_shard_writer_split_batch_preserves_scalar_values(tmp_path):
     """Source splitting should preserve scalar-valued batch metadata."""
-    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    writer = HDF5ShardWriter(str(tmp_path / "cache.h5"), overwrite=True)
     groups = writer.split_batch_by_source(
         {
             "index": np.asarray([0, 1]),
@@ -2056,9 +1508,9 @@ def test_stage_hdf5_writer_split_batch_preserves_scalar_values(tmp_path):
     writer.close()
 
 
-def test_stage_hdf5_writer_uses_source_paths_for_single_source_batches(tmp_path):
+def test_hdf5_shard_writer_uses_source_paths_for_single_source_batches(tmp_path):
     """Single-source batches from different files should still use distinct cache paths."""
-    writer = StageHDF5Writer(
+    writer = HDF5ShardWriter(
         file_name=str(tmp_path / "cache.h5"),
         prefix=["train_000.root", "train_001.root"],
         overwrite=True,
@@ -2088,10 +1540,10 @@ def test_stage_hdf5_writer_uses_source_paths_for_single_source_batches(tmp_path)
     writer.close()
 
 
-def test_stage_hdf5_writer_stage_group_existing_paths_and_flush(tmp_path):
+def test_hdf5_shard_writer_stage_group_existing_paths_and_flush(tmp_path):
     """Existing-stage update branches and flush bookkeeping should be covered."""
     path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True, flush_frequency=1)
+    writer = HDF5ShardWriter(str(path), overwrite=True, flush_frequency=1)
     batch = {
         "index": np.asarray([0]),
         "source_file_name": np.asarray(["source.root"]),
@@ -2109,7 +1561,7 @@ def test_stage_hdf5_writer_stage_group_existing_paths_and_flush(tmp_path):
         assert "cfg" in info
 
 
-def test_stage_hdf5_writer_recovers_incomplete_stage_across_sessions(tmp_path):
+def test_hdf5_shard_writer_recovers_incomplete_stage_across_sessions(tmp_path):
     """A new writer should rebuild only the incomplete stage it owns."""
     path = tmp_path / "cache.h5"
     batch = {
@@ -2119,13 +1571,13 @@ def test_stage_hdf5_writer_recovers_incomplete_stage_across_sessions(tmp_path):
         "source_file_mtime_ns": np.asarray([20]),
         "dummy_data": [np.asarray([[1.0, 2.0]])],
     }
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage("upstream", batch)
     writer.finalize_stage("upstream")
     writer.write_stage("deghosting", batch)
     writer.close()
 
-    writer = StageHDF5Writer(str(path))
+    writer = HDF5ShardWriter(str(path))
     replacement = dict(batch)
     replacement["index"] = np.asarray([1])
     replacement["dummy_data"] = [np.asarray([[3.0, 4.0]])]
@@ -2137,18 +1589,18 @@ def test_stage_hdf5_writer_recovers_incomplete_stage_across_sessions(tmp_path):
         stages = out_file["stages"]
         assert len(stages["upstream"]["events"]) == 1
         np.testing.assert_array_equal(
-            stage_product_values(stages["upstream"], "dummy_data"),
+            shard_product_values(stages["upstream"], "dummy_data"),
             np.asarray([[1.0, 2.0]]),
         )
         assert len(stages["deghosting"]["events"]) == 1
         np.testing.assert_array_equal(
-            stage_product_values(stages["deghosting"], "dummy_data"),
+            shard_product_values(stages["deghosting"], "dummy_data"),
             np.asarray([[3.0, 4.0]]),
         )
         assert stages["deghosting"]["info"].attrs["complete"]
 
 
-def test_stage_hdf5_writer_configured_overwrite_is_one_time(tmp_path):
+def test_hdf5_shard_writer_configured_overwrite_is_one_time(tmp_path):
     """Driver-facing overwrite should replace a complete stage only once."""
     path = tmp_path / "cache.h5"
     batch = {
@@ -2158,17 +1610,17 @@ def test_stage_hdf5_writer_configured_overwrite_is_one_time(tmp_path):
         "source_file_mtime_ns": np.asarray([20]),
         "dummy_data": [np.asarray([[1.0, 2.0]])],
     }
-    writer = StageHDF5Writer(str(path), stage="deghosting", overwrite=True)
+    writer = HDF5ShardWriter(str(path), stage="deghosting", overwrite=True)
     writer(batch)
     writer.finalize()
     writer.close()
 
-    writer = StageHDF5Writer(str(path), stage="deghosting")
+    writer = HDF5ShardWriter(str(path), stage="deghosting")
     with pytest.raises(RuntimeError, match="already complete"):
         writer(batch)
     writer.close()
 
-    writer = StageHDF5Writer(str(path), stage="deghosting", overwrite_stage=True)
+    writer = HDF5ShardWriter(str(path), stage="deghosting", overwrite_stage=True)
     for index, values in ((1, [3.0, 4.0]), (2, [5.0, 6.0])):
         replacement = dict(batch)
         replacement["index"] = np.asarray([index])
@@ -2181,15 +1633,15 @@ def test_stage_hdf5_writer_configured_overwrite_is_one_time(tmp_path):
         stage = out_file["stages"]["deghosting"]
         assert len(stage["events"]) == 2
         np.testing.assert_array_equal(
-            stage_product_values(stage, "dummy_data"),
+            shard_product_values(stage, "dummy_data"),
             np.asarray([[3.0, 4.0], [5.0, 6.0]]),
         )
 
 
-def test_stage_hdf5_writer_keep_open_false_closes_in_write_finalize_and_list(tmp_path):
+def test_hdf5_shard_writer_keep_open_false_closes_in_write_finalize(tmp_path):
     """Close-on-use mode should exercise all staged-writer close branches."""
     path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True, keep_open=False)
+    writer = HDF5ShardWriter(str(path), overwrite=True, keep_open=False)
     batch = {
         "index": np.asarray([0]),
         "source_file_name": np.asarray(["source.root"]),
@@ -2199,13 +1651,12 @@ def test_stage_hdf5_writer_keep_open_false_closes_in_write_finalize_and_list(tmp
     }
     writer.write_stage("deghosting", batch)
     writer.finalize_stage("deghosting")
-    assert writer.list_stages() == ("deghosting",)
     writer.close()
 
 
-def test_stage_hdf5_writer_finalize_and_list_ignore_missing_stage(tmp_path):
+def test_hdf5_shard_writer_finalize_ignore_missing_stage(tmp_path):
     """Finalize/list helpers should tolerate files without the requested stage."""
-    writer = StageHDF5Writer(str(tmp_path / "cache.h5"), overwrite=True)
+    writer = HDF5ShardWriter(str(tmp_path / "cache.h5"), overwrite=True)
     batch = {
         "index": np.asarray([0, 1]),
         "source_file_name": np.asarray(["a.root", "b.root"]),
@@ -2219,7 +1670,6 @@ def test_stage_hdf5_writer_finalize_and_list_ignore_missing_stage(tmp_path):
     missing_path = sorted(writer._known_files)[0]
     del writer._handles[missing_path]["stages"]["deghosting"]
     writer.finalize_stage("deghosting")
-    assert writer.list_stages() == ("deghosting",)
     writer.close()
 
 

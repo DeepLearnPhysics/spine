@@ -1,11 +1,11 @@
-"""In-memory schema state for one staged HDF5 product namespace."""
+"""In-memory schema state for one stage-local HDF5 product namespace."""
 
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from ..hdf5 import HDF5Writer
+from ....write.hdf5 import HDF5Writer
 
 __all__ = ["StageState"]
 
@@ -15,7 +15,7 @@ class StageState:
     """Describe the serialization schema and progress of one stage.
 
     A regular :class:`HDF5Writer` maintains one flat schema for an output
-    file. A staged cache instead owns an independent schema under each named
+    file. A cache shard instead owns an independent schema under each named
     stage, so the writer stores this state while switching between stages.
 
     Attributes

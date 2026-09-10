@@ -1,4 +1,4 @@
-"""File lifecycle and source-provenance helpers for staged HDF5 output."""
+"""File lifecycle and source-provenance helpers for cache HDF5 shards."""
 
 from __future__ import annotations
 
@@ -10,47 +10,40 @@ import numpy as np
 
 from spine.version import __version__
 
-from ..hdf5.common import decode_string_attribute, require_group
+from ....write.hdf5.common import decode_string_attribute, require_group
 
 __all__ = ["StageFileMixin"]
 
 
 class StageFileMixin:
-    """Manage staged-cache files, handles, and source provenance.
+    """Manage cache-shard files, handles, and source provenance.
 
     The mixin deliberately contains no output-product serialization. It owns
-    the physical file contract shared by direct and sidecar writes: lazy file
-    creation, process-local handles, container validation, and immutable
-    source-file routing.
+    the physical shard contract: lazy file creation, process-local handles,
+    container validation, and immutable source-file routing.
     """
 
     # Concrete-writer interface required by this mixin. These declarations
-    # are type-only: ``StageHDF5Writer`` initializes the state, while the HDF5
+    # are type-only: the shard writer initializes the state, while the HDF5
     # base class supplies the shared path helper and format constants.
     name: str
     legacy_format_version: int
     current_format_version: int
     format_version: int
     keep_open: bool
-    sidecar: bool
     source_info: dict[str, Any] | None
 
     _handle_pid: int | None
     _handles: dict[str, h5py.File]
     _initialized_files: set[str]
     _known_files: set[str]
-    _sidecar_paths: dict[tuple[str, str], str]
-    _sidecar_replace: dict[tuple[str, str], bool]
-    _target_by_source: dict[tuple[str, int, int], str]
-
     _ensure_parent_dir: Callable[[str], None]
 
     def close(self) -> None:
-        """Close persistent handles and discard uncommitted sidecars.
+        """Close and forget all persistent shard handles.
 
-        Canonical caches are never modified by this cleanup. If finalization
-        did not successfully merge a temporary stage, its sidecar is removed.
-        This method may be called repeatedly.
+        The method is idempotent and tolerates a partially initialized writer,
+        which allows it to serve both explicit cleanup and destructor paths.
         """
         # ``__del__`` may reach this method after constructor validation
         # rejected a partially initialized writer.
@@ -63,22 +56,57 @@ class StageFileMixin:
         self._handles = {}
         self._handle_pid = None
 
-        # A sidecar that remains mapped was never committed successfully.
-        sidecar_paths = getattr(self, "_sidecar_paths", {})
-        for sidecar_path in set(sidecar_paths.values()):
+    def _close_path_handle(self, file_path: str) -> None:
+        """Close and forget one persistent shard handle, if present.
+
+        Parameters
+        ----------
+        file_path : str
+            Physical shard path whose cached append handle should be released.
+        """
+        handle = self._handles.pop(file_path, None)
+        if handle is not None:
             try:
-                if os.path.exists(sidecar_path):
-                    os.remove(sidecar_path)
-            except OSError:
+                handle.close()
+            except (OSError, RuntimeError, ValueError):
                 pass
 
-        self._sidecar_paths = {}
-        self._sidecar_replace = {}
+    @staticmethod
+    def _get_stage_write_path(
+        target_path: str,
+        stage: str,
+        source_info: dict[str, Any],
+        overwrite_stage: bool,
+    ) -> str:
+        """Return the transaction-private shard selected by source routing.
+
+        The logical cache repository already owns publication and replacement
+        policy, so the physical backend writes directly to its pending shard.
+        The remaining arguments document the caller's complete routing state.
+
+        Parameters
+        ----------
+        target_path : str
+            Source-routed transaction-private output path.
+        stage : str
+            Logical stage being written.
+        source_info : dict
+            Immutable identity of the source represented by the shard.
+        overwrite_stage : bool
+            Requested replacement policy, handled by the repository layer.
+
+        Returns
+        -------
+        str
+            Unchanged transaction-private output path.
+        """
+        del stage, source_info, overwrite_stage
+        return target_path
 
     def _check_handle_pid(self) -> None:
         """Ensure persistent writer handles remain process-local.
 
-        Stage caches are not safe to append to through a writer instance that
+        Cache shards are not safe to append to through a writer instance that
         has crossed a process boundary. This method enforces the same
         single-process handle ownership contract as the regular HDF5 writer.
         """
@@ -89,12 +117,17 @@ class StageFileMixin:
 
         if self._handle_pid != current_pid:
             raise RuntimeError(
-                "StageHDF5Writer file handles are process-local and cannot be "
+                "Cache shard writer handles are process-local and cannot be "
                 "reused across process boundaries."
             )
 
     def _open_handle(self, file_path: str) -> tuple[h5py.File, bool]:
         """Return an appendable cache-file handle for one output path.
+
+        Parameters
+        ----------
+        file_path : str
+            Physical shard path to open or reuse.
 
         Returns
         -------
@@ -115,29 +148,21 @@ class StageFileMixin:
         return handle, False
 
     def _ensure_stage_file(self, file_path: str) -> None:
-        """Initialize one staged-cache container on first use.
+        """Initialize one cache-shard container on first use.
 
         Administrative groups are created lazily because output paths depend
         on source provenance and not every source is necessarily touched by a
-        write call. A zero-length sidecar path reserved with ``mkstemp`` is
-        treated as a new file rather than an existing HDF5 container.
+        write call.
 
         Parameters
         ----------
         file_path : str
-            Physical direct-output or sidecar path to initialize.
+            Physical shard path to initialize.
         """
         if file_path in self._initialized_files:
             return
 
         file_exists = os.path.exists(file_path)
-        reserved_sidecar = (
-            file_exists
-            and self.sidecar
-            and file_path in self._sidecar_paths.values()
-            and os.path.getsize(file_path) == 0
-        )
-        file_exists = file_exists and not reserved_sidecar
         mode = "a" if file_exists else "w"
         if mode == "w":
             self._ensure_parent_dir(file_path)
@@ -168,9 +193,9 @@ class StageFileMixin:
         self._known_files.add(file_path)
 
     def _validate_stage_file(self, out_file: h5py.File, file_path: str) -> None:
-        """Require an existing cache file to use the staged V2 layout.
+        """Require an existing cache shard to use the stage-aware V2 layout.
 
-        Staged caches are disposable internal products, so legacy files are
+        Cache shards are disposable internal products, so legacy files are
         rejected with an instruction to rebuild rather than upgraded in place.
 
         Parameters
@@ -179,10 +204,16 @@ class StageFileMixin:
             Existing cache file opened for reading or append.
         file_path : str
             Path included in validation errors.
+
+        Raises
+        ------
+        ValueError
+            If the container metadata does not identify a compatible V2 cache
+            shard with a top-level stage namespace.
         """
         if "info" not in out_file:
             raise ValueError(
-                f"Cannot append staged cache '{file_path}': missing info group."
+                f"Cannot append cache shard '{file_path}': missing info group."
             )
 
         info = require_group(out_file, "info")
@@ -190,109 +221,17 @@ class StageFileMixin:
         stored_version = int(np.asarray(raw_version).item())
         if stored_version != self.current_format_version:
             raise ValueError(
-                f"Staged cache '{file_path}' uses HDF5 format version "
+                f"Cache shard '{file_path}' uses HDF5 format version "
                 f"{stored_version}; rebuild it with version 2."
             )
 
         stored_format = decode_string_attribute(info.attrs.get("format"), "format")
         if stored_format != self.name:
             raise ValueError(
-                f"Cannot append staged cache '{file_path}': expected format "
+                f"Cannot append cache shard '{file_path}': expected format "
                 f"'{self.name}', found '{stored_format}'."
             )
         require_group(out_file, "stages")
-
-    @staticmethod
-    def _source_identity(source_info: dict[str, Any]) -> tuple[str, int, int]:
-        """Return the immutable identity tuple used to route one source file.
-
-        Parameters
-        ----------
-        source_info : dict
-            Metadata containing ``file_name``, ``file_size``, and
-            ``file_mtime_ns``.
-
-        Returns
-        -------
-        tuple[str, int, int]
-            Normalized source name, size, and modification timestamp.
-        """
-        return (
-            str(source_info["file_name"]),
-            int(source_info["file_size"]),
-            int(source_info["file_mtime_ns"]),
-        )
-
-    @staticmethod
-    def _read_source_info(in_file: h5py.File, file_path: str) -> dict[str, Any]:
-        """Read canonical source provenance from a staged cache.
-
-        Parameters
-        ----------
-        in_file : h5py.File
-            Open staged-cache handle.
-        file_path : str
-            Cache path used in validation errors.
-
-        Returns
-        -------
-        dict[str, Any]
-            Normalized source name, size, and modification timestamp.
-
-        Raises
-        ------
-        ValueError
-            If the source group or any required attribute is absent.
-        """
-        if "source" not in in_file:
-            raise ValueError(f"Staged cache '{file_path}' is missing its source group.")
-
-        source = require_group(in_file, "source")
-        required = ("file_name", "file_size", "file_mtime_ns")
-        missing = [key for key in required if key not in source.attrs]
-        if missing:
-            raise ValueError(
-                f"Staged cache '{file_path}' is missing source attributes {missing}."
-            )
-
-        return {
-            "file_name": decode_string_attribute(
-                source.attrs["file_name"], "file_name"
-            ),
-            # HDF5's typing permits array-valued attributes. These fields are
-            # scalar by contract, so normalize their zero-dimensional NumPy
-            # representation before converting to a Python integer.
-            "file_size": int(np.asarray(source.attrs["file_size"]).item()),
-            "file_mtime_ns": int(np.asarray(source.attrs["file_mtime_ns"]).item()),
-        }
-
-    def _index_target_files(self, file_paths: list[str]) -> None:
-        """Index canonical staged caches by persisted source provenance.
-
-        Parameters
-        ----------
-        file_paths : list[str]
-            Existing staged-cache paths that may receive the new stage.
-
-        Raises
-        ------
-        ValueError
-            If a target is invalid or multiple targets claim the same source.
-        """
-        for file_path in file_paths:
-            normalized_path = os.path.abspath(os.fspath(file_path))
-            with h5py.File(normalized_path, "r") as in_file:
-                self._validate_stage_file(in_file, normalized_path)
-                source_info = self._read_source_info(in_file, normalized_path)
-
-            identity = self._source_identity(source_info)
-            previous = self._target_by_source.get(identity)
-            if previous is not None and previous != normalized_path:
-                raise ValueError(
-                    "Multiple staged caches claim source provenance "
-                    f"{identity}: '{previous}' and '{normalized_path}'."
-                )
-            self._target_by_source[identity] = normalized_path
 
     def get_batch_source_info(self, data: dict[str, Any]) -> dict[str, Any]:
         """Extract cache-file source provenance from one normalized batch.
@@ -307,12 +246,20 @@ class StageFileMixin:
         dict[str, Any]
             File-level source identity stored under the top-level ``/source``
             group.
+
+        Raises
+        ------
+        KeyError
+            If the batch does not contain complete source-file provenance.
+        ValueError
+            If a provenance field is empty or varies within the shard batch.
         """
         required = ("source_file_name", "source_file_size", "source_file_mtime_ns")
         missing = [key for key in required if key not in data]
         if missing:
             raise KeyError(
-                "StageHDF5Writer requires reader-provided source provenance. "
+                "The cache HDF5 backend requires reader-provided source "
+                "provenance. "
                 f"Missing keys: {missing}."
             )
 
@@ -339,7 +286,7 @@ class StageFileMixin:
                 for element in array[1:]
             ):
                 raise ValueError(
-                    "StageHDF5Writer expects one source file per cache file. "
+                    "The cache HDF5 backend expects one source per shard. "
                     f"Batch key '{key}' contains multiple values."
                 )
             values[key] = first
@@ -362,7 +309,7 @@ class StageFileMixin:
         Parameters
         ----------
         out_file : h5py.File
-            Open staged-cache output file.
+            Open cache-shard output file.
         data : dict
             Normalized batch containing source provenance.
         file_path : str

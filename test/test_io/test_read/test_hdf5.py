@@ -11,16 +11,18 @@ from yaml.parser import ParserError
 import spine.data
 from spine.data import ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
+from spine.io.cache.backend.hdf5.reader import HDF5ShardReader
+from spine.io.cache.backend.hdf5.writer import HDF5ShardWriter
 from spine.io.filter import eligible_cache_entries_from_manifest
 from spine.io.filter.larcv import LArCVEntryInspector
-from spine.io.read import HDF5Reader, StageHDF5Reader
+from spine.io.read import HDF5Reader
 from spine.io.read.hdf5.common import (
     decode_string_attribute,
     require_dataset,
     require_group,
 )
 from spine.io.read.hdf5.product import _ProductHandles
-from spine.io.write import HDF5Writer, StageHDF5Writer
+from spine.io.write import HDF5Writer
 
 
 def _read_hdf5_entry(path, queue):
@@ -31,9 +33,9 @@ def _read_hdf5_entry(path, queue):
     reader.close()
 
 
-def _write_stage_cache(path, cfg=None):
-    """Write one valid staged V2 cache for reader-focused tests."""
-    writer = StageHDF5Writer(str(path), overwrite=True)
+def _write_cache_shard(path, cfg=None):
+    """Write one valid cache-shard V2 cache for reader-focused tests."""
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -299,13 +301,13 @@ def test_hdf5_v1_reader_rejects_missing_event_provenance_reference(tmp_path):
         HDF5Reader(str(cache), entry_filter=str(manifest))
 
 
-def test_stage_hdf5_reader_applies_larcv_manifest_through_provenance(tmp_path):
-    """A full staged cache should select physical rows by raw source entry."""
+def test_hdf5_shard_reader_applies_larcv_manifest_through_provenance(tmp_path):
+    """A full cache shard should select physical rows by raw source entry."""
     source = tmp_path / "source.root"
     source.write_bytes(b"source")
     source_stat = source.stat()
     cache = tmp_path / "stage-cache.h5"
-    writer = StageHDF5Writer(str(cache), overwrite=True)
+    writer = HDF5ShardWriter(str(cache), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -322,7 +324,7 @@ def test_stage_hdf5_reader_applies_larcv_manifest_through_provenance(tmp_path):
 
     manifest = tmp_path / "accepted.yaml"
     _write_source_manifest(manifest, source, 6, rejected=[1, 2, 3])
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting",
         str(cache),
         build_classes=False,
@@ -336,15 +338,15 @@ def test_stage_hdf5_reader_applies_larcv_manifest_through_provenance(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_source_manifest_without_entry_provenance(
+def test_hdf5_shard_reader_rejects_source_manifest_without_entry_provenance(
     tmp_path,
 ):
-    """A staged cache must persist raw entry indexes for manifest mapping."""
+    """A cache shard must persist raw entry indexes for manifest mapping."""
     source = tmp_path / "source.root"
     source.write_bytes(b"source")
     source_stat = source.stat()
     cache = tmp_path / "stage-cache.h5"
-    writer = StageHDF5Writer(str(cache), overwrite=True)
+    writer = HDF5ShardWriter(str(cache), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -361,14 +363,14 @@ def test_stage_hdf5_reader_rejects_source_manifest_without_entry_provenance(
     _write_source_manifest(manifest, source, 1, rejected=[])
 
     with pytest.raises(KeyError, match="source_file_entry_index"):
-        StageHDF5Reader("deghosting", str(cache), entry_filter=str(manifest))
+        HDF5ShardReader("deghosting", str(cache), entry_filter=str(manifest))
 
 
-def test_stage_hdf5_reader_rejects_source_manifest_without_file_identity(tmp_path):
+def test_hdf5_shard_reader_rejects_source_manifest_without_file_identity(tmp_path):
     """Staged filtering must not guess a source file from its entry indexes."""
     cache = tmp_path / "stage-cache.h5"
-    _write_stage_cache(cache)
-    reader = StageHDF5Reader.__new__(StageHDF5Reader)
+    _write_cache_shard(cache)
+    reader = HDF5ShardReader.__new__(HDF5ShardReader)
     reader._source_info = [{}]
 
     with (
@@ -1390,13 +1392,13 @@ def test_hdf5_reader_rejects_unknown_format_version(tmp_path):
         HDF5Reader(str(path))
 
 
-def test_stage_hdf5_reader_loads_one_stage(tmp_path):
+def test_hdf5_shard_reader_loads_one_stage(tmp_path):
     """Stage cache reader should load products from one named stage."""
     path = tmp_path / "stage_cache.h5"
     source_path = tmp_path / "source.root"
     source_path.write_bytes(b"source-bytes")
     source_stat = source_path.stat()
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1412,7 +1414,7 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting",
         str(path),
         build_classes=False,
@@ -1428,17 +1430,17 @@ def test_stage_hdf5_reader_loads_one_stage(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_legacy_cache(tmp_path):
-    """Legacy staged caches should fail with a clear rebuild instruction."""
+def test_hdf5_shard_reader_rejects_legacy_cache(tmp_path):
+    """Legacy cache shards should fail with a clear rebuild instruction."""
     path = tmp_path / "legacy.h5"
     with h5py.File(path, "w") as out_file:
         info = out_file.create_group("info")
-        info.attrs["format"] = "stage_hdf5"
+        info.attrs["format"] = "legacy_cache"
         info.attrs["format_version"] = 1
         out_file.create_group("stages")
 
     with pytest.raises(ValueError, match="format version 1.*rebuild"):
-        StageHDF5Reader("deghosting", str(path))
+        HDF5ShardReader("deghosting", str(path))
 
 
 @pytest.mark.parametrize(
@@ -1447,12 +1449,12 @@ def test_stage_hdf5_reader_rejects_legacy_cache(tmp_path):
         ({}, "missing its info group"),
         (
             {"format": "hdf5", "format_version": 2},
-            "format 'hdf5'.*expected 'stage_hdf5'",
+            "format 'hdf5'.*expected 'cache'",
         ),
     ],
 )
-def test_stage_hdf5_reader_rejects_invalid_container(tmp_path, metadata, message):
-    """Readers must reject containers that are not staged V2 caches."""
+def test_hdf5_shard_reader_rejects_invalid_container(tmp_path, metadata, message):
+    """Readers must reject containers that are not cache-shard V2 caches."""
     path = tmp_path / "invalid.h5"
     with h5py.File(path, "w") as out_file:
         if metadata:
@@ -1462,13 +1464,13 @@ def test_stage_hdf5_reader_rejects_invalid_container(tmp_path, metadata, message
         out_file.create_group("stages")
 
     with pytest.raises(ValueError, match=message):
-        StageHDF5Reader("deghosting", str(path))
+        HDF5ShardReader("deghosting", str(path))
 
 
-def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
+def test_hdf5_shard_reader_fills_missing_source_entry_index(tmp_path):
     """Older/minimal stage caches should expose source entry metadata."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1485,7 +1487,7 @@ def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     entry = reader.get(1)
     assert entry["file_entry_index"] == 1
     assert entry["source_file_entry_index"] == 1
@@ -1493,10 +1495,10 @@ def test_stage_hdf5_reader_fills_missing_source_entry_index(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_path):
+def test_hdf5_shard_reader_get_many_reuses_transient_handle(monkeypatch, tmp_path):
     """Staged caches should inherit the batch-scoped file access path."""
     path = tmp_path / "stage_batch.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1514,7 +1516,7 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting",
         str(path),
         build_classes=False,
@@ -1543,7 +1545,7 @@ def test_stage_hdf5_reader_get_many_reuses_transient_handle(monkeypatch, tmp_pat
     ]
 
 
-def test_stage_hdf5_reader_rejects_disagreeing_stage_source_entries(tmp_path):
+def test_hdf5_shard_reader_rejects_disagreeing_stage_source_entries(tmp_path):
     """Referenced stages must describe one shared raw-source event axis."""
     path = tmp_path / "stage_batch.h5"
     source = {
@@ -1553,7 +1555,7 @@ def test_stage_hdf5_reader_rejects_disagreeing_stage_source_entries(tmp_path):
         "source_file_mtime_ns": np.asarray([20, 20]),
         "source_file_entry_index": np.asarray([0, 2]),
     }
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {**source, "data_adapt": [np.asarray([[1.0]]), np.asarray([[2.0]])]},
@@ -1571,7 +1573,7 @@ def test_stage_hdf5_reader_rejects_disagreeing_stage_source_entries(tmp_path):
         product = out_file["stages"]["graph"]["products"]["source_file_entry_index"]
         product["values"][1] = 5
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         file_keys=str(path),
         stage_map={"data_adapt": "deghosting", "node_features": "graph"},
         keys=("data_adapt", "node_features"),
@@ -1582,10 +1584,10 @@ def test_stage_hdf5_reader_rejects_disagreeing_stage_source_entries(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_nonscalar_source_entries(tmp_path):
+def test_hdf5_shard_reader_rejects_nonscalar_source_entries(tmp_path):
     """Source-entry provenance must contain one integer per cache event."""
     path = tmp_path / "stage_batch.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1606,7 +1608,7 @@ def test_stage_hdf5_reader_rejects_nonscalar_source_entries(tmp_path):
         ]
         product.attrs["scalar"] = False
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting",
         str(path),
         keys=("data_adapt",),
@@ -1617,7 +1619,7 @@ def test_stage_hdf5_reader_rejects_nonscalar_source_entries(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):
+def test_hdf5_shard_reader_batches_all_v2_product_kinds(tmp_path):
     """Contiguous stage reads should rebuild every supported V2 product kind."""
     path = tmp_path / "stage_products.h5"
     tensors = [
@@ -1661,7 +1663,7 @@ def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):
         for index in range(2)
     ]
 
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "graph",
         {
@@ -1681,7 +1683,7 @@ def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):
     writer.finalize_stage("graph")
     writer.close()
 
-    reader = StageHDF5Reader("graph", str(path))
+    reader = HDF5ShardReader("graph", str(path))
     batch = reader.get_many([0, 1])
     reader.close()
 
@@ -1702,10 +1704,10 @@ def test_stage_hdf5_reader_batches_all_v2_product_kinds(tmp_path):
         np.testing.assert_array_equal(event["jagged"][1], jagged[index][1])
 
 
-def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):
+def test_hdf5_shard_reader_rejects_incomplete_stages(tmp_path):
     """Incomplete stages should be rejected by default."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1719,13 +1721,13 @@ def test_stage_hdf5_reader_rejects_incomplete_stages(tmp_path):
     writer.close()
 
     with pytest.raises(RuntimeError, match="marked incomplete"):
-        StageHDF5Reader("deghosting", str(path))
+        HDF5ShardReader("deghosting", str(path))
 
 
-def test_stage_hdf5_reader_can_ignore_incomplete_stages(tmp_path):
+def test_hdf5_shard_reader_can_ignore_incomplete_stages(tmp_path):
     """Incomplete stages can be loaded explicitly when requested."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1738,17 +1740,17 @@ def test_stage_hdf5_reader_can_ignore_incomplete_stages(tmp_path):
     )
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting", str(path), build_classes=False, ignore_incomplete=True
     )
     assert len(reader) == 1
     reader.close()
 
 
-def test_stage_hdf5_reader_auto_discovers_unique_product_stage(tmp_path):
+def test_hdf5_shard_reader_auto_discovers_unique_product_stage(tmp_path):
     """If no stage is specified, unique product matches should be found automatically."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1773,7 +1775,7 @@ def test_stage_hdf5_reader_auto_discovers_unique_product_stage(tmp_path):
     writer.finalize_stage("graph_spice")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         file_keys=str(path), keys=("data_adapt", "fragment_clusts"), build_classes=False
     )
     entry = reader.get(0)
@@ -1782,10 +1784,10 @@ def test_stage_hdf5_reader_auto_discovers_unique_product_stage(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_ambiguous_product_stage(tmp_path):
+def test_hdf5_shard_reader_rejects_ambiguous_product_stage(tmp_path):
     """Auto-discovery should fail if one product exists in multiple stages."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1811,13 +1813,13 @@ def test_stage_hdf5_reader_rejects_ambiguous_product_stage(tmp_path):
     writer.close()
 
     with pytest.raises(ValueError, match="appears in multiple stages"):
-        StageHDF5Reader(file_keys=str(path), keys=("meta",), build_classes=False)
+        HDF5ShardReader(file_keys=str(path), keys=("meta",), build_classes=False)
 
 
-def test_stage_hdf5_reader_reads_empty_source_info(tmp_path):
+def test_hdf5_shard_reader_reads_empty_source_info(tmp_path):
     """Missing top-level source provenance should degrade gracefully."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1834,16 +1836,16 @@ def test_stage_hdf5_reader_reads_empty_source_info(tmp_path):
     with h5py.File(path, "a") as out_file:
         del out_file["source"]
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     entry = reader.get(0)
     assert "source_file_name" not in entry
     reader.close()
 
 
-def test_stage_hdf5_reader_decodes_bytes_source_name(tmp_path):
+def test_hdf5_shard_reader_decodes_bytes_source_name(tmp_path):
     """Byte-encoded source file names should be decoded on read."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1861,14 +1863,14 @@ def test_stage_hdf5_reader_decodes_bytes_source_name(tmp_path):
     with h5py.File(path, "a") as out_file:
         out_file["source"].attrs.modify("file_name", np.bytes_("source.root"))
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     entry = reader.get(0)
     assert entry["source_file_name"] == "source.root"
     assert entry["source_file_entry_index"] == 7
     reader.close()
 
 
-def test_stage_hdf5_reader_read_source_info_decodes_bytes(tmp_path):
+def test_hdf5_shard_reader_read_source_info_decodes_bytes(tmp_path):
     """Byte-valued source attrs should decode through the helper directly."""
     path = tmp_path / "stage_cache.h5"
     with h5py.File(path, "w") as out_file:
@@ -1878,11 +1880,11 @@ def test_stage_hdf5_reader_read_source_info_decodes_bytes(tmp_path):
         source.attrs["file_mtime_ns"] = 20
 
     with h5py.File(path, "r") as in_file:
-        info = StageHDF5Reader.read_source_info(in_file)
+        info = HDF5ShardReader.read_source_info(in_file)
     assert info["source_file_name"] == "source.root"
 
 
-def test_stage_hdf5_reader_rejects_invalid_source_attributes(tmp_path):
+def test_hdf5_shard_reader_rejects_invalid_source_attributes(tmp_path):
     """Source provenance attributes must retain their scalar storage types."""
     path = tmp_path / "stage_cache.h5"
     with h5py.File(path, "w") as out_file:
@@ -1893,7 +1895,7 @@ def test_stage_hdf5_reader_rejects_invalid_source_attributes(tmp_path):
 
     with h5py.File(path, "r") as in_file:
         with pytest.raises(TypeError, match="file_name.*string"):
-            StageHDF5Reader.read_source_info(in_file)
+            HDF5ShardReader.read_source_info(in_file)
 
     with h5py.File(path, "a") as out_file:
         source = out_file["source"]
@@ -1904,10 +1906,10 @@ def test_stage_hdf5_reader_rejects_invalid_source_attributes(tmp_path):
 
     with h5py.File(path, "r") as in_file:
         with pytest.raises(TypeError, match="file_size.*scalar integer"):
-            StageHDF5Reader.read_source_info(in_file)
+            HDF5ShardReader.read_source_info(in_file)
 
 
-def test_stage_hdf5_reader_rejects_non_string_stage_names():
+def test_hdf5_shard_reader_rejects_non_string_stage_names():
     """The stage-name narrower should reject malformed HDF5 iteration keys."""
 
     class InvalidStages:
@@ -1915,13 +1917,13 @@ def test_stage_hdf5_reader_rejects_non_string_stage_names():
             return iter([None])
 
     with pytest.raises(TypeError, match="stage names must be strings"):
-        StageHDF5Reader.list_stage_names(InvalidStages())
+        HDF5ShardReader.list_stage_names(InvalidStages())
 
 
-def test_stage_hdf5_reader_explicit_stage_map_missing_key(tmp_path):
+def test_hdf5_shard_reader_explicit_stage_map_missing_key(tmp_path):
     """Explicit stage maps should fail if the requested product is absent there."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1936,7 +1938,7 @@ def test_stage_hdf5_reader_explicit_stage_map_missing_key(tmp_path):
     writer.close()
 
     with pytest.raises(KeyError, match="does not exist in stage"):
-        StageHDF5Reader(
+        HDF5ShardReader(
             file_keys=str(path),
             stage_map={"fragment_clusts": "deghosting"},
             keys=("fragment_clusts",),
@@ -1944,10 +1946,10 @@ def test_stage_hdf5_reader_explicit_stage_map_missing_key(tmp_path):
         )
 
 
-def test_stage_hdf5_reader_default_stage_missing_key(tmp_path):
+def test_hdf5_shard_reader_default_stage_missing_key(tmp_path):
     """Default-stage resolution should fail if the product is absent there."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1962,7 +1964,7 @@ def test_stage_hdf5_reader_default_stage_missing_key(tmp_path):
     writer.close()
 
     with pytest.raises(KeyError, match="does not exist in stage"):
-        StageHDF5Reader(
+        HDF5ShardReader(
             "deghosting",
             str(path),
             keys=("fragment_clusts",),
@@ -1970,10 +1972,10 @@ def test_stage_hdf5_reader_default_stage_missing_key(tmp_path):
         )
 
 
-def test_stage_hdf5_reader_default_stage_resolves_requested_key(tmp_path):
+def test_hdf5_shard_reader_default_stage_resolves_requested_key(tmp_path):
     """Default-stage resolution should accept requested products present there."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -1987,17 +1989,17 @@ def test_stage_hdf5_reader_default_stage_resolves_requested_key(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting", str(path), keys=("data_adapt",), build_classes=False
     )
     np.testing.assert_array_equal(reader.get(0)["data_adapt"], np.asarray([[1.0, 2.0]]))
     reader.close()
 
 
-def test_stage_hdf5_reader_explicit_stage_map_resolves_key(tmp_path):
+def test_hdf5_shard_reader_explicit_stage_map_resolves_key(tmp_path):
     """Explicit stage maps should accept products that exist in that stage."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -2011,7 +2013,7 @@ def test_stage_hdf5_reader_explicit_stage_map_resolves_key(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         file_keys=str(path),
         stage_map={"data_adapt": "deghosting"},
         keys=("data_adapt",),
@@ -2021,10 +2023,10 @@ def test_stage_hdf5_reader_explicit_stage_map_resolves_key(tmp_path):
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_missing_product(tmp_path):
+def test_hdf5_shard_reader_rejects_missing_product(tmp_path):
     """Automatic discovery should fail when no stage contains the product."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -2039,16 +2041,16 @@ def test_stage_hdf5_reader_rejects_missing_product(tmp_path):
     writer.close()
 
     with pytest.raises(KeyError, match="Could not find requested product"):
-        StageHDF5Reader(
+        HDF5ShardReader(
             file_keys=str(path), keys=("fragment_clusts",), build_classes=False
         )
 
 
-def test_stage_hdf5_reader_validate_stage_lengths_edges():
+def test_hdf5_shard_reader_validate_stage_lengths_edges():
     """Stage-length validation should handle empty and mismatched inputs."""
-    assert StageHDF5Reader.validate_stage_lengths("dummy.h5", {}) == 0
+    assert HDF5ShardReader.validate_stage_lengths("dummy.h5", {}) == 0
     with pytest.raises(ValueError, match="do not expose the same number of entries"):
-        StageHDF5Reader.validate_stage_lengths(
+        HDF5ShardReader.validate_stage_lengths(
             "dummy.h5", {"deghosting": 1, "graph_spice": 2}
         )
 
@@ -2061,61 +2063,61 @@ def test_stage_hdf5_reader_validate_stage_lengths_edges():
         ("1: value", "keys must be strings"),
     ],
 )
-def test_stage_hdf5_reader_process_cfg_rejects_invalid_payload(tmp_path, cfg, message):
+def test_hdf5_shard_reader_process_cfg_rejects_invalid_payload(tmp_path, cfg, message):
     """Malformed stage configuration payloads should fail explicitly."""
     path = tmp_path / "stage_cache.h5"
-    _write_stage_cache(path, cfg={})
+    _write_cache_shard(path, cfg={})
     with h5py.File(path, "a") as out_file:
         attrs = out_file["stages"]["deghosting"]["info"].attrs
         del attrs["cfg"]
         attrs["cfg"] = cfg
 
     with pytest.raises(TypeError, match=message):
-        StageHDF5Reader("deghosting", str(path), build_classes=False)
+        HDF5ShardReader("deghosting", str(path), build_classes=False)
 
 
-def test_stage_hdf5_reader_process_cfg_parser_error_returns_none(monkeypatch, tmp_path):
+def test_hdf5_shard_reader_process_cfg_parser_error_returns_none(monkeypatch, tmp_path):
     """Malformed stage cfg payloads should warn and produce None."""
     path = tmp_path / "stage_cache.h5"
-    _write_stage_cache(path, cfg={})
+    _write_cache_shard(path, cfg={})
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     assert reader.cfg == {}
     reader.close()
 
     monkeypatch.setattr(
-        "spine.io.read.stage_hdf5.yaml.safe_load",
+        "spine.io.cache.backend.hdf5.reader.yaml.safe_load",
         lambda _: (_ for _ in ()).throw(ParserError(None, None, None, None)),
     )
 
     with pytest.warns(UserWarning, match="Parsing stage configuration failed"):
-        reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+        reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     assert reader.cfg is None
     reader.close()
 
 
-def test_stage_hdf5_reader_rejects_bad_index_and_incomplete_product(tmp_path):
+def test_hdf5_shard_reader_rejects_bad_index_and_incomplete_product(tmp_path):
     """Stage reader should reject out-of-range entries and malformed products."""
     path = tmp_path / "stage_cache.h5"
-    _write_stage_cache(path)
+    _write_cache_shard(path)
 
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     with pytest.raises(IndexError, match="out of bounds"):
         reader.get(1)
     reader.close()
 
     with h5py.File(path, "a") as out_file:
         del out_file["stages"]["deghosting"]["products"]["dummy_data"]["event_offsets"]
-    reader = StageHDF5Reader("deghosting", str(path), build_classes=False)
+    reader = HDF5ShardReader("deghosting", str(path), build_classes=False)
     with pytest.raises(KeyError, match="event_offsets"):
         reader.get(0)
     reader.close()
 
 
-def test_stage_hdf5_reader_closes_ephemeral_handle(tmp_path):
+def test_hdf5_shard_reader_closes_ephemeral_handle(tmp_path):
     """Single-access staged reads should close temporary handles when requested."""
     path = tmp_path / "stage_cache.h5"
-    writer = StageHDF5Writer(str(path), overwrite=True)
+    writer = HDF5ShardWriter(str(path), overwrite=True)
     writer.write_stage(
         "deghosting",
         {
@@ -2129,7 +2131,7 @@ def test_stage_hdf5_reader_closes_ephemeral_handle(tmp_path):
     writer.finalize_stage("deghosting")
     writer.close()
 
-    reader = StageHDF5Reader(
+    reader = HDF5ShardReader(
         "deghosting", str(path), build_classes=False, keep_open=False
     )
     entry = reader.get(0)

@@ -10,7 +10,8 @@ from spine.logging import logger
 from spine.utils.conditional import TORCH_AVAILABLE
 
 from ..parse import hdf5 as parse_hdf5
-from ..read import HDF5Reader, StageHDF5Reader
+from ..read import HDF5Reader
+from ..read.base import ReaderBase
 from .base import BaseDataset, DataDict
 
 __all__ = ["HDF5Dataset"]
@@ -19,26 +20,23 @@ PARSER_DICT = module_dict(parse_hdf5)
 
 
 class HDF5Dataset(BaseDataset):
-    """Torch dataset wrapper around flat or staged HDF5 readers.
+    """Torch dataset wrapper around ordinary flat HDF5 files.
 
-    The dataset can operate in two modes:
-
-    - flat HDF5 mode, backed by :class:`spine.io.read.HDF5Reader`
-    - staged cache mode, backed by :class:`spine.io.read.StageHDF5Reader`
-
-    In both cases the dataset exposes a uniform parser-driven interface to the
-    DataLoader layer. Reader-produced metadata such as entry indexes and source
-    provenance are forwarded automatically alongside any parsed products.
+    The dataset exposes a parser-driven interface to the DataLoader layer.
+    Reader-produced metadata such as entry indexes and source provenance are
+    forwarded automatically alongside parsed products. Manifest-backed SPINE
+    caches use :class:`CacheDataset`, which reuses this parsing machinery while
+    supplying its own private shard reader.
     """
 
     name: ClassVar[str] = "hdf5"
+    supports_stages: ClassVar[bool] = False
     parsers: dict[str, Any]
-    reader: HDF5Reader | StageHDF5Reader
+    reader: ReaderBase
 
     def __init__(
         self,
         dtype: str | None = None,
-        staged: bool = False,
         stage: str | None = None,
         stage_map: Mapping[str, str] | None = None,
         schema: Mapping[str, Mapping[str, Any]] | None = None,
@@ -54,16 +52,12 @@ class HDF5Dataset(BaseDataset):
         ----------
         dtype : str, optional
             Floating-point dtype forwarded to parser factories
-        staged : bool, default False
-            If `True`, use :class:`StageHDF5Reader` as the backend instead of
-            the flat :class:`HDF5Reader`
         stage : str, optional
-            Default stage name to read when `staged=True`. Individual schema
-            entries may override this with their own ``stage`` field.
+            Default cache stage name. Valid only for cache datasets.
         stage_map : mapping, optional
-            Explicit map from raw product keys to stage names when
-            ``staged=True``. Schema-derived routing is merged into this map;
-            conflicting assignments are rejected.
+            Explicit map from raw product keys to cache stages. Schema-derived
+            routing is merged into this map; conflicting assignments are
+            rejected.
         schema : mapping, optional
             Parser schema used to reconstruct higher-level products
         keys : sequence[str], optional
@@ -75,8 +69,7 @@ class HDF5Dataset(BaseDataset):
         augment : mapping, optional
             Augmentation applied to each loaded sample
         **kwargs : Any
-            Reader-specific keyword arguments forwarded to the selected HDF5
-            backend reader
+            Reader-specific keyword arguments forwarded to the HDF5 reader
         """
         # Initialize parent class
         super().__init__()
@@ -87,10 +80,11 @@ class HDF5Dataset(BaseDataset):
             raise ImportError("PyTorch is required to use HDF5Dataset.")
         if keys is not None and skip_keys is not None:
             raise ValueError("Provide either `keys` or `skip_keys`, not both.")
-        if not staged and stage is not None:
-            raise ValueError("`stage` can only be provided when `staged=True`.")
-        if not staged and stage_map is not None:
-            raise ValueError("`stage_map` can only be provided when `staged=True`.")
+        stage_aware = self.supports_stages
+        if not stage_aware and stage is not None:
+            raise ValueError("`stage` can only be provided to a cache dataset.")
+        if not stage_aware and stage_map is not None:
+            raise ValueError("`stage_map` can only be provided to a cache dataset.")
 
         self.keys = set(keys) if keys is not None else None
         self.skip_keys = set(skip_keys) if skip_keys is not None else set()
@@ -101,8 +95,8 @@ class HDF5Dataset(BaseDataset):
         reader_stage_map = dict(stage_map or {})
 
         # If a parser schema is provided, instantiate the parsers and collect
-        # the raw HDF5 products they require. In staged mode, also validate
-        # schema-level stage assignments and build the reader key-to-stage map.
+        # the raw HDF5 products they require. Cache datasets additionally
+        # validate schema-level stage assignments and build product routing.
         if schema is not None:
             if dtype is None:
                 raise ValueError("An explicit `dtype` is required when using `schema`.")
@@ -117,14 +111,14 @@ class HDF5Dataset(BaseDataset):
                 for key in parser.tree_keys:
                     if key not in inferred_keys:
                         inferred_keys.append(key)
-                    if staged and parser_stage is not None:
+                    if stage_aware and parser_stage is not None:
                         existing_stage = reader_stage_map.get(key)
                         if (
                             existing_stage is not None
                             and existing_stage != parser_stage
                         ):
                             raise ValueError(
-                                f"Conflicting staged HDF5 schema for raw product '{key}': "
+                                f"Conflicting cache schema for raw product '{key}': "
                                 f"'{existing_stage}' vs '{parser_stage}'."
                             )
                         reader_stage_map[key] = parser_stage
@@ -134,26 +128,45 @@ class HDF5Dataset(BaseDataset):
             else:
                 self.keys.update(inferred_keys)
 
-        # Initialize the appropriate reader backend
-        if staged:
-            self.reader = StageHDF5Reader(
-                stage=stage,
-                stage_map=reader_stage_map,
-                keys=tuple(self.keys) if self.keys is not None else None,
-                **kwargs,
-            )
-        else:
-            # Push the dataset's product selection into the reader. This is a
-            # physical I/O projection, not merely a post-read dictionary
-            # filter: neither V1 references nor V2 product groups outside the
-            # requested schema are dereferenced/read.
-            self.reader = HDF5Reader(
-                keys=tuple(self.keys) if self.keys is not None else None,
-                **kwargs,
-            )
+        self.reader = self._build_reader(stage, reader_stage_map, kwargs)
 
         # Initialize the augmenter
         self.build_augmenter(augment)
+
+    def _build_reader(
+        self,
+        stage: str | None,
+        stage_map: Mapping[str, str],
+        kwargs: Mapping[str, Any],
+    ) -> ReaderBase:
+        """Construct the physical reader selected by this dataset.
+
+        Subclasses may override this narrow factory hook while retaining the
+        common schema projection, parser reconstruction and augmentation
+        behavior implemented by :class:`HDF5Dataset`.
+
+        Parameters
+        ----------
+        stage : str, optional
+            Reserved stage selection passed by cache-aware subclasses. It is
+            always `None` for a flat HDF5 dataset.
+        stage_map : mapping
+            Reserved product routing passed by cache-aware subclasses. It is
+            empty for a flat HDF5 dataset.
+        kwargs : mapping
+            Options forwarded to the physical HDF5 reader.
+
+        Returns
+        -------
+        ReaderBase
+            Reader providing the raw product projection required by this
+            dataset.
+        """
+        del stage, stage_map
+        selected_keys = tuple(self.keys) if self.keys is not None else None
+        # Product selection is a physical I/O projection: products outside the
+        # requested schema are never dereferenced or read.
+        return HDF5Reader(keys=selected_keys, **kwargs)
 
     def __len__(self) -> int:
         """Return the number of entries exposed by the backend reader."""

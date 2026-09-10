@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import TypedDict, cast
 from warnings import warn
 
 import h5py
@@ -13,10 +14,20 @@ from yaml.parser import ParserError
 from spine.io.filter import eligible_cache_entries_from_manifest
 from spine.logging import logger
 
-from .hdf5 import HDF5Reader
-from .hdf5.common import decode_string_attribute, require_group
+from ....read.hdf5 import HDF5Reader
+from ....read.hdf5.common import (
+    decode_string_attribute,
+    require_dataset,
+    require_group,
+)
+from ...manifest import CacheSource
+from .common import source_id
 
-__all__ = ["StageHDF5Reader"]
+__all__ = [
+    "HDF5ShardReader",
+    "inspect_stage_shard",
+    "read_source_entry_index",
+]
 
 SOURCE_ENTRY_KEY = "source_file_entry_index"
 
@@ -24,7 +35,30 @@ StageConfig = dict[str, object]
 StageConfigMap = dict[str, StageConfig | None]
 
 
-class StageHDF5Reader(HDF5Reader):
+class SourceInfo(TypedDict, total=False):
+    """Describe source-file provenance stored once in a physical shard.
+
+    Attributes
+    ----------
+    source_file_name : str
+        Original file name recorded by the upstream reader.
+    source_file_size : int
+        Source-file size in bytes at cache-production time.
+    source_file_mtime_ns : int
+        Source-file modification timestamp in nanoseconds.
+
+    Notes
+    -----
+    Fields are optional only to represent legacy shards without a ``source``
+    group. Newly produced repository shards always store all three values.
+    """
+
+    source_file_name: str
+    source_file_size: int
+    source_file_mtime_ns: int
+
+
+class HDF5ShardReader(HDF5Reader):
     """Read products stored under one or more stage groups in a cache file.
 
     The reader exposes the same event-level interface as :class:`HDF5Reader`,
@@ -32,7 +66,7 @@ class StageHDF5Reader(HDF5Reader):
     the flat top-level namespace.
     """
 
-    name = "stage_hdf5"
+    name = "cache"
 
     def __init__(
         self,
@@ -56,7 +90,7 @@ class StageHDF5Reader(HDF5Reader):
         entry_fraction_range: Sequence[float] | None = None,
         entry_filter: str | None = None,
     ) -> None:
-        """Initialize the stage-cache reader.
+        """Initialize the cache-shard reader.
 
         Parameters
         ----------
@@ -90,7 +124,7 @@ class StageHDF5Reader(HDF5Reader):
         self.fixed_only = False
         self._initialize_product_backend()
         self._resolved_products: dict[int, dict[str, str]] = {}
-        self._source_info: dict[int, dict[str, object]] = {}
+        self._source_info: dict[int, SourceInfo] = {}
         self.file_format_versions: list[int] = []
 
         # Build the global event axis and resolve products independently per file
@@ -159,9 +193,9 @@ class StageHDF5Reader(HDF5Reader):
         file_idx: int,
         num_entries: int,
     ) -> list[dict[str, object]]:
-        """Read the canonical source identity of each staged-cache entry.
+        """Read the canonical source identity of each cache-shard entry.
 
-        A staged cache stores file identity once under ``/source`` and stores
+        A cache shard stores file identity once under ``/source`` and stores
         original entry indexes as a stage product. Both are required here;
         the legacy physical-index fallback is intentionally unsafe for mapping
         an external source manifest.
@@ -169,7 +203,7 @@ class StageHDF5Reader(HDF5Reader):
         Parameters
         ----------
         in_file : h5py.File
-            Open staged cache.
+            Open cache shard.
         file_idx : int
             Cache-file index in this reader.
         num_entries : int
@@ -189,7 +223,7 @@ class StageHDF5Reader(HDF5Reader):
         missing = set(self.source_keys[:-1]) - set(source_info)
         if missing:
             raise KeyError(
-                "Cannot apply an entry-filter manifest to a staged cache "
+                "Cannot apply an entry-filter manifest to a cache shard "
                 f"without source identity; missing fields: {sorted(missing)}."
             )
 
@@ -203,7 +237,7 @@ class StageHDF5Reader(HDF5Reader):
         )
         if not has_source_entries:
             raise KeyError(
-                "Cannot apply an entry-filter manifest to a staged cache "
+                "Cannot apply an entry-filter manifest to a cache shard "
                 f"without the '{SOURCE_ENTRY_KEY}' product."
             )
 
@@ -220,28 +254,33 @@ class StageHDF5Reader(HDF5Reader):
 
     @classmethod
     def validate_stage_file(cls, in_file: h5py.File, path: str) -> None:
-        """Require the internal staged-cache V2 container format.
+        """Require the internal cache-shard V2 container format.
 
         Parameters
         ----------
         in_file : h5py.File
-            Open staged cache.
+            Open cache shard.
         path : str
             Cache path included in validation errors.
+
+        Raises
+        ------
+        ValueError
+            If the shard does not declare the cache format and HDF5 V2 schema.
         """
         if "info" not in in_file:
-            raise ValueError(f"Staged cache '{path}' is missing its info group.")
+            raise ValueError(f"Cache shard '{path}' is missing its info group.")
         info = require_group(in_file, "info")
         version = int(info.attrs.get("format_version", 1))
         if version != 2:
             raise ValueError(
-                f"Staged cache '{path}' uses HDF5 format version {version}; "
+                f"Cache shard '{path}' uses HDF5 format version {version}; "
                 "rebuild it with version 2."
             )
         file_format = decode_string_attribute(info.attrs.get("format"), "format")
         if file_format != cls.name:
             raise ValueError(
-                f"Staged cache '{path}' has format '{file_format}', expected "
+                f"Cache shard '{path}' has format '{file_format}', expected "
                 f"'{cls.name}'."
             )
         cls.get_stages_group(in_file, path)
@@ -260,7 +299,7 @@ class StageHDF5Reader(HDF5Reader):
         Returns
         -------
         h5py.Group
-            Top-level group containing the staged-cache products.
+            Top-level group containing the cache-shard products.
         """
         assert "stages" in in_file, f"Stage-cache file '{path}' is missing 'stages'."
         stages = in_file["stages"]
@@ -298,7 +337,7 @@ class StageHDF5Reader(HDF5Reader):
         return stage_group
 
     @staticmethod
-    def read_source_info(in_file: h5py.File) -> dict[str, object]:
+    def read_source_info(in_file: h5py.File) -> SourceInfo:
         """Return top-level source provenance stored in the cache file.
 
         Parameters
@@ -326,8 +365,8 @@ class StageHDF5Reader(HDF5Reader):
 
         # Provenance sizes are serialized as scalar integer attributes. Make
         # that contract explicit before converting NumPy integer scalars.
-        file_size = StageHDF5Reader.read_integer_attribute(source_group, "file_size")
-        file_mtime_ns = StageHDF5Reader.read_integer_attribute(
+        file_size = HDF5ShardReader.read_integer_attribute(source_group, "file_size")
+        file_mtime_ns = HDF5ShardReader.read_integer_attribute(
             source_group, "file_mtime_ns"
         )
         return {
@@ -364,7 +403,23 @@ class StageHDF5Reader(HDF5Reader):
 
     @staticmethod
     def list_stage_names(stages: h5py.Group) -> tuple[str, ...]:
-        """Return validated stage names from the top-level stages group."""
+        """Return validated names from the top-level stage group.
+
+        Parameters
+        ----------
+        stages : h5py.Group
+            Top-level ``/stages`` namespace.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Stage names in their physical HDF5 iteration order.
+
+        Raises
+        ------
+        TypeError
+            If the HDF5 backend exposes a non-string child name.
+        """
         names = []
         for name in stages:
             if not isinstance(name, str):
@@ -392,7 +447,18 @@ class StageHDF5Reader(HDF5Reader):
 
     @staticmethod
     def get_stage_products(stage_group: h5py.Group) -> h5py.Group:
-        """Return the V2 logical-product root for one stage."""
+        """Return the V2 logical-product root for one stage.
+
+        Parameters
+        ----------
+        stage_group : h5py.Group
+            Stage namespace containing a required ``products`` group.
+
+        Returns
+        -------
+        h5py.Group
+            Stage-local logical product namespace.
+        """
         return require_group(stage_group, "products")
 
     def resolve_product_stages(self, in_file: h5py.File, path: str) -> dict[str, str]:
@@ -410,7 +476,7 @@ class StageHDF5Reader(HDF5Reader):
         Parameters
         ----------
         in_file : h5py.File
-            Open staged-cache file.
+            Open cache-shard file.
         path : str
             File path used in diagnostics.
 
@@ -511,6 +577,12 @@ class StageHDF5Reader(HDF5Reader):
             Cache file path.
         stage : str
             Stage name used in the error message.
+
+        Raises
+        ------
+        RuntimeError
+            If the stage is marked incomplete and ``ignore_incomplete`` is
+            disabled.
         """
         if (
             "info" in stage_group
@@ -588,10 +660,10 @@ class StageHDF5Reader(HDF5Reader):
 
         Returns
         -------
-        dict or object or None
+        dict[str, object] or dict[str, dict or None] or None
             Parsed YAML configuration stored under stage metadata. A single
-            stage yields its parsed object directly; multiple stages return a
-            mapping from stage name to parsed object.
+            stage yields its configuration directly; multiple stages return a
+            mapping from stage name to configuration.
         """
         with h5py.File(self.file_paths[0], "r") as in_file:
             # Decode one configuration per stage referenced by the first file
@@ -633,14 +705,14 @@ class StageHDF5Reader(HDF5Reader):
         entry_idx: int,
         in_file: h5py.File,
     ) -> dict[str, object]:
-        """Decode one resolved staged-cache entry from an open file.
+        """Decode one resolved cache-shard entry from an open file.
 
         Parameters
         ----------
         idx : int
             User-facing reader index written into the returned metadata.
         file_idx : int
-            Index of the physical staged-cache file containing the event.
+            Index of the physical cache-shard file containing the event.
         entry_idx : int
             Event index local to that physical file.
         in_file : h5py.File
@@ -699,9 +771,24 @@ class StageHDF5Reader(HDF5Reader):
     ) -> list[dict[str, object]]:
         """Decode one contiguous run from the resolved stage products.
 
-        This is the staged-cache counterpart to the flat V2 reader path. Each
+        This is the cache-shard counterpart to the flat V2 reader path. Each
         selected stage product, including its private reconstruction children,
         is loaded once for the complete event run.
+
+        Parameters
+        ----------
+        file_idx : int
+            Index of the physical shard containing the run.
+        entries : list[tuple[int, int, int]]
+            Contiguous run descriptors containing file index, user-facing
+            index, and physical file-entry index.
+        in_file : h5py.File
+            Open readable handle for the physical shard.
+
+        Returns
+        -------
+        list[dict[str, object]]
+            Decoded events in the same order as ``entries``.
         """
         # Load the raw source entry indexes for the entire contiguous run. This is
         # administrative metadata rather than a user-facing product, so it is
@@ -758,7 +845,7 @@ class StageHDF5Reader(HDF5Reader):
         Parameters
         ----------
         in_file : h5py.File
-            Open staged-cache file containing the requested event run.
+            Open cache-shard file containing the requested event run.
         file_idx : int
             Index of the physical cache file in the reader file list.
         first, last : int
@@ -823,5 +910,102 @@ class StageHDF5Reader(HDF5Reader):
                 )
 
         if source_entries is None:
-            source_entries = np.arange(first, last, dtype=np.int64)
+            return np.arange(first, last, dtype=np.int64).tolist()
         return source_entries.tolist()
+
+
+def inspect_stage_shard(path: str, stage: str) -> tuple[CacheSource, tuple[str, ...]]:
+    """Validate a completed shard and return its source and product schema.
+
+    Parameters
+    ----------
+    path : str
+        Physical HDF5 shard path.
+    stage : str
+        Stage expected inside the shard.
+
+    Returns
+    -------
+    tuple[CacheSource, tuple[str, ...]]
+        Immutable source record and sorted public product schema.
+
+    Raises
+    ------
+    RuntimeError
+        If the requested stage was not finalized successfully.
+    ValueError
+        If the file does not use the cache-shard V2 format.
+    """
+    with h5py.File(path, "r") as shard:
+        HDF5ShardReader.validate_stage_file(shard, path)
+        source_info = HDF5ShardReader.read_source_info(shard)
+        file_name = source_info.get("source_file_name")
+        file_size = source_info.get("source_file_size")
+        file_mtime_ns = source_info.get("source_file_mtime_ns")
+        if file_name is None or file_size is None or file_mtime_ns is None:
+            raise ValueError(
+                f"Pending cache shard '{path}' has incomplete source provenance."
+            )
+
+        normalized = {
+            "file_name": file_name,
+            "file_size": file_size,
+            "file_mtime_ns": file_mtime_ns,
+        }
+        shard_source_id = source_id(normalized)
+        stage_group = HDF5ShardReader.get_stage_group(shard, path, stage)
+        info = stage_group.get("info")
+        if not isinstance(info, h5py.Group) or not bool(
+            info.attrs.get("complete", False)
+        ):
+            raise RuntimeError(f"Pending cache shard '{path}' is not complete.")
+
+        # Administrative event-axis products are part of the physical schema,
+        # but are not advertised as stage outputs in the manifest.
+        product_names: list[str] = []
+        for raw_key in HDF5ShardReader.get_stage_products(stage_group):
+            # h5py group iteration is documented to yield names, although its
+            # type stubs retain the possibility of an absent link.
+            key = cast(str, raw_key)
+            if key not in ("index", SOURCE_ENTRY_KEY):
+                product_names.append(key)
+        products = tuple(sorted(product_names))
+        events = require_dataset(stage_group, "events")
+        source = CacheSource(
+            id=shard_source_id,
+            file_name=file_name,
+            file_size=file_size,
+            file_mtime_ns=file_mtime_ns,
+            num_entries=len(events),
+        )
+        return source, products
+
+
+def read_source_entry_index(path: str, stage: str) -> np.ndarray:
+    """Read the compact-to-source entry axis from one validated V2 shard.
+
+    Parameters
+    ----------
+    path : str
+        Physical HDF5 shard path.
+    stage : str
+        Stage containing the provenance product.
+
+    Returns
+    -------
+    numpy.ndarray
+        One-dimensional compact-to-source entry mapping. For manually imported
+        V2 shards without explicit provenance, this is the physical event axis.
+    """
+    with h5py.File(path, "r") as shard:
+        stage_group = HDF5ShardReader.get_stage_group(shard, path, stage)
+        products = HDF5ShardReader.get_stage_products(stage_group)
+        if SOURCE_ENTRY_KEY not in products:
+            # Repository shards normally persist provenance. Retain a physical
+            # index fallback so manually imported V2 shards remain legible.
+            events = require_dataset(stage_group, "events")
+            return np.arange(len(events), dtype=np.int64)
+
+        product = products[SOURCE_ENTRY_KEY]
+        assert isinstance(product, h5py.Group)
+        return np.asarray(product["values"], dtype=np.int64)

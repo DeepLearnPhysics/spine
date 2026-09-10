@@ -1,4 +1,4 @@
-"""Dataset that merges aligned LArCV and HDF5-backed samples."""
+"""Dataset that merges aligned primary and cache-backed samples."""
 
 from __future__ import annotations
 
@@ -27,24 +27,28 @@ CACHE_ENTRY_DOMAINS = ("auto", "source", "filtered")
 
 
 class MixedDataset(BaseDataset):
-    """Torch dataset that merges aligned samples from LArCV and HDF5.
+    """Torch dataset that merges samples from aligned primary and cache sources.
 
-    The LArCV dataset is treated as the primary source of iteration order and
-    truth products. The HDF5 dataset acts as an aligned cache or augmentation
-    source whose products are merged into the primary sample only after
-    metadata and source provenance checks pass.
+    The primary dataset owns iteration order and usually supplies raw or truth
+    products. The cache dataset supplies materialized products from an earlier
+    processing stage. A sample is merged only after its configured event keys
+    and, when available, immutable source-file provenance agree.
+
+    The canonical configuration blocks are ``primary`` and ``cache``. The
+    older ``larcv`` and ``hdf5`` spellings remain accepted for ordinary flat
+    HDF5 workflows.
     """
 
     name: ClassVar[str] = "mixed"
-    primary: LArCVDataset
-    cache: HDF5Dataset
+    primary: Any
+    cache: Any
     reader: Any
 
     def __init__(
         self,
-        larcv: Mapping[str, Any],
-        hdf5: Mapping[str, Any],
-        dtype: str,
+        larcv: Mapping[str, Any] | None = None,
+        hdf5: Mapping[str, Any] | None = None,
+        dtype: str | None = None,
         augment: Mapping[str, Any] | None = None,
         align_keys: Sequence[str] = ("file_index", "file_entry_index"),
         hdf5_align_keys: Mapping[str, str] | None = None,
@@ -52,38 +56,50 @@ class MixedDataset(BaseDataset):
         allow_overwrite: bool = False,
         entry_filter: str | None = None,
         cache_entry_domain: str = "auto",
+        primary: Mapping[str, Any] | None = None,
+        cache: Mapping[str, Any] | None = None,
+        cache_align_keys: Mapping[str, str] | None = None,
+        cache_key_map: Mapping[str, str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Instantiate the mixed dataset.
 
         Parameters
         ----------
-        larcv : dict
-            Configuration block for the LArCV-backed sample source
-        hdf5 : dict
-            Configuration block for the HDF5-backed cache source
-        dtype : str
-            Floating-point dtype used by parser factories
+        larcv : dict, optional
+            Legacy configuration block for a LArCV primary source.
+        hdf5 : dict, optional
+            Legacy configuration block for a flat HDF5 cache source.
+        dtype : str, optional
+            Floating-point dtype used by parser factories. This value is
+            required by the dataset factory.
         augment : dict, optional
             Augmentation configuration applied once to the merged sample
         align_keys : sequence[str], default ("file_index", "file_entry_index")
-            Keys that must match between the LArCV and HDF5 samples
+            Keys that must match between the primary and cache samples.
         hdf5_align_keys : dict, optional
-            Optional mapping from LArCV alignment keys to HDF5 alignment keys.
+            Legacy mapping from primary alignment keys to HDF5 alignment keys.
             If not provided, the dataset uses `source_<key>` when that key is
             present in the HDF5 sample, and otherwise falls back to `<key>`.
         hdf5_key_map : dict, optional
-            Optional rename map applied to HDF5 product keys before merging
+            Legacy rename map applied to HDF5 product keys before merging.
         allow_overwrite : bool, default False
-            If `True`, allow HDF5 products to overwrite colliding LArCV keys
+            If `True`, allow cache products to overwrite colliding primary keys.
         entry_filter : str, optional
-            File-aware LArCV eligibility manifest. The HDF5 source is assumed
+            File-aware primary-source eligibility manifest. The cache is assumed
             to contain either the original source domain or the accepted
             entries in compact order, according to ``cache_entry_domain``.
         cache_entry_domain : {"auto", "source", "filtered"}, default "auto"
-            Entry domain represented by HDF5 when ``entry_filter`` is active.
+            Entry domain represented by the cache when ``entry_filter`` is active.
             ``source`` retains all original entries, ``filtered`` contains only
             accepted entries, and ``auto`` infers the layout from cardinality.
+        primary, cache : dict, optional
+            Canonical child dataset configurations. Their ``name`` fields
+            default to ``larcv`` and ``cache``, respectively. These replace
+            the legacy ``larcv`` and ``hdf5`` block names.
+        cache_align_keys, cache_key_map : dict, optional
+            Canonical mapping of primary alignment keys to cache keys and
+            canonical rename map for cache products, respectively.
         **kwargs : Any
             Shared keyword arguments forwarded to both underlying dataset
             constructors. This is primarily used for reader-level options such
@@ -92,11 +108,32 @@ class MixedDataset(BaseDataset):
         # Initialize the parent class
         super().__init__()
 
+        # Accept the established configuration vocabulary while making the
+        # child roles explicit for the new first-class cache dataset.
+        if dtype is None:
+            raise ValueError("MixedDataset requires an explicit `dtype`.")
+        if primary is not None and larcv is not None:
+            raise ValueError("Provide either `primary` or `larcv`, not both.")
+        if cache is not None and hdf5 is not None:
+            raise ValueError("Provide either `cache` or `hdf5`, not both.")
+        if primary is None and larcv is None:
+            raise ValueError("MixedDataset requires a `primary` dataset block.")
+        if cache is None and hdf5 is None:
+            raise ValueError("MixedDataset requires a `cache` dataset block.")
+        if cache_align_keys is not None and hdf5_align_keys is not None:
+            raise ValueError(
+                "Provide either `cache_align_keys` or `hdf5_align_keys`, not both."
+            )
+        if cache_key_map is not None and hdf5_key_map is not None:
+            raise ValueError(
+                "Provide either `cache_key_map` or `hdf5_key_map`, not both."
+            )
+
         # Store the alignment and merge configuration for use when samples are
         # fetched.
         self.align_keys = tuple(align_keys)
-        self.hdf5_align_keys = dict(hdf5_align_keys or {})
-        self.hdf5_key_map = dict(hdf5_key_map or {})
+        self.cache_align_keys = dict(cache_align_keys or hdf5_align_keys or {})
+        self.cache_key_map = dict(cache_key_map or hdf5_key_map or {})
         self.allow_overwrite = allow_overwrite
         if cache_entry_domain not in CACHE_ENTRY_DOMAINS:
             raise ValueError(
@@ -104,43 +141,55 @@ class MixedDataset(BaseDataset):
                 f"one of {CACHE_ENTRY_DOMAINS}."
             )
 
-        # Initialize the aligned sources. Shared positional selectors are
-        # forwarded to both datasets so they preserve one-to-one ordering.
-        larcv_config = dict(larcv)
-        if entry_filter is not None:
-            larcv_config["entry_filter"] = entry_filter
-        resolved_entry_filter = larcv_config.get("entry_filter")
-        self.primary = LArCVDataset(
-            **larcv_config,
-            dtype=dtype,
-            augment=None,
-            **kwargs,
+        # Initialize the aligned sources through the ordinary dataset factory.
+        # Shared positional selectors are forwarded to both children so their
+        # exposed ordering remains one-to-one.
+        from ..factories import (  # pylint: disable=import-outside-toplevel
+            dataset_factory,
         )
 
-        # The raw-file manifest is intentionally not forwarded to HDF5. Without
-        # one, preserve the established behavior of applying shared selectors
-        # directly to both aligned inputs.
+        primary_config = dict(primary if primary is not None else larcv or {})
+        primary_config.setdefault("name", "larcv")
+        if entry_filter is not None:
+            primary_config["entry_filter"] = entry_filter
+        primary_config.update(kwargs)
+        primary_config["augment"] = None
+        resolved_entry_filter = primary_config.get("entry_filter")
+        if primary is None:
+            legacy_primary = dict(primary_config)
+            legacy_primary.pop("name", None)
+            self.primary = LArCVDataset(**legacy_primary, dtype=dtype)
+        else:
+            self.primary = dataset_factory(primary_config, dtype=dtype)
+
+        # The primary manifest is not blindly forwarded to the cache. The
+        # cache may already represent the compact filtered domain, in which
+        # case its physical indexes no longer match raw-source indexes.
         cache_kwargs = dict(kwargs)
+        nested_cache = dict(cache if cache is not None else hdf5 or {})
         if resolved_entry_filter is not None:
             nested_selectors = [
                 key
                 for key in ENTRY_SELECTION_KEYS
-                if key in hdf5 and hdf5[key] is not None
+                if key in nested_cache and nested_cache[key] is not None
             ]
             if nested_selectors:
                 raise ValueError(
                     "When using `entry_filter`, configure mixed-dataset entry "
-                    "selection at the mixed root, not inside `hdf5`."
+                    "selection at the mixed root, not inside `cache`."
                 )
             for key in ENTRY_SELECTION_KEYS:
                 cache_kwargs.pop(key, None)
 
-        self.cache = HDF5Dataset(
-            **hdf5,
-            dtype=dtype,
-            augment=None,
-            **cache_kwargs,
-        )
+        nested_cache.setdefault("name", "cache" if cache is not None else "hdf5")
+        nested_cache.update(cache_kwargs)
+        nested_cache["augment"] = None
+        if cache is None:
+            legacy_cache = dict(nested_cache)
+            legacy_cache.pop("name", None)
+            self.cache = HDF5Dataset(**legacy_cache, dtype=dtype)
+        else:
+            self.cache = dataset_factory(nested_cache, dtype=dtype)
 
         if resolved_entry_filter is not None:
             self._select_cache_entries(cache_entry_domain)
@@ -148,7 +197,7 @@ class MixedDataset(BaseDataset):
         self.reader = self.primary.reader
         if len(self.primary) != len(self.cache):
             raise ValueError(
-                "The LArCV and HDF5 sources must expose the same number of entries "
+                "The primary and cache sources must expose the same number of entries "
                 f"to be mixed safely. Got {len(self.primary)} and {len(self.cache)}."
             )
 
@@ -156,12 +205,12 @@ class MixedDataset(BaseDataset):
         self.build_augmenter(augment)
 
     def _select_cache_entries(self, cache_entry_domain: str) -> None:
-        """Project HDF5 onto the final filtered LArCV selection.
+        """Project the cache onto the final filtered primary selection.
 
         Parameters
         ----------
         cache_entry_domain : {"auto", "source", "filtered"}
-            Configured HDF5 entry-domain policy. Auto detection compares the
+            Configured cache entry-domain policy. Auto detection compares the
             cache cardinality with the complete raw and eligible populations.
 
         Raises
@@ -185,7 +234,7 @@ class MixedDataset(BaseDataset):
                 domain = "source"
             else:
                 raise ValueError(
-                    "Could not infer the mixed HDF5 cache entry domain: cache "
+                    "Could not infer the mixed cache entry domain: cache "
                     f"has {cache_count} entries, while the raw and filtered "
                     f"domains contain {source_count} and {len(eligible)}."
                 )
@@ -193,7 +242,7 @@ class MixedDataset(BaseDataset):
         expected_count = source_count if domain == "source" else len(eligible)
         if cache_count != expected_count:
             raise ValueError(
-                f"HDF5 `cache_entry_domain: {domain}` requires {expected_count} "
+                f"Cache `cache_entry_domain: {domain}` requires {expected_count} "
                 f"entries, found {cache_count}."
             )
 
@@ -206,7 +255,7 @@ class MixedDataset(BaseDataset):
                 eligible[compact], selected
             ):
                 raise ValueError(
-                    "The final LArCV selection is not contained in its eligible "
+                    "The final primary selection is not contained in its eligible "
                     "entry domain."
                 )
             selected = compact
@@ -234,13 +283,13 @@ class MixedDataset(BaseDataset):
         Returns
         -------
         dict
-            Merged sample dictionary containing primary LArCV products plus
-            non-metadata HDF5 cache products.
+            Merged sample dictionary containing primary products plus
+            non-administrative cache products.
         """
         return self._merge_sample(idx, self.primary[idx], self.cache[idx])
 
     def __getitems__(self, indices: Sequence[int]) -> list[DataDict]:
-        """Load and merge a batch of aligned LArCV and cache samples.
+        """Load and merge a batch of aligned primary and cache samples.
 
         Parameters
         ----------
@@ -279,9 +328,9 @@ class MixedDataset(BaseDataset):
         idx : int
             Shared dataset index used for alignment diagnostics.
         primary : dict
-            Sample loaded from the primary LArCV source.
+            Sample loaded from the primary source.
         cache : dict
-            Corresponding sample loaded from the HDF5 cache.
+            Corresponding sample loaded from the cache source.
 
         Returns
         -------
@@ -302,9 +351,9 @@ class MixedDataset(BaseDataset):
         idx : int
             Dataset entry index being validated.
         primary : dict
-            Sample returned by the primary LArCV dataset.
+            Sample returned by the primary dataset.
         cache : dict
-            Sample returned by the HDF5 cache dataset.
+            Sample returned by the cache dataset.
         """
         self.validate_source_alignment(idx, primary, cache)
         for key in self.align_keys:
@@ -314,16 +363,16 @@ class MixedDataset(BaseDataset):
             if primary.get(key) != cache.get(cache_key):
                 raise ValueError(
                     "MixedDataset source alignment failed at dataset index "
-                    f"{idx}: LArCV key '{key}' and HDF5 key '{cache_key}' differ "
+                    f"{idx}: primary key '{key}' and cache key '{cache_key}' differ "
                     f"({primary.get(key)!r} != {cache.get(cache_key)!r})."
                 )
 
     def validate_source_alignment(
         self, idx: int, primary: DataDict, cache: DataDict
     ) -> None:
-        """Validate cache-file provenance against the current LArCV source file.
+        """Validate cache provenance against the current primary source file.
 
-        This check is only applied when the HDF5 sample exposes staged-cache
+        This check is only applied when the cache sample exposes source
         provenance keys. In that case the cache is expected to correspond to
         exactly one original source file, identified by file name, file size,
         and modification time.
@@ -333,14 +382,14 @@ class MixedDataset(BaseDataset):
         idx : int
             Dataset entry index being validated.
         primary : dict
-            Sample returned by the primary LArCV dataset.
+            Sample returned by the primary dataset.
         cache : dict
-            Sample returned by the HDF5 cache dataset.
+            Sample returned by the cache dataset.
         """
         if "source_file_name" not in cache:
             return
 
-        # Resolve the primary file identity from the live LArCV reader
+        # Resolve the primary file identity from its active reader.
         file_idx = primary.get("file_index")
         assert isinstance(file_idx, int), "Primary file index should be an integer."
         source_path = self.primary.reader.file_paths[file_idx]
@@ -357,11 +406,11 @@ class MixedDataset(BaseDataset):
             if key in cache and cache[key] != value:
                 raise ValueError(
                     f"MixedDataset source provenance mismatch at dataset index {idx}: "
-                    f"HDF5 '{key}' is {cache[key]!r}, expected {value!r}."
+                    f"cache '{key}' is {cache[key]!r}, expected {value!r}."
                 )
 
     def resolve_cache_align_key(self, key: str, cache: DataDict) -> str:
-        """Return the HDF5 key used to align one LArCV index field.
+        """Return the cache key used to align one primary index field.
 
         Parameters
         ----------
@@ -374,10 +423,10 @@ class MixedDataset(BaseDataset):
         Returns
         -------
         str
-            HDF5-side key name that should match the primary ``key``.
+            Cache-side key name that should match the primary ``key``.
         """
-        if key in self.hdf5_align_keys:
-            return self.hdf5_align_keys[key]
+        if key in self.cache_align_keys:
+            return self.cache_align_keys[key]
 
         source_key = f"source_{key}"
         if source_key in cache:
@@ -386,7 +435,7 @@ class MixedDataset(BaseDataset):
         return key
 
     def merge_cache(self, merged: DataDict, cache: DataDict) -> None:
-        """Merge one cached HDF5 sample into an existing LArCV sample.
+        """Merge one cache sample into an existing primary sample.
 
         Parameters
         ----------
@@ -394,7 +443,7 @@ class MixedDataset(BaseDataset):
             Mutable sample dictionary initially populated from the primary
             dataset.
         cache : dict
-            HDF5 cache sample to merge into ``merged``.
+            Cache sample to merge into ``merged``.
         """
         for key, value in cache.items():
             # Administrative identity remains authoritative on the primary side
@@ -402,11 +451,11 @@ class MixedDataset(BaseDataset):
                 continue
 
             # Apply public renames and reject accidental product replacement
-            target_key = self.hdf5_key_map.get(key, key)
+            target_key = self.cache_key_map.get(key, key)
             if target_key in merged and not self.allow_overwrite:
                 raise ValueError(
                     f"MixedDataset key collision for '{target_key}'. "
-                    "Use `hdf5_key_map` or `allow_overwrite=True` to resolve it."
+                    "Use `cache_key_map` or `allow_overwrite=True` to resolve it."
                 )
 
             merged[target_key] = value
@@ -425,7 +474,7 @@ class MixedDataset(BaseDataset):
             if key in self._index_keys or key in self._source_keys:
                 continue
 
-            target_key = self.hdf5_key_map.get(key, key)
+            target_key = self.cache_key_map.get(key, key)
             if target_key in overlay_methods and overlay_methods[target_key] != value:
                 raise ValueError(
                     f"MixedDataset overlay collision for '{target_key}': "
@@ -449,7 +498,7 @@ class MixedDataset(BaseDataset):
         for key in self.cache.data_keys:
             if key in self._index_keys or key in self._source_keys:
                 continue
-            target_key = self.hdf5_key_map.get(key, key)
+            target_key = self.cache_key_map.get(key, key)
             if target_key not in keys:
                 keys.append(target_key)
         return tuple(keys)

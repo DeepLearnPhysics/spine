@@ -18,7 +18,7 @@ The I/O layer is organized into a few cooperating pieces:
 
 - **Readers** expose event products from on-disk formats such as HDF5 and
   LArCV.
-- **Writers** persist flat outputs and staged cache products.
+- **Writers** persist flat outputs and transactional cache stages.
 - **Parsers** convert raw reader outputs into SPINE parser products used by
   downstream code.
 - **Datasets and pipeline utilities** bridge readers/parsers into PyTorch
@@ -43,7 +43,7 @@ File Readers
 
    read.HDF5Reader
    read.LArCVReader
-   read.StageHDF5Reader
+   read.CacheReader
 
 Entry Filtering
 ---------------
@@ -70,7 +70,7 @@ File Writers
    :toctree: generated
 
    write.HDF5Writer
-   write.StageHDF5Writer
+   write.CacheWriter
 
 Tabular metric logs are written by :class:`spine.logging.CSVLogger`, not by
 the generic event-output writer interface.
@@ -147,60 +147,81 @@ Datasets
 --------
 
 The dataset layer bridges low-level readers and parser logic into PyTorch
-``Dataset`` objects. The staged cache workflow is exposed through the HDF5
-dataset and the mixed LArCV/HDF5 dataset.
+``Dataset`` objects. SPINE cache repositories have their own dataset type and
+can also be paired with raw input through the mixed dataset.
 
 .. autosummary::
    :toctree: generated
 
    dataset.LArCVDataset
+   dataset.CacheDataset
    dataset.HDF5Dataset
    dataset.MixedDataset
    dataset.JointDataset
 
-Extending staged caches
------------------------
+Sharded cache repositories
+--------------------------
 
-When a staged HDF5 cache is both the input and output of a driver job, SPINE
-automatically writes the new stage to a temporary sidecar file. The canonical
-cache remains read-only while the loader is active, so HDF5 dataset reads may
-use multiple workers without competing with a writer handle. After successful
-processing, finalization builds a merged temporary copy beside each canonical
-cache and publishes it with an atomic file replacement. A failed run removes
-its uncommitted sidecars and leaves the canonical cache unchanged.
+SPINE's production cache is a directory, conventionally named
+``train.spine-cache``, containing an atomic ``manifest.json`` and immutable
+HDF5 V2 shards. Each source and processing-stage generation owns one shard.
+Publishing a later stage writes only that stage and atomically replaces the
+small manifest; it never recopies earlier cache products. Readers snapshot the
+manifest at initialization, so an active loader continues using the same shard
+generation while another job publishes a replacement.
 
-No additional writer option is required for the usual same-file workflow. It
-is selected when both reader and writer use ``stage_hdf5`` and the writer has
-no explicit ``file_name`` or ``directory``. For example:
+Create the first stage with an explicit repository path:
 
 .. code-block:: yaml
 
    base:
-     split_output: true
+     unwrap: true
+
+   io:
+     writer:
+       name: cache
+       path: /path/to/train.spine-cache
+       stage: deghosting
+       keys: [data_adapt, seg_pred, orig_index]
+
+A later cache-backed job can omit the writer path. The I/O manager discovers
+the input repository and publishes the new stage back to it:
+
+.. code-block:: yaml
+
+   base:
+     unwrap: true
 
    io:
      loader:
        minibatch_size: 64
        num_workers: 4
-       shuffle: false
        dataset:
-         name: hdf5
-         staged: true
-         stage: fragmentation
-         file_keys: null
+         name: cache
+         path: /path/to/train.spine-cache
+         stage: deghosting
      writer:
-       name: stage_hdf5
-       file_name: null
-       stage: particle_aggregation
-       overwrite_stage: true
+       name: cache
+       stage: fragmentation
 
-An explicit output destination retains the ordinary separate-output behavior.
-``sidecar: false`` may be used to opt out of automatic same-file sidecars, but
-direct writes again require the caller to avoid concurrent handles. Each
-canonical file is replaced atomically; a multi-file job is validated in full
-before publication, but is not a single filesystem-wide transaction. During
-finalization, the destination filesystem must have enough free space for one
-temporary copy of the canonical cache plus the new stage sidecar.
+Mixed raw/cache training remains a normal mixed dataset. The child roles are
+explicit and each child selects its own registered dataset implementation:
+
+.. code-block:: yaml
+
+   dataset:
+     name: mixed
+     primary:
+       name: larcv
+       file_keys: /path/to/raw/*.root
+       schema: {...}
+     cache:
+       name: cache
+       path: /path/to/train.spine-cache
+       stage: deghosting
+
+Set ``overwrite_stage: true`` to publish a replacement generation. Old shards
+remain readable by active snapshots and may be garbage-collected separately.
 
 Data augmentation
 -----------------

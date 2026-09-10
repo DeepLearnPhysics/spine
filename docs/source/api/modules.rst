@@ -176,6 +176,7 @@ Io modules
    spine.io.augment.rotate
    spine.io.augment.translate
    spine.io.dataset.base
+   spine.io.dataset.cache
    spine.io.dataset.hdf5
    spine.io.dataset.joint
    spine.io.dataset.larcv
@@ -184,27 +185,26 @@ Io modules
    spine.io.filter.larcv
    spine.io.filter.manager
    spine.io.manager
+   spine.io.cache.manifest
+   spine.io.cache.repository
+   spine.io.cache.transaction
    spine.io.parse.hdf5.utils
    spine.io.parse.larcv.utils.particle
    spine.io.parse.larcv.utils.point
    spine.io.read.base
+   spine.io.read.cache
    spine.io.read.hdf5.common
    spine.io.read.hdf5.product
    spine.io.read.hdf5.reader
    spine.io.read.hdf5.region
    spine.io.read.larcv
-   spine.io.read.stage_hdf5
    spine.io.transform.hdf5
    spine.io.write.hdf5.common
    spine.io.write.hdf5.product
    spine.io.write.hdf5.region
    spine.io.write.hdf5.schema
    spine.io.write.hdf5.writer
-   spine.io.write.stage_hdf5
-   spine.io.write.stage_hdf5.file
-   spine.io.write.stage_hdf5.sidecar
-   spine.io.write.stage_hdf5.state
-   spine.io.write.stage_hdf5.writer
+   spine.io.write.cache
 
 Logging modules
 ---------------
