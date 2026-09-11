@@ -141,6 +141,9 @@ class CacheManifest:
         Ordered source set shared by every published stage.
     stages : dict[str, CacheStage]
         Published stage records keyed by logical stage name.
+    replacements : dict[str, CacheStage]
+        Incomplete parallel replacements hidden from readers until their full
+        source roster has been assembled.
     """
 
     format: str = "spine_cache"
@@ -148,6 +151,7 @@ class CacheManifest:
     generation: int = 0
     sources: tuple[CacheSource, ...] = ()
     stages: dict[str, CacheStage] = field(default_factory=dict)
+    replacements: dict[str, CacheStage] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CacheManifest":
@@ -184,34 +188,55 @@ class CacheManifest:
             str(name): CacheStage.from_dict(stage)
             for name, stage in data["stages"].items()
         }
+        replacements = {
+            str(name): CacheStage.from_dict(stage)
+            for name, stage in data.get("replacements", {}).items()
+        }
         expected_sources = set(source_ids)
-        for name, stage in stages.items():
-            shard_sources = set(stage.shards)
-            if not shard_sources.issubset(expected_sources):
+        for records in (stages, replacements):
+            for name, stage in records.items():
+                shard_sources = set(stage.shards)
+                if not shard_sources.issubset(expected_sources):
+                    raise ValueError(
+                        f"Cache stage '{name}' contains shards for unknown sources."
+                    )
+                if stage.complete and shard_sources != expected_sources:
+                    raise ValueError(
+                        f"Complete cache stage '{name}' does not provide exactly "
+                        "one shard for every manifest source."
+                    )
+                if stage.expected_sources is not None and stage.expected_sources < 1:
+                    raise ValueError(
+                        f"Cache stage '{name}' has an invalid expected source count."
+                    )
+                if not stage.complete and stage.expected_sources is None:
+                    raise ValueError(
+                        f"Incomplete cache stage '{name}' has no completion target."
+                    )
+                if (
+                    stage.complete
+                    and stage.expected_sources is not None
+                    and len(stage.shards) != stage.expected_sources
+                ):
+                    raise ValueError(
+                        f"Cache stage '{name}' is marked complete before reaching "
+                        "its expected source count."
+                    )
+
+        for name, replacement in replacements.items():
+            if name not in stages:
                 raise ValueError(
-                    f"Cache stage '{name}' contains shards for unknown sources."
+                    f"Cache replacement '{name}' has no active stage to replace."
                 )
-            if stage.complete and shard_sources != expected_sources:
+            if replacement.complete:
                 raise ValueError(
-                    f"Complete cache stage '{name}' does not provide exactly "
-                    "one shard for every manifest source."
+                    f"Cache replacement '{name}' must remain hidden only while "
+                    "it is incomplete."
                 )
-            if stage.expected_sources is not None and stage.expected_sources < 1:
+            if replacement.expected_sources != len(sources):
                 raise ValueError(
-                    f"Cache stage '{name}' has an invalid expected source count."
-                )
-            if not stage.complete and stage.expected_sources is None:
-                raise ValueError(
-                    f"Incomplete cache stage '{name}' has no completion target."
-                )
-            if (
-                stage.complete
-                and stage.expected_sources is not None
-                and len(stage.shards) != stage.expected_sources
-            ):
-                raise ValueError(
-                    f"Cache stage '{name}' is marked complete before reaching "
-                    "its expected source count."
+                    f"Cache replacement '{name}' does not target the complete "
+                    "repository source roster."
                 )
 
         # Published lineage must point to the currently visible generation.
@@ -224,10 +249,22 @@ class CacheManifest:
                         f"on '{dependency}' generation '{generation}'."
                     )
 
+        # Hidden replacements are built against the same currently visible
+        # lineage and are discarded if an upstream generation changes.
+        for name, replacement in replacements.items():
+            for dependency, generation in replacement.dependencies.items():
+                upstream = stages.get(dependency)
+                if upstream is None or upstream.generation != generation:
+                    raise ValueError(
+                        f"Cache replacement '{name}' has a stale or missing "
+                        f"dependency on '{dependency}' generation '{generation}'."
+                    )
+
         return cls(
             generation=int(data["generation"]),
             sources=sources,
             stages=stages,
+            replacements=replacements,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -246,5 +283,9 @@ class CacheManifest:
             "sources": [asdict(source) for source in self.sources],
             "stages": {
                 name: stage.to_dict() for name, stage in sorted(self.stages.items())
+            },
+            "replacements": {
+                name: stage.to_dict()
+                for name, stage in sorted(self.replacements.items())
             },
         }

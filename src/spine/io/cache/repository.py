@@ -202,14 +202,12 @@ class CacheRepository:
                     "Published cache stages must use the same ordered source set."
                 )
 
-            if parallel and overwrite:
-                raise ValueError(
-                    "Parallel cache publication cannot overwrite a stage; publish "
-                    "a replacement in one transaction."
-                )
-
             if parallel:
-                stage, merged_sources = self._merge_parallel_stage(
+                if overwrite and existing is not None and existing.complete:
+                    return self._publish_parallel_replacement(
+                        current, stage_name, stage, sources
+                    )
+                stage, merged_sources, _ = self._merge_parallel_stage(
                     current, stage_name, stage, sources
                 )
             else:
@@ -227,23 +225,116 @@ class CacheRepository:
             # Construct a new immutable snapshot. Replacing an upstream stage
             # removes every transitive descendant from the visible manifest.
             stages = dict(current.stages)
-            retired: dict[str, CacheStage] = {}
+            replacements = dict(current.replacements)
+            retired: list[CacheStage] = []
             if overwrite and existing is not None:
-                stages, retired = self._without_descendants(stages, stage_name)
+                stages, retired_stages = self._without_descendants(stages, stage_name)
+                replacements, retired_replacements = (
+                    self._without_affected_replacements(
+                        replacements, set(retired_stages)
+                    )
+                )
+                retired.extend(retired_stages.values())
+                retired.extend(retired_replacements.values())
             stages[stage_name] = stage
             updated = replace(
                 current,
                 generation=current.generation + 1,
                 sources=merged_sources,
                 stages=stages,
+                replacements=replacements,
             )
             self._write_manifest(updated)
 
             # Publication is now authoritative. Reclaim the exact replaced
             # generations while the lock still excludes another publisher.
             if len(retired) > 0:
-                remove_retired_stages(self, retired.values(), updated.stages.values())
+                live = (*updated.stages.values(), *updated.replacements.values())
+                remove_retired_stages(self, retired, live)
             return updated
+
+    def _publish_parallel_replacement(
+        self,
+        current: CacheManifest,
+        stage_name: str,
+        contribution: CacheStage,
+        sources: tuple[CacheSource, ...],
+    ) -> CacheManifest:
+        """Publish one hidden contribution toward a parallel replacement.
+
+        Parameters
+        ----------
+        current : CacheManifest
+            Manifest snapshot held under the repository publication lock.
+        stage_name : str
+            Active logical stage being replaced.
+        contribution : CacheStage
+            New source-shard contribution prepared by one array task.
+        sources : tuple[CacheSource, ...]
+            Source records represented by the contribution.
+
+        Returns
+        -------
+        CacheManifest
+            Snapshot containing either the still-hidden replacement or its
+            atomically activated complete generation.
+
+        Notes
+        -----
+        The active stage remains untouched until the replacement covers the
+        full repository roster. Repeated source contributions replace only
+        that source in the hidden candidate, allowing failed array tasks to be
+        retried without exposing a partial generation.
+        """
+        candidate = current.replacements.get(stage_name)
+        replacement, _, superseded = self._merge_parallel_stage(
+            current,
+            stage_name,
+            contribution,
+            sources,
+            existing=candidate,
+            replace_duplicates=True,
+        )
+        # Replacement lineage must remain valid for the entire array run.
+        for dependency, generation in replacement.dependencies.items():
+            upstream = current.stages.get(dependency)
+            if upstream is None or upstream.generation != generation:
+                raise RuntimeError(
+                    f"Cache dependency '{dependency}' changed while replacement "
+                    f"stage '{stage_name}' was being written."
+                )
+
+        stages = dict(current.stages)
+        replacements = dict(current.replacements)
+        retired: list[CacheStage] = []
+        if superseded is not None:
+            retired.append(superseded)
+
+        if replacement.complete:
+            # The final contribution performs the only reader-visible cutover.
+            stages, retired_stages = self._without_descendants(stages, stage_name)
+            replacements.pop(stage_name, None)
+            replacements, retired_replacements = self._without_affected_replacements(
+                replacements, set(retired_stages)
+            )
+            stages[stage_name] = replacement
+            retired.extend(retired_stages.values())
+            retired.extend(retired_replacements.values())
+        else:
+            replacements[stage_name] = replacement
+
+        updated = replace(
+            current,
+            generation=current.generation + 1,
+            stages=stages,
+            replacements=replacements,
+        )
+        self._write_manifest(updated)
+
+        if len(retired) > 0:
+            live = (*updated.stages.values(), *updated.replacements.values())
+            remove_retired_stages(self, retired, live)
+        return updated
 
     @staticmethod
     def _merge_parallel_stage(
@@ -251,7 +342,9 @@ class CacheRepository:
         stage_name: str,
         contribution: CacheStage,
         sources: tuple[CacheSource, ...],
-    ) -> tuple[CacheStage, tuple[CacheSource, ...]]:
+        existing: CacheStage | None = None,
+        replace_duplicates: bool = False,
+    ) -> tuple[CacheStage, tuple[CacheSource, ...], CacheStage | None]:
         """Merge one disjoint source contribution into a stage under lock.
 
         The repository's first stage may establish the global source roster
@@ -268,6 +361,12 @@ class CacheRepository:
             Stage metadata and shard paths produced by one writer task.
         sources : tuple[CacheSource, ...]
             Source records represented by the contribution.
+        existing : CacheStage, optional
+            Hidden replacement candidate to extend. If omitted, extend the
+            currently visible stage with the same name.
+        replace_duplicates : bool, default False
+            Replace repeated source shards in an unpublished candidate rather
+            than rejecting them.
 
         Returns
         -------
@@ -275,6 +374,8 @@ class CacheRepository:
             Combined logical stage with its completion state recomputed.
         tuple[CacheSource, ...]
             Stable merged repository source roster.
+        CacheStage or None
+            Superseded duplicate-source shard records to clean after commit.
 
         Raises
         ------
@@ -284,7 +385,9 @@ class CacheRepository:
             If source identity, schema, lineage, expected count or shard
             ownership conflicts with an earlier contribution.
         """
-        existing = current.stages.get(stage_name)
+        if existing is None and not replace_duplicates:
+            existing = current.stages.get(stage_name)
+        superseded = None
         current_sources = {source.id: source for source in current.sources}
         contribution_sources = {source.id: source for source in sources}
 
@@ -331,10 +434,18 @@ class CacheRepository:
                     "Parallel cache contributions expect different source counts."
                 )
             duplicate_shards = set(existing.shards).intersection(contribution.shards)
-            if duplicate_shards:
+            if duplicate_shards and not replace_duplicates:
                 raise ValueError(
                     "Parallel cache contribution repeats source shards: "
                     f"{sorted(duplicate_shards)}."
+                )
+            if duplicate_shards:
+                superseded = replace(
+                    existing,
+                    shards={
+                        source_id: existing.shards[source_id]
+                        for source_id in duplicate_shards
+                    },
                 )
             contribution = replace(
                 existing,
@@ -360,7 +471,37 @@ class CacheRepository:
                 f"{contribution.expected_sources} expected source shards."
             )
 
-        return contribution, merged_sources
+        return contribution, merged_sources, superseded
+
+    @staticmethod
+    def _without_affected_replacements(
+        replacements: dict[str, CacheStage], stale_names: set[str]
+    ) -> tuple[dict[str, CacheStage], dict[str, CacheStage]]:
+        """Remove hidden candidates invalidated by an active-stage cutover.
+
+        Parameters
+        ----------
+        replacements : dict[str, CacheStage]
+            In-progress replacements keyed by their logical target stage.
+        stale_names : set[str]
+            Active stage names removed by the cutover.
+
+        Returns
+        -------
+        tuple[dict[str, CacheStage], dict[str, CacheStage]]
+            Still-valid candidates followed by candidates whose target or
+            lineage was invalidated.
+        """
+        retired = {
+            name: stage
+            for name, stage in replacements.items()
+            if name in stale_names
+            or any(dependency in stale_names for dependency in stage.dependencies)
+        }
+        kept = {
+            name: stage for name, stage in replacements.items() if name not in retired
+        }
+        return kept, retired
 
     @staticmethod
     def _without_descendants(

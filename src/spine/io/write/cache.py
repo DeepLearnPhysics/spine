@@ -55,10 +55,14 @@ class CacheWriter:
             Product projection and physical HDF5 controls forwarded to the V2
             shard writer.
         overwrite_stage : bool, default False
-            Permit the new generation to replace an existing named stage.
+            Permit the new generation to replace an existing named stage. In
+            parallel mode, contributions remain hidden until the complete
+            replacement is ready for one atomic reader-visible cutover.
         parallel : bool, default False
             Publish this transaction as one disjoint source contribution. The
             stage becomes readable only after it covers the repository roster.
+            When replacing a complete stage, readers continue seeing the old
+            generation while this roster is assembled.
         dependencies : dict[str, str], optional
             Upstream stage generations consumed by this stage. Normally filled
             automatically by :class:`~spine.io.manager.IOManager`.

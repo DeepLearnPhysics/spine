@@ -266,11 +266,17 @@ for the complete established source roster have arrived::
 across all array tasks. A source rejected completely by an entry filter does
 not need an empty shard and is not included in this count. The field provides
 the completion barrier without a merge job and ensures a missing task cannot
-leave a partial first stage looking valid. Parallel
-contributions must not overlap, must expose identical product
-schemas and lineage, and cannot be used for stage replacement. Once all array
-tasks succeed, the stage is immediately readable; no separate merge or
-finalization job is required.
+leave a partial first stage looking valid. Parallel contributions must expose
+identical product schemas and lineage. During initial construction, their
+source sets must be disjoint.
+
+Parallel replacement combines ``parallel: true`` with
+``overwrite_stage: true``. Contributions are recorded as a hidden replacement
+while readers continue seeing the old complete stage. Repeating a source
+replaces that source's hidden contribution, which makes individual array tasks
+safe to retry. When the final expected source arrives, the manifest atomically
+activates the assembled replacement and invalidates the old stage plus all of
+its descendants. No merge or finalization job is required.
 
 The ordinary CLI path options understand this cache contract. For example,
 ``--output train.spine-cache`` overrides a cache writer's ``path``, while

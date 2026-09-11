@@ -142,7 +142,7 @@ def collect_garbage(
         manifest = repository.load()
         live_paths = {
             _shard_path(repository, relative)
-            for stage in manifest.stages.values()
+            for stage in (*manifest.stages.values(), *manifest.replacements.values())
             for relative in stage.shards.values()
         }
 

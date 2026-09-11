@@ -101,7 +101,7 @@ def test_cache_reader_projects_source_ids(tmp_path):
     """An explicit source projection should preserve its requested order."""
     path = tmp_path / "train.spine-cache"
     writer = CacheWriter(path=str(path), stage="stage", keys=["x"])
-    batch = cache_batch([1, 2], source="a.root", key="x")
+    batch = cache_batch([1, 2], source="a.root", entries=[0, 0], key="x")
     batch["source_file_name"] = np.asarray(["a.root", "b.root"])
     writer(batch, {})
     writer.finalize()
@@ -209,6 +209,7 @@ def test_parallel_cache_publication_builds_source_roster(tmp_path):
             path=str(path),
             stage="first",
             keys=["x"],
+            overwrite_stage=True,
             parallel=True,
             expected_sources=2,
         )
@@ -271,6 +272,82 @@ def test_parallel_downstream_stage_is_hidden_until_complete(tmp_path):
 
     reader = CacheReader(path=str(path), stage="second")
     assert sorted(reader[index]["y"] for index in range(len(reader))) == [3, 4]
+    reader.close()
+
+
+def test_parallel_replacement_cuts_over_only_when_complete(tmp_path):
+    """Array replacements should remain hidden, retryable, and atomic."""
+    path = tmp_path / "parallel-replacement.spine-cache"
+    initial = CacheWriter(path=str(path), stage="first", keys=["x"])
+    batch = cache_batch([1, 2], source="a.root", entries=[0, 0], key="x")
+    batch["source_file_name"] = np.asarray(["a.root", "b.root"])
+    initial(batch, {})
+    initial.finalize()
+    initial.close()
+
+    repository = CacheRepository(str(path))
+    first_generation = repository.load().stages["first"].generation
+    descendant = CacheWriter(
+        path=str(path),
+        stage="second",
+        keys=["y"],
+        dependencies={"first": first_generation},
+    )
+    descendant_batch = dict(batch)
+    descendant_batch.pop("x")
+    descendant_batch["y"] = np.asarray([3, 4])
+    descendant(descendant_batch, {})
+    descendant.finalize()
+    descendant.close()
+
+    old_manifest = repository.load()
+    old_shards = [
+        Path(repository.resolve_shard(relative))
+        for stage in old_manifest.stages.values()
+        for relative in stage.shards.values()
+    ]
+    writers = [
+        CacheWriter(
+            path=str(path),
+            stage="first",
+            keys=["x"],
+            overwrite_stage=True,
+            parallel=True,
+            expected_sources=2,
+        )
+        for _ in range(3)
+    ]
+    writers[0](cache_batch([10], source="a.root", key="x"), {})
+    writers[1](cache_batch([11], source="a.root", key="x"), {})
+    writers[2](cache_batch([20], source="b.root", key="x"), {})
+
+    writers[0].finalize()
+    partial = repository.load()
+    first_candidate = partial.replacements["first"].shards.copy()
+    assert partial.stages["first"] == old_manifest.stages["first"]
+    reader = CacheReader(path=str(path), stage="first")
+    assert [reader[index]["x"] for index in range(len(reader))] == [1, 2]
+    reader.close()
+
+    # A repeated source replaces only its hidden candidate shard. GC must
+    # continue treating the replacement record as live manifest state.
+    writers[1].finalize()
+    retried = repository.load()
+    assert retried.replacements["first"].shards != first_candidate
+    assert not Path(repository.path / next(iter(first_candidate.values()))).exists()
+    assert collect_garbage(repository, min_age_seconds=60).shard_generations == ()
+
+    writers[2].finalize()
+    for writer in writers:
+        writer.close()
+
+    complete = repository.load()
+    assert "first" not in complete.replacements
+    assert complete.stages["first"].complete
+    assert set(complete.stages) == {"first"}
+    assert all(not shard.exists() for shard in old_shards)
+    reader = CacheReader(path=str(path), stage="first")
+    assert [reader[index]["x"] for index in range(len(reader))] == [11, 20]
     reader.close()
 
 
@@ -699,6 +776,84 @@ def test_cache_manifest_rejects_invalid_parallel_and_lineage_records(stage, mess
         CacheManifest.from_dict(payload)
 
 
+@pytest.mark.parametrize(
+    ("name", "replacement", "message"),
+    [
+        (
+            "missing",
+            {
+                "generation": "new",
+                "products": [],
+                "shards": {"source": "new.h5"},
+                "complete": False,
+                "expected_sources": 1,
+            },
+            "no active stage",
+        ),
+        (
+            "stage",
+            {
+                "generation": "new",
+                "products": [],
+                "shards": {"source": "new.h5"},
+                "expected_sources": 1,
+            },
+            "must remain hidden",
+        ),
+        (
+            "stage",
+            {
+                "generation": "new",
+                "products": [],
+                "shards": {"source": "new.h5"},
+                "complete": False,
+                "expected_sources": 2,
+            },
+            "complete repository source roster",
+        ),
+        (
+            "stage",
+            {
+                "generation": "new",
+                "products": [],
+                "shards": {"source": "new.h5"},
+                "dependencies": {"missing": "old"},
+                "complete": False,
+                "expected_sources": 1,
+            },
+            "stale or missing dependency",
+        ),
+    ],
+)
+def test_cache_manifest_rejects_invalid_parallel_replacements(
+    name, replacement, message
+):
+    """Hidden replacements must target a complete stage and valid lineage."""
+    source = {
+        "id": "source",
+        "file_name": "raw.root",
+        "file_size": 1,
+        "file_mtime_ns": 2,
+        "num_entries": 3,
+    }
+    payload = {
+        "format": "spine_cache",
+        "version": 1,
+        "generation": 2,
+        "sources": [source],
+        "stages": {
+            "stage": {
+                "generation": "old",
+                "products": [],
+                "shards": {"source": "old.h5"},
+            }
+        },
+        "replacements": {name: replacement},
+    }
+    with pytest.raises(ValueError, match=message):
+        CacheManifest.from_dict(payload)
+
+
 def test_cache_repository_rejects_conflicting_parallel_publications(tmp_path):
     """Parallel contributions must agree on source, schema and lineage."""
     path = tmp_path / "conflicts.spine-cache"
@@ -707,10 +862,6 @@ def test_cache_repository_rejects_conflicting_parallel_publications(tmp_path):
     source_b = CacheSource("b", "b.root", 1, 2, 1)
     partial = CacheStage("g", ("x",), {"a": "a.h5"}, expected_sources=2)
 
-    with pytest.raises(ValueError, match="cannot overwrite"):
-        repository.publish_stage(
-            "stage", partial, (source_a,), 0, overwrite=True, parallel=True
-        )
     repository.publish_stage("stage", partial, (source_a,), 0, parallel=True)
 
     changed_a = CacheSource("a", "a.root", 9, 2, 1)
@@ -826,6 +977,26 @@ def test_cache_repository_rejects_stale_dependencies(tmp_path):
             ),
             (source,),
             0,
+        )
+
+    source = CacheSource("a", "a.root", 1, 2, 1)
+    active = CacheStage("old", (), {"a": "old.h5"})
+    repository.publish_stage("active", active, (source,), 0)
+    replacement = CacheStage(
+        "new",
+        (),
+        {"a": "new.h5"},
+        dependencies={"missing": "old"},
+        expected_sources=1,
+    )
+    with pytest.raises(RuntimeError, match="dependency 'missing' changed"):
+        repository.publish_stage(
+            "active",
+            replacement,
+            (source,),
+            1,
+            overwrite=True,
+            parallel=True,
         )
 
 
