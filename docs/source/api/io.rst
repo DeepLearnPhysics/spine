@@ -167,8 +167,9 @@ SPINE's production cache is a directory, conventionally named
 HDF5 V2 shards. Each source and processing-stage generation owns one shard.
 Publishing a later stage writes only that stage and atomically replaces the
 small manifest; it never recopies earlier cache products. Readers snapshot the
-manifest at initialization, so an active loader continues using the same shard
-generation while another job publishes a replacement.
+manifest at initialization. Adding new downstream stages does not disturb an
+active reader, but replacing stages while jobs are reading the same repository
+is intentionally unsupported.
 
 Create the first stage with an explicit repository path:
 
@@ -205,7 +206,10 @@ the input repository and publishes the new stage back to it:
        stage: fragmentation
 
 Mixed raw/cache training remains a normal mixed dataset. The child roles are
-explicit and each child selects its own registered dataset implementation:
+explicit: ``primary`` selects the authoritative dataset implementation, while
+``cache`` is a manifest-backed SPINE cache. Storage-format aliases such as
+``larcv`` and ``hdf5`` are intentionally not part of the mixed-dataset
+contract:
 
 .. code-block:: yaml
 
@@ -216,12 +220,59 @@ explicit and each child selects its own registered dataset implementation:
        file_keys: /path/to/raw/*.root
        schema: {...}
      cache:
-       name: cache
        path: /path/to/train.spine-cache
        stage: deghosting
 
-Set ``overwrite_stage: true`` to publish a replacement generation. Old shards
-remain readable by active snapshots and may be garbage-collected separately.
+Set ``overwrite_stage: true`` to publish a replacement generation. The new
+manifest is committed first; SPINE then removes the replaced generation and
+every transitive descendant derived from it. A failed write or publication
+therefore leaves the previously published cache untouched, while a successful
+pipeline does not accumulate obsolete cache payloads. The manifest records the
+exact upstream stage generations consumed by each new stage.
+
+Hard process termination may leave unpublished transaction directories or
+other unreachable generations. They can be inspected and removed explicitly::
+
+   spine-cache gc /path/to/train.spine-cache --dry-run
+   spine-cache gc /path/to/train.spine-cache
+
+Garbage collection never removes files referenced by the current manifest and
+defaults to a one-day minimum inactivity age. Active writers refresh a pending
+transaction heartbeat, protecting both their pending data and shards being
+moved into publication. This command is recovery maintenance, not a required
+step in a successful production pipeline.
+
+Scheduler arrays may build one repository without a final HDF5 merge by
+setting ``parallel: true`` on every cache writer. Each task publishes a
+disjoint set of source shards under the manifest lock. The first stage grows
+the source roster as contributions arrive. For subsequent stages, the
+manifest records the stage as incomplete—and readers reject it—until shards
+for the complete established source roster have arrived::
+
+   io:
+     writer:
+       name: cache
+       path: /path/to/train.spine-cache
+       stage: deghosting
+       parallel: true
+       expected_sources: 400
+
+``expected_sources`` is the total number of source files across all array
+tasks. It provides the completion barrier without a merge job and ensures a
+missing task cannot leave a partial first stage looking valid. Parallel
+contributions must not overlap, must expose identical product
+schemas and lineage, and cannot be used for stage replacement. Once all array
+tasks succeed, the stage is immediately readable; no separate merge or
+finalization job is required.
+
+The ordinary CLI path options understand this cache contract. For example,
+``--output train.spine-cache`` overrides a cache writer's ``path``, while
+``--source train.spine-cache`` and ``--val-source train-val.spine-cache``
+override a cache dataset's ``path``. A cache repository is a single logical
+input, so ``--source-list`` and multiple direct paths are rejected. Canonical
+mixed datasets use role-qualified values such as
+``--source primary=raw.root cache=train.spine-cache``; the same contract
+applies to ``--val-source``.
 
 Data augmentation
 -----------------

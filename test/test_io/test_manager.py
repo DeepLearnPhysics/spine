@@ -693,8 +693,8 @@ def test_io_manager_reports_composite_dataset_provenance():
             return 2
 
     mixed = IOManager._dataset_provenance(Mixed())
-    assert mixed["sources"]["larcv"]["files"] == ["primary.root"]
-    assert mixed["sources"]["hdf5"]["files"] == ["cache.h5"]
+    assert mixed["sources"]["primary"]["files"] == ["primary.root"]
+    assert mixed["sources"]["cache"]["files"] == ["cache.h5"]
 
     manager.loader = None
     manager.reader = FakeReader()

@@ -21,9 +21,10 @@ def source_id(source_info: dict[str, Any]) -> str:
 
     Notes
     -----
-    All three provenance fields participate in the digest so files with the
-    same basename remain distinct and a modified source cannot silently reuse
-    an older shard.
+    All three provenance fields participate in the digest. A modified source
+    therefore cannot silently reuse an older shard; callers should avoid
+    ambiguous equal basenames until full-path provenance is part of the cache
+    format.
     """
     identity = "\0".join(
         (

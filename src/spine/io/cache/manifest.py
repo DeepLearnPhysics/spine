@@ -67,11 +67,20 @@ class CacheStage:
         Public product names exposed by the stage.
     shards : dict[str, str]
         Source-ID-to-relative-shard-path mapping.
+    dependencies : dict[str, str]
+        Upstream stage generations consumed to produce this stage.
+    complete : bool
+        Whether the stage covers the complete repository source roster.
+    expected_sources : int, optional
+        Required shard count for coordinated parallel construction.
     """
 
     generation: str
     products: tuple[str, ...]
     shards: dict[str, str]
+    dependencies: dict[str, str] = field(default_factory=dict)
+    complete: bool = True
+    expected_sources: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CacheStage":
@@ -91,6 +100,16 @@ class CacheStage:
             generation=str(data["generation"]),
             products=tuple(str(key) for key in data["products"]),
             shards={str(key): str(value) for key, value in data["shards"].items()},
+            dependencies={
+                str(key): str(value)
+                for key, value in data.get("dependencies", {}).items()
+            },
+            complete=bool(data.get("complete", True)),
+            expected_sources=(
+                int(data["expected_sources"])
+                if data.get("expected_sources") is not None
+                else None
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,11 +186,43 @@ class CacheManifest:
         }
         expected_sources = set(source_ids)
         for name, stage in stages.items():
-            if set(stage.shards) != expected_sources:
+            shard_sources = set(stage.shards)
+            if not shard_sources.issubset(expected_sources):
                 raise ValueError(
-                    f"Cache stage '{name}' does not provide exactly one shard "
-                    "for every manifest source."
+                    f"Cache stage '{name}' contains shards for unknown sources."
                 )
+            if stage.complete and shard_sources != expected_sources:
+                raise ValueError(
+                    f"Complete cache stage '{name}' does not provide exactly "
+                    "one shard for every manifest source."
+                )
+            if stage.expected_sources is not None and stage.expected_sources < 1:
+                raise ValueError(
+                    f"Cache stage '{name}' has an invalid expected source count."
+                )
+            if not stage.complete and stage.expected_sources is None:
+                raise ValueError(
+                    f"Incomplete cache stage '{name}' has no completion target."
+                )
+            if (
+                stage.complete
+                and stage.expected_sources is not None
+                and len(stage.shards) != stage.expected_sources
+            ):
+                raise ValueError(
+                    f"Cache stage '{name}' is marked complete before reaching "
+                    "its expected source count."
+                )
+
+        # Published lineage must point to the currently visible generation.
+        for name, stage in stages.items():
+            for dependency, generation in stage.dependencies.items():
+                upstream = stages.get(dependency)
+                if upstream is None or upstream.generation != generation:
+                    raise ValueError(
+                        f"Cache stage '{name}' has a stale or missing dependency "
+                        f"on '{dependency}' generation '{generation}'."
+                    )
 
         return cls(
             generation=int(data["generation"]),

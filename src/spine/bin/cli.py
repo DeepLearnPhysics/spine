@@ -314,8 +314,17 @@ def main(
     # Override the output configuration if provided
     writer = cfg["io"].get("writer")
     if writer is not None:
+        cache_output = writer.get("name") == "cache"
+        if cache_output and (output_dir is not None or output_suffix is not None):
+            raise ValueError(
+                "--output-dir and --output-suffix do not apply to a cache "
+                "repository; provide its complete path with --output."
+            )
         if output is not None:
-            writer["file_name"] = output
+            output_key = "path" if cache_output else "file_name"
+            writer[output_key] = output
+            if cache_output:
+                writer.pop("file_name", None)
         if output_dir is not None:
             writer["directory"] = output_dir
         if output_suffix is not None:
@@ -410,7 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
               spine -c config.yaml --set model.detect_anomaly=true
                   Enable PyTorch anomaly detection.
               spine -c config.yaml \\
-                --source larcv=raw.root hdf5=cache.h5
+                --source primary=raw.root cache=train.spine-cache
                   Override the sources of a composite dataset.
               spine -c config.yaml --weight-path full-chain.ckpt \\
                 --module-weight uresnet_ppn=uresnet.ckpt

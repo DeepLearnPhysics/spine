@@ -81,26 +81,20 @@ def test_dataset_factory_mixed(monkeypatch):
                 "clusts": None,
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "data": "x"}]
-        ),
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "clusts": "y"}]
-        ),
-    )
+    def build_child(config, dtype=None):
+        key = "clusts" if config["name"] == "cache" else "data"
+        value = "y" if key == "clusts" else "x"
+        return DummyDataset(
+            [{"index": 0, "file_index": 0, "file_entry_index": 0, key: value}]
+        )
+
+    monkeypatch.setattr(mixed_dataset_module, "dataset_factory", build_child)
 
     dataset = dataset_factory(
         {
             "name": "mixed",
-            "larcv": {"file_keys": "dummy.root", "schema": {}},
-            "hdf5": {"file_keys": "dummy.h5"},
+            "primary": {"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+            "cache": {"name": "cache", "path": "dummy.spine-cache"},
         },
         dtype="float32",
     )

@@ -77,8 +77,8 @@ def test_apply_dataset_selection_routes_ordinary_and_mixed_inputs():
         "loader": {
             "dataset": {
                 "name": "mixed",
-                "larcv": {"file_keys": "raw.root"},
-                "hdf5": {"file_keys": "cache.h5"},
+                "primary": {"name": "larcv", "file_keys": "raw.root"},
+                "cache": {"name": "cache", "path": "cache.spine-cache"},
             }
         }
     }

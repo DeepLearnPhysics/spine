@@ -82,6 +82,7 @@ dev = [
 
 [project.scripts]
 spine = "spine.bin.cli:cli"
+spine-cache = "spine.bin.cache:cli"
 spine-config = "spine.bin.config:cli"
 spine-filter = "spine.bin.filter:cli"
 spine-report = "spine.bin.report:cli"

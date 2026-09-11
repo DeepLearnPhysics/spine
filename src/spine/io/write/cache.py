@@ -34,6 +34,9 @@ class CacheWriter:
         keep_open: bool = True,
         flush_frequency: int | None = None,
         overwrite_stage: bool = False,
+        parallel: bool = False,
+        dependencies: dict[str, str] | None = None,
+        expected_sources: int | None = None,
         prefix: str | list[str] | None = None,
         split: bool = False,
     ) -> None:
@@ -53,6 +56,16 @@ class CacheWriter:
             shard writer.
         overwrite_stage : bool, default False
             Permit the new generation to replace an existing named stage.
+        parallel : bool, default False
+            Publish this transaction as one disjoint source contribution. The
+            stage becomes readable only after it covers the repository roster.
+        dependencies : dict[str, str], optional
+            Upstream stage generations consumed by this stage. Normally filled
+            automatically by :class:`~spine.io.manager.IOManager`.
+        expected_sources : int, optional
+            Total number of source shards expected across all parallel tasks.
+            Required when ``parallel=True`` so a failed task cannot leave a
+            partial first stage looking complete.
         prefix, split : optional
             Generic writer-factory arguments. Cache routing is always by source
             identity, so these values do not affect the repository layout.
@@ -67,12 +80,21 @@ class CacheWriter:
             raise ValueError("CacheWriter requires a repository `path`.")
         if stage is None:
             raise ValueError("CacheWriter requires a `stage` name.")
+        if parallel and (expected_sources is None or expected_sources < 1):
+            raise ValueError(
+                "Parallel CacheWriter requires a positive `expected_sources`."
+            )
 
         self.repository = CacheRepository(path, create=True)
         self.stage = stage
         self.overwrite_stage = overwrite_stage
         self.transaction = CacheTransaction(
-            self.repository, stage, overwrite=overwrite_stage
+            self.repository,
+            stage,
+            overwrite=overwrite_stage,
+            parallel=parallel,
+            dependencies=dependencies,
+            expected_sources=expected_sources,
         )
 
         # The private HDF5 backend owns schema discovery and product
@@ -99,7 +121,9 @@ class CacheWriter:
         cfg : dict[str, Any], optional
             Complete run configuration persisted with the cache stage.
         """
+        self.transaction.touch()
         self._writer(data, cfg)
+        self.transaction.touch()
 
     def finalize(self) -> None:
         """Validate and atomically publish the completed stage generation.
@@ -121,6 +145,7 @@ class CacheWriter:
         if self.transaction.published:
             return
 
+        self.transaction.touch()
         self._writer.finalize()
         self._writer.close()
         pending_files = sorted(self.transaction.pending_path.glob("*.h5"))
@@ -146,7 +171,8 @@ class CacheWriter:
         sources.sort(key=lambda source: (source.file_name, source.id))
         source_tuple = tuple(sources)
         if (
-            self.transaction.snapshot.sources
+            not self.transaction.parallel
+            and self.transaction.snapshot.sources
             and self.transaction.snapshot.sources != source_tuple
         ):
             raise ValueError(
@@ -161,6 +187,8 @@ class CacheWriter:
                 iter(self.transaction.snapshot.stages.items())
             )
             for source in source_tuple:
+                if source.id not in reference.shards:
+                    continue
                 pending_axis = read_source_entry_index(
                     str(pending_by_source[source.id]), self.stage
                 )

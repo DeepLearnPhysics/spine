@@ -312,12 +312,20 @@ class IOManager:
         # repository by publishing a new immutable stage generation.
         writer_cfg = dict(writer)
         cache_reader = self._get_cache_reader()
-        if (
-            writer_cfg.get("name") == "cache"
-            and cache_reader is not None
-            and not writer_cfg.get("path")
-        ):
-            writer_cfg["path"] = str(cache_reader.repository.path)
+        if writer_cfg.get("name") == "cache" and cache_reader is not None:
+            if not writer_cfg.get("path"):
+                writer_cfg["path"] = str(cache_reader.repository.path)
+            if os.path.realpath(writer_cfg["path"]) == str(
+                cache_reader.repository.path
+            ):
+                writer_cfg.setdefault(
+                    "dependencies",
+                    {
+                        name: generation
+                        for name, generation in cache_reader.stage_generations.items()
+                        if name != writer_cfg.get("stage")
+                    },
+                )
 
         # Register the write timer and initialize the writer.
         self.watch.initialize("write")
@@ -708,8 +716,8 @@ class IOManager:
             }
         elif hasattr(dataset, "primary") and hasattr(dataset, "cache"):
             result["sources"] = {
-                "larcv": cls._dataset_provenance(dataset.primary),
-                "hdf5": cls._dataset_provenance(dataset.cache),
+                "primary": cls._dataset_provenance(dataset.primary),
+                "cache": cls._dataset_provenance(dataset.cache),
             }
         elif getattr(dataset, "reader", None) is not None:
             result["files"] = list(dataset.reader.file_paths)

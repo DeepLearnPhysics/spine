@@ -24,7 +24,13 @@ class CacheTransaction:
     """
 
     def __init__(
-        self, repository: CacheRepository, stage: str, overwrite: bool = False
+        self,
+        repository: CacheRepository,
+        stage: str,
+        overwrite: bool = False,
+        parallel: bool = False,
+        dependencies: dict[str, str] | None = None,
+        expected_sources: int | None = None,
     ) -> None:
         """Create a private pending generation against the current manifest.
 
@@ -36,6 +42,13 @@ class CacheTransaction:
             Logical processing-stage name.
         overwrite : bool, default False
             Permit replacement of an existing stage generation.
+        parallel : bool, default False
+            Treat this transaction as one disjoint source contribution.
+        dependencies : dict[str, str], optional
+            Upstream logical stage names and exact generations consumed by the
+            processing run.
+        expected_sources : int, optional
+            Total source-shard count required to complete a parallel stage.
 
         Raises
         ------
@@ -47,12 +60,32 @@ class CacheTransaction:
         self.repository = repository
         self.stage = stage
         self.overwrite = overwrite
+        self.parallel = parallel
+        self.dependencies = dict(dependencies or {})
+        self.expected_sources = expected_sources
         self.snapshot = repository.load()
         self.base_generation = self.snapshot.generation
+        if stage in self.snapshot.stages and not (overwrite or parallel):
+            raise RuntimeError(
+                f"Cache stage '{stage}' is already published. Set "
+                "overwrite_stage=True to replace it."
+            )
+
         self.generation = uuid.uuid4().hex
         self.pending_path = repository.pending_dir / self.generation
         make_shared_directory(self.pending_path, parents=True)
+        self.activity_path = self.pending_path / ".activity"
+        self.touch()
         self.published = False
+
+    def touch(self) -> None:
+        """Refresh the transaction heartbeat used by conservative cleanup.
+
+        The marker allows garbage collection to distinguish abandoned pending
+        files from a live writer without process-local locks or reader leases.
+        """
+        self.activity_path.touch(exist_ok=True)
+        set_shared_file_permissions(self.activity_path)
 
     def publish(
         self,
@@ -79,6 +112,7 @@ class CacheTransaction:
         """
         # Each generation receives a fresh immutable directory. It remains
         # unreachable to readers until the manifest publication below.
+        self.touch()
         generation_dir = self.repository.shard_dir / self.stage / self.generation
         make_shared_directory(generation_dir, parents=True)
 
@@ -96,6 +130,8 @@ class CacheTransaction:
             generation=self.generation,
             products=products,
             shards=shards,
+            dependencies=self.dependencies,
+            expected_sources=self.expected_sources,
         )
         self.repository.publish_stage(
             self.stage,
@@ -103,6 +139,7 @@ class CacheTransaction:
             sources,
             self.base_generation,
             overwrite=self.overwrite,
+            parallel=self.parallel,
         )
         self.published = True
         self.cleanup()

@@ -41,6 +41,7 @@ Bin modules
 .. autosummary::
    :toctree: generated/modules
 
+   spine.bin.cache
    spine.bin.cli
    spine.bin.config
    spine.bin.dataset
@@ -186,6 +187,7 @@ Io modules
    spine.io.filter.manager
    spine.io.manager
    spine.io.cache.manifest
+   spine.io.cache.maintenance
    spine.io.cache.repository
    spine.io.cache.transaction
    spine.io.parse.hdf5.utils

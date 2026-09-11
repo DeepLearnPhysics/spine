@@ -338,7 +338,7 @@ class ValidationManager:
         Optional best-checkpoint selection policy.
     """
 
-    SOURCE_KEYS = frozenset({"file_keys", "file_list"})
+    SOURCE_KEYS = frozenset({"file_keys", "file_list", "path"})
     FILTER_KEYS = frozenset(
         {
             "entry_filter",
@@ -536,9 +536,10 @@ class ValidationManager:
             }
 
         elif dataset_name == "mixed":
-            sources = cls.pop_composite_sources(cfg, {"larcv", "hdf5"})
-            cls.replace_source(dataset, "larcv", sources["larcv"])
-            cls.replace_source(dataset, "hdf5", sources["hdf5"])
+            source_names = ("primary", "cache")
+            sources = cls.pop_composite_sources(cfg, set(source_names))
+            for source_name in source_names:
+                cls.replace_source(dataset, source_name, sources[source_name])
             loader_cfg.pop("sampler", None)
 
         else:
@@ -646,7 +647,7 @@ class ValidationManager:
 
     @classmethod
     def validate_source(cls, source: Mapping[str, Any], label: str) -> None:
-        """Require exactly one supported file selector in a source block.
+        """Require exactly one supported source selector in a source block.
 
         Parameters
         ----------
@@ -660,7 +661,7 @@ class ValidationManager:
         KeyError
             If the source contains unsupported keys.
         ValueError
-            If it does not provide exactly one file selector.
+            If it does not provide exactly one file or repository selector.
         """
         invalid = set(source) - cls.SOURCE_KEYS
         if invalid:
@@ -668,7 +669,7 @@ class ValidationManager:
             raise KeyError(f"Unrecognized keys in `{label}`: {names}.")
         if len(source) != 1:
             raise ValueError(
-                f"`{label}` must provide one of `file_keys` or `file_list`."
+                f"`{label}` must provide one of `file_keys`, `file_list` or `path`."
             )
 
     @classmethod

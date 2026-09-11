@@ -81,6 +81,17 @@ class CacheReader(ReaderBase):
             raise ValueError(f"Cache repository '{path}' contains no stages.")
 
         routing = self._resolve_products(self.manifest, stage, stage_map, keys)
+        incomplete = [
+            name for name in routing if not self.manifest.stages[name].complete
+        ]
+        if incomplete:
+            raise RuntimeError(
+                "Cache stages are still receiving parallel contributions: "
+                f"{incomplete}."
+            )
+        self.stage_generations = {
+            name: self.manifest.stages[name].generation for name in routing
+        }
         reader_options = {
             "n_entry": n_entry,
             "n_skip": n_skip,

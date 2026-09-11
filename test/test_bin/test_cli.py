@@ -122,6 +122,85 @@ def test_main_updates_loader_dataset(monkeypatch, tmp_path):
     assert captured["cfg"]["io"]["loader"]["dataset"]["file_list"] == "sources.txt"
 
 
+def test_main_routes_cache_input_and_output_paths(monkeypatch, tmp_path):
+    """Generic CLI paths should target the cache repository contract."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {},
+            "io": {
+                "loader": {"dataset": {"name": "cache", "path": "old"}},
+                "writer": {"name": "cache", "path": "old-output", "stage": "x"},
+            },
+        },
+    )
+    monkeypatch.setattr("spine.main.run", lambda cfg: captured.setdefault("cfg", cfg))
+
+    cli_module.main(
+        config=str(config_path),
+        source=["input.spine-cache"],
+        source_list=None,
+        output="output.spine-cache",
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+    )
+
+    io_cfg = captured["cfg"]["io"]
+    assert io_cfg["loader"]["dataset"]["path"] == "input.spine-cache"
+    assert io_cfg["writer"]["path"] == "output.spine-cache"
+    assert "file_name" not in io_cfg["writer"]
+
+
+def test_main_rejects_cache_output_directory_options(monkeypatch, tmp_path):
+    """Cache output paths are indivisible repository destinations."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("io: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "resolve_config_path", lambda cfg, current_dir: cfg)
+    monkeypatch.setattr(
+        cli_module,
+        "load_config_file",
+        lambda _path: {
+            "base": {},
+            "io": {
+                "reader": {"file_keys": "input.h5"},
+                "writer": {"name": "cache", "stage": "x"},
+            },
+        },
+    )
+    with pytest.raises(ValueError, match="do not apply to a cache repository"):
+        cli_module.main(
+            config=str(config_path),
+            source=None,
+            source_list=None,
+            output="output.spine-cache",
+            output_dir="outputs",
+            output_suffix=None,
+            n=None,
+            nskip=None,
+            entry_list=None,
+            skip_entry_list=None,
+            log_dir=None,
+            weight_prefix=None,
+            weight_path=None,
+            weight_list=None,
+            config_overrides=None,
+        )
+
+
 def test_main_requires_model_for_module_weights(monkeypatch, tmp_path):
     """Module checkpoint overrides should require a model configuration."""
     config_path = tmp_path / "config.yaml"
@@ -212,17 +291,18 @@ def test_main_exports_weights_without_running_driver(monkeypatch, tmp_path, caps
         (
             {
                 "name": "mixed",
-                "larcv": {"file_keys": ["old.root"]},
-                "hdf5": {"file_list": "old.txt"},
+                "primary": {"name": "larcv", "file_keys": ["old.root"]},
+                "cache": {"name": "cache", "path": "old.spine-cache"},
             },
-            ["hdf5=/cache/a.h5", "hdf5=/cache/b.h5"],
-            ["larcv=raw_files.txt"],
+            ["cache=/cache/train.spine-cache"],
+            ["primary=raw_files.txt"],
             {
-                "larcv": {"file_keys": None, "file_list": "raw_files.txt"},
-                "hdf5": {
-                    "file_keys": ["/cache/a.h5", "/cache/b.h5"],
-                    "file_list": None,
+                "primary": {
+                    "name": "larcv",
+                    "file_keys": None,
+                    "file_list": "raw_files.txt",
                 },
+                "cache": {"name": "cache", "path": "/cache/train.spine-cache"},
             },
         ),
         (
@@ -546,8 +626,14 @@ def test_main_overrides_composite_validation_sources(monkeypatch, tmp_path):
                 "loader": {
                     "dataset": {
                         "name": "mixed",
-                        "larcv": {"file_keys": ["train.root"]},
-                        "hdf5": {"file_keys": ["train.h5"]},
+                        "primary": {
+                            "name": "larcv",
+                            "file_keys": ["train.root"],
+                        },
+                        "cache": {
+                            "name": "cache",
+                            "path": "train.spine-cache",
+                        },
                     }
                 }
             },
@@ -574,15 +660,15 @@ def test_main_overrides_composite_validation_sources(monkeypatch, tmp_path):
         weight_path=None,
         weight_list=None,
         config_overrides=None,
-        val_source=["hdf5=validation.h5"],
-        val_source_list=["larcv=validation.txt"],
+        val_source=["cache=validation.spine-cache"],
+        val_source_list=["primary=validation.txt"],
     )
 
     assert captured["cfg"]["validation"] == {
         "fraction": 0.25,
         "sources": {
-            "larcv": {"file_list": "validation.txt"},
-            "hdf5": {"file_keys": ["validation.h5"]},
+            "primary": {"file_list": "validation.txt"},
+            "cache": {"path": "validation.spine-cache"},
         },
     }
 
@@ -1152,23 +1238,23 @@ def test_cli_parses_mixed_source_and_source_list(monkeypatch):
             "-c",
             "config.yaml",
             "--source-list",
-            "larcv=raw_files.txt",
+            "primary=raw_files.txt",
             "--source",
-            "hdf5=/cache/*.h5",
+            "cache=/cache/train.spine-cache",
             "--val-source-list",
-            "larcv=validation.txt",
+            "primary=validation.txt",
             "--val-source",
-            "hdf5=/cache/validation.h5",
+            "cache=/cache/validation.spine-cache",
         ],
     )
 
     cli_module.cli()
 
     assert len(calls) == 1
-    assert calls[0]["source"] == ["hdf5=/cache/*.h5"]
-    assert calls[0]["source_list"] == ["larcv=raw_files.txt"]
-    assert calls[0]["val_source"] == ["hdf5=/cache/validation.h5"]
-    assert calls[0]["val_source_list"] == ["larcv=validation.txt"]
+    assert calls[0]["source"] == ["cache=/cache/train.spine-cache"]
+    assert calls[0]["source_list"] == ["primary=raw_files.txt"]
+    assert calls[0]["val_source"] == ["cache=/cache/validation.spine-cache"]
+    assert calls[0]["val_source_list"] == ["primary=validation.txt"]
 
 
 def test_cli_parses_module_weights(monkeypatch):
