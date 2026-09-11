@@ -42,6 +42,7 @@ class CacheReader(ReaderBase):
         swmr: bool = False,
         entry_fraction_range: Sequence[float] | None = None,
         entry_filter: str | None = None,
+        source_ids: Sequence[str] | None = None,
         max_print_files: int = 10,
     ) -> None:
         """Initialize a reader from one published repository snapshot.
@@ -64,6 +65,10 @@ class CacheReader(ReaderBase):
         entry_filter : str, optional
             File-aware eligibility manifest applied through source provenance
             persisted in every stage shard.
+        source_ids : sequence[str], optional
+            Ordered source identities to expose from the repository. This is
+            used by mixed datasets to project a complete cache onto the raw
+            source subset owned by one scheduler task.
         max_print_files : int, default 10
             Maximum physical shard names printed by each stage reader.
 
@@ -107,21 +112,37 @@ class CacheReader(ReaderBase):
             "max_print_files": max_print_files,
         }
 
-        # Use source IDs as shard basenames; sorting inside the shard reader then
-        # produces identical physical ordering for every independently written
-        # stage generation.
-        source_ids = sorted(source.id for source in self.manifest.sources)
+        available_sources = {source.id for source in self.manifest.sources}
+        if source_ids is None:
+            selected_sources = tuple(source.id for source in self.manifest.sources)
+        else:
+            selected_sources = tuple(str(source_id) for source_id in source_ids)
+            if len(selected_sources) == 0:
+                raise ValueError("Cache source projection cannot be empty.")
+            if len(selected_sources) != len(set(selected_sources)):
+                raise ValueError("Cache source projection contains duplicate IDs.")
+            unknown = set(selected_sources).difference(available_sources)
+            if len(unknown) > 0:
+                raise KeyError(
+                    "Cache source projection contains unknown source IDs: "
+                    f"{sorted(unknown)}."
+                )
+
+        # Preserve manifest order normally and primary-dataset order for an
+        # explicit projection. Every selected stage uses this same shard axis.
+        self.source_ids = selected_sources
         self._readers: dict[str, HDF5ShardReader] = {}
         for stage_name, stage_keys in routing.items():
             stage_record = self.manifest.stages[stage_name]
             shards = [
                 self.repository.resolve_shard(stage_record.shards[source_id])
-                for source_id in source_ids
+                for source_id in selected_sources
             ]
             self._readers[stage_name] = HDF5ShardReader(
                 stage=stage_name,
                 keys=stage_keys,
                 file_keys=shards,
+                preserve_file_order=True,
                 **reader_options,
             )
 

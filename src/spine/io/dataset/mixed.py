@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from ..cache import CacheRepository
 from ..factories import dataset_factory
 from .base import BaseDataset, DataDict
 
@@ -134,6 +135,9 @@ class MixedDataset(BaseDataset):
         cache_kwargs = dict(kwargs)
         nested_cache = dict(cache)
         nested_cache.setdefault("name", "cache")
+        source_ids = self._resolve_cache_sources(nested_cache)
+        if source_ids is not None:
+            nested_cache["source_ids"] = source_ids
         if resolved_entry_filter is not None:
             nested_selectors = [
                 key
@@ -164,6 +168,81 @@ class MixedDataset(BaseDataset):
 
         # Initialize the augmenter
         self.build_augmenter(augment)
+
+    def _resolve_cache_sources(
+        self, cache_config: Mapping[str, Any]
+    ) -> tuple[str, ...] | None:
+        """Match the cache repository to the primary reader's source subset.
+
+        Parameters
+        ----------
+        cache_config : mapping
+            Cache child configuration containing the repository ``path``.
+
+        Returns
+        -------
+        tuple[str, ...] or None
+            Cache source IDs in primary-reader order. ``None`` is returned for
+            injected test datasets or other configurations without a concrete
+            cache repository path.
+
+        Raises
+        ------
+        ValueError
+            If a primary source containing eligible entries is absent from the
+            cache repository.
+
+        Notes
+        -----
+        A source omitted because every entry was filtered out need not produce
+        an empty cache shard. If that source does appear in an unfiltered cache,
+        it remains part of the projection.
+        """
+        path = cache_config.get("path")
+        primary_reader = self.primary.reader
+        if path is None or not hasattr(primary_reader, "file_paths"):
+            return None
+
+        manifest = CacheRepository(str(path)).load()
+        source_map = {
+            (source.file_name, source.file_size, source.file_mtime_ns): source.id
+            for source in manifest.sources
+        }
+
+        # Eligibility is captured before ordinary entry slicing. It identifies
+        # files which genuinely require cache coverage without making a batch
+        # fraction redefine the repository source domain.
+        eligible = getattr(primary_reader, "eligible_entry_index", None)
+        required_files: set[int] | None = None
+        if eligible is not None:
+            eligible = np.asarray(eligible, dtype=np.int64)
+            required_files = set(
+                int(file_idx) for file_idx in primary_reader.file_index[eligible]
+            )
+
+        selected = []
+        missing = []
+        for file_idx, _ in enumerate(primary_reader.file_paths):
+            provenance = primary_reader.get_source_provenance(file_idx, 0)
+            identity = (
+                str(provenance["source_file_name"]),
+                int(provenance["source_file_size"]),
+                int(provenance["source_file_mtime_ns"]),
+            )
+            source_id = source_map.get(identity)
+            if source_id is not None:
+                selected.append(source_id)
+            elif required_files is None or file_idx in required_files:
+                missing.append(identity[0])
+
+        if len(missing) > 0:
+            raise ValueError(
+                "Primary sources with eligible entries are absent from the "
+                f"cache repository: {missing}."
+            )
+        if len(selected) == 0:
+            raise ValueError("No primary source identities appear in the cache.")
+        return tuple(selected)
 
     def _select_cache_entries(self, cache_entry_domain: str) -> None:
         """Project the cache onto the final filtered primary selection.

@@ -55,21 +55,36 @@ class CacheRepository:
         self.lock_path = self.path / ".manifest.lock"
 
         if create:
-            if (
-                self.path.exists()
-                and not self.manifest_path.exists()
-                and any(self.path.iterdir())
-            ):
-                raise ValueError(
-                    f"Cannot initialize cache repository in nonempty directory "
-                    f"'{self.path}'."
-                )
+            # The root must exist before its lock file can be opened. Everything
+            # else is checked and initialized under that lock so scheduler-array
+            # tasks may safely arrive at a new repository simultaneously.
             make_shared_directory(self.path, parents=True, exist_ok=True)
-            make_shared_directory(self.shard_dir, exist_ok=True)
-            make_shared_directory(self.pending_dir, exist_ok=True)
             with self._manifest_lock():
                 if not self.manifest_path.exists():
+                    managed_names = {
+                        self.lock_path.name,
+                        self.shard_dir.name,
+                        self.pending_dir.name,
+                    }
+                    unexpected = [
+                        item.name
+                        for item in self.path.iterdir()
+                        if item.name not in managed_names
+                    ]
+                    if len(unexpected) > 0:
+                        raise ValueError(
+                            "Cannot initialize cache repository in nonempty "
+                            f"directory '{self.path}'."
+                        )
+
+                    make_shared_directory(self.shard_dir, exist_ok=True)
+                    make_shared_directory(self.pending_dir, exist_ok=True)
                     self._write_manifest(CacheManifest())
+                else:
+                    # Repair missing empty management directories left by an
+                    # interrupted initializer or deliberate maintenance.
+                    make_shared_directory(self.shard_dir, exist_ok=True)
+                    make_shared_directory(self.pending_dir, exist_ok=True)
         elif not self.manifest_path.is_file():
             raise FileNotFoundError(
                 f"Cache repository '{self.path}' has no {self.manifest_name}."

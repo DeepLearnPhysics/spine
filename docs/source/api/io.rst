@@ -223,6 +223,11 @@ contract:
        path: /path/to/train.spine-cache
        stage: deghosting
 
+When a scheduler-array task opens only a subset of the primary source files,
+the mixed dataset automatically projects the complete repository onto matching
+source identities in primary-file order. Cache shards belonging to other tasks
+are not opened and do not participate in cardinality checks.
+
 Set ``overwrite_stage: true`` to publish a replacement generation. The new
 manifest is committed first; SPINE then removes the replaced generation and
 every transitive descendant derived from it. A failed write or publication
@@ -257,9 +262,11 @@ for the complete established source roster have arrived::
        parallel: true
        expected_sources: 400
 
-``expected_sources`` is the total number of source files across all array
-tasks. It provides the completion barrier without a merge job and ensures a
-missing task cannot leave a partial first stage looking valid. Parallel
+``expected_sources`` is the total number of source files with accepted entries
+across all array tasks. A source rejected completely by an entry filter does
+not need an empty shard and is not included in this count. The field provides
+the completion barrier without a merge job and ensures a missing task cannot
+leave a partial first stage looking valid. Parallel
 contributions must not overlap, must expose identical product
 schemas and lineage, and cannot be used for stage replacement. Once all array
 tasks succeed, the stage is immediately readable; no separate merge or

@@ -3,7 +3,9 @@
 import json
 import os
 import stat
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +21,7 @@ from spine.io.cache import (
     collect_garbage,
 )
 from spine.io.cache.backend.hdf5.reader import (
+    HDF5ShardReader,
     inspect_stage_shard,
     read_source_entry_index,
 )
@@ -92,6 +95,91 @@ def test_cache_round_trip_and_manifest_snapshot(tmp_path):
     reader = CacheReader(path=str(path))
     assert set(reader[0]) >= {"x", "y", "source_file_entry_index"}
     reader.close()
+
+
+def test_cache_reader_projects_source_ids(tmp_path):
+    """An explicit source projection should preserve its requested order."""
+    path = tmp_path / "train.spine-cache"
+    writer = CacheWriter(path=str(path), stage="stage", keys=["x"])
+    batch = cache_batch([1, 2], source="a.root", key="x")
+    batch["source_file_name"] = np.asarray(["a.root", "b.root"])
+    writer(batch, {})
+    writer.finalize()
+    writer.close()
+
+    manifest = CacheRepository(str(path)).load()
+    source_ids = tuple(source.id for source in reversed(manifest.sources))
+    reader = CacheReader(path=str(path), stage="stage", source_ids=source_ids)
+    assert reader.source_ids == source_ids
+    assert [reader[index]["x"] for index in range(len(reader))] == [2, 1]
+    reader.close()
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        CacheReader(path=str(path), stage="stage", source_ids=[])
+    with pytest.raises(ValueError, match="duplicate IDs"):
+        CacheReader(path=str(path), stage="stage", source_ids=[source_ids[0]] * 2)
+    with pytest.raises(KeyError, match="unknown source IDs"):
+        CacheReader(path=str(path), stage="stage", source_ids=["missing"])
+
+    shard = CacheRepository(str(path)).resolve_shard(
+        next(iter(manifest.stages["stage"].shards.values()))
+    )
+    with pytest.raises(ValueError, match="explicit file list"):
+        HDF5ShardReader(stage="stage", file_keys=shard, preserve_file_order=True)
+
+
+def test_mixed_cache_source_projection_handles_absent_primary_files(tmp_path):
+    """Only completely ineligible primary files may be absent from a cache."""
+    primary_paths = [tmp_path / "a.root", tmp_path / "b.root"]
+    for path in primary_paths:
+        path.write_bytes(path.name.encode())
+
+    source_stat = primary_paths[0].stat()
+    source = CacheSource(
+        "source-a",
+        primary_paths[0].name,
+        source_stat.st_size,
+        source_stat.st_mtime_ns,
+        1,
+    )
+    cache_path = tmp_path / "train.spine-cache"
+    repository = CacheRepository(str(cache_path), create=True)
+    repository.publish_stage(
+        "stage",
+        CacheStage("generation", (), {source.id: "shards/fake.h5"}),
+        (source,),
+        0,
+    )
+
+    class PrimaryReader:
+        def __init__(self):
+            self.file_paths = [str(path) for path in primary_paths]
+            self.file_index = np.asarray([0, 1])
+            self.eligible_entry_index = np.asarray([0])
+
+        def get_source_provenance(self, file_idx, _file_entry_idx):
+            path = Path(self.file_paths[file_idx])
+            item = path.stat()
+            return {
+                "source_file_name": path.name,
+                "source_file_size": item.st_size,
+                "source_file_mtime_ns": item.st_mtime_ns,
+            }
+
+    mixed = object.__new__(MixedDataset)
+    mixed.primary = SimpleNamespace(reader=PrimaryReader())
+    config = {"path": str(cache_path)}
+    assert mixed._resolve_cache_sources(config) == (source.id,)
+
+    mixed.primary.reader.eligible_entry_index = np.asarray([0, 1])
+    with pytest.raises(ValueError, match="eligible entries are absent"):
+        mixed._resolve_cache_sources(config)
+
+    mixed.primary.reader.file_paths = [str(primary_paths[1])]
+    mixed.primary.reader.file_index = np.asarray([0])
+    mixed.primary.reader.eligible_entry_index = np.asarray([], dtype=np.int64)
+    with pytest.raises(ValueError, match="No primary source identities"):
+        mixed._resolve_cache_sources(config)
 
 
 def test_cache_overwrite_reclaims_replaced_generation(tmp_path):
@@ -754,6 +842,33 @@ def test_cache_repository_and_transaction_validate_paths(tmp_path):
         CacheWriter(path=str(tmp_path / "cache.spine-cache"), stage="../bad")
 
 
+def test_cache_repository_initialization_is_concurrent_and_idempotent(
+    tmp_path, monkeypatch
+):
+    """First-stage array tasks should safely initialize one repository."""
+    path = tmp_path / "parallel.spine-cache"
+    entered = threading.Event()
+    release = threading.Event()
+    original = CacheRepository._write_manifest
+
+    def delayed_write(repository, manifest):
+        entered.set()
+        assert release.wait(timeout=5)
+        return original(repository, manifest)
+
+    monkeypatch.setattr(CacheRepository, "_write_manifest", delayed_write)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(CacheRepository, str(path), True)
+        assert entered.wait(timeout=5)
+        second = executor.submit(CacheRepository, str(path), True)
+        release.set()
+        first_repository = first.result(timeout=5)
+        second_repository = second.result(timeout=5)
+
+    assert first_repository.load() == CacheManifest()
+    assert second_repository.load() == CacheManifest()
+
+
 def test_cache_reader_rejects_empty_repository(tmp_path):
     """An initialized repository has no readable event domain before publish."""
     path = tmp_path / "train.spine-cache"
@@ -840,6 +955,38 @@ def test_cache_dataset_and_canonical_mixed_dataset(tmp_path):
     )
     assert mixed[1]["x"] == 2
     assert mixed[1]["y"] == 4
+
+
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is required for datasets.")
+def test_mixed_dataset_projects_complete_cache_to_primary_source_subset(tmp_path):
+    """An array task should load only cache shards matching its raw files."""
+    primary_paths = [tmp_path / "a.h5", tmp_path / "b.h5"]
+    for index, primary_path in enumerate(primary_paths):
+        writer = HDF5Writer(file_name=str(primary_path), keys=["x"], format_version=2)
+        writer({"index": np.arange(1), "x": np.asarray([index + 1])}, {})
+        writer.finalize()
+        writer.close()
+
+    cache_path = tmp_path / "train.spine-cache"
+    cache_writer = CacheWriter(path=str(cache_path), stage="cached", keys=["y"])
+    stats = [path.stat() for path in primary_paths]
+    batch = cache_batch([10, 20], key="y")
+    batch["source_file_name"] = np.asarray([path.name for path in primary_paths])
+    batch["source_file_size"] = np.asarray([item.st_size for item in stats])
+    batch["source_file_mtime_ns"] = np.asarray([item.st_mtime_ns for item in stats])
+    batch["source_file_entry_index"] = np.zeros(2, dtype=np.int64)
+    cache_writer(batch, {})
+    cache_writer.finalize()
+    cache_writer.close()
+
+    mixed = MixedDataset(
+        primary={"name": "hdf5", "file_keys": str(primary_paths[1])},
+        cache={"path": str(cache_path), "stage": "cached"},
+        dtype="float32",
+    )
+    assert len(mixed) == 1
+    assert mixed[0]["x"] == 2
+    assert mixed[0]["y"] == 20
 
 
 def test_io_manager_extends_input_cache_repository(tmp_path):

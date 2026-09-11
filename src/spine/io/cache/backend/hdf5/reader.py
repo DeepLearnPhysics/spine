@@ -89,6 +89,7 @@ class HDF5ShardReader(HDF5Reader):
         keys: Sequence[str] | None = None,
         entry_fraction_range: Sequence[float] | None = None,
         entry_filter: str | None = None,
+        preserve_file_order: bool = False,
     ) -> None:
         """Initialize the cache-shard reader.
 
@@ -110,12 +111,23 @@ class HDF5ShardReader(HDF5Reader):
             See :class:`spine.io.read.HDF5Reader`. These options control file
             discovery, entry selection, object reconstruction, file-handle
             lifetime, incomplete-stage handling, and source-manifest filtering.
+        preserve_file_order : bool, default False
+            Preserve the order of an explicit ``file_keys`` list instead of
+            sorting paths. Cache repository projections use this to match the
+            authoritative primary dataset's source order.
         """
         # Store routing policy before inspecting the available stage schemas
         self.stage = stage
         self.stage_map = dict(stage_map or {})
         self.requested_keys = tuple(keys) if keys is not None else None
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
+        if preserve_file_order:
+            if file_list is not None or not isinstance(file_keys, list):
+                raise ValueError(
+                    "Preserving cache shard order requires an explicit file list."
+                )
+            requested_order = {path: index for index, path in enumerate(file_keys)}
+            self.file_paths.sort(key=requested_order.__getitem__)
         self.keep_open = keep_open
         self.swmr = swmr
         self.ignore_incomplete = ignore_incomplete
