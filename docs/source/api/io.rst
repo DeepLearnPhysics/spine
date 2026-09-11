@@ -269,6 +269,17 @@ to every array task and scheduler chunk. This attempt identity is intentionally
 separate from experiment YAML and prevents shards from different retries or
 configurations from being combined.
 
+Before submitting those workers, register the attempt atomically::
+
+   spine-cache begin /path/to/train.spine-cache deghosting \
+     --publication-id 4c277...
+
+Omitting ``--publication-id`` generates one and prints it for the launcher to
+capture. Registration is the publication fence: workers may contribute only
+under the currently registered ID. Beginning a newer attempt retires an older
+incomplete candidate before any new worker starts, so delayed tasks from the
+old attempt are rejected rather than allowed to reclaim the stage.
+
 ``expected_sources`` is the total number of source files with accepted entries
 across all array tasks. A source rejected completely by an entry filter does
 not need an empty shard and is not included in this count. The field provides

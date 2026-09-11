@@ -152,6 +152,9 @@ class CacheManifest:
     replacements : dict[str, CacheStage]
         Incomplete parallel replacements hidden from readers until their full
         source roster has been assembled.
+    publications : dict[str, str]
+        Currently registered parallel publication ID for each logical stage.
+        Only contributions matching this lock-protected fence may publish.
     """
 
     format: str = "spine_cache"
@@ -160,6 +163,7 @@ class CacheManifest:
     sources: tuple[CacheSource, ...] = ()
     stages: dict[str, CacheStage] = field(default_factory=dict)
     replacements: dict[str, CacheStage] = field(default_factory=dict)
+    publications: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CacheManifest":
@@ -200,6 +204,15 @@ class CacheManifest:
             str(name): CacheStage.from_dict(stage)
             for name, stage in data.get("replacements", {}).items()
         }
+        publications = {
+            str(name): str(publication_id)
+            for name, publication_id in data.get("publications", {}).items()
+        }
+        if any(
+            not name or not publication_id
+            for name, publication_id in publications.items()
+        ):
+            raise ValueError("Cache manifest contains an invalid publication fence.")
         expected_sources = set(source_ids)
         for records in (stages, replacements):
             for name, stage in records.items():
@@ -237,6 +250,15 @@ class CacheManifest:
                 if stage.expected_sources is None and stage.publication_id is not None:
                     raise ValueError(
                         f"Serial cache stage '{name}' has a publication ID."
+                    )
+                if (
+                    not stage.complete
+                    and stage.publication_id is not None
+                    and publications.get(name) != stage.publication_id
+                ):
+                    raise ValueError(
+                        f"Incomplete cache stage '{name}' does not match its "
+                        "registered publication ID."
                     )
 
         for name, replacement in replacements.items():
@@ -285,6 +307,7 @@ class CacheManifest:
             sources=sources,
             stages=stages,
             replacements=replacements,
+            publications=publications,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -308,4 +331,5 @@ class CacheManifest:
                 name: stage.to_dict()
                 for name, stage in sorted(self.replacements.items())
             },
+            "publications": dict(sorted(self.publications.items())),
         }

@@ -64,6 +64,13 @@ def write_stage(path, stage, key, values, overwrite=False):
     writer.close()
 
 
+def begin_publication(path, stage, publication_id=PUBLICATION_ID):
+    """Register one parallel publication fence for a test repository."""
+    repository = CacheRepository(str(path), create=True)
+    repository.begin_publication(stage, publication_id)
+    return repository
+
+
 def test_cache_round_trip_and_manifest_snapshot(tmp_path):
     """Independent stage shards should compose without rewriting predecessors."""
     path = tmp_path / "train.spine-cache"
@@ -207,6 +214,7 @@ def test_cache_overwrite_reclaims_replaced_generation(tmp_path):
 def test_parallel_cache_publication_builds_source_roster(tmp_path):
     """Disjoint array-task contributions should form one readable stage."""
     path = tmp_path / "parallel.spine-cache"
+    begin_publication(path, "first", "initial-build")
     writers = [
         CacheWriter(
             path=str(path),
@@ -239,6 +247,7 @@ def test_parallel_cache_publication_builds_source_roster(tmp_path):
 def test_parallel_downstream_stage_is_hidden_until_complete(tmp_path):
     """A partial downstream generation must not look readable."""
     path = tmp_path / "parallel.spine-cache"
+    begin_publication(path, "first", "first-stage-build")
     for source, value in (("a.root", 1), ("b.root", 2)):
         writer = CacheWriter(
             path=str(path),
@@ -255,6 +264,7 @@ def test_parallel_downstream_stage_is_hidden_until_complete(tmp_path):
     dependencies = {
         "first": CacheRepository(str(path)).load().stages["first"].generation
     }
+    begin_publication(path, "second", "second-stage-build")
     writers = [
         CacheWriter(
             path=str(path),
@@ -312,6 +322,7 @@ def test_parallel_replacement_cuts_over_only_when_complete(tmp_path):
         for stage in old_manifest.stages.values()
         for relative in stage.shards.values()
     ]
+    repository.begin_publication("first", "replacement-attempt")
     writers = [
         CacheWriter(
             path=str(path),
@@ -382,10 +393,12 @@ def test_parallel_replacement_does_not_mix_submission_attempts(tmp_path):
         return writer
 
     repository = CacheRepository(str(path))
+    repository.begin_publication("stage", "attempt-1")
     old_writers = [
         make_writer(source, value, "attempt-1")
         for source, value in (("a.root", 10), ("b.root", 20), ("c.root", 30))
     ]
+    delayed_old_d = make_writer("d.root", 40, "attempt-1")
     for writer in old_writers:
         writer.finalize()
         writer.close()
@@ -395,16 +408,27 @@ def test_parallel_replacement_does_not_mix_submission_attempts(tmp_path):
         repository.path / relative for relative in old_candidate.shards.values()
     ]
 
-    # Attempt 2 happens to publish D first. It must start from an empty
-    # candidate instead of completing attempt 1's A/B/C contribution set.
+    # The launcher fences attempt 2 before any of its workers publish. This
+    # immediately retires attempt 1's incomplete A/B/C candidate.
+    repository.begin_publication("stage", "attempt-2")
+    assert "stage" not in repository.load().replacements
+    assert all(not path.exists() for path in old_candidate_paths)
+
+    # Attempt 2 happens to publish D first. A delayed D from attempt 1 is
+    # rejected and cannot replace or complete the new candidate.
     new_d = make_writer("d.root", 400, "attempt-2")
     new_d.finalize()
     new_d.close()
+    candidate_after_new_d = repository.load().replacements["stage"]
+    with pytest.raises(RuntimeError, match="is not active"):
+        delayed_old_d.finalize()
+    delayed_old_d.close()
+    assert repository.load().replacements["stage"] == candidate_after_new_d
+
     restarted = repository.load()
     replacement = restarted.replacements["stage"]
     assert replacement.publication_id == "attempt-2"
     assert len(replacement.shards) == 1
-    assert all(not path.exists() for path in old_candidate_paths)
     reader = CacheReader(path=str(path), stage="stage")
     assert [reader[index]["x"] for index in range(len(reader))] == [1, 2, 3, 4]
     reader.close()
@@ -445,6 +469,7 @@ def test_parallel_initial_stage_can_restart_with_new_publication_id(tmp_path):
         expected_sources=2,
         publication_id="attempt-1",
     )
+    repository.begin_publication("stage", "attempt-1")
     repository.publish_stage(
         "stage", attempt_1, (source_a,), 0, overwrite=True, parallel=True
     )
@@ -465,14 +490,33 @@ def test_parallel_initial_stage_can_restart_with_new_publication_id(tmp_path):
             existing=replace(attempt_1, complete=False),
             use_active=False,
         )
-    with pytest.raises(RuntimeError, match="belongs to publication 'attempt-1'"):
-        repository.publish_stage("stage", attempt_2, (source_b,), 0, parallel=True)
+    repository.begin_publication("stage", "attempt-2")
+    reset = repository.load()
+    assert "stage" not in reset.stages
+    assert reset.sources == ()
+    with pytest.raises(RuntimeError, match="is not active"):
+        repository.publish_stage(
+            "stage", attempt_1, (source_a,), 0, overwrite=True, parallel=True
+        )
     restarted = repository.publish_stage(
         "stage", attempt_2, (source_b,), 0, overwrite=True, parallel=True
     )
     assert restarted.stages["stage"].publication_id == "attempt-2"
     assert restarted.stages["stage"].shards == attempt_2.shards
     assert restarted.sources == (source_b,)
+
+
+def test_begin_publication_validates_and_is_idempotent(tmp_path):
+    """Publication registration should reject bad IDs and preserve repeat calls."""
+    repository = CacheRepository(str(tmp_path / "begin.spine-cache"), create=True)
+    with pytest.raises(ValueError, match="stage names"):
+        repository.begin_publication("../bad", PUBLICATION_ID)
+    with pytest.raises(ValueError, match="IDs must be nonempty"):
+        repository.begin_publication("stage", "")
+
+    first = repository.begin_publication("stage", PUBLICATION_ID)
+    repeated = repository.begin_publication("stage", PUBLICATION_ID)
+    assert repeated == first
 
 
 def test_cache_stage_overwrite_invalidates_descendants(tmp_path):
@@ -1022,6 +1066,7 @@ def test_cache_manifest_rejects_invalid_parallel_replacements(
             }
         },
         "replacements": {name: replacement},
+        "publications": {name: "replacement"},
     }
     with pytest.raises(ValueError, match=message):
         CacheManifest.from_dict(payload)
@@ -1058,8 +1103,68 @@ def test_cache_manifest_rejects_replacement_reusing_active_publication():
         "sources": [source],
         "stages": {"stage": stage},
         "replacements": {"stage": replacement},
+        "publications": {"stage": PUBLICATION_ID},
     }
     with pytest.raises(ValueError, match="reuses the active publication ID"):
+        CacheManifest.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    ("publications", "replacement_id", "message"),
+    [
+        ({"": "attempt"}, None, "invalid publication fence"),
+        ({"stage": "other"}, None, "registered publication ID"),
+        (
+            {"stage": "other"},
+            "attempt",
+            "does not match its registered publication ID",
+        ),
+    ],
+)
+def test_cache_manifest_rejects_invalid_publication_fences(
+    publications, replacement_id, message
+):
+    """Manifest publication fences must be nonempty and match partial state."""
+    source = {
+        "id": "source",
+        "file_name": "raw.root",
+        "file_size": 1,
+        "file_mtime_ns": 2,
+        "num_entries": 3,
+    }
+    stage = {
+        "generation": "partial",
+        "products": [],
+        "shards": {"source": "partial.h5"},
+        "complete": False,
+        "expected_sources": 2,
+        "publication_id": "attempt",
+    }
+    payload = {
+        "format": "spine_cache",
+        "version": 1,
+        "generation": 2,
+        "sources": [source],
+        "stages": {"stage": stage},
+        "publications": publications,
+    }
+    if replacement_id is not None:
+        payload["stages"]["stage"] = {
+            "generation": "active",
+            "products": [],
+            "shards": {"source": "active.h5"},
+        }
+        payload["replacements"] = {
+            "stage": {
+                **stage,
+                "generation": "replacement",
+                "shards": {},
+                "expected_sources": 1,
+                "publication_id": replacement_id,
+            }
+        }
+
+    with pytest.raises(ValueError, match=message):
         CacheManifest.from_dict(payload)
 
 
@@ -1084,6 +1189,7 @@ def test_completed_parallel_stage_validates_late_retries(tmp_path, change, messa
         expected_sources=1,
         publication_id=PUBLICATION_ID,
     )
+    repository.begin_publication("stage", PUBLICATION_ID)
     repository.publish_stage("stage", active, (source,), 0, parallel=True)
 
     contribution = CacheStage(
@@ -1128,12 +1234,14 @@ def test_cache_repository_rejects_conflicting_parallel_publications(tmp_path):
             0,
             parallel=True,
         )
+    repository.begin_publication("stage", PUBLICATION_ID)
     repository.publish_stage("stage", partial, (source_a,), 0, parallel=True)
 
     changed_a = CacheSource("a", "a.root", 9, 2, 1)
     with pytest.raises(ValueError, match="changed between publications"):
         repository.publish_stage("stage", partial, (changed_a,), 0, parallel=True)
     with pytest.raises(ValueError, match="contains 1"):
+        repository.begin_publication("other", PUBLICATION_ID)
         repository.publish_stage(
             "other",
             CacheStage(
@@ -1206,13 +1314,16 @@ def test_cache_repository_rejects_invalid_parallel_roster_changes(tmp_path):
         expected_sources=1,
         publication_id=PUBLICATION_ID,
     )
+    repository.begin_publication("first", PUBLICATION_ID)
     repository.publish_stage("first", complete, (source_a,), 0, parallel=True)
     other_attempt = replace(complete, publication_id="another-publication")
+    repository.begin_publication("first", "another-publication")
     with pytest.raises(RuntimeError, match="already complete"):
         repository.publish_stage("first", other_attempt, (source_a,), 0, parallel=True)
 
     oversized_path = tmp_path / "oversized.spine-cache"
     repository = CacheRepository(str(oversized_path), create=True)
+    repository.begin_publication("first", PUBLICATION_ID)
     with pytest.raises(ValueError, match="more than its 1 expected"):
         repository.publish_stage(
             "first",
@@ -1236,6 +1347,7 @@ def test_cache_repository_rejects_invalid_parallel_roster_changes(tmp_path):
     repository.publish_stage(
         "second", CacheStage("h", (), {"a": "a2.h5"}), (source_a,), 1
     )
+    repository.begin_publication("first", PUBLICATION_ID)
     with pytest.raises(ValueError, match="first stage may extend"):
         repository.publish_stage(
             "first",
@@ -1270,6 +1382,7 @@ def test_cache_repository_rejects_invalid_parallel_roster_changes(tmp_path):
         expected_sources=2,
         publication_id=PUBLICATION_ID,
     )
+    repository.begin_publication("second", PUBLICATION_ID)
     repository.publish_stage("second", partial, (source_a,), 1, parallel=True)
     retried = repository.publish_stage("second", partial, (source_a,), 0, parallel=True)
     assert retried.stages["second"].shards == partial.shards
@@ -1297,6 +1410,7 @@ def test_cache_repository_rejects_stale_dependencies(tmp_path):
     source = CacheSource("a", "a.root", 1, 2, 1)
     active = CacheStage("old", (), {"a": "old.h5"})
     repository.publish_stage("active", active, (source,), 0)
+    repository.begin_publication("active", "replacement")
     replacement = CacheStage(
         "new",
         (),
@@ -1310,7 +1424,7 @@ def test_cache_repository_rejects_stale_dependencies(tmp_path):
             "active",
             replacement,
             (source,),
-            1,
+            2,
             overwrite=True,
             parallel=True,
         )

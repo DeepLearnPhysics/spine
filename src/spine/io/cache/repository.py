@@ -138,6 +138,88 @@ class CacheRepository:
             raise FileNotFoundError(f"Published cache shard does not exist: {path}.")
         return str(path)
 
+    def begin_publication(self, stage_name: str, publication_id: str) -> CacheManifest:
+        """Atomically fence a stage for one parallel submission attempt.
+
+        Parameters
+        ----------
+        stage_name : str
+            Logical stage the scheduler array will build or replace.
+        publication_id : str
+            Nonempty identity shared by every task in that submission attempt.
+
+        Returns
+        -------
+        CacheManifest
+            Manifest snapshot containing the registered publication fence.
+
+        Raises
+        ------
+        ValueError
+            If the stage name or publication identity is invalid.
+
+        Notes
+        -----
+        Re-registering the same identity is idempotent. Registering a new one
+        retires any incomplete generation from the prior attempt while leaving
+        a complete reader-visible stage untouched until atomic replacement.
+        """
+        if not stage_name or Path(stage_name).name != stage_name:
+            raise ValueError("Cache stage names must be nonempty path components.")
+        if not publication_id:
+            raise ValueError("Cache publication IDs must be nonempty.")
+
+        with self._manifest_lock():
+            current = self.load()
+            if current.publications.get(stage_name) == publication_id:
+                return current
+
+            stages = dict(current.stages)
+            replacements = dict(current.replacements)
+            publications = dict(current.publications)
+            retired: list[CacheStage] = []
+
+            # A hidden replacement and an incomplete visible first build both
+            # belong exclusively to the old fenced attempt.
+            candidate = replacements.pop(stage_name, None)
+            if candidate is not None:
+                retired.append(candidate)
+
+            existing = stages.get(stage_name)
+            if existing is not None and not existing.complete:
+                stages, retired_stages = self._without_descendants(stages, stage_name)
+                replacements, retired_replacements = (
+                    self._without_affected_replacements(
+                        replacements, set(retired_stages)
+                    )
+                )
+                retired.extend(retired_stages.values())
+                retired.extend(retired_replacements.values())
+                for name in (*retired_stages, *retired_replacements):
+                    publications.pop(name, None)
+
+            # The first stage owns the provisional source roster. Once that
+            # incomplete attempt is retired, its partial roster is stale too.
+            sources = current.sources
+            if len(stages) == 0:
+                sources = ()
+
+            publications[stage_name] = publication_id
+            updated = replace(
+                current,
+                generation=current.generation + 1,
+                sources=sources,
+                stages=stages,
+                replacements=replacements,
+                publications=publications,
+            )
+            self._write_manifest(updated)
+
+            if len(retired) > 0:
+                live = (*updated.stages.values(), *updated.replacements.values())
+                remove_retired_stages(self, retired, live)
+            return updated
+
     def publish_stage(
         self,
         stage_name: str,
@@ -189,6 +271,14 @@ class CacheRepository:
 
         with self._manifest_lock():
             current = self.load()
+            if parallel:
+                registered = current.publications.get(stage_name)
+                if registered != stage.publication_id:
+                    raise RuntimeError(
+                        f"Cache publication '{stage.publication_id}' is not active "
+                        f"for stage '{stage_name}' (registered: {registered!r}). "
+                        "Run `spine-cache begin` before launching workers."
+                    )
             existing = current.stages.get(stage_name)
             if current.generation != base_generation and not parallel:
                 raise RuntimeError(
@@ -226,28 +316,9 @@ class CacheRepository:
 
                 parallel_retired: list[CacheStage] = []
                 merge_existing = existing
-                merge_current = current
-                if (
-                    existing is not None
-                    and not existing.complete
-                    and existing.publication_id != stage.publication_id
-                ):
-                    if not overwrite:
-                        raise RuntimeError(
-                            f"Parallel cache stage '{stage_name}' belongs to "
-                            f"publication '{existing.publication_id}', not "
-                            f"'{stage.publication_id}'. Set overwrite_stage=True "
-                            "to restart it."
-                        )
-                    parallel_retired.append(existing)
-                    merge_existing = None
-                    if set(current.stages) == {stage_name}:
-                        # The incomplete first stage owns the provisional
-                        # repository roster. A new attempt rebuilds both.
-                        merge_current = replace(current, sources=())
 
                 stage, merged_sources, superseded = self._merge_parallel_stage(
-                    merge_current,
+                    current,
                     stage_name,
                     stage,
                     sources,
@@ -273,8 +344,9 @@ class CacheRepository:
             # removes every transitive descendant from the visible manifest.
             stages = dict(current.stages)
             replacements = dict(current.replacements)
+            publications = dict(current.publications)
             retired: list[CacheStage] = parallel_retired
-            if overwrite and existing is not None:
+            if overwrite and existing is not None and not parallel:
                 stages, retired_stages = self._without_descendants(stages, stage_name)
                 replacements, retired_replacements = (
                     self._without_affected_replacements(
@@ -283,6 +355,10 @@ class CacheRepository:
                 )
                 retired.extend(retired_stages.values())
                 retired.extend(retired_replacements.values())
+                for name in (*retired_stages, *retired_replacements):
+                    publications.pop(name, None)
+            if not parallel:
+                publications.pop(stage_name, None)
             stages[stage_name] = stage
             updated = replace(
                 current,
@@ -290,6 +366,7 @@ class CacheRepository:
                 sources=merged_sources,
                 stages=stages,
                 replacements=replacements,
+                publications=publications,
             )
             self._write_manifest(updated)
 
@@ -335,14 +412,6 @@ class CacheRepository:
         """
         candidate = current.replacements.get(stage_name)
         retired: list[CacheStage] = []
-        if (
-            candidate is not None
-            and candidate.publication_id != contribution.publication_id
-        ):
-            # A new orchestrator attempt starts a clean hidden candidate. The
-            # old one remains live until this manifest update commits.
-            retired.append(candidate)
-            candidate = None
 
         replacement, _, superseded = self._merge_parallel_stage(
             current,
@@ -363,6 +432,7 @@ class CacheRepository:
 
         stages = dict(current.stages)
         replacements = dict(current.replacements)
+        publications = dict(current.publications)
         if superseded is not None:
             retired.append(superseded)
 
@@ -376,6 +446,9 @@ class CacheRepository:
             stages[stage_name] = replacement
             retired.extend(retired_stages.values())
             retired.extend(retired_replacements.values())
+            for name in (*retired_stages, *retired_replacements):
+                if name != stage_name:
+                    publications.pop(name, None)
         else:
             replacements[stage_name] = replacement
 
@@ -384,6 +457,7 @@ class CacheRepository:
             generation=current.generation + 1,
             stages=stages,
             replacements=replacements,
+            publications=publications,
         )
         self._write_manifest(updated)
 

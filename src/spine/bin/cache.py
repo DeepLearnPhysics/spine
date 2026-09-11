@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
 from collections.abc import Sequence
 
 from spine.io.cache import CacheRepository, collect_garbage
@@ -15,6 +16,16 @@ def build_parser() -> argparse.ArgumentParser:
         description="Inspect and maintain manifest-backed SPINE cache repositories."
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    begin = commands.add_parser(
+        "begin", help="Register and fence one parallel publication attempt."
+    )
+    begin.add_argument("path", help="Cache repository to initialize or update.")
+    begin.add_argument("stage", help="Logical cache stage to publish.")
+    begin.add_argument(
+        "--publication-id",
+        help="Shared attempt ID (default: generate a UUID).",
+    )
+
     garbage = commands.add_parser(
         "gc", help="Remove stale files unreachable from the current manifest."
     )
@@ -48,6 +59,13 @@ def cli(argv: Sequence[str] | None = None) -> int:
         Zero after successful maintenance.
     """
     args = build_parser().parse_args(argv)
+    if args.command == "begin":
+        publication_id = args.publication_id or uuid.uuid4().hex
+        repository = CacheRepository(args.path, create=True)
+        repository.begin_publication(args.stage, publication_id)
+        print(publication_id)
+        return 0
+
     repository = CacheRepository(args.path)
     report = collect_garbage(
         repository,
