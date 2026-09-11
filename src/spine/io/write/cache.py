@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ class CacheWriter:
         parallel: bool = False,
         dependencies: dict[str, str] | None = None,
         expected_sources: int | None = None,
+        publication_id: str | None = None,
         prefix: str | list[str] | None = None,
         split: bool = False,
     ) -> None:
@@ -70,6 +72,11 @@ class CacheWriter:
             Total number of source shards expected across all parallel tasks.
             Required when ``parallel=True`` so a failed task cannot leave a
             partial first stage looking complete.
+        publication_id : str, optional
+            Shared identity for one parallel submission attempt. If omitted,
+            read from ``SPINE_CACHE_PUBLICATION_ID``. Normal production
+            launchers should provide the environment variable rather than
+            placing this orchestration detail in experiment YAML.
         prefix, split : optional
             Generic writer-factory arguments. Cache routing is always by source
             identity, so these values do not affect the repository layout.
@@ -88,6 +95,16 @@ class CacheWriter:
             raise ValueError(
                 "Parallel CacheWriter requires a positive `expected_sources`."
             )
+        if parallel:
+            if publication_id is None:
+                publication_id = os.environ.get("SPINE_CACHE_PUBLICATION_ID")
+            if not publication_id:
+                raise ValueError(
+                    "Parallel CacheWriter requires a shared `publication_id` or "
+                    "SPINE_CACHE_PUBLICATION_ID environment variable."
+                )
+        elif publication_id is not None:
+            raise ValueError("CacheWriter `publication_id` requires `parallel=True`.")
 
         self.repository = CacheRepository(path, create=True)
         self.stage = stage
@@ -99,6 +116,7 @@ class CacheWriter:
             parallel=parallel,
             dependencies=dependencies,
             expected_sources=expected_sources,
+            publication_id=publication_id,
         )
 
         # The private HDF5 backend owns schema discovery and product

@@ -262,6 +262,13 @@ for the complete established source roster have arrived::
        parallel: true
        expected_sources: 400
 
+Every task in one submission attempt must also receive the same
+``SPINE_CACHE_PUBLICATION_ID`` environment variable. The orchestration layer
+should generate a fresh UUID for each cache-stage submission and propagate it
+to every array task and scheduler chunk. This attempt identity is intentionally
+separate from experiment YAML and prevents shards from different retries or
+configurations from being combined.
+
 ``expected_sources`` is the total number of source files with accepted entries
 across all array tasks. A source rejected completely by an entry filter does
 not need an empty shard and is not included in this count. The field provides
@@ -274,9 +281,11 @@ Parallel replacement combines ``parallel: true`` with
 ``overwrite_stage: true``. Contributions are recorded as a hidden replacement
 while readers continue seeing the old complete stage. Repeating a source
 replaces that source's hidden contribution, which makes individual array tasks
-safe to retry. When the final expected source arrives, the manifest atomically
-activates the assembled replacement and invalidates the old stage plus all of
-its descendants. No merge or finalization job is required.
+safe to retry within one publication ID. The first contribution carrying a new
+publication ID discards an incomplete candidate left by an older attempt. When
+the final expected source arrives, the manifest atomically activates the
+assembled replacement and invalidates the old stage plus all of its
+descendants. No merge or finalization job is required.
 
 The ordinary CLI path options understand this cache contract. For example,
 ``--output train.spine-cache`` overrides a cache writer's ``path``, while

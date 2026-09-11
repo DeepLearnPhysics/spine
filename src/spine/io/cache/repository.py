@@ -184,6 +184,9 @@ class CacheRepository:
             If source identity, schema, lineage or parallel mode conflicts
             with the currently published repository state.
         """
+        if parallel and not stage.publication_id:
+            raise ValueError("Parallel cache publication requires a publication ID.")
+
         with self._manifest_lock():
             current = self.load()
             existing = current.stages.get(stage_name)
@@ -203,15 +206,59 @@ class CacheRepository:
                 )
 
             if parallel:
+                if (
+                    existing is not None
+                    and existing.complete
+                    and existing.publication_id == stage.publication_id
+                ):
+                    # A late retry from an already completed array attempt is
+                    # idempotent. Its newly moved shard is no longer needed.
+                    self._validate_parallel_retry(
+                        current, stage_name, existing, stage, sources
+                    )
+                    live = (*current.stages.values(), *current.replacements.values())
+                    remove_retired_stages(self, (stage,), live)
+                    return current
                 if overwrite and existing is not None and existing.complete:
                     return self._publish_parallel_replacement(
                         current, stage_name, stage, sources
                     )
-                stage, merged_sources, _ = self._merge_parallel_stage(
-                    current, stage_name, stage, sources
+
+                parallel_retired: list[CacheStage] = []
+                merge_existing = existing
+                merge_current = current
+                if (
+                    existing is not None
+                    and not existing.complete
+                    and existing.publication_id != stage.publication_id
+                ):
+                    if not overwrite:
+                        raise RuntimeError(
+                            f"Parallel cache stage '{stage_name}' belongs to "
+                            f"publication '{existing.publication_id}', not "
+                            f"'{stage.publication_id}'. Set overwrite_stage=True "
+                            "to restart it."
+                        )
+                    parallel_retired.append(existing)
+                    merge_existing = None
+                    if set(current.stages) == {stage_name}:
+                        # The incomplete first stage owns the provisional
+                        # repository roster. A new attempt rebuilds both.
+                        merge_current = replace(current, sources=())
+
+                stage, merged_sources, superseded = self._merge_parallel_stage(
+                    merge_current,
+                    stage_name,
+                    stage,
+                    sources,
+                    existing=merge_existing,
+                    use_active=len(parallel_retired) == 0,
                 )
+                if superseded is not None:
+                    parallel_retired.append(superseded)
             else:
                 merged_sources = current.sources or sources
+                parallel_retired = []
 
             # Reject a stage built against lineage which changed while it ran.
             for dependency, generation in stage.dependencies.items():
@@ -226,7 +273,7 @@ class CacheRepository:
             # removes every transitive descendant from the visible manifest.
             stages = dict(current.stages)
             replacements = dict(current.replacements)
-            retired: list[CacheStage] = []
+            retired: list[CacheStage] = parallel_retired
             if overwrite and existing is not None:
                 stages, retired_stages = self._without_descendants(stages, stage_name)
                 replacements, retired_replacements = (
@@ -287,13 +334,23 @@ class CacheRepository:
         retried without exposing a partial generation.
         """
         candidate = current.replacements.get(stage_name)
+        retired: list[CacheStage] = []
+        if (
+            candidate is not None
+            and candidate.publication_id != contribution.publication_id
+        ):
+            # A new orchestrator attempt starts a clean hidden candidate. The
+            # old one remains live until this manifest update commits.
+            retired.append(candidate)
+            candidate = None
+
         replacement, _, superseded = self._merge_parallel_stage(
             current,
             stage_name,
             contribution,
             sources,
             existing=candidate,
-            replace_duplicates=True,
+            use_active=False,
         )
         # Replacement lineage must remain valid for the entire array run.
         for dependency, generation in replacement.dependencies.items():
@@ -306,7 +363,6 @@ class CacheRepository:
 
         stages = dict(current.stages)
         replacements = dict(current.replacements)
-        retired: list[CacheStage] = []
         if superseded is not None:
             retired.append(superseded)
 
@@ -337,13 +393,61 @@ class CacheRepository:
         return updated
 
     @staticmethod
+    def _validate_parallel_retry(
+        current: CacheManifest,
+        stage_name: str,
+        existing: CacheStage,
+        contribution: CacheStage,
+        sources: tuple[CacheSource, ...],
+    ) -> None:
+        """Validate a late contribution from an already completed attempt.
+
+        Parameters
+        ----------
+        current : CacheManifest
+            Current repository snapshot.
+        stage_name : str
+            Logical stage targeted by the late contribution.
+        existing, contribution : CacheStage
+            Published stage and redundant source contribution, respectively.
+        sources : tuple[CacheSource, ...]
+            Source records represented by the redundant contribution.
+
+        Raises
+        ------
+        ValueError
+            If the late task does not match the completed attempt's schema,
+            lineage, source roster or expected source count.
+        """
+        if existing.products != contribution.products:
+            raise ValueError("Parallel cache contributions expose different schemas.")
+        if existing.dependencies != contribution.dependencies:
+            raise ValueError("Parallel cache contributions have different lineage.")
+        if existing.expected_sources != contribution.expected_sources:
+            raise ValueError(
+                "Parallel cache contributions expect different source counts."
+            )
+
+        current_sources = {source.id: source for source in current.sources}
+        for source in sources:
+            if source.id not in current_sources:
+                raise ValueError(
+                    f"Parallel cache stage '{stage_name}' contains an unknown "
+                    f"source '{source.id}'."
+                )
+            if current_sources[source.id] != source:
+                raise ValueError(
+                    f"Cache source '{source.id}' changed between publications."
+                )
+
+    @staticmethod
     def _merge_parallel_stage(
         current: CacheManifest,
         stage_name: str,
         contribution: CacheStage,
         sources: tuple[CacheSource, ...],
         existing: CacheStage | None = None,
-        replace_duplicates: bool = False,
+        use_active: bool = True,
     ) -> tuple[CacheStage, tuple[CacheSource, ...], CacheStage | None]:
         """Merge one disjoint source contribution into a stage under lock.
 
@@ -364,9 +468,9 @@ class CacheRepository:
         existing : CacheStage, optional
             Hidden replacement candidate to extend. If omitted, extend the
             currently visible stage with the same name.
-        replace_duplicates : bool, default False
-            Replace repeated source shards in an unpublished candidate rather
-            than rejecting them.
+        use_active : bool, default True
+            Fall back to the visible stage when ``existing`` is omitted. This
+            is disabled when starting a fresh hidden or restarted candidate.
 
         Returns
         -------
@@ -385,7 +489,7 @@ class CacheRepository:
             If source identity, schema, lineage, expected count or shard
             ownership conflicts with an earlier contribution.
         """
-        if existing is None and not replace_duplicates:
+        if existing is None and use_active:
             existing = current.stages.get(stage_name)
         superseded = None
         current_sources = {source.id: source for source in current.sources}
@@ -429,16 +533,15 @@ class CacheRepository:
                 )
             if existing.dependencies != contribution.dependencies:
                 raise ValueError("Parallel cache contributions have different lineage.")
+            if existing.publication_id != contribution.publication_id:
+                raise ValueError(
+                    "Parallel cache contributions have different publication IDs."
+                )
             if existing.expected_sources != contribution.expected_sources:
                 raise ValueError(
                     "Parallel cache contributions expect different source counts."
                 )
             duplicate_shards = set(existing.shards).intersection(contribution.shards)
-            if duplicate_shards and not replace_duplicates:
-                raise ValueError(
-                    "Parallel cache contribution repeats source shards: "
-                    f"{sorted(duplicate_shards)}."
-                )
             if duplicate_shards:
                 superseded = replace(
                     existing,

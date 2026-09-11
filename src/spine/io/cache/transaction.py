@@ -31,6 +31,7 @@ class CacheTransaction:
         parallel: bool = False,
         dependencies: dict[str, str] | None = None,
         expected_sources: int | None = None,
+        publication_id: str | None = None,
     ) -> None:
         """Create a private pending generation against the current manifest.
 
@@ -49,6 +50,8 @@ class CacheTransaction:
             processing run.
         expected_sources : int, optional
             Total source-shard count required to complete a parallel stage.
+        publication_id : str, optional
+            Shared identity assigned to every task in one parallel attempt.
 
         Raises
         ------
@@ -63,6 +66,7 @@ class CacheTransaction:
         self.parallel = parallel
         self.dependencies = dict(dependencies or {})
         self.expected_sources = expected_sources
+        self.publication_id = publication_id
         self.snapshot = repository.load()
         self.base_generation = self.snapshot.generation
         if stage in self.snapshot.stages and not (overwrite or parallel):
@@ -132,6 +136,7 @@ class CacheTransaction:
             shards=shards,
             dependencies=self.dependencies,
             expected_sources=self.expected_sources,
+            publication_id=self.publication_id,
         )
         self.repository.publish_stage(
             self.stage,

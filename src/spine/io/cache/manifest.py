@@ -73,6 +73,8 @@ class CacheStage:
         Whether the stage covers the complete repository source roster.
     expected_sources : int, optional
         Required shard count for coordinated parallel construction.
+    publication_id : str, optional
+        Shared orchestration-attempt identity for parallel contributions.
     """
 
     generation: str
@@ -81,6 +83,7 @@ class CacheStage:
     dependencies: dict[str, str] = field(default_factory=dict)
     complete: bool = True
     expected_sources: int | None = None
+    publication_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CacheStage":
@@ -108,6 +111,11 @@ class CacheStage:
             expected_sources=(
                 int(data["expected_sources"])
                 if data.get("expected_sources") is not None
+                else None
+            ),
+            publication_id=(
+                str(data["publication_id"])
+                if data.get("publication_id") is not None
                 else None
             ),
         )
@@ -222,6 +230,14 @@ class CacheManifest:
                         f"Cache stage '{name}' is marked complete before reaching "
                         "its expected source count."
                     )
+                if stage.expected_sources is not None and not stage.publication_id:
+                    raise ValueError(
+                        f"Parallel cache stage '{name}' has no publication ID."
+                    )
+                if stage.expected_sources is None and stage.publication_id is not None:
+                    raise ValueError(
+                        f"Serial cache stage '{name}' has a publication ID."
+                    )
 
         for name, replacement in replacements.items():
             if name not in stages:
@@ -237,6 +253,10 @@ class CacheManifest:
                 raise ValueError(
                     f"Cache replacement '{name}' does not target the complete "
                     "repository source roster."
+                )
+            if replacement.publication_id == stages[name].publication_id:
+                raise ValueError(
+                    f"Cache replacement '{name}' reuses the active publication ID."
                 )
 
         # Published lineage must point to the currently visible generation.
