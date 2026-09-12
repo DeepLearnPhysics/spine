@@ -263,8 +263,10 @@ class ModelManager:
             enables automatic resume.
         lr_scheduler : dict, optional
             Learning-rate scheduler configuration. Manager-owned ``interval``
-            and optional ``monitor`` keys select step- or checkpoint-bound
-            updates.
+            and optional ``monitor`` keys select optimizer-step-, epoch-, or
+            validation-bound updates. The interval should be stated
+            explicitly; omitting it temporarily retains the historical
+            optimizer-step behavior with a migration warning.
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
         """
@@ -328,20 +330,40 @@ class ModelManager:
             if not isinstance(lr_scheduler, Mapping):
                 raise TypeError("`lr_scheduler` must be a mapping.")
             scheduler_cfg = deepcopy(dict(lr_scheduler))
-            self.lr_scheduler_interval = scheduler_cfg.pop("interval", "step")
+            interval = scheduler_cfg.pop("interval", None)
+            if interval is None:
+                warnings.warn(
+                    "Learning-rate scheduler `interval` was not specified; "
+                    "defaulting to the historical `step` cadence. Set "
+                    "`interval` explicitly because it will become mandatory "
+                    "in the next major release.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+                interval = "step"
+            elif interval == "checkpoint":
+                warnings.warn(
+                    "Learning-rate scheduler `interval: checkpoint` is "
+                    "deprecated; use `interval: validation`.",
+                    FutureWarning,
+                    stacklevel=2,
+                )
+                interval = "validation"
+
+            self.lr_scheduler_interval = interval
             self.lr_scheduler_monitor = scheduler_cfg.pop("monitor", None)
-            if self.lr_scheduler_interval not in {"step", "checkpoint"}:
+            if self.lr_scheduler_interval not in {"step", "epoch", "validation"}:
                 raise ValueError(
-                    "Learning-rate scheduler `interval` must be 'step' or "
-                    "'checkpoint'."
+                    "Learning-rate scheduler `interval` must be 'step', "
+                    "'epoch' or 'validation'."
                 )
             if (
                 self.lr_scheduler_monitor is not None
-                and self.lr_scheduler_interval != "checkpoint"
+                and self.lr_scheduler_interval != "validation"
             ):
                 raise ValueError(
                     "A monitored learning-rate scheduler requires "
-                    "`interval: checkpoint`."
+                    "`interval: validation`."
                 )
             self.lr_scheduler = lr_sched_factory(scheduler_cfg, self.optimizer)
 
@@ -949,12 +971,8 @@ class ModelManager:
         # Step the optimizer
         self.optimizer.step()
 
-        # Step iteration-bound schedulers after the optimizer update.
-        if (
-            self.lr_scheduler is not None
-            and getattr(self, "lr_scheduler_interval", "step") == "step"
-        ):
-            self.lr_scheduler.step()
+        # Per-update schedules advance immediately after the optimizer.
+        self.step_scheduler("step")
 
         # If the model has a buffer that needs to be updated, do it after
         # the trainable parameter update
@@ -1010,19 +1028,23 @@ class ModelManager:
                 dtype = type(value)
                 raise ValueError(f"Cannot cast output {key} of type {dtype} to numpy.")
 
-    def step_checkpoint_scheduler(
+    def step_scheduler(
         self,
+        interval: str,
         metrics: Mapping[str, float] | None = None,
     ) -> None:
-        """Step a checkpoint-bound learning-rate scheduler.
+        """Advance a learning-rate scheduler at its configured boundary.
 
         Parameters
         ----------
+        interval : str
+            Boundary which just completed. Supported values are ``step``,
+            ``epoch`` and ``validation``.
         metrics : mapping[str, float], optional
-            Validation scalars associated with the checkpoint. Required when
-            the scheduler configuration specifies ``monitor``.
+            Validation scalars associated with a validation boundary. Required
+            when the scheduler configuration specifies ``monitor``.
         """
-        if self.lr_scheduler is None or self.lr_scheduler_interval != "checkpoint":
+        if self.lr_scheduler is None or self.lr_scheduler_interval != interval:
             return
 
         if self.lr_scheduler_monitor is None:

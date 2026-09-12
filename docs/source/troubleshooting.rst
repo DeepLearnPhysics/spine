@@ -78,7 +78,16 @@ Training And Checkpoints
 Validation initialization fails
    Validation is training-only, requires ``io.loader``, and runs at checkpoint
    boundaries. Configure ``train.save_step`` or ``train.save_epoch``. A
-   metric-aware checkpoint scheduler also requires the named validation metric.
+   validation-bound scheduler also requires a validation block, and a
+   metric-aware scheduler requires its named validation metric.
+
+The learning rate changes at an unexpected rate
+   Set ``train.lr_scheduler.interval`` explicitly. Use ``step`` for each
+   optimizer update, ``epoch`` for each complete training-dataset pass, or
+   ``validation`` for scheduled validation. The deprecated ``checkpoint``
+   spelling is treated as ``validation``. Graceful-completion snapshots do not
+   advance a validation-bound scheduler unless they coincide with a scheduled
+   validation boundary.
 
 Strict resume rejects a checkpoint
    ``--resume`` requires compatible optimizer and progress state. Verify the

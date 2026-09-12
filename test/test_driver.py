@@ -124,6 +124,7 @@ def bare_driver() -> Driver:
     drv.watch = FakeWatchManager()
     drv.watch.initialize("iteration")
     drv.tensorboard_cfg = None
+    drv.run_control = driver_mod.RunControl()
     return drv
 
 
@@ -844,7 +845,7 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
     with pytest.raises(ValueError, match="training model"):
         drv.initialize_validation({"file_keys": "val.root"}, {"loader": {}})
 
-    drv.model = SimpleNamespace(lr_scheduler_monitor="loss")
+    drv.model = SimpleNamespace(lr_scheduler_interval="validation")
     with pytest.raises(ValueError, match="requires a `validation` block"):
         drv.initialize_validation(None, {"loader": {}})
 
@@ -1186,6 +1187,7 @@ def test_run_loop_resets_loader_logs_and_closes():
         train=True,
         start_iteration=1,
         should_save=lambda iteration: False,
+        step_scheduler=lambda *_args: None,
     )
     drv.validation = None
     drv.distributed = True
@@ -1239,6 +1241,7 @@ def test_run_resumes_epoch_progress_across_batch_size_change():
         start_iteration=200,
         start_epoch=20.0,
         should_save=lambda iteration: False,
+        step_scheduler=lambda *_args: None,
     )
     drv.validation = None
     drv.ana = None
@@ -1324,8 +1327,9 @@ def test_run_validates_before_checkpoint_and_stops_early():
             calls.append(("best", checkpoint_path, path))
 
         @staticmethod
-        def step_checkpoint_scheduler(metrics):
-            calls.append(("scheduler", metrics))
+        def step_scheduler(interval, metrics=None):
+            if interval == "validation":
+                calls.append(("scheduler", metrics))
 
     class FakeValidation:
         io = SimpleNamespace(dataset_provenance=lambda: {"files": ["validation.root"]})
@@ -1418,8 +1422,8 @@ def test_run_sigusr1_request_forces_checkpoint_and_successful_completion(caplog)
             return False
 
         @staticmethod
-        def step_checkpoint_scheduler(metrics):
-            calls.append(("scheduler", metrics))
+        def step_scheduler(interval, metrics=None):
+            calls.append(("scheduler", interval, metrics))
 
         @staticmethod
         def save_state(iteration, epoch, validation, **kwargs):
@@ -1499,11 +1503,54 @@ def test_run_sigusr1_request_forces_checkpoint_and_successful_completion(caplog)
         "reason": "graceful_stop",
         "signal": "SIGUSR1",
     }
+    assert not any(isinstance(call, tuple) and call[0] == "scheduler" for call in calls)
     assert ("process", 1) not in calls
     assert not any(call == ("start", "save") for call in FakeModel.watch.calls)
     assert "Reason:             graceful completion (SIGUSR1)" in caplog.text
     assert "Graceful completion finished successfully" in caplog.text
     assert calls[-3:] == ["log_close", "validation_close", "io_close"]
+
+
+def test_run_steps_epoch_scheduler_at_resumed_epoch_boundaries(monkeypatch):
+    """Epoch scheduling should follow dataset passes, including after resume."""
+    drv = bare_driver()
+    scheduler_calls = []
+
+    class FakeModel:
+        train = True
+        start_iteration = 5
+        start_epoch = 0.5
+        device = "cpu"
+
+        @staticmethod
+        def should_save(_iteration):
+            return False
+
+        @staticmethod
+        def step_scheduler(interval, metrics=None):
+            scheduler_calls.append((interval, metrics))
+
+    drv.iterations = 8
+    drv.epochs = None
+    drv.model = FakeModel()
+    drv.main_process = True
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=2,
+        prepare_iteration=lambda _iteration: None,
+        set_resume_progress=lambda *_args: None,
+    )
+    drv.initialize_log = lambda: None
+    drv.process = lambda **_kwargs: {}
+    drv.reduce_training_metrics = lambda _data: None
+    drv.log = lambda *_args, **_kwargs: None
+    drv.cleanup = lambda **_kwargs: None
+    drv.run_control = driver_mod.RunControl()
+    monkeypatch.setattr(driver_mod.runtime, "distributed_any", lambda *_args: False)
+
+    drv.run()
+
+    assert scheduler_calls == [("epoch", None), ("epoch", None)]
 
 
 def test_run_checkpoint_rejects_non_training_model():
@@ -1535,7 +1582,7 @@ def test_run_stop_file_forces_checkpoint_and_successful_completion(
             return False
 
         @staticmethod
-        def step_checkpoint_scheduler(_metrics):
+        def step_scheduler(*_args):
             return None
 
         @staticmethod
@@ -1628,7 +1675,7 @@ def test_run_checkpoint_propagates_main_rank_save_failure(error):
         watch = FakeWatchManager()
 
         @staticmethod
-        def step_checkpoint_scheduler(_metrics):
+        def step_scheduler(*_args):
             return None
 
         @staticmethod
@@ -1661,7 +1708,7 @@ def test_run_checkpoint_reports_main_rank_failure_to_worker(monkeypatch):
         watch = FakeWatchManager()
 
         @staticmethod
-        def step_checkpoint_scheduler(_metrics):
+        def step_scheduler(*_args):
             return None
 
     drv.model = FakeModel()
@@ -1712,7 +1759,7 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
             return iteration == 1
 
         @staticmethod
-        def step_checkpoint_scheduler(_metrics):
+        def step_scheduler(*_args):
             return None
 
         @staticmethod

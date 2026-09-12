@@ -317,7 +317,7 @@ train:
     lr: 0.001
   lr_scheduler:
     name: ReduceLROnPlateau
-    interval: checkpoint
+    interval: validation
     monitor: loss
     mode: min
     patience: 2
@@ -371,12 +371,20 @@ to choose another stable destination. When early stopping is enabled, each
 validation summary reports the monitored value, change from the previous best,
 minimum delta, and patience progress.
 
-Learning-rate schedulers default to `interval: step`, preserving the
-historical update after every optimizer step. `interval: checkpoint` advances
-the scheduler after each checkpoint-bound validation and before serializing
-its state. An optional `monitor` passes the named validation scalar to metric-
-aware schedulers such as `ReduceLROnPlateau`; monitored schedulers therefore
-require a validation block.
+Learning-rate schedulers should declare their timebase explicitly. Use
+`interval: step` to advance after every optimizer update, `interval: epoch` to
+advance after each complete pass through the training dataset, or
+`interval: validation` to advance after scheduled validation. An optional
+`monitor` passes the named validation scalar to metric-aware schedulers such as
+`ReduceLROnPlateau`; validation-bound schedulers therefore require a validation
+block. Omitting `interval` temporarily preserves the historical `step` cadence
+with a migration warning. The deprecated `checkpoint` spelling remains an
+alias for `validation` during the same transition.
+
+Graceful-completion snapshots may run validation so that their checkpoint is
+self-contained, but they do not advance validation-bound schedulers unless the
+request coincides with an already scheduled validation boundary. Operational
+checkpointing therefore does not alter the training algorithm.
 
 During distributed training, scalar model/loss outputs are averaged across
 ranks before CSV and stdout logging. Rank-specific timings and memory metrics

@@ -183,6 +183,9 @@ def make_bare_manager(**attributes):
         "loss_dict": None,
         "time_dependent": False,
         "watch": FakeWatchManager(),
+        "lr_scheduler": None,
+        "lr_scheduler_interval": "step",
+        "lr_scheduler_monitor": None,
     }
     defaults.update(attributes)
     for name, value in defaults.items():
@@ -276,14 +279,14 @@ def test_initialize_train_validates_save_cadence(monkeypatch, tmp_path):
         iter_per_epoch=10,
         lr_scheduler={
             "name": "ReduceLROnPlateau",
-            "interval": "checkpoint",
+            "interval": "validation",
             "monitor": "loss",
         },
     )
     assert manager.save_step == 5
     assert ("initialize", "save") in manager.watch.calls
     assert manager.lr_scheduler is scheduler
-    assert manager.lr_scheduler_interval == "checkpoint"
+    assert manager.lr_scheduler_interval == "validation"
     assert manager.lr_scheduler_monitor == "loss"
     assert scheduler_cfg == [{"name": "ReduceLROnPlateau"}]
     assert not manager.resume_training
@@ -321,11 +324,11 @@ def test_initialize_train_requires_checkpoint_for_explicit_resume():
     ("scheduler", "error", "message"),
     [
         ("StepLR", TypeError, "must be a mapping"),
-        ({"name": "StepLR", "interval": "epoch"}, ValueError, "interval"),
+        ({"name": "StepLR", "interval": "batch"}, ValueError, "interval"),
         (
-            {"name": "StepLR", "monitor": "loss"},
+            {"name": "StepLR", "interval": "step", "monitor": "loss"},
             ValueError,
-            "interval: checkpoint",
+            "interval: validation",
         ),
     ],
 )
@@ -341,6 +344,29 @@ def test_initialize_train_validates_scheduler_policy(
             optimizer={"name": "Adam"},
             lr_scheduler=scheduler,
         )
+
+
+def test_initialize_train_warns_for_implicit_and_legacy_scheduler_intervals(
+    monkeypatch,
+):
+    """Legacy scheduler cadence spellings should remain usable during migration."""
+    manager = make_bare_manager(net=torch.nn.Linear(1, 1))
+    monkeypatch.setattr("spine.model.manager.optim_factory", lambda *_args: object())
+    monkeypatch.setattr("spine.model.manager.lr_sched_factory", lambda *_args: object())
+
+    with pytest.warns(FutureWarning, match="was not specified"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            lr_scheduler={"name": "StepLR"},
+        )
+    assert manager.lr_scheduler_interval == "step"
+
+    with pytest.warns(FutureWarning, match="checkpoint.*deprecated"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            lr_scheduler={"name": "StepLR", "interval": "checkpoint"},
+        )
+    assert manager.lr_scheduler_interval == "validation"
 
 
 def test_training_rejects_weight_list(monkeypatch, tmp_path):
@@ -456,8 +482,8 @@ def test_backward_steps_optimizer_scheduler_and_model_buffers():
     assert net.buffer_updates == 1
 
 
-def test_checkpoint_scheduler_steps_with_optional_validation_metric():
-    """Checkpoint schedulers should support ordinary and monitored policies."""
+def test_scheduler_steps_only_at_configured_boundary_with_optional_metric():
+    """Schedulers should support explicit boundaries and monitored validation."""
 
     class Scheduler:
         def __init__(self):
@@ -469,20 +495,20 @@ def test_checkpoint_scheduler_steps_with_optional_validation_metric():
     scheduler = Scheduler()
     manager = make_bare_manager(
         lr_scheduler=scheduler,
-        lr_scheduler_interval="checkpoint",
+        lr_scheduler_interval="validation",
         lr_scheduler_monitor=None,
     )
-    manager.step_checkpoint_scheduler()
+    manager.step_scheduler("validation")
     assert scheduler.values == [()]
 
     manager.lr_scheduler_monitor = "loss"
-    manager.step_checkpoint_scheduler({"loss": 0.25})
+    manager.step_scheduler("validation", {"loss": 0.25})
     assert scheduler.values[-1] == (0.25,)
     with pytest.raises(KeyError, match="metric `loss`"):
-        manager.step_checkpoint_scheduler({"accuracy": 1.0})
+        manager.step_scheduler("validation", {"accuracy": 1.0})
 
     manager.lr_scheduler_interval = "step"
-    manager.step_checkpoint_scheduler({"loss": 0.1})
+    manager.step_scheduler("validation", {"loss": 0.1})
     assert len(scheduler.values) == 2
 
 

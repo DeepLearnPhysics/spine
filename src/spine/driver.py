@@ -11,6 +11,7 @@ Takes care of everything in one centralized place:
 """
 
 import inspect
+import math
 import os
 import platform
 import random
@@ -676,10 +677,11 @@ class Driver:
         if validation is None:
             if (
                 self.model is not None
-                and getattr(self.model, "lr_scheduler_monitor", None) is not None
+                and getattr(self.model, "lr_scheduler_interval", None) == "validation"
             ):
                 raise ValueError(
-                    "A monitored checkpoint scheduler requires a `validation` block."
+                    "A validation-bound learning-rate scheduler requires a "
+                    "`validation` block."
                 )
             return
         if self.model is None or not self.model.train:
@@ -920,14 +922,11 @@ class Driver:
         # Initialize the output log
         self.initialize_log()
 
-        # User signals are meaningful only for a live training loop. Retain a
-        # user-injected controller in tests and embedded applications.
+        # User signals are meaningful only for a live training loop. Tests and
+        # embedded applications may replace the initialized controller.
         model = self.model
         training = model is not None and model.train
-        run_control = getattr(self, "run_control", None)
-        if run_control is None:
-            run_control = RunControl()
-            self.run_control = run_control
+        run_control = self.run_control
         control_installed_here = False
         if training:
             control_installed_here = not run_control.installed
@@ -957,6 +956,14 @@ class Driver:
                     remaining_epochs * self.io.iter_per_epoch
                 )
 
+            # Retain the prior progress so epoch schedulers advance only when
+            # a complete dataset pass is crossed, including after a resume.
+            previous_epoch = (
+                start_iteration / self.io.iter_per_epoch
+                if start_epoch is None
+                else start_epoch
+            )
+
             # Loop and process each iteration
             for iteration in range(start_iteration, stop_iteration):
                 # Let I/O prepare loader state, if using a loader.
@@ -973,6 +980,15 @@ class Driver:
                 # Process one batch/entry of data
                 entry = None if self.io.has_loader else iteration
                 data = self.process(entry=entry, iteration=iteration, epoch=epoch)
+
+                # Allow for the small floating-point error in fractional epoch
+                # counters without tying scheduler cadence to checkpointing.
+                if training and math.floor(epoch + 1.0e-10) > math.floor(
+                    previous_epoch + 1.0e-10
+                ):
+                    assert model is not None
+                    model.step_scheduler("epoch")
+                previous_epoch = epoch
 
                 # Report globally representative training scalars under DDP.
                 self.reduce_training_metrics(data)
@@ -1010,6 +1026,7 @@ class Driver:
                         epoch,
                         reason=reason,
                         completion=completion,
+                        scheduled=scheduled_checkpoint,
                     )
 
                     # A request arriving during scheduled validation or save
@@ -1064,6 +1081,7 @@ class Driver:
         *,
         reason: str = "scheduled",
         completion: Mapping[str, str] | None = None,
+        scheduled: bool = True,
     ) -> bool:
         """Validate and persist the training state at one safe boundary.
 
@@ -1082,6 +1100,10 @@ class Driver:
         completion : Mapping[str, str], optional
             Successful terminal condition to record in checkpoint metadata.
             Ordinary scheduled checkpoints leave this unset.
+        scheduled : bool, default True
+            Whether this is a configured checkpoint boundary. A graceful-only
+            snapshot still runs validation, but must not advance a
+            validation-bound learning-rate scheduler.
 
         Returns
         -------
@@ -1123,8 +1145,10 @@ class Driver:
             stop_training = self.validation.update_early_stopping(validation_metrics)
             validation_state = self.validation.checkpoint_state(validation_metrics)
 
-        # Checkpoint-bound schedulers advance before their state is serialized.
-        model.step_checkpoint_scheduler(validation_metrics)
+        # Only configured validation boundaries advance validation schedules.
+        # Operational graceful-stop snapshots preserve the existing state.
+        if scheduled and self.validation is not None:
+            model.step_scheduler("validation", validation_metrics)
 
         # Every rank contributes its exact continuation state to the artifact.
         local_runtime_state = {
