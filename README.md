@@ -105,7 +105,7 @@ pip install spine
 
 **2. With Visualization Tools**
 ```bash
-# Adds plotly, matplotlib, seaborn for data visualization
+# Adds plotly, matplotlib, seaborn, and PDG particle names for visualization
 pip install spine[viz]
 ```
 

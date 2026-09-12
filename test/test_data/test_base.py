@@ -636,10 +636,13 @@ class TestDataBase:
         assert obj.resolve_enum("particle_type") == SampleParticleType.MUON
         assert obj.resolve_enum("particle_type", 2) == SampleParticleType.PION
         assert obj.resolve_enum("particle_type", 999) is None
+        assert obj.resolve_label("particle_type") == "MUON"
+        assert obj.resolve_label("particle_type", 2) == "PION"
 
     def test_resolve_enum_without_enum(self):
         """Test enum resolution for a field without enum metadata."""
         assert SimpleData().resolve_enum("value") is None
+        assert SimpleData().resolve_label("value") is None
 
     def test_resolve_enum_unknown_attribute(self):
         """Test enum resolution rejects attributes outside the schema."""

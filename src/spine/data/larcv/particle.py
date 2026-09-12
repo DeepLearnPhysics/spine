@@ -8,7 +8,7 @@ from warnings import warn
 
 import numpy as np
 
-from spine.constants import ParticlePID, ParticleShape
+from spine.constants import INVALID_PDG, ParticlePID, ParticleShape
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_alias, stored_property
 from spine.data.field import FieldMetadata
@@ -172,9 +172,15 @@ class Particle(PosDataBase):
         default=-1,
         metadata=FieldMetadata(reference="geant_track", reference_space="external"),
     )
-    pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    parent_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    ancestor_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    pdg_code: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    parent_pdg_code: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    ancestor_pdg_code: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
     num_voxels: int = -1
 
     t: float = field(default=np.nan, metadata=FieldMetadata(units="ns"))

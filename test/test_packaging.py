@@ -34,6 +34,13 @@ def test_dockerfiles_reference_declared_optional_dependencies():
     )
 
 
+def test_visualization_extra_includes_pdg_name_resolver():
+    """Visualization installations should provide PDG display labels."""
+    pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+    viz = pyproject.split("viz = [", maxsplit=1)[1].split("]", maxsplit=1)[0]
+    assert '"particle>=1,<2"' in viz
+
+
 def test_spine_image_installs_and_verifies_tensorboard():
     """The full training image should include its TensorBoard integration."""
     dockerfile = (ROOT_DIR / "docker" / "spine" / "Dockerfile").read_text(

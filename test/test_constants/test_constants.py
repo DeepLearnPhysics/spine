@@ -216,7 +216,7 @@ def test_label_mappings_remain_consistent_with_enums():
 
     for pdg, pid in PDG_TO_PID.items():
         assert PID_TO_PDG[pid] == abs(pdg)
-    assert PID_TO_PDG[int(ParticlePID.UNKNOWN)] == -1
+    assert PID_TO_PDG[int(ParticlePID.UNKNOWN)] == INVALID_PDG
 
     assert SHP_TO_PID[int(ParticleShape.SHOWER)] == [
         int(ParticlePID.PHOTON),

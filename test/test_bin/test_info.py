@@ -26,6 +26,7 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
         lambda: {
             "torch": None,
             "matplotlib": "3.8.0",
+            "particle": None,
             "plotly": None,
             "seaborn": "0.13.0",
             "torch-geometric": None,
@@ -43,7 +44,14 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
     monkeypatch.setattr(info_module, "check_dependencies", original_check_dependencies)
 
     def fake_missing_dep_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name in {"torch", "matplotlib", "plotly", "seaborn", "MinkowskiEngine"}:
+        if name in {
+            "torch",
+            "matplotlib",
+            "particle",
+            "plotly",
+            "seaborn",
+            "MinkowskiEngine",
+        }:
             raise ImportError(name)
         return original_import(name, globals, locals, fromlist, level)
 
@@ -59,6 +67,7 @@ def test_get_version_show_info_and_dependency_checks(monkeypatch, capsys):
     assert set(deps) == {
         "torch",
         "matplotlib",
+        "particle",
         "plotly",
         "seaborn",
         "torch-geometric",
@@ -78,6 +87,7 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
         versions = {
             "torch": "2.0.0",
             "matplotlib": "3.8.0",
+            "particle": "1.0.1",
             "plotly": "5.0.0",
             "seaborn": "0.13.0",
             "MinkowskiEngine": "0.5.4",
@@ -104,6 +114,7 @@ def test_get_version_and_dependency_checks_success(monkeypatch):
     deps = info_module.check_dependencies()
     assert deps["torch"] == "2.0.0"
     assert deps["matplotlib"] == "3.8.0"
+    assert deps["particle"] == "1.0.1"
     assert deps["plotly"] == "5.0.0"
     assert deps["seaborn"] == "0.13.0"
     assert deps["torch-geometric"] == "2.6.0"
@@ -121,6 +132,7 @@ def test_show_info_reports_available_optional_features(monkeypatch, capsys):
         lambda: {
             "torch": "2.0.0",
             "matplotlib": "3.8.0",
+            "particle": "1.0.1",
             "plotly": "5.0.0",
             "seaborn": None,
             "torch-geometric": "2.6.0",

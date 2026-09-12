@@ -62,6 +62,7 @@ import numpy as np
 from spine.utils.docstring import merge_ancestor_docstrings
 
 from .field import FieldMetadata
+from .pdg import pdg_name
 
 if TYPE_CHECKING:  # pragma: no cover
     from spine.data.larcv.meta import Meta
@@ -509,6 +510,47 @@ class DataBase:
             return enum_type(value)
         except (TypeError, ValueError):
             return None
+
+    def resolve_label(self, attr: str, value: Any | None = None) -> str | None:
+        """Resolve an attribute value to a human-readable categorical label.
+
+        Fixed and scheme-dependent enums are interpreted through
+        :meth:`resolve_enum`. PDG-code fields are resolved through the
+        Scikit-HEP particle data tables when the optional visualization
+        dependency is available.
+
+        Parameters
+        ----------
+        attr : str
+            Name of the attribute to interpret.
+        value : Any, optional
+            Raw value to interpret. If omitted, use the value stored on this
+            object.
+
+        Returns
+        -------
+        str, optional
+            Human-readable label, or ``None`` when no label can be resolved.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute is not part of the data class schema.
+        """
+        metadata = self.attr_metadata(attr)
+        if value is None:
+            value = getattr(self, attr)
+
+        enum_value = self.resolve_enum(attr, value)
+        if enum_value is not None:
+            return enum_value.name
+
+        if metadata.pdg:
+            if value == -1 and not metadata.pdg_minus_one_valid:
+                return "UNKNOWN"
+            return pdg_name(value)
+
+        return None
 
     def scalar_dict(
         self,

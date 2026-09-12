@@ -6,10 +6,55 @@ inside this directory.
 
 import os
 import urllib
+from types import SimpleNamespace
 
 import pytest
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+
+@pytest.fixture
+def pdg_lookup(monkeypatch):
+    """Provide deterministic PDG lookup without requiring the optional package."""
+    from spine.data import pdg as pdg_module
+
+    class InvalidParticle(Exception):
+        """Fake invalid-identifier error."""
+
+    class ParticleNotFound(Exception):
+        """Fake missing-particle error."""
+
+    class Particle:
+        """Minimal fake of the Scikit-HEP particle lookup API."""
+
+        names = {
+            -13: "mu+",
+            -1: "d~",
+            13: "mu-",
+            14: "nu(mu)",
+            2112: "n",
+            1000010020: "D2",
+            1000060120: "C12",
+        }
+
+        @classmethod
+        def from_pdgid(cls, code):
+            if code == 99999999:
+                raise InvalidParticle
+            if code not in cls.names:
+                raise ParticleNotFound
+            return SimpleNamespace(name=cls.names[code])
+
+    fake_particle = SimpleNamespace(
+        InvalidParticle=InvalidParticle,
+        ParticleNotFound=ParticleNotFound,
+        Particle=Particle,
+    )
+    pdg_module._pdg_name.cache_clear()
+    monkeypatch.setattr(pdg_module, "PARTICLE_AVAILABLE", True)
+    monkeypatch.setattr(pdg_module, "particle", fake_particle)
+    yield
+    pdg_module._pdg_name.cache_clear()
 
 
 def pytest_addoption(parser):

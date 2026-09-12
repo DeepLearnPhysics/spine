@@ -386,7 +386,7 @@ class RecoParticle(ParticleBase, RecoBase):
             self.calo_ke += other.calo_ke
 
     @property
-    @stored_property(categorical=True)
+    @stored_property(categorical=True, pdg=True)
     def pdg_code(self) -> int:
         """Translates the enumerated particle type to a sign-less PDG code.
 

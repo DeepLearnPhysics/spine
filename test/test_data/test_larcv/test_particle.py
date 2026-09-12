@@ -6,6 +6,34 @@ import pytest
 from spine.utils.conditional import LARCV_AVAILABLE, larcv
 
 
+def test_particle_pdg_labels(pdg_lookup):
+    """Particle PDG fields should resolve through the common display API."""
+    from spine.data import Particle
+
+    particle = Particle(
+        pdg_code=13,
+        parent_pdg_code=-13,
+        ancestor_pdg_code=1000010020,
+    )
+
+    assert particle.resolve_label("pdg_code") == "mu-"
+    assert particle.resolve_label("parent_pdg_code") == "mu+"
+    assert particle.resolve_label("ancestor_pdg_code") == "D2"
+
+    particle.pdg_code = -1
+    assert particle.resolve_label("pdg_code") == "UNKNOWN"
+
+
+def test_particle_pdg_defaults():
+    """New particle objects should use the canonical invalid PDG code."""
+    from spine.data import Particle
+
+    particle = Particle()
+    assert particle.pdg_code == 0
+    assert particle.parent_pdg_code == 0
+    assert particle.ancestor_pdg_code == 0
+
+
 class TestParticleCreation:
     """Test Particle class creation and initialization."""
 

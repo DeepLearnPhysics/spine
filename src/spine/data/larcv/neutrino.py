@@ -11,6 +11,7 @@ from warnings import warn
 import numpy as np
 
 from spine.constants import (
+    INVALID_PDG,
     GenieNuInteractionType,
     LArSoftNuInteractionType,
     NuCurrentType,
@@ -123,11 +124,26 @@ class Neutrino(PosDataBase):
         default=-1,
         metadata=FieldMetadata(reference="geant_track", reference_space="external"),
     )
-    pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    lepton_pdg_code: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    target: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    nucleon: int = field(default=-1, metadata=FieldMetadata(categorical=True))
-    quark: int = field(default=-1, metadata=FieldMetadata(categorical=True))
+    pdg_code: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    lepton_pdg_code: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    target: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    nucleon: int = field(
+        default=INVALID_PDG, metadata=FieldMetadata(categorical=True, pdg=True)
+    )
+    quark: int = field(
+        default=INVALID_PDG,
+        metadata=FieldMetadata(
+            categorical=True,
+            pdg=True,
+            pdg_minus_one_valid=True,
+        ),
+    )
 
     energy_init: float = field(default=np.nan, metadata=FieldMetadata(units="GeV"))
     hadronic_invariant_mass: float = field(

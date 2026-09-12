@@ -14,6 +14,7 @@ from .enums import (
     ParticlePID,
     ParticleShape,
 )
+from .sentinels import INVALID_PDG
 
 __all__ = [
     "SHAPE_PREC",
@@ -101,7 +102,7 @@ PDG_TO_PID = {
 }
 
 PID_TO_PDG = {value: abs(key) for key, value in PDG_TO_PID.items()}
-PID_TO_PDG[int(ParticlePID.UNKNOWN)] = -1
+PID_TO_PDG[int(ParticlePID.UNKNOWN)] = INVALID_PDG
 
 # ParticleShape-to-allowed-category helpers
 # ---------------------------------

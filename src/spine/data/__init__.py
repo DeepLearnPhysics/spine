@@ -30,4 +30,5 @@ Example
 from .base import *
 from .larcv import *
 from .out import *
+from .pdg import *
 from .product import *

@@ -340,7 +340,8 @@ class TestRecoParticle:
 
         # Test with an unknown PID
         obj = RecoParticle(id=3, pid=-1)  # unknown PID
-        assert obj.pdg_code == -1
+        assert obj.pdg_code == 0
+        assert obj.resolve_label("pdg_code") == "UNKNOWN"
 
     def test_recoparticle_mass_property(self):
         """Test RecoParticle mass property."""

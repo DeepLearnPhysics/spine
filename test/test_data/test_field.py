@@ -47,6 +47,8 @@ class TestFieldMetadata:
             reference="particle",
             reference_space="same",
             categorical=True,
+            pdg=True,
+            pdg_minus_one_valid=True,
             pointwise=True,
             skip=True,
         )
@@ -54,6 +56,8 @@ class TestFieldMetadata:
         assert meta.reference == "particle"
         assert meta.reference_space == "same"
         assert meta.categorical is True
+        assert meta.pdg is True
+        assert meta.pdg_minus_one_valid is True
         assert meta.pointwise is True
         assert meta.skip is True
         assert meta.lite_skip is False
@@ -68,6 +72,13 @@ class TestFieldMetadata:
         """Test that enum must be an IntEnum subclass."""
         with pytest.raises(TypeError, match="must be an IntEnum subclass"):
             FieldMetadata(enum=["electron", "muon"])  # type: ignore
+
+    def test_pdg_validation(self):
+        """Test that PDG metadata describes a categorical field."""
+        with pytest.raises(ValueError, match="must be categorical"):
+            FieldMetadata(pdg=True)
+        with pytest.raises(ValueError, match="requires 'pdg'"):
+            FieldMetadata(categorical=True, pdg_minus_one_valid=True)
 
     def test_reference_validation(self):
         """Test reference-space declarations are complete and supported."""

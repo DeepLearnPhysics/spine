@@ -85,7 +85,7 @@ def tostr(attr_name: str, value: Any) -> str:
 
 
 def enum_name(obj: Any, attr: str, value: Any) -> str | None:
-    """Resolve an enumerated attribute value to its symbolic name.
+    """Resolve a categorical attribute value to its display label.
 
     Parameters
     ----------
@@ -99,10 +99,9 @@ def enum_name(obj: Any, attr: str, value: Any) -> str | None:
     Returns
     -------
     Optional[str]
-        Enum label if one can be resolved, otherwise ``None``.
+        Display label if one can be resolved, otherwise ``None``.
     """
-    enum_value = obj.resolve_enum(attr, value)
-    return enum_value.name if enum_value is not None else None
+    return obj.resolve_label(attr, value)
 
 
 def format_hover_value(obj: Any, attr: str, value: Any) -> Any:

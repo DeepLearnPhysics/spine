@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING, Any
 __all__ = [
     "ROOT",
     "larcv",
+    "particle",
     "torch",
+    "PARTICLE_AVAILABLE",
     "ROOT_AVAILABLE",
     "LARCV_AVAILABLE",
     "TORCH_AVAILABLE",
@@ -162,8 +164,10 @@ def _module_available(module_name: str) -> bool:
 
 ROOT_AVAILABLE = _module_available("ROOT")
 LARCV_AVAILABLE = _module_available("larcv")
+PARTICLE_AVAILABLE = _module_available("particle")
 TORCH_AVAILABLE = _module_available("torch")
 if TYPE_CHECKING:  # pragma: no cover - static type-checker-only imports
+    import particle
     import ROOT
     import torch
     from larcv import larcv
@@ -171,6 +175,11 @@ else:
     ROOT = _LazyModule("ROOT", "ROOT", "ROOT is required to parse LArCV data.")
     larcv = _LazyAttribute(
         "larcv", "larcv", "larcv.larcv", "larcv is required to parse LArCV data."
+    )
+    particle = _LazyModule(
+        "particle",
+        "particle",
+        "particle is required to resolve PDG names; install `spine[viz]`.",
     )
 
     if TORCH_AVAILABLE:

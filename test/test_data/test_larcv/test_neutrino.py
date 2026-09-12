@@ -126,7 +126,7 @@ class TestNeutrinoCreation:
 
         assert nu_nc.current_type == 1  # Neutral current
 
-    def test_neutrino_interaction_enum_helpers(self):
+    def test_neutrino_interaction_enum_helpers(self, pdg_lookup):
         """Test scheme-aware interaction enum helper properties."""
         from spine.constants import (
             GenieNuInteractionType,
@@ -158,10 +158,19 @@ class TestNeutrinoCreation:
             genie_nu.resolve_enum("interaction_type", 4) == GenieNuInteractionType.RES
         )
         assert genie_nu.resolve_enum("current_type", 0) == NuCurrentType.CC
+        assert genie_nu.resolve_label("pdg_code", 14) == "nu(mu)"
+        assert genie_nu.resolve_label("target", 1000060120) == "C12"
+        assert genie_nu.resolve_label("nucleon", 2112) == "n"
+        assert genie_nu.resolve_label("quark", -1) == "d~"
 
         unknown_nu = Neutrino(id=2, interaction_mode=0, interaction_type=1001)
         assert unknown_nu.interaction_mode_enum is None
         assert unknown_nu.interaction_type_enum is None
+        assert unknown_nu.pdg_code == 0
+        assert unknown_nu.lepton_pdg_code == 0
+        assert unknown_nu.target == 0
+        assert unknown_nu.nucleon == 0
+        assert unknown_nu.quark == 0
 
     def test_neutrino_interaction_enum_helpers_invalid_codes(self):
         """Test invalid interaction codes resolve to None for known schemes."""

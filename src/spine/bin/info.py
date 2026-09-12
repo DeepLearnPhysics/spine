@@ -98,7 +98,7 @@ def check_dependencies() -> dict[str, str | None]:
     deps: dict[str, str | None] = {}
 
     # Probe packages whose imports do not initialize compiled model extensions.
-    for name in ("torch", "matplotlib", "plotly", "seaborn"):
+    for name in ("torch", "matplotlib", "particle", "plotly", "seaborn"):
         try:
             module = __import__(name)
             version = getattr(module, "__version__", None)

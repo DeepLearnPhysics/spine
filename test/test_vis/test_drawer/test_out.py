@@ -517,6 +517,21 @@ def test_drawer_truth_interaction_enum_hover_value():
     )
 
 
+def test_drawer_pdg_hover_value(pdg_lookup):
+    """PDG hover formatting should include particle names when available."""
+    particle = TruthParticle(id=0, pdg_code=13)
+
+    assert out_formatting.enum_name(particle, "pdg_code", particle.pdg_code) == "mu-"
+    assert out_formatting.format_hover_value(
+        particle, "pdg_code", particle.pdg_code
+    ).startswith("mu-")
+
+    particle.pdg_code = -1
+    assert out_formatting.format_hover_value(
+        particle, "pdg_code", particle.pdg_code
+    ).startswith("UNKNOWN")
+
+
 def test_drawer_source_colorscale_edge_counts():
     """Source colorscales should handle zero, one, and repeated color ranges."""
     particle = RecoParticle(

@@ -42,6 +42,11 @@ class FieldMetadata(Mapping[str, object]):
         conventions include ``"same"``, ``"opposite"`` and ``"external"``.
     categorical : bool, default=False
         Whether scalar values are discrete categories rather than quantities.
+    pdg : bool, default=False
+        Whether the field stores a Particle Data Group identifier.
+    pdg_minus_one_valid : bool, default=False
+        Whether PDG code ``-1`` is a valid anti-down quark rather than a
+        legacy missing-value sentinel for this field.
     pointwise : bool, default=False
         Whether an array contains one entry per point in an object's point
         cloud. Point-wise vectors may still require domain-specific decoding.
@@ -80,6 +85,8 @@ class FieldMetadata(Mapping[str, object]):
     reference: str | None = None
     reference_space: str | None = None
     categorical: bool = False
+    pdg: bool = False
+    pdg_minus_one_valid: bool = False
     pointwise: bool = False
     skip: bool = False
     lite_skip: bool = False
@@ -91,6 +98,10 @@ class FieldMetadata(Mapping[str, object]):
             isinstance(self.enum, type) and issubclass(self.enum, IntEnum)
         ):
             raise TypeError("'enum' must be an IntEnum subclass")
+        if self.pdg and not self.categorical:
+            raise ValueError("'pdg' fields must be categorical")
+        if self.pdg_minus_one_valid and not self.pdg:
+            raise ValueError("'pdg_minus_one_valid' requires 'pdg'")
         if self.reference_space is not None and self.reference is None:
             raise ValueError("'reference_space' requires a 'reference'")
         if self.reference_space not in (None, "same", "opposite", "external"):
@@ -119,6 +130,8 @@ class FieldMetadata(Mapping[str, object]):
             "reference",
             "reference_space",
             "categorical",
+            "pdg",
+            "pdg_minus_one_valid",
             "pointwise",
             "skip",
             "lite_skip",

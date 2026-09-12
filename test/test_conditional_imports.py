@@ -10,6 +10,17 @@ import pytest
 class TestConditionalImports:
     """Test conditional import behavior with and without optional dependencies."""
 
+    def test_conditional_particle_availability(self):
+        """Test PARTICLE_AVAILABLE agrees with the installed environment."""
+        from spine.utils.conditional import PARTICLE_AVAILABLE
+
+        try:
+            import particle  # noqa: F401
+
+            assert PARTICLE_AVAILABLE is True
+        except ImportError:
+            assert PARTICLE_AVAILABLE is False
+
     def test_conditional_torch_availability(self):
         """Test TORCH_AVAILABLE flag works correctly."""
         from spine.utils.conditional import TORCH_AVAILABLE
