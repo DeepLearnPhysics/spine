@@ -120,6 +120,7 @@ Data modules
    spine.data.base
    spine.data.decorator
    spine.data.field
+   spine.data.pdg
    spine.data.larcv.crt
    spine.data.larcv.meta
    spine.data.larcv.neutrino

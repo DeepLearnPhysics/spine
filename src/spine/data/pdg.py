@@ -15,6 +15,17 @@ def pdg_name(code: Any) -> str | None:
     The canonical SPINE sentinel ``0`` resolves to ``"UNKNOWN"``. Missing
     dependencies and unrecognized identifiers return ``None`` so callers can
     preserve the raw numeric value.
+
+    Parameters
+    ----------
+    code : Any
+        Integer-like PDG identifier to resolve.
+
+    Returns
+    -------
+    str or None
+        Canonical particle name, ``"UNKNOWN"`` for the SPINE sentinel, or
+        ``None`` when the identifier cannot be resolved.
     """
     try:
         code = index(code)
