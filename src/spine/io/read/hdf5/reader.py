@@ -1,7 +1,7 @@
 """Contains a reader class dedicated to loading data from HDF5 files."""
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from warnings import warn
 
@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 from yaml.parser import ParserError
 
+import spine.data
 from spine.io.filter import eligible_cache_entries_from_manifest
 from spine.logging import logger
 
@@ -48,6 +49,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
     """
 
     name: str = "hdf5"
+    object_defaults: dict[str, dict[str, Any]] | None = None
 
     # Retain these format-independent helpers on the reader for callers which
     # validate stored object schemas or construct columnar entry runs directly.
@@ -78,6 +80,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         swmr: bool = False,
         ignore_incomplete: bool = False,
         keys: list[str] | tuple[str, ...] | None = None,
+        object_defaults: Mapping[str, Mapping[str, Any]] | None = None,
         entry_fraction_range: Sequence[float] | None = None,
         entry_filter: str | None = None,
     ) -> None:
@@ -151,6 +154,11 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             true reader-level projection and avoids reading unrequested data
             in either layout. Source-provenance products remain eligible so
             reader-owned runtime indexes can be reconstructed.
+        object_defaults : mapping, optional
+            Fixed-width scalar field defaults keyed by stored SPINE class
+            name. A default is injected only when the corresponding field is
+            absent from a file's object schema. String-valued enum member names
+            are accepted case-insensitively.
         entry_fraction_range : sequence[float], optional
             Half-open fractional range of the resolved entry order to select
         entry_filter : str, optional
@@ -178,6 +186,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         self.file_format_versions: list[int] = []
         self.build_classes = build_classes
         self.skip_unknown_attrs = skip_unknown_attrs
+        self.object_defaults = self._normalize_object_defaults(object_defaults)
 
         # If an entry list is requested based on run/subrun/event ID, create map
         if run_event_list is not None or skip_run_event_list is not None:
@@ -316,6 +325,61 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
 
         # Process the SPINE version used to produced the HDF5 file
         self.version = self.process_version()
+
+    @staticmethod
+    def _normalize_object_defaults(
+        object_defaults: Mapping[str, Mapping[str, Any]] | None,
+    ) -> dict[str, dict[str, Any]]:
+        """Validate object defaults and normalize enum member names."""
+        if object_defaults is None:
+            return {}
+        if not isinstance(object_defaults, Mapping):
+            raise TypeError("`object_defaults` must be a mapping.")
+
+        normalized = {}
+        for class_name, defaults in object_defaults.items():
+            if not isinstance(class_name, str):
+                raise TypeError("Object-default class names must be strings.")
+            if not hasattr(spine.data, class_name):
+                raise ValueError(f"Unknown SPINE object class `{class_name}`.")
+            if not isinstance(defaults, Mapping):
+                raise TypeError(f"Defaults for `{class_name}` must be a mapping.")
+
+            obj_class = getattr(spine.data, class_name)
+            if not isinstance(obj_class, type) or not issubclass(
+                obj_class, spine.data.DataBase
+            ):
+                raise ValueError(f"Unknown SPINE object class `{class_name}`.")
+            class_defaults = {}
+            for attr, value in defaults.items():
+                if not isinstance(attr, str):
+                    raise TypeError(
+                        f"Object-default attributes for `{class_name}` must be strings."
+                    )
+                if attr not in obj_class.attr_names(include_derived=False):
+                    raise ValueError(f"Unknown `{class_name}` object field `{attr}`.")
+                metadata = obj_class.attr_metadata(attr)
+                if not np.isscalar(value):
+                    raise TypeError(
+                        f"Default for `{class_name}.{attr}` must be scalar."
+                    )
+                if isinstance(value, str) and metadata.enum is not None:
+                    try:
+                        value = metadata.enum[value.upper()].value
+                    except KeyError as err:
+                        names = [member.name for member in metadata.enum]
+                        raise ValueError(
+                            f"Unknown `{class_name}.{attr}` enum value `{value}`. "
+                            f"Must be one of {names}."
+                        ) from err
+                if isinstance(value, (str, bytes)):
+                    raise TypeError(
+                        f"Default for `{class_name}.{attr}` must be fixed-width."
+                    )
+                class_defaults[attr] = value
+            normalized[class_name] = class_defaults
+
+        return normalized
 
     def _read_flat_source_manifest_provenance(
         self,

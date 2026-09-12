@@ -2,12 +2,45 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import h5py
 import numpy as np
 
 import spine.data
+
+
+def select_missing_object_defaults(
+    object_defaults: Mapping[str, Mapping[str, Any]] | None,
+    class_name: str,
+    stored_fields: Iterable[str],
+) -> dict[str, Any]:
+    """Select configured defaults absent from a stored object schema.
+
+    Parameters
+    ----------
+    object_defaults : mapping, optional
+        Defaults keyed first by SPINE class name and then by field name.
+    class_name : str
+        Name of the stored SPINE object class.
+    stored_fields : iterable[str]
+        Field names present in the stored object schema.
+
+    Returns
+    -------
+    dict[str, Any]
+        Defaults for fields which are not present in ``stored_fields``.
+    """
+    if not object_defaults:
+        return {}
+
+    stored = set(stored_fields)
+    return {
+        name: value
+        for name, value in object_defaults.get(class_name, {}).items()
+        if name not in stored
+    }
 
 
 def require_dataset(parent: h5py.File | h5py.Group, name: str) -> h5py.Dataset:

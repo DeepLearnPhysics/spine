@@ -143,6 +143,26 @@ The driver currently restricts columnar mode to analysis-only configurations:
 all configured scripts must implement ``process_columnar``, and model,
 construction, post-processing, and ordinary output-writer blocks are rejected.
 
+Legacy files may omit a field whose interpretation is known from provenance.
+Use ``object_defaults`` to supply that field without overwriting values in
+newer files which store it explicitly. For example, force missing neutrino
+interaction schemes to LArSoft as follows:
+
+.. code-block:: yaml
+
+   io:
+     reader:
+       name: hdf5
+       file_keys: legacy_output.h5
+       object_defaults:
+         Neutrino:
+           interaction_scheme: larsoft
+
+The same option belongs under ``io.loader.dataset`` when an HDF5 dataset is
+used through a data loader. Defaults are restricted to fixed-width scalar data
+class fields and apply only when the field is absent from the stored schema;
+they do not reinterpret an explicitly stored sentinel value.
+
 Datasets
 --------
 

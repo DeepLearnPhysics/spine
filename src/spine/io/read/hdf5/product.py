@@ -18,6 +18,7 @@ from .common import (
     require_dataset,
     require_group,
     resolve_object_class,
+    select_missing_object_defaults,
 )
 
 ObjectPoolSpec = tuple[str, int, bool, tuple[str, ...]]
@@ -37,6 +38,7 @@ class ProductGroupBackend:
     build_classes: bool
     fixed_only: bool
     keep_open: bool
+    object_defaults: dict[str, dict[str, Any]] | None
     _product_object_schemas: dict[tuple[str, str], ObjectSchema]
     _product_object_handles: dict[tuple[str, str], ObjectHandles]
     _product_handles: dict[tuple[str, str], "_ProductHandles"]
@@ -86,13 +88,19 @@ class ProductGroupBackend:
 
         fixed = require_dataset(group, "fixed")
         offsets = require_dataset(group, "event_offsets")
-        available = tuple(
+        available: tuple[str, ...] = tuple(
             name
             for name in fixed.dtype.names or ()
             if not name.startswith("_var_offsets_")
         )
-        fields_to_read = available if requested_fields is None else requested_fields
-        missing = set(fields_to_read).difference(available)
+        class_name = decode_string_attribute(group.attrs["class_name"], "class_name")
+        defaults = select_missing_object_defaults(
+            self.object_defaults, class_name, available
+        )
+        fields_to_read: tuple[str, ...] = (
+            (*available, *defaults) if requested_fields is None else requested_fields
+        )
+        missing = set(fields_to_read).difference((*available, *defaults))
         if missing:
             raise KeyError(
                 f"Columnar product `{key}` is missing fixed fields "
@@ -101,28 +109,35 @@ class ProductGroupBackend:
 
         # Merge each contiguous disk span before exposing ordinary field arrays
         # to the analyzer-facing columnar interface.
+        stored_fields: tuple[str, ...] = tuple(
+            name for name in fields_to_read if name in available
+        )
         rows = []
         counts = []
         for first, last in contiguous_runs(entries):
             bounds = offsets[first : last + 1]
             start, stop = int(bounds[0]), int(bounds[-1])
-            if fields_to_read:
-                rows.append(fixed.fields(fields_to_read)[start:stop])
+            if stored_fields:
+                rows.append(fixed.fields(stored_fields)[start:stop])
             counts.extend(np.diff(bounds).astype(np.int64, copy=False))
 
         result = {}
-        if fields_to_read:
+        if stored_fields:
             combined = (
                 np.concatenate(rows)
                 if rows
                 else np.empty(
                     0,
                     dtype=np.dtype(
-                        [(name, fixed.dtype[name]) for name in fields_to_read]
+                        [(name, fixed.dtype[name]) for name in stored_fields]
                     ),
                 )
             )
-            result.update({name: combined[name] for name in fields_to_read})
+            result.update({name: combined[name] for name in stored_fields})
+        num_objects = sum(counts)
+        for name in fields_to_read:
+            if name in defaults:
+                result[name] = np.full(num_objects, defaults[name])
         result["event_offsets"] = np.concatenate(
             ([0], np.cumsum(counts, dtype=np.int64))
         )
@@ -709,9 +724,14 @@ class ProductGroupBackend:
         # Physical helper offsets are deliberately omitted from each object.
         result = []
         for object_index, row in enumerate(rows):
-            obj_dict = {name: row[name] for name in fixed_names}
+            obj_dict: dict[str, Any] = {name: row[name] for name in fixed_names}
             obj_dict.update(
                 {name: values[object_index] for name, values in variable_values.items()}
+            )
+            obj_dict.update(
+                select_missing_object_defaults(
+                    self.object_defaults, class_name, obj_dict
+                )
             )
             if self.build_classes:
                 result.append(obj_class.from_dict_trusted(obj_dict))

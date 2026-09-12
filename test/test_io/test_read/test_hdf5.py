@@ -9,7 +9,8 @@ import yaml
 from yaml.parser import ParserError
 
 import spine.data
-from spine.data import ObjectList, RecoParticle, RunInfo
+from spine.constants import NuInteractionScheme
+from spine.data import Neutrino, ObjectList, RecoParticle, RunInfo
 from spine.data.larcv.meta import ImageMeta2D, ImageMeta3D
 from spine.io.cache.backend.hdf5.reader import HDF5ShardReader
 from spine.io.cache.backend.hdf5.writer import HDF5ShardWriter
@@ -71,6 +72,110 @@ def _write_source_manifest(path, source, num_entries, rejected):
         ],
     }
     path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+
+
+def _remove_object_field(path, format_version, key, field):
+    """Rewrite one object table without a selected fixed-width field."""
+    with h5py.File(path, "a") as out_file:
+        if format_version == 1:
+            parent = out_file
+            dataset_name = key
+            event_rows = out_file["events"][:]
+        else:
+            parent = out_file["products"][key]
+            dataset_name = "fixed"
+            event_rows = None
+
+        dataset = parent[dataset_name]
+        names = tuple(name for name in dataset.dtype.names or () if name != field)
+        dtype = np.dtype([(name, dataset.dtype.fields[name][0]) for name in names])
+        values = np.empty(dataset.shape, dtype=dtype)
+        for name in names:
+            values[name] = dataset[name]
+        attrs = dict(dataset.attrs)
+
+        del parent[dataset_name]
+        replacement = parent.create_dataset(dataset_name, data=values)
+        for name, value in attrs.items():
+            replacement.attrs[name] = value
+
+        if event_rows is not None:
+            event_rows[key][0] = replacement.regionref[0 : len(replacement)]
+            out_file["events"][...] = event_rows
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_reader_applies_missing_object_defaults(tmp_path, format_version):
+    """Object defaults should fill absent fields in both HDF5 layouts."""
+    path = tmp_path / f"missing_scheme_v{format_version}.h5"
+    neutrino = Neutrino(
+        id=0,
+        interaction_scheme=int(NuInteractionScheme.GENIE),
+        interaction_mode=1,
+    )
+    data = {
+        "index": np.asarray([0]),
+        "neutrinos": [ObjectList([neutrino], Neutrino())],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=format_version) as writer:
+        writer(data, cfg={})
+    _remove_object_field(path, format_version, "neutrinos", "interaction_scheme")
+
+    defaults = {"Neutrino": {"interaction_scheme": "larsoft"}}
+    reader = HDF5Reader(str(path), object_defaults=defaults)
+    loaded = reader.get(0)["neutrinos"][0]
+    assert loaded.interaction_scheme == int(NuInteractionScheme.LARSOFT)
+    reader.close()
+
+    raw_reader = HDF5Reader(str(path), build_classes=False, object_defaults=defaults)
+    raw = raw_reader.get(0)["neutrinos"][0]
+    assert raw["interaction_scheme"] == int(NuInteractionScheme.LARSOFT)
+    raw_reader.close()
+
+    columnar = HDF5Reader(str(path), columnar=True, object_defaults=defaults)
+    columnar.configure_columnar({"neutrinos": (("id", "interaction_scheme"), True)})
+    values = columnar.get_columnar(0)["neutrinos"]
+    assert values["interaction_scheme"].tolist() == [int(NuInteractionScheme.LARSOFT)]
+    columnar.close()
+
+
+def test_hdf5_reader_object_defaults_preserve_stored_values(tmp_path):
+    """Object defaults must not replace fields present in the stored schema."""
+    path = tmp_path / "stored_scheme.h5"
+    neutrino = Neutrino(interaction_scheme=int(NuInteractionScheme.GENIE))
+    data = {
+        "index": np.asarray([0]),
+        "neutrinos": [ObjectList([neutrino], Neutrino())],
+    }
+    with HDF5Writer(str(path), overwrite=True, format_version=2) as writer:
+        writer(data, cfg={})
+
+    reader = HDF5Reader(
+        str(path),
+        object_defaults={"Neutrino": {"interaction_scheme": "larsoft"}},
+    )
+    loaded = reader.get(0)["neutrinos"][0]
+    assert loaded.interaction_scheme == int(NuInteractionScheme.GENIE)
+    reader.close()
+
+
+def test_hdf5_reader_validates_object_defaults():
+    """Object-default configuration should reject invalid targets and values."""
+    normalize = HDF5Reader._normalize_object_defaults
+    with pytest.raises(TypeError, match="must be a mapping"):
+        normalize([])
+    with pytest.raises(ValueError, match="Unknown SPINE object class"):
+        normalize({"MissingClass": {"id": 1}})
+    with pytest.raises(ValueError, match="Unknown `Neutrino` object field"):
+        normalize({"Neutrino": {"missing": 1}})
+    with pytest.raises(ValueError, match="Unknown `Neutrino` object field"):
+        normalize({"Neutrino": {"interaction_mode_enum": 1}})
+    with pytest.raises(TypeError, match="must be scalar"):
+        normalize({"Neutrino": {"interaction_scheme": [0]}})
+    with pytest.raises(TypeError, match="must be fixed-width"):
+        normalize({"Neutrino": {"creation_process": "unknown"}})
+    with pytest.raises(ValueError, match="enum value"):
+        normalize({"Neutrino": {"interaction_scheme": "missing"}})
 
 
 def test_cache_manifest_projection_validates_manifest_and_provenance(tmp_path):
