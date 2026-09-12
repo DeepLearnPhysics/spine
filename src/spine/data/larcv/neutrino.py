@@ -241,6 +241,25 @@ class Neutrino(PosDataBase):
         except (TypeError, ValueError):
             return None
 
+    def resolve_label(self, attr: str, value: Any | None = None) -> str | None:
+        """Resolve a categorical label, guarding an unset target triplet.
+
+        A quark PDG code of ``-1`` normally identifies an anti-down quark.
+        Legacy neutrino records also use ``-1`` for every unset target field;
+        when the complete target/nucleon/quark triplet is unset, interpret the
+        quark value as missing rather than as a physical anti-down quark.
+        """
+        resolved_value = getattr(self, attr) if value is None else value
+        if (
+            attr == "quark"
+            and resolved_value == -1
+            and self.target == -1
+            and self.nucleon == -1
+        ):
+            return "UNKNOWN"
+
+        return super().resolve_label(attr, value)
+
     @classmethod
     def from_larcv(
         cls,

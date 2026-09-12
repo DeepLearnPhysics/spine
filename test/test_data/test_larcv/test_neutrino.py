@@ -163,6 +163,18 @@ class TestNeutrinoCreation:
         assert genie_nu.resolve_label("nucleon", 2112) == "n"
         assert genie_nu.resolve_label("quark", -1) == "d~"
 
+        unset_target_nu = Neutrino(target=-1, nucleon=-1, quark=-1)
+        assert unset_target_nu.resolve_label("target") == "UNKNOWN"
+        assert unset_target_nu.resolve_label("nucleon") == "UNKNOWN"
+        assert unset_target_nu.resolve_label("quark") == "UNKNOWN"
+
+        struck_antidown_nu = Neutrino(
+            target=1000060120,
+            nucleon=2112,
+            quark=-1,
+        )
+        assert struck_antidown_nu.resolve_label("quark") == "d~"
+
         unknown_nu = Neutrino(id=2, interaction_mode=0, interaction_type=1001)
         assert unknown_nu.interaction_mode_enum is None
         assert unknown_nu.interaction_type_enum is None
