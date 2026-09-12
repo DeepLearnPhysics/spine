@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import yaml
 
+from spine.geo import GeoManager
 from spine.io import factories as factories_module
 from spine.io.factories import collate_factory, dataset_factory, loader_factory
 from spine.logging import CSVLogger
@@ -20,6 +21,30 @@ from spine.utils.conditional import TORCH_AVAILABLE
 
 MAX_ITER = 10
 MAX_BATCH_ID = MAX_ITER - 1
+WORKER_INIT_CALLED = False
+
+
+class GeometryWorkerDataset:
+    """Minimal picklable dataset that observes worker-local geometry state."""
+
+    data_keys = {"state": "tensor"}
+    overlay_methods = {"state": None}
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, idx):
+        geo = GeoManager.get_instance()
+        return np.asarray(
+            [geo.name.lower() == "icarus", WORKER_INIT_CALLED], dtype=np.int64
+        )
+
+
+def record_geometry_worker_init(worker_id):
+    """Record that caller initialization ran after geometry initialization."""
+    global WORKER_INIT_CALLED
+    assert GeoManager.is_initialized()
+    WORKER_INIT_CALLED = True
 
 
 @pytest.mark.skipif(
@@ -284,6 +309,34 @@ def test_loader_factory_uses_minibatch_and_helpers(monkeypatch):
         batch_size=4,
     )
     assert captured["batch_size"] == 4
+
+
+@pytest.mark.skipif(
+    not TORCH_AVAILABLE,
+    reason="PyTorch is required for spawned loader worker tests.",
+)
+def test_loader_factory_initializes_geometry_in_spawned_worker(monkeypatch):
+    """Spawned workers should initialize geometry before caller setup."""
+    monkeypatch.setattr(
+        factories_module,
+        "dataset_factory",
+        lambda *args, **kwargs: GeometryWorkerDataset(),
+    )
+    GeoManager.reset()
+    try:
+        loader = loader_factory(
+            dataset={"name": "dummy"},
+            dtype="float32",
+            minibatch_size=1,
+            num_workers=1,
+            multiprocessing_context="spawn",
+            geo={"detector": "icarus", "version": 4},
+            worker_init_fn=record_geometry_worker_init,
+        )
+        state = next(iter(loader))
+        assert state.tolist() == [[1, 1]]
+    finally:
+        GeoManager.reset()
 
 
 def test_loader_factory_defaults_joint_dataset_to_sequential(monkeypatch):

@@ -434,6 +434,7 @@ def test_initialize_io_loader_paths(monkeypatch):
     drv.iterations = None
     drv.epochs = 1.5
     drv.split_output = True
+    drv.geo_cfg = {"detector": "icarus"}
     loader = FakeLoader()
     calls: list[dict[str, object]] = []
 
@@ -454,6 +455,7 @@ def test_initialize_io_loader_paths(monkeypatch):
     assert drv.iterations == 3
     assert drv.io.output_prefix == ["input_000", "input_001"]
     assert calls[0]["distributed"] is True
+    assert calls[0]["geo"] == {"detector": "icarus"}
 
     drv = bare_driver()
     drv.cfg = {}
@@ -868,6 +870,7 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
     drv.overwrite_log = True
     drv.csv_buffer_size = 8
     drv.log_step = 4
+    drv.geo_cfg = {"detector": "icarus"}
     monkeypatch.setattr(
         driver_mod,
         "ValidationManager",
@@ -884,6 +887,7 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
         "world_size": 2,
         "distributed": True,
         "seed": 7,
+        "geo": {"detector": "icarus"},
         "log_dir": "logs",
         "prefix_log": True,
         "overwrite_log": True,

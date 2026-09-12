@@ -358,6 +358,7 @@ class ValidationManager:
         loader: Mapping[str, Any],
         model: ModelManager,
         *,
+        geo: Mapping[str, Any] | None = None,
         rank: int | None,
         dtype: str,
         world_size: int,
@@ -386,6 +387,8 @@ class ValidationManager:
             Training loader configuration used as the derivation template.
         model : ModelManager
             Live training model used for validation forwards.
+        geo : mapping, optional
+            Geometry configuration propagated to validation loader workers.
         rank : int, optional
             Process rank used by a distributed validation loader.
         dtype : str
@@ -430,6 +433,7 @@ class ValidationManager:
         loader_cfg = self.build_loader_config(loader, cfg, seed)
         self.io = IOManager(
             loader=loader_cfg,
+            geo=geo,
             rank=rank,
             dtype=dtype,
             world_size=world_size,

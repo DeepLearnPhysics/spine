@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 from warnings import warn
 
 from spine.config.factory import instantiate, module_dict
+from spine.geo import GeoManager
 from spine.utils.conditional import TORCH_AVAILABLE
 
 from . import read, write
@@ -22,6 +24,17 @@ __all__ = [
     "sampler_factory",
     "collate_factory",
 ]
+
+
+def _initialize_loader_worker(
+    worker_id: int,
+    geo: Mapping[str, Any],
+    worker_init_fn: Callable[[int], None] | None = None,
+) -> None:
+    """Initialize process-local geometry before optional caller setup."""
+    GeoManager.initialize_or_get(**geo)
+    if worker_init_fn is not None:
+        worker_init_fn(worker_id)
 
 
 def reader_factory(reader_cfg: Mapping[str, Any] | str) -> Any:
@@ -93,6 +106,8 @@ def loader_factory(
     distributed: bool = False,
     world_size: int = 0,
     rank: int | None = None,
+    geo: Mapping[str, Any] | None = None,
+    worker_init_fn: Callable[[int], None] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Instantiate a PyTorch ``DataLoader`` from configuration.
@@ -123,6 +138,12 @@ def loader_factory(
         Number of distributed processes/devices.
     rank : int, optional
         Distributed process rank. Required when ``distributed=True``.
+    geo : mapping, optional
+        Geometry configuration used to initialize the current process and each
+        DataLoader worker process.
+    worker_init_fn : callable, optional
+        Caller-provided worker initializer. When geometry is configured, it is
+        called after the worker geometry singleton has been initialized.
     **kwargs : dict
         Extra keyword arguments forwarded to ``torch.utils.data.DataLoader``.
 
@@ -135,6 +156,16 @@ def loader_factory(
         raise ImportError("PyTorch is required to use loader_factory.")
 
     from torch.utils.data import DataLoader
+
+    # Dataset and collate construction may resolve geometry eagerly. Initialize
+    # the current process here as well as every worker process below.
+    if geo is not None:
+        GeoManager.initialize_or_get(**geo)
+        worker_init_fn = partial(
+            _initialize_loader_worker,
+            geo=dict(geo),
+            worker_init_fn=worker_init_fn,
+        )
 
     # Process the batch size, make sure it is sensible
     if batch_size is not None and minibatch_size is not None:
@@ -192,6 +223,7 @@ def loader_factory(
         sampler=sampler,
         num_workers=num_workers,
         collate_fn=collate_fn,
+        worker_init_fn=worker_init_fn,
         **kwargs,
     )
 

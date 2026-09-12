@@ -70,6 +70,7 @@ class IOManager:
         reader: Mapping[str, Any] | None = None,
         writer: Mapping[str, Any] | None = None,
         *,
+        geo: Mapping[str, Any] | None = None,
         rank: int | None = None,
         dtype: str = "float32",
         world_size: int = 0,
@@ -93,6 +94,8 @@ class IOManager:
             Writer configuration mapping. If provided with a loader, the
             loader output must be unwrapped before writing. This is enforced
             here because writer input shape depends on loader-batch unwrapping.
+        geo : mapping, optional
+            Geometry configuration propagated to loader worker processes.
         rank : int, optional
             Process rank used by distributed loaders.
         dtype : str, default 'float32'
@@ -153,6 +156,7 @@ class IOManager:
         if loader is not None:
             self._initialize_loader(
                 loader,
+                geo=geo,
                 rank=rank,
                 dtype=dtype,
                 world_size=world_size,
@@ -182,6 +186,7 @@ class IOManager:
         self,
         loader: Mapping[str, Any],
         *,
+        geo: Mapping[str, Any] | None,
         rank: int | None,
         dtype: str,
         world_size: int,
@@ -194,6 +199,8 @@ class IOManager:
         ----------
         loader : mapping
             Loader configuration mapping.
+        geo : mapping, optional
+            Geometry configuration propagated to loader worker processes.
         rank : int, optional
             Process rank used by distributed samplers.
         dtype : str
@@ -224,6 +231,7 @@ class IOManager:
         self.watch.initialize("load")
         self.loader = loader_factory(
             **loader,
+            geo=geo,
             rank=rank,
             dtype=dtype,
             world_size=world_size,

@@ -207,6 +207,7 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
 
     manager = IOManager(
         loader={"dataset": {}},
+        geo={"detector": "icarus"},
         rank=1,
         dtype="float64",
         world_size=2,
@@ -225,6 +226,7 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
     assert calls[0]["rank"] == 1
     assert calls[0]["dtype"] == "float64"
     assert calls[0]["distributed"] is True
+    assert calls[0]["geo"] == {"detector": "icarus"}
 
 
 def test_io_manager_allows_on_demand_iteration_config(monkeypatch):

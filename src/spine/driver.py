@@ -514,8 +514,13 @@ class Driver:
             Top-level I/O configuration mapping. This may contain ``loader``,
             ``reader``, and/or ``writer`` sections.
         """
+        geo_kwargs = {}
+        if getattr(self, "geo_cfg", None) is not None:
+            geo_kwargs["geo"] = self.geo_cfg
+
         self.io = IOManager(
             **io,
+            **geo_kwargs,
             rank=self.rank,
             dtype=self.dtype,
             world_size=self.world_size,
@@ -540,8 +545,9 @@ class Driver:
             Geometry configuration mapping. If ``None``, geometry-dependent
             modules are left uninitialized until they are explicitly requested.
         """
-        if geo is not None:
-            GeoManager.initialize_or_get(**geo)
+        self.geo_cfg = dict(geo) if geo is not None else None
+        if self.geo_cfg is not None:
+            GeoManager.initialize_or_get(**self.geo_cfg)
 
     def initialize_model(
         self,
@@ -696,10 +702,15 @@ class Driver:
         if not isinstance(loader, Mapping):
             raise ValueError("On-the-fly validation requires `io.loader`.")
 
+        geo_kwargs = {}
+        if getattr(self, "geo_cfg", None) is not None:
+            geo_kwargs["geo"] = self.geo_cfg
+
         self.validation = ValidationManager(
             validation,
             loader,
             self.model,
+            **geo_kwargs,
             rank=self.rank,
             dtype=self.dtype,
             world_size=self.world_size,
