@@ -18,6 +18,7 @@ Core Utilities
 
    conditional
    docstring
+   file
    jit
    manager
    stopwatch

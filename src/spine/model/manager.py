@@ -21,6 +21,7 @@ from spine.data import (
 from spine.logging import logger
 from spine.model.optim.factory import lr_sched_factory, optim_factory
 from spine.utils.conditional import TORCH_AVAILABLE, torch
+from spine.utils.file import make_shared_directory
 from spine.utils.stopwatch import StopwatchManager
 
 from .checkpoint import (
@@ -314,7 +315,7 @@ class ModelManager:
         # Make a directory for the weight files, if need be
         save_dir = os.path.dirname(weight_prefix)
         if save_dir and not os.path.isdir(save_dir):
-            os.makedirs(save_dir, exist_ok=True)
+            make_shared_directory(save_dir, parents=True, exist_ok=True)
 
         # Initiliaze the optimizer
         self.optimizer = optim_factory(optimizer, self.net.parameters())

@@ -3,12 +3,14 @@
 import argparse
 import difflib
 import sys
+from pathlib import Path
 from typing import TextIO
 
 import yaml
 
 from spine.config import load_config_file
 from spine.config.loader import DownloadTag
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 
 
 def represent_download(dumper: yaml.SafeDumper, value: DownloadTag) -> yaml.Node:
@@ -86,8 +88,11 @@ def dump_config(
         sys.stdout.write(content)
         return
 
-    with open(output, "w", encoding="utf-8") as f:
+    output_path = Path(output)
+    make_shared_directory(output_path.parent, parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
         f.write(content)
+    set_shared_file_permissions(output_path)
 
 
 def diff_configs(

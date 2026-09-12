@@ -15,6 +15,7 @@ import yaml
 
 from spine.config import load_config_file
 from spine.config.loader import resolve_config_path
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 from spine.version import __version__
 
 from .base import EntryInspector, SourceFingerprint, resolve_sources
@@ -40,7 +41,7 @@ __all__ = [
 def _atomic_yaml_dump(data: Mapping[str, Any], output: str | Path) -> None:
     """Write a YAML artifact transactionally beside its final path."""
     output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    make_shared_directory(output_path.parent, parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(
         prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent
     )
@@ -49,6 +50,7 @@ def _atomic_yaml_dump(data: Mapping[str, Any], output: str | Path) -> None:
             yaml.safe_dump(dict(data), stream, sort_keys=False)
             stream.flush()
             os.fsync(stream.fileno())
+        set_shared_file_permissions(temporary)
         os.replace(temporary, output_path)
     except BaseException:
         if os.path.exists(temporary):
@@ -59,7 +61,7 @@ def _atomic_yaml_dump(data: Mapping[str, Any], output: str | Path) -> None:
 def _atomic_text_dump(lines: Sequence[str], output: str | Path) -> None:
     """Write a newline-delimited text artifact transactionally."""
     output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    make_shared_directory(output_path.parent, parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(
         prefix=f".{output_path.name}.", suffix=".tmp", dir=output_path.parent
     )
@@ -68,6 +70,7 @@ def _atomic_text_dump(lines: Sequence[str], output: str | Path) -> None:
             stream.write("".join(f"{line}\n" for line in lines))
             stream.flush()
             os.fsync(stream.fileno())
+        set_shared_file_permissions(temporary)
         os.replace(temporary, output_path)
     except BaseException:
         if os.path.exists(temporary):
@@ -308,7 +311,7 @@ def scan_sources(
     backend = _resolve_backend(cfg["input"]["name"], resolved)
     canonical = resolve_sources(resolved, None)
     cache_path = str(Path(cache_dir).resolve())
-    Path(cache_path).mkdir(parents=True, exist_ok=True)
+    make_shared_directory(cache_path, parents=True, exist_ok=True)
 
     arguments = [
         (backend, source, cfg["measurements"], cache_path, force)

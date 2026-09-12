@@ -14,6 +14,8 @@ from plotly import graph_objs as go
 from plotly import subplots as psubplots
 from plotly.offline import iplot
 
+from spine.utils.file import set_shared_file_permissions
+
 from ...layout import PLOTLY_COLORS_TUPLE, color_rgba
 from .io import find_key, get_training_df, get_validation_df
 from .style import initialize_matplotlib_style, initialize_plotly_layout
@@ -313,7 +315,7 @@ class TrainDrawer:
             for j, key in enumerate(dfs.keys()):
                 iter_t, epoch_t = dfs[key]["iter"], dfs[key]["epoch"]
                 metric_key, metric_label = self.find_key(dfs[key], metric_list)
-                metric_t = dfs[key][metric_key]
+                metric_t = cast(pd.Series, dfs[key][metric_key])
                 iter_v: np.ndarray[Any, Any] | None = None
                 epoch_v: np.ndarray[Any, Any] | None = None
                 metric_v_mean: np.ndarray[Any, Any] | None = None
@@ -357,16 +359,17 @@ class TrainDrawer:
 
                 if max_iter is not None:
                     epoch_t = epoch_t[:max_iter]
-                    metric_t = metric_t[:max_iter]
+                    metric_t = cast(pd.Series, metric_t.iloc[:max_iter])
 
                 if smoothing is not None and smoothing > 1:
-                    metric_t = metric_t.rolling(
-                        smoothing, min_periods=1, center=True
-                    ).mean()
+                    metric_t = cast(
+                        pd.Series,
+                        metric_t.rolling(smoothing, min_periods=1, center=True).mean(),
+                    )
 
                 if step is not None and step > 1:
                     epoch_t = epoch_t[::step]
-                    metric_t = metric_t[::step]
+                    metric_t = cast(pd.Series, metric_t.iloc[::step])
 
                 # Resolve the legend label based on whether curves are grouped
                 # by model, metric, or both on the active plot.
@@ -482,8 +485,12 @@ class TrainDrawer:
                 )
 
             if figure_name:
-                plt.savefig(f"{figure_name}.png", bbox_inches="tight")
-                plt.savefig(f"{figure_name}.pdf", bbox_inches="tight")
+                png_path = f"{figure_name}.png"
+                pdf_path = f"{figure_name}.pdf"
+                plt.savefig(png_path, bbox_inches="tight")
+                plt.savefig(pdf_path, bbox_inches="tight")
+                set_shared_file_permissions(png_path)
+                set_shared_file_permissions(pdf_path)
 
             plt.show()
             return

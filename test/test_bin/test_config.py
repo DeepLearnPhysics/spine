@@ -1,5 +1,6 @@
 """Tests for the SPINE config inspection command line tool."""
 
+import stat
 from io import StringIO
 from types import SimpleNamespace
 
@@ -55,6 +56,7 @@ def test_dump_config_writes_output_file(tmp_path):
     assert yaml.safe_load(output.read_text(encoding="utf-8")) == {
         "base": {"iterations": 100}
     }
+    assert stat.S_IMODE(output.stat().st_mode) == 0o664
 
 
 def test_dump_config_writes_to_stdout(tmp_path, capsys):

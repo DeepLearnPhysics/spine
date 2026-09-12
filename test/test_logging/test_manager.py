@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from types import SimpleNamespace
 
 import numpy as np
@@ -197,6 +198,42 @@ def test_log_manager_tensorboard_paths(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="directory"):
         LogManager(str(tmp_path / "log.csv"), tensorboard=True)
+
+
+def test_log_manager_normalizes_tensorboard_tree(monkeypatch, tmp_path):
+    """TensorBoard-owned event files should become collaboration-readable."""
+
+    class Writer:
+        def __init__(self, log_dir):
+            self.log_dir = log_dir
+            self.path = tmp_path / "tensorboard"
+            self.path.mkdir()
+            (self.path / "initial.event").write_text("initial", encoding="utf-8")
+
+        def flush(self):
+            pass
+
+        def close(self):
+            (self.path / "final.event").write_text("final", encoding="utf-8")
+
+    monkeypatch.setattr(log_manager_mod, "CSVLogger", FakeCSVLogger)
+    monkeypatch.setattr(
+        log_manager_mod.runtime,
+        "create_summary_writer",
+        lambda log_dir, **_kwargs: Writer(log_dir),
+    )
+
+    directory = tmp_path / "tensorboard"
+    manager = LogManager(
+        str(tmp_path / "log.csv"),
+        tensorboard=True,
+        tensorboard_dir=str(directory),
+    )
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o2775
+    assert stat.S_IMODE((directory / "initial.event").stat().st_mode) == 0o664
+
+    manager.close()
+    assert stat.S_IMODE((directory / "final.event").stat().st_mode) == 0o664
 
 
 def test_log_manager_stdout_summary(monkeypatch):

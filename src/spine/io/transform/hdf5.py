@@ -12,6 +12,7 @@ import numpy as np
 import yaml
 
 import spine.data
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 
 __all__ = ["DEFAULT_LITE_KEYS", "litify_hdf5"]
 
@@ -320,7 +321,7 @@ def litify_hdf5(
 
     # Build beside the destination so the final replacement remains atomic
     target_dir = os.path.dirname(target_path)
-    os.makedirs(target_dir, exist_ok=True)
+    make_shared_directory(target_dir, parents=True, exist_ok=True)
     descriptor, temporary_path = tempfile.mkstemp(
         prefix=f".{os.path.basename(target_path)}.",
         suffix=".tmp",
@@ -383,8 +384,8 @@ def litify_hdf5(
             info.attrs["complete"] = True
             target.flush()
 
-        # Publish only a fully written file, retaining the source permissions
-        os.chmod(temporary_path, os.stat(source_path).st_mode & 0o666)
+        # Publish only a fully written, collaboration-readable file.
+        set_shared_file_permissions(temporary_path)
         os.replace(temporary_path, target_path)
     except Exception:
         # Never leave a partial destination behind after a failed transformation

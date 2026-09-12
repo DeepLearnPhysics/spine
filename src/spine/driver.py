@@ -37,6 +37,7 @@ from .math import seed as numba_seed
 from .model import ModelManager, ValidationManager
 from .post import PostManager
 from .utils.conditional import TORCH_AVAILABLE, torch
+from .utils.file import make_shared_directory
 from .utils.stopwatch import StopwatchManager
 from .utils.torch import runtime
 from .utils.torch.devices import set_visible_devices
@@ -831,7 +832,7 @@ class Driver:
         """Initialize CSV and optional TensorBoard logging backends."""
         # Make a directory if it does not exist
         if self.log_dir and not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir, exist_ok=True)
+            make_shared_directory(self.log_dir, parents=True, exist_ok=True)
 
         # Determine the log name, initialize it
         if self.builder is not None or self.model is None:

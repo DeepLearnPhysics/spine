@@ -1,5 +1,7 @@
 """Tests for the CSV writer."""
 
+import stat
+
 import pytest
 
 from spine.logging import CSVLogger
@@ -16,6 +18,7 @@ def test_csv_writer_context_manager_and_flush(tmp_path):
 
     assert writer.file_handle is None
     assert path.read_text(encoding="utf-8").splitlines() == ["a,b", "1,2"]
+    assert stat.S_IMODE(path.stat().st_mode) == 0o664
 
 
 def test_csv_writer_rejects_existing_file_without_overwrite(tmp_path):

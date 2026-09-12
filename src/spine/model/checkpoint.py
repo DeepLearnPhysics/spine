@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from spine.utils.conditional import TORCH_AVAILABLE, torch
+from spine.utils.file import make_shared_directory, set_shared_file_permissions
 from spine.version import __version__
 
 __all__ = [
@@ -205,7 +206,7 @@ def save_checkpoint(checkpoint: Mapping[str, Any], path: str | os.PathLike[str])
         raise ImportError("PyTorch is required to save a model checkpoint.")
 
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    make_shared_directory(path.parent, parents=True, exist_ok=True)
 
     # Publish the artifact only after serialization completes successfully.
     temporary_path: str | None = None
@@ -218,6 +219,7 @@ def save_checkpoint(checkpoint: Mapping[str, Any], path: str | os.PathLike[str])
         ) as temporary:
             temporary_path = temporary.name
         torch.save(dict(checkpoint), temporary_path)
+        set_shared_file_permissions(temporary_path)
         os.replace(temporary_path, path)
         temporary_path = None
     finally:
@@ -254,7 +256,7 @@ def promote_checkpoint(
     """
     source = Path(source)
     destination = Path(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    make_shared_directory(destination.parent, parents=True, exist_ok=True)
 
     # Copy beside the destination so publication remains an atomic rename.
     temporary_path: str | None = None
@@ -267,6 +269,7 @@ def promote_checkpoint(
         ) as temporary:
             temporary_path = temporary.name
         shutil.copyfile(source, temporary_path)
+        set_shared_file_permissions(temporary_path)
         os.replace(temporary_path, destination)
         temporary_path = None
     finally:
@@ -296,6 +299,7 @@ def _write_checksum_sidecar(path: Path, digest: str) -> None:
         ) as temporary:
             sidecar_temporary = temporary.name
             temporary.write(f"{digest}  {path.name}\n")
+        set_shared_file_permissions(sidecar_temporary)
         os.replace(sidecar_temporary, sidecar)
         sidecar_temporary = None
     finally:

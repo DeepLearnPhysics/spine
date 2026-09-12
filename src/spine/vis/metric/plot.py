@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from spine.utils.file import set_shared_file_permissions
+
 __all__ = ["plotting", "save_figure"]
 
 
@@ -60,6 +62,7 @@ def save_figure(fig: Any, output: Path, formats: Sequence[str]) -> list[Path]:
             continue
         path = output.with_suffix(f".{file_format}")
         fig.savefig(path, bbox_inches="tight")
+        set_shared_file_permissions(path)
         paths.append(path)
     plt.close(fig)
     return paths

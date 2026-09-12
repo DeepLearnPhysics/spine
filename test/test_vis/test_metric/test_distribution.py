@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+
 from spine.vis.metric.distribution import (
     histogram_quantiles,
     plot_histogram_with_boxplot,
@@ -43,4 +45,5 @@ def test_save_figure_ignores_json_and_closes_figure(tmp_path):
 
     assert paths == [tmp_path / "metric.png"]
     assert paths[0].is_file()
+    assert stat.S_IMODE(paths[0].stat().st_mode) == 0o664
     assert not plt.fignum_exists(figure.number)

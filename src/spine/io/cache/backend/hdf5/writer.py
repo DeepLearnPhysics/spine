@@ -1,4 +1,4 @@
-"""Public staged HDF5 writer and stage-serialization orchestration."""
+"""Private HDF5 shard writer and stage-serialization orchestration."""
 
 from __future__ import annotations
 
@@ -11,30 +11,30 @@ import h5py
 import numpy as np
 import yaml
 
-from ..hdf5 import HDF5Writer
-from ..hdf5.common import decode_string_attribute, require_group
+from ....write.hdf5 import HDF5Writer
+from ....write.hdf5.common import decode_string_attribute, require_group
+from .common import source_id
 from .file import StageFileMixin
-from .sidecar import StageSidecarMixin
 from .state import StageState
 
-__all__ = ["StageHDF5Writer"]
+__all__ = ["HDF5ShardWriter"]
 
 
-class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
-    """Write additive stage caches to one HDF5 file per source file.
+class HDF5ShardWriter(StageFileMixin, HDF5Writer):
+    """Serialize one cache stage into one HDF5 V2 shard per source file.
 
-    This writer is intended for sequential cache materialization workflows
-    where each processing stage writes a self-contained set of products under
-    ``/stages/<stage>`` while preserving previously completed stages. Cache
-    files are split by source-file provenance automatically.
+    The public cache writer gives this backend a transaction-private directory.
+    Incoming batches are partitioned by immutable source provenance, and each
+    partition is written under ``/stages/<stage>`` in its own shard. The
+    repository manifest—not this physical writer—composes independently
+    produced stage generations into one logical dataset.
 
     Unlike :class:`HDF5Writer`, this class does not use one flat product
-    namespace for the entire file. Each stage owns its own ``events`` dataset
-    and product datasets, which allows failed later stages to be rewritten
-    without modifying earlier completed stages.
+    namespace. The stage-local namespace keeps the physical schema explicit
+    and lets the shard reader reuse the normal V2 product codec.
     """
 
-    name = "stage_hdf5"
+    name = "cache"
     _file_source_keys = {"source_file_name", "source_file_size", "source_file_mtime_ns"}
 
     def __init__(
@@ -52,10 +52,9 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         flush_frequency: int | None = None,
         overwrite: bool = False,
         overwrite_stage: bool = False,
-        sidecar: bool = False,
-        target_file_paths: list[str] | None = None,
+        source_id_names: bool = False,
     ) -> None:
-        """Initialize the stage-cache writer.
+        """Initialize the cache-shard writer.
 
         Parameters
         ----------
@@ -68,7 +67,7 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
             Output directory used for all source-derived cache files. When
             provided, it overrides the directory encoded in ``file_name``.
         prefix : str or list[str], optional
-            Input file prefix used to derive the base staged-cache file name
+            Input file prefix used to derive the base cache-shard file name
             when ``file_name`` is not specified.
         suffix : str, default "stage"
             Suffix appended to source file basenames when deriving split cache
@@ -85,7 +84,7 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         skip_keys : list[str], optional
             List of data-product keys to exclude from each stage.
         split : bool, default True
-            Stage caches are always written one file per source file. This
+            Cache shards are always written one file per source file. This
             argument is accepted for compatibility with generic writer
             configuration, but it must remain `True`.
         lite : bool, default False
@@ -98,43 +97,29 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         overwrite : bool, default False
             If `True`, replace the entire cache file if it already exists.
         overwrite_stage : bool, default False
-            If `True`, replace a completed stage with the configured name on
-            first use while preserving all sibling stages. Incomplete stages
-            are always rebuilt automatically when a new writer session first
-            encounters them.
-        sidecar : bool, default False
-            If `True`, write each stage to a temporary neighboring cache and
-            merge it into the canonical target only during finalization. This
-            permits concurrent readers to keep the canonical file open while
-            a downstream stage is produced.
-        target_file_paths : list[str], optional
-            Existing canonical staged-cache paths indexed by their stored
-            source provenance. This is supplied internally by
-            :class:`spine.io.manager.IOManager` when a staged cache is both the
-            input and output of a job.
-
+            If `True`, replace a completed stage encountered in a directly
+            managed shard. Repository transactions normally write fresh files
+            and handle logical stage replacement at manifest publication.
+        source_id_names : bool, default False
+            If `True`, name shards from their immutable source identities.
+            The cache repository enables this mode for transaction-private
+            output; direct codec tests may retain an explicitly configured
+            file name.
         Notes
         -----
-        Stage caches exclusively use the offset-based HDF5 V2 product layout.
-        They are internal, reproducible artifacts, so legacy staged caches must
-        be rebuilt rather than appended or upgraded in place.
+        Cache shards exclusively use the offset-based HDF5 V2 product layout.
+        They are internal, reproducible artifacts, so incompatible shards must
+        be rebuilt rather than upgraded in place.
         """
         # Validate the configuration before initializing the shared HDF5 backend
         if not split:
             raise ValueError(
-                "StageHDF5Writer requires `split=True` because staged caches "
+                "The cache HDF5 backend requires `split=True` because shards "
                 "are written one file per source file."
             )
-        if sidecar and overwrite:
-            raise ValueError(
-                "Sidecar stage writes cannot overwrite an entire cache. Use "
-                "`overwrite_stage=True` to replace only the configured stage."
-            )
-
-        # Initialize the shared HDF5 serialization backend while deliberately
-        # deferring staged-cache existence and replacement policy to this
-        # class. ``append=True`` prevents the flat writer constructor from
-        # rejecting or mutating an existing canonical cache.
+        # Reuse the shared V2 product codec while leaving shard lifecycle and
+        # stage completion to this backend. ``append=True`` prevents the flat
+        # writer constructor from claiming the transaction-private path.
         name_split = split if prefix is not None else False
         super().__init__(
             file_name=file_name,
@@ -160,11 +145,11 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         # Add stage-specific routing and publication policy.
         self.stage = stage
         self.overwrite_stage = overwrite_stage
-        self.sidecar = sidecar
+        self.source_id_names = source_id_names
         self.source_info: dict[str, Any] | None = None
 
         self._configured_keys = None if self.keys is None else set(self.keys)
-        # Stage caches always route by source, even when the initial base name
+        # Cache shards always route by source, even when the initial base name
         # was resolved from a single prefix.
         self.split = True
 
@@ -176,18 +161,6 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         self._active_stages: set[tuple[str, str]] = set()
         self._known_files: set[str] = set()
 
-        # Sidecars are tracked per canonical file and stage. A separate file
-        # for each pair keeps direct `write_stage` users isolated as well as
-        # the standard one-stage driver contract.
-        self._target_by_source: dict[tuple[str, int, int], str] = {}
-        self._canonical_files: set[str] = set()
-        self._sidecar_paths: dict[tuple[str, str], str] = {}
-        self._sidecar_replace: dict[tuple[str, str], bool] = {}
-        if target_file_paths is not None:
-            if not sidecar:
-                raise ValueError("`target_file_paths` requires `sidecar=True`.")
-            self._index_target_files(target_file_paths)
-
         if overwrite and os.path.exists(self.file_name):
             os.remove(self.file_name)
 
@@ -197,13 +170,18 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         Parameters
         ----------
         data : dict
-            Dictionary of data products
+            Scalar or batched products with reader-provided source provenance.
         cfg : dict, optional
-            Dictionary containing the complete SPINE configuration
+            Complete SPINE configuration stored with the stage metadata.
+
+        Raises
+        ------
+        RuntimeError
+            If no default stage was configured for the standard writer path.
         """
         if self.stage is None:
             raise RuntimeError(
-                "StageHDF5Writer requires a configured `stage` to be used "
+                "The cache HDF5 backend requires a configured `stage` "
                 "through the standard writer call path."
             )
 
@@ -215,10 +193,22 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         )
 
     def finalize(self) -> None:
-        """Mark the configured stage as complete across touched cache files."""
+        """Mark the configured stage complete across all touched shards.
+
+        Raises
+        ------
+        RuntimeError
+            If no default stage was configured for the standard writer path.
+
+        Notes
+        -----
+        Physical completion is distinct from repository publication. The
+        public cache writer validates these finalized shards before committing
+        their generation to the manifest.
+        """
         if self.stage is None:
             raise RuntimeError(
-                "StageHDF5Writer requires a configured `stage` to finalize "
+                "The cache HDF5 backend requires a configured `stage` to finalize "
                 "through the standard writer interface."
             )
 
@@ -232,7 +222,7 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         """Normalize one batch and resolve its stage-local V2 schema.
 
         The inherited V2 preparation backend stores schema metadata on the
-        writer instance. Stage caches project the selected stage into that
+        writer instance. Cache shards project the selected stage into that
         state temporarily, then restore the driver-facing writer state before
         returning.
 
@@ -245,8 +235,8 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
 
         Returns
         -------
-        tuple
-            Prepared batch, batch size, and resolved stage schema.
+        tuple[dict[str, Any], int, StageState]
+            Prepared batch, batch size, and resolved stage-local schema.
         """
         original_ready = self.ready
         original_keys = self.keys
@@ -294,6 +284,12 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         ----------
         data : dict
             Normalized batch dictionary used as the schema template.
+
+        Returns
+        -------
+        StageState
+            Immutable product definitions and mutable append progress for the
+            stage.
         """
         keys = self.get_stored_keys(data)
         if "source_file_entry_index" in data:
@@ -328,18 +324,19 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         Returns
         -------
         str
-            Destination path for the source-specific staged cache.
+            Destination path for the source-specific cache shard.
+
+        Raises
+        ------
+        ValueError
+            If source-identity naming is enabled without an output directory.
         """
-        # Same-file staged workflows route directly back to their canonical
-        # input cache using the immutable source identity stored in each file.
-        if self._target_by_source:
-            identity = self._source_identity(source_info)
-            if identity not in self._target_by_source:
+        if self.source_id_names:
+            if self.directory is None:
                 raise ValueError(
-                    "No canonical staged cache matches source provenance "
-                    f"{identity}."
+                    "Source-identity shard naming requires an output directory."
                 )
-            return self._target_by_source[identity]
+            return os.path.join(self.directory, f"{source_id(source_info)}.h5")
 
         if not (self._route_by_source or multiple_sources):
             if self.directory is None:
@@ -380,7 +377,8 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
         for key in required:
             if key not in data:
                 raise KeyError(
-                    "StageHDF5Writer requires reader-provided source provenance. "
+                    "The cache HDF5 backend requires reader-provided source "
+                    "provenance. "
                     f"Missing key: {key}."
                 )
 
@@ -459,6 +457,16 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
             Additional stage metadata attributes.
         overwrite_stage : bool, default False
             If `True`, delete any existing stage group and rebuild it.
+
+        Returns
+        -------
+        h5py.Group
+            New or reopened incomplete stage group ready for appends.
+
+        Raises
+        ------
+        RuntimeError
+            If the stage is already complete and replacement was not enabled.
         """
         stages = out_file["stages"]
         assert isinstance(stages, h5py.Group), "'stages' must be an HDF5 group."
@@ -685,9 +693,8 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
 
         Notes
         -----
-        In sidecar mode, completion is first flushed to each temporary cache.
-        The validated merge files are then atomically published to their
-        canonical paths.
+        The repository transaction publishes these shards only after every
+        touched file has been marked complete and validated.
         """
         for file_path in sorted(self._known_files):
             if (file_path, stage) not in self._active_stages:
@@ -711,39 +718,3 @@ class StageHDF5Writer(StageSidecarMixin, StageFileMixin, HDF5Writer):
             finally:
                 if should_close:
                     out_file.close()
-
-        if self.sidecar:
-            self._merge_sidecar_stage(stage)
-
-    def list_stages(self) -> tuple[str, ...]:
-        """Return the union of stage-group names across touched cache files.
-
-        Returns
-        -------
-        tuple[str, ...]
-            Sorted tuple of unique stage names seen in all output cache files
-            touched by this writer instance.
-        """
-        stage_names: set[str] = set()
-        file_paths = set(self._known_files)
-        if self.sidecar:
-            file_paths.update(target for target, _ in self._sidecar_paths)
-            file_paths.update(self._target_by_source.values())
-            file_paths.update(self._canonical_files)
-
-        for file_path in sorted(file_paths):
-            if not os.path.exists(file_path):
-                continue
-
-            if file_path in self._known_files:
-                out_file, should_close = self._open_handle(file_path)
-            else:
-                out_file, should_close = h5py.File(file_path, "r"), True
-            try:
-                stages = require_group(out_file, "stages")
-                stage_names.update(stages.keys())
-            finally:
-                if should_close:
-                    out_file.close()
-
-        return tuple(sorted(stage_names))

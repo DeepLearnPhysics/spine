@@ -18,10 +18,20 @@ MANUAL_MODULES = {
 # signatures are the contract; parameter semantics belong to that backend.
 PARAMETER_DOC_EXEMPT_MODULES = {"spine.model.sparse.modules"}
 
+# Implementation backends are deliberately absent from the user-facing API.
+# Their public entry points are documented through the abstractions that own
+# them instead.
+PRIVATE_MODULE_PREFIXES = ("spine.io.cache.backend.",)
+
 
 def _module_name(source_root: Path, path: Path) -> str:
     """Convert a source file path to its importable module name."""
     return ".".join(("spine", *path.relative_to(source_root).with_suffix("").parts))
+
+
+def _is_private_module(module: str) -> bool:
+    """Return whether a source module is intentionally excluded from the API."""
+    return module.startswith(PRIVATE_MODULE_PREFIXES)
 
 
 def _is_overload(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -133,7 +143,16 @@ def audit_api_docs(app, config) -> None:
     paths = sorted(
         path for path in source_root.rglob("*.py") if path.name != "__init__.py"
     )
-    modules = {_module_name(source_root, path) for path in paths}
+    modules = {
+        module
+        for path in paths
+        if not _is_private_module(module := _module_name(source_root, path))
+    }
+    paths = [
+        path
+        for path in paths
+        if not _is_private_module(_module_name(source_root, path))
+    ]
     documented = _documented_modules(source_dir, modules)
 
     missing_manual_pages = [

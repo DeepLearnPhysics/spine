@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import psutil
 
+from spine.utils.file import set_shared_tree_permissions
 from spine.utils.torch import runtime
 
 from .csv import CSVLogger
@@ -97,7 +98,11 @@ class LogManager:
                 "logging is enabled."
             )
 
-        return runtime.create_summary_writer(tb_dir, **tb_cfg)
+        writer = runtime.create_summary_writer(tb_dir, **tb_cfg)
+        writer_dir = getattr(writer, "log_dir", None)
+        if writer_dir is not None and os.path.isdir(writer_dir):
+            set_shared_tree_permissions(writer_dir)
+        return writer
 
     def append(
         self,
@@ -527,6 +532,9 @@ class LogManager:
         if self.tb_logger is not None:
             self.tb_logger.flush()
             self.tb_logger.close()
+            writer_dir = getattr(self.tb_logger, "log_dir", None)
+            if writer_dir is not None and os.path.isdir(writer_dir):
+                set_shared_tree_permissions(writer_dir)
 
 
 def get_first_entry(index: Any) -> Any:

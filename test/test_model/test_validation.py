@@ -105,25 +105,54 @@ def test_build_loader_config_replaces_aligned_mixed_sources():
     loader = ordinary_loader()
     loader["dataset"] = {
         "name": "mixed",
-        "larcv": {"file_keys": "train.root", "schema": {"x": {}}},
-        "hdf5": {"file_keys": "train.h5", "keys": ["prediction"]},
-        "hdf5_key_map": {"old": "new"},
+        "primary": {
+            "name": "larcv",
+            "file_keys": "train.root",
+            "schema": {"x": {}},
+        },
+        "cache": {
+            "name": "cache",
+            "path": "train.spine-cache",
+            "keys": ["prediction"],
+        },
+        "cache_key_map": {"old": "new"},
     }
     cfg = {
         "sources": {
-            "larcv": {"file_keys": "validation.root"},
-            "hdf5": {"file_keys": "validation.h5"},
+            "primary": {"file_keys": "validation.root"},
+            "cache": {"path": "validation.spine-cache"},
         },
         "run_event_list": "validation_events.txt",
     }
 
     derived = ValidationManager.build_loader_config(loader, cfg, seed=2)
 
-    assert derived["dataset"]["larcv"]["file_keys"] == "validation.root"
-    assert derived["dataset"]["hdf5"]["file_keys"] == "validation.h5"
-    assert derived["dataset"]["hdf5_key_map"] == {"old": "new"}
+    assert derived["dataset"]["primary"]["file_keys"] == "validation.root"
+    assert derived["dataset"]["cache"]["path"] == "validation.spine-cache"
+    assert derived["dataset"]["cache_key_map"] == {"old": "new"}
     assert derived["dataset"]["run_event_list"] == "validation_events.txt"
     assert "sampler" not in derived
+
+
+def test_build_loader_config_replaces_canonical_mixed_cache_sources():
+    """Canonical mixed validation should preserve cache repository routing."""
+    loader = ordinary_loader()
+    loader["dataset"] = {
+        "name": "mixed",
+        "primary": {"name": "larcv", "file_keys": "train.root"},
+        "cache": {"path": "train.spine-cache"},
+    }
+    cfg = {
+        "sources": {
+            "primary": {"file_list": "validation.txt"},
+            "cache": {"path": "validation.spine-cache"},
+        }
+    }
+
+    derived = ValidationManager.build_loader_config(loader, cfg, seed=2)
+
+    assert derived["dataset"]["primary"]["file_list"] == "validation.txt"
+    assert derived["dataset"]["cache"]["path"] == "validation.spine-cache"
 
 
 @pytest.mark.parametrize(

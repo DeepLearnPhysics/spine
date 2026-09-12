@@ -15,7 +15,7 @@ from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import joint as joint_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset import mixed as mixed_dataset_module
-from spine.io.write import HDF5Writer, StageHDF5Writer
+from spine.io.write import HDF5Writer
 from spine.utils.conditional import ROOT, ROOT_AVAILABLE, TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(
@@ -24,6 +24,18 @@ pytestmark = pytest.mark.skipif(
 
 if TORCH_AVAILABLE:
     from torch.utils.data import DataLoader
+
+
+def patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory):
+    """Route explicit mixed child names to lightweight test doubles."""
+
+    def build(config, dtype=None):
+        config = dict(config)
+        name = config.pop("name")
+        factory = cache_factory if name == "cache" else primary_factory
+        return factory(dtype=dtype, **config)
+
+    monkeypatch.setattr(mixed_dataset_module, "dataset_factory", build)
 
 
 def test_base_dataset_batch_fallbacks():
@@ -201,79 +213,6 @@ def test_hdf5_dataset_batch_access_with_workers(tmp_path):
     np.testing.assert_array_equal(values, np.arange(8))
 
 
-def test_staged_dataset_workers_survive_sidecar_publication(tmp_path):
-    """Active worker readers should finish safely after atomic stage publication."""
-    output = tmp_path / "worker_stage.h5"
-    num_entries = 8
-    source = {
-        "source_file_name": np.asarray(["source.root"] * num_entries),
-        "source_file_size": np.asarray([10] * num_entries),
-        "source_file_mtime_ns": np.asarray([20] * num_entries),
-        "source_file_entry_index": np.arange(num_entries),
-    }
-    writer = StageHDF5Writer(str(output), overwrite=True)
-    writer.write_stage(
-        "upstream",
-        {
-            "index": np.arange(num_entries),
-            "dummy_data": [
-                np.asarray([idx], dtype=np.int64) for idx in range(num_entries)
-            ],
-            **source,
-        },
-    )
-    writer.finalize_stage("upstream")
-    writer.close()
-
-    dataset = HDF5Dataset(
-        file_keys=str(output),
-        staged=True,
-        stage="upstream",
-        keys=["dummy_data"],
-        keep_open=True,
-        build_classes=False,
-    )
-    iterator = iter(DataLoader(dataset, batch_size=2, num_workers=2, shuffle=False))
-    batches = [next(iterator)]
-
-    # Publish the downstream stage while both loader workers retain handles to
-    # the canonical file's previous inode.
-    writer = StageHDF5Writer(
-        str(output),
-        sidecar=True,
-        target_file_paths=[str(output)],
-    )
-    writer.write_stage(
-        "downstream",
-        {
-            "index": np.arange(num_entries),
-            "dummy_data": [
-                np.asarray([100 + idx], dtype=np.int64) for idx in range(num_entries)
-            ],
-            **source,
-        },
-    )
-    writer.finalize_stage("downstream")
-    writer.close()
-
-    batches.extend(iterator)
-    indexes = np.concatenate([batch["index"].numpy() for batch in batches])
-    values = np.concatenate(
-        [batch["dummy_data"].numpy().reshape(-1) for batch in batches]
-    )
-    np.testing.assert_array_equal(indexes, np.arange(num_entries))
-    np.testing.assert_array_equal(values, np.arange(num_entries))
-
-    published = HDF5Dataset(
-        file_keys=str(output),
-        staged=True,
-        stage="downstream",
-        keys=["dummy_data"],
-        build_classes=False,
-    )
-    np.testing.assert_array_equal(published[7]["dummy_data"], [107])
-
-
 def test_hdf5_dataset_skip_keys(hdf5_data):
     """The HDF5 dataset should support dropping selected products."""
     dataset = HDF5Dataset(
@@ -358,268 +297,6 @@ def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
         HDF5Dataset(file_keys=hdf5_data, build_classes=False)
 
 
-def test_hdf5_dataset_rejects_stage_without_staged(hdf5_data):
-    """Flat HDF5 datasets should reject stray stage configuration."""
-    with pytest.raises(ValueError, match="can only be provided when `staged=True`"):
-        HDF5Dataset(
-            file_keys=hdf5_data,
-            build_classes=False,
-            staged=False,
-            stage="deghosting",
-        )
-
-
-def test_hdf5_dataset_rejects_stage_map_without_staged(hdf5_data):
-    """Flat HDF5 datasets should reject stray per-product stage routing."""
-    with pytest.raises(ValueError, match="can only be provided when `staged=True`"):
-        HDF5Dataset(
-            file_keys=hdf5_data,
-            build_classes=False,
-            staged=False,
-            stage_map={"run_info": "deghosting"},
-        )
-
-
-def test_hdf5_dataset_uses_stage_reader(monkeypatch, hdf5_data):
-    """The staged flag should switch the HDF5 dataset to StageHDF5Reader."""
-
-    class DummyStageReader:
-        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
-            self.stage = stage
-            self.stage_map = stage_map
-            self.keys = keys
-            self.kwargs = kwargs
-
-        def __len__(self):
-            return 1
-
-        def __getitem__(self, idx):
-            return {
-                "index": idx,
-                "file_index": 0,
-                "file_entry_index": 0,
-                "dummy": np.asarray([1.0]),
-            }
-
-    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
-
-    dataset = HDF5Dataset(
-        file_keys=hdf5_data,
-        build_classes=False,
-        staged=True,
-        stage="deghosting",
-    )
-
-    assert isinstance(dataset.reader, DummyStageReader)
-    assert dataset.reader.stage == "deghosting"
-
-
-def test_hdf5_dataset_allows_stage_autodiscovery(monkeypatch, hdf5_data):
-    """Staged schemas should allow the reader to auto-discover product stages."""
-
-    class DummyStageReader:
-        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
-            self.stage = stage
-            self.stage_map = stage_map
-            self.keys = keys
-            self.kwargs = kwargs
-
-        def __len__(self):
-            return 1
-
-        def __getitem__(self, idx):
-            return {
-                "index": idx,
-                "file_index": 0,
-                "file_entry_index": 0,
-                "source_file_name": "dummy.h5",
-                "source_file_size": 123,
-                "source_file_mtime_ns": 456,
-                "source_file_entry_index": 9,
-                "data_adapt": np.asarray([[1, 2, 3, 10, 11]], dtype=np.float32),
-            }
-
-    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
-
-    dataset = HDF5Dataset(
-        file_keys=hdf5_data,
-        staged=True,
-        dtype="float32",
-        schema={
-            "data_adapt": {
-                "parser": "tensor",
-                "tensor_event": "data_adapt",
-                "has_batch_col": False,
-                "coord_start_col": 0,
-                "feature_start_col": 3,
-            }
-        },
-    )
-
-    entry = dataset[0]
-    assert dataset.reader.stage is None
-    assert dataset.reader.stage_map == {}
-    np.testing.assert_array_equal(entry["data_adapt"].coords, np.asarray([[1, 2, 3]]))
-    np.testing.assert_array_equal(
-        entry["data_adapt"].features, np.asarray([[10, 11]], dtype=np.float32)
-    )
-
-
-def test_hdf5_dataset_merges_explicit_stage_map(monkeypatch, hdf5_data):
-    """Explicit stage routing should reach the staged reader exactly once."""
-
-    class DummyStageReader:
-        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
-            self.stage = stage
-            self.stage_map = stage_map
-            self.keys = keys
-            self.kwargs = kwargs
-
-        def __len__(self):
-            return 1
-
-    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
-
-    dataset = HDF5Dataset(
-        file_keys=hdf5_data,
-        staged=True,
-        stage_map={"data_adapt": "deghosting"},
-        dtype="float32",
-        schema={
-            "data_adapt": {
-                "parser": "tensor",
-                "tensor_event": "data_adapt",
-                "has_batch_col": False,
-                "coord_start_col": 0,
-                "feature_start_col": 3,
-            },
-            "clust_label_adapt": {
-                "parser": "tensor",
-                "stage": "graph_spice",
-                "tensor_event": "clust_label_adapt",
-                "has_batch_col": False,
-                "coord_start_col": 0,
-                "feature_start_col": 3,
-            },
-        },
-    )
-
-    assert dataset.reader.stage_map == {
-        "data_adapt": "deghosting",
-        "clust_label_adapt": "graph_spice",
-    }
-    assert "stage_map" not in dataset.reader.kwargs
-
-
-def test_hdf5_dataset_rejects_conflicting_raw_product_stage(hdf5_data):
-    """One raw product should not be sourced from conflicting stages."""
-    with pytest.raises(ValueError, match="Conflicting staged HDF5 schema"):
-        HDF5Dataset(
-            file_keys=hdf5_data,
-            staged=True,
-            dtype="float32",
-            schema={
-                "data_a": {
-                    "parser": "tensor",
-                    "stage": "stage_a",
-                    "tensor_event": "data_adapt",
-                },
-                "data_b": {
-                    "parser": "tensor",
-                    "stage": "stage_b",
-                    "tensor_event": "data_adapt",
-                },
-            },
-        )
-
-
-def test_hdf5_dataset_supports_per_schema_stages(monkeypatch, hdf5_data):
-    """Staged HDF5 schemas should be able to source products from different stages."""
-
-    class DummyStageReader:
-        def __init__(self, stage=None, stage_map=None, keys=None, **kwargs):
-            self.stage = stage
-            self.stage_map = stage_map
-            self.keys = keys
-            self.kwargs = kwargs
-
-        def __len__(self):
-            return 1
-
-        def __getitem__(self, idx):
-            base = {
-                "index": idx,
-                "file_index": 0,
-                "file_entry_index": 0,
-                "source_file_name": "dummy.h5",
-                "source_file_size": 123,
-                "source_file_mtime_ns": 456,
-                "source_file_entry_index": 9,
-            }
-            if self.stage == "deghosting":
-                base["data_adapt"] = np.asarray([[1, 2, 3, 10, 11]], dtype=np.float32)
-            elif self.stage == "graph_spice":
-                base["clust_label_adapt"] = np.asarray(
-                    [[1, 2, 3, 20, 21]], dtype=np.float32
-                )
-            elif self.stage is None and self.stage_map is not None:
-                if self.stage_map.get("data_adapt") == "deghosting":
-                    base["data_adapt"] = np.asarray(
-                        [[1, 2, 3, 10, 11]], dtype=np.float32
-                    )
-                if self.stage_map.get("clust_label_adapt") == "graph_spice":
-                    base["clust_label_adapt"] = np.asarray(
-                        [[1, 2, 3, 20, 21]], dtype=np.float32
-                    )
-            else:
-                raise ValueError(self.stage)
-            return base
-
-    monkeypatch.setattr(hdf5_dataset_module, "StageHDF5Reader", DummyStageReader)
-
-    dataset = HDF5Dataset(
-        file_keys=hdf5_data,
-        staged=True,
-        dtype="float32",
-        schema={
-            "data_adapt": {
-                "parser": "tensor",
-                "stage": "deghosting",
-                "tensor_event": "data_adapt",
-                "has_batch_col": False,
-                "coord_start_col": 0,
-                "feature_start_col": 3,
-            },
-            "clust_label_adapt": {
-                "parser": "tensor",
-                "stage": "graph_spice",
-                "tensor_event": "clust_label_adapt",
-                "has_batch_col": False,
-                "coord_start_col": 0,
-                "feature_start_col": 3,
-            },
-        },
-    )
-
-    entry = dataset[0]
-    assert isinstance(dataset.reader, DummyStageReader)
-    assert dataset.reader.stage_map == {
-        "data_adapt": "deghosting",
-        "clust_label_adapt": "graph_spice",
-    }
-    np.testing.assert_array_equal(entry["data_adapt"].coords, np.asarray([[1, 2, 3]]))
-    np.testing.assert_array_equal(
-        entry["data_adapt"].features, np.asarray([[10, 11]], dtype=np.float32)
-    )
-    np.testing.assert_array_equal(
-        entry["clust_label_adapt"].features, np.asarray([[20, 21]], dtype=np.float32)
-    )
-    assert entry["source_file_name"] == "dummy.h5"
-    assert entry["source_file_size"] == 123
-    assert entry["source_file_mtime_ns"] == 456
-    assert entry["source_file_entry_index"] == 9
-
-
 def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path):
     """MixedDataset should align staged caches using source file metadata."""
     import spine.io.dataset.mixed as mixed_dataset_module
@@ -698,16 +375,13 @@ def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path
                 "clusts": None,
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyPrimary()
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyCache()
+    patch_mixed_child_factory(
+        monkeypatch, lambda **kwargs: DummyPrimary(), lambda **kwargs: DummyCache()
     )
 
     dataset = mixed_dataset_module.MixedDataset(
-        larcv={"file_keys": str(source_path), "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": str(source_path), "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -787,16 +461,13 @@ def test_mixed_dataset_rejects_source_file_metadata_mismatch(monkeypatch, tmp_pa
                 "source_file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyPrimary()
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyCache()
+    patch_mixed_child_factory(
+        monkeypatch, lambda **kwargs: DummyPrimary(), lambda **kwargs: DummyCache()
     )
 
     dataset = mixed_dataset_module.MixedDataset(
-        larcv={"file_keys": str(source_path), "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": str(source_path), "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1060,60 +731,53 @@ def test_mixed_dataset_merges_aligned_sources(monkeypatch):
         }
     ]
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            larcv_samples,
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "data": "tensor",
-                "coord_label": "tensor",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "data": None,
-                "coord_label": None,
-            },
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        larcv_samples,
+        {
+            "index": "scalar",
+            "file_index": "scalar",
+            "file_entry_index": "scalar",
+            "data": "tensor",
+            "coord_label": "tensor",
+        },
+        {
+            "index": "cat",
+            "file_index": "cat",
+            "file_entry_index": "cat",
+            "data": None,
+            "coord_label": None,
+        },
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            hdf5_samples,
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "source_file_name": "scalar",
-                "source_file_size": "scalar",
-                "source_file_mtime_ns": "scalar",
-                "source_file_entry_index": "scalar",
-                "clusts": "tensor",
-                "node_features": "tensor",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "source_file_name": "cat",
-                "source_file_size": "cat",
-                "source_file_mtime_ns": "cat",
-                "source_file_entry_index": "cat",
-                "clusts": None,
-                "node_features": None,
-            },
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        hdf5_samples,
+        {
+            "index": "scalar",
+            "file_index": "scalar",
+            "file_entry_index": "scalar",
+            "source_file_name": "scalar",
+            "source_file_size": "scalar",
+            "source_file_mtime_ns": "scalar",
+            "source_file_entry_index": "scalar",
+            "clusts": "tensor",
+            "node_features": "tensor",
+        },
+        {
+            "index": "cat",
+            "file_index": "cat",
+            "file_entry_index": "cat",
+            "source_file_name": "cat",
+            "source_file_size": "cat",
+            "source_file_mtime_ns": "cat",
+            "source_file_entry_index": "cat",
+            "clusts": None,
+            "node_features": None,
+        },
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1176,15 +840,14 @@ def test_mixed_dataset_delegates_batch_access(monkeypatch):
         def overlay_methods(self):
             return {key: "cat" for key in self.data_keys}
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset("primary")
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset("cache")
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **kwargs: DummyDataset("primary"),
+        lambda **kwargs: DummyDataset("cache"),
     )
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1229,24 +892,17 @@ def test_mixed_dataset_rejects_alignment_mismatch(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0}]
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 0}]
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 1}]
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 1}]
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1284,32 +940,25 @@ def test_mixed_dataset_prefers_source_provenance(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 5}]
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 5}]
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [
-                {
-                    "index": 0,
-                    "file_index": 99,
-                    "file_entry_index": 42,
-                    "source_file_index": 0,
-                    "source_file_entry_index": 5,
-                }
-            ]
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        [
+            {
+                "index": 0,
+                "file_index": 99,
+                "file_entry_index": 42,
+                "source_file_index": 0,
+                "source_file_entry_index": 5,
+            }
+        ]
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1348,17 +997,16 @@ def test_mixed_dataset_len_mismatch_raises(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset(2)
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset(3)
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **kwargs: DummyDataset(2),
+        lambda **kwargs: DummyDataset(3),
     )
 
     with pytest.raises(ValueError, match="same number of entries"):
         MixedDataset(
-            larcv={"file_keys": "dummy.root", "schema": {}},
-            hdf5={"file_keys": "dummy.h5"},
+            primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+            cache={"name": "cache", "file_keys": "dummy.h5"},
             dtype="float32",
         )
 
@@ -1393,16 +1041,15 @@ def test_mixed_dataset_len_delegates_to_primary(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **kwargs: DummyDataset(4)
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **kwargs: DummyDataset(4)
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **kwargs: DummyDataset(4),
+        lambda **kwargs: DummyDataset(4),
     )
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
     assert len(dataset) == 4
@@ -1439,27 +1086,22 @@ def test_mixed_dataset_forwards_shared_kwargs(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset("larcv", kwargs),
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset("hdf5", kwargs),
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **kwargs: DummyDataset("primary", kwargs),
+        lambda **kwargs: DummyDataset("cache", kwargs),
     )
 
     MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
         entry_list=[0],
     )
 
     assert seen == [
         (
-            "larcv",
+            "primary",
             {
                 "file_keys": "dummy.root",
                 "schema": {},
@@ -1469,7 +1111,7 @@ def test_mixed_dataset_forwards_shared_kwargs(monkeypatch):
             },
         ),
         (
-            "hdf5",
+            "cache",
             {
                 "file_keys": "dummy.h5",
                 "dtype": "float32",
@@ -1522,12 +1164,11 @@ def test_mixed_dataset_translates_filtered_cache_domains(
         seen["cache"] = kwargs
         return DummyDataset(DummyReader(cache_count))
 
-    monkeypatch.setattr(mixed_dataset_module, "LArCVDataset", build_primary)
-    monkeypatch.setattr(mixed_dataset_module, "HDF5Dataset", build_cache)
+    patch_mixed_child_factory(monkeypatch, build_primary, build_cache)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
         entry_filter="accepted.yaml",
         entry_fraction_range=(0.0, 0.5),
@@ -1539,79 +1180,6 @@ def test_mixed_dataset_translates_filtered_cache_domains(
     assert "entry_filter" not in seen["cache"]
     assert "entry_fraction_range" not in seen["cache"]
     assert dataset.cache.reader.entry_index.tolist() == expected
-
-
-def test_mixed_dataset_aligns_compact_stage_cache_to_filtered_source(
-    monkeypatch, tmp_path
-):
-    """Persisted raw indexes should align a compact cache with filtered LArCV."""
-    raw_path = tmp_path / "source.root"
-    raw_path.write_bytes(b"source")
-    raw_stat = raw_path.stat()
-    source_entries = np.asarray([0, 2, 5])
-
-    cache_path = tmp_path / "cache.h5"
-    writer = StageHDF5Writer(str(cache_path), overwrite=True)
-    writer.write_stage(
-        "deghosting",
-        {
-            "index": np.arange(3),
-            "source_file_name": np.asarray([raw_path.name] * 3),
-            "source_file_size": np.asarray([raw_stat.st_size] * 3),
-            "source_file_mtime_ns": np.asarray([raw_stat.st_mtime_ns] * 3),
-            "source_file_entry_index": source_entries,
-            "cached": [np.asarray([entry]) for entry in source_entries],
-        },
-    )
-    writer.finalize_stage("deghosting")
-    writer.close()
-
-    class FilteredReader:
-        num_entries = 6
-        eligible_entry_index = source_entries
-        entry_index = source_entries
-        file_paths = [str(raw_path)]
-
-    class FilteredDataset:
-        reader = FilteredReader()
-        data_keys = ("index", "file_index", "file_entry_index")
-        overlay_methods = {
-            "index": "cat",
-            "file_index": "cat",
-            "file_entry_index": "cat",
-        }
-
-        def __len__(self):
-            return len(source_entries)
-
-        def __getitem__(self, idx):
-            return {
-                "index": idx,
-                "file_index": 0,
-                "file_entry_index": int(source_entries[idx]),
-            }
-
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **_kwargs: FilteredDataset(),
-    )
-
-    dataset = MixedDataset(
-        larcv={"file_keys": str(raw_path), "schema": {}},
-        hdf5={
-            "file_keys": str(cache_path),
-            "staged": True,
-            "stage": "deghosting",
-            "keys": ("cached",),
-        },
-        dtype="float32",
-        entry_filter="accepted.yaml",
-    )
-
-    entry = dataset[1]
-    assert entry["file_entry_index"] == 2
-    np.testing.assert_array_equal(entry["cached"], np.asarray([2]))
 
 
 def test_mixed_dataset_cache_domain_auto_handles_no_rejections(monkeypatch):
@@ -1634,16 +1202,15 @@ def test_mixed_dataset_cache_domain_auto_handles_no_rejections(monkeypatch):
         def __len__(self):
             return len(self.reader.entry_index)
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **_kwargs: DummyDataset([0, 2])
-    )
-    monkeypatch.setattr(
-        mixed_dataset_module, "HDF5Dataset", lambda **_kwargs: DummyDataset([0, 1, 2])
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **_kwargs: DummyDataset([0, 2]),
+        lambda **_kwargs: DummyDataset([0, 1, 2]),
     )
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
         entry_filter="accepted.yaml",
     )
@@ -1682,23 +1249,18 @@ def test_mixed_dataset_rejects_inconsistent_cache_domains(
         def __len__(self):
             return len(self.reader.entry_index)
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **_kwargs: DummyDataset(DummyReader(5, selected, [0, 1, 3, 4])),
+    primary_factory = lambda **_kwargs: DummyDataset(
+        DummyReader(5, selected, [0, 1, 3, 4])
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **_kwargs: DummyDataset(
-            DummyReader(cache_count, np.arange(cache_count))
-        ),
+    cache_factory = lambda **_kwargs: DummyDataset(
+        DummyReader(cache_count, np.arange(cache_count))
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     with pytest.raises(ValueError, match=message):
         MixedDataset(
-            larcv={"file_keys": "dummy.root", "schema": {}},
-            hdf5={"file_keys": "dummy.h5"},
+            primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+            cache={"name": "cache", "file_keys": "dummy.h5"},
             dtype="float32",
             entry_filter="accepted.yaml",
             cache_entry_domain=domain,
@@ -1709,8 +1271,8 @@ def test_mixed_dataset_rejects_invalid_cache_domain_configuration(monkeypatch):
     """Unknown domains and nested cache selectors should fail explicitly."""
     with pytest.raises(ValueError, match="Unknown `cache_entry_domain`"):
         MixedDataset(
-            larcv={},
-            hdf5={},
+            primary={"name": "larcv"},
+            cache={"name": "cache"},
             dtype="float32",
             cache_entry_domain="compact",
         )
@@ -1730,21 +1292,25 @@ def test_mixed_dataset_rejects_invalid_cache_domain_configuration(monkeypatch):
         def __len__(self):
             return 1
 
-    monkeypatch.setattr(
-        mixed_dataset_module, "LArCVDataset", lambda **_kwargs: DummyDataset()
+    patch_mixed_child_factory(
+        monkeypatch,
+        lambda **_kwargs: DummyDataset(),
+        lambda **_kwargs: DummyDataset(),
     )
 
     with pytest.raises(ValueError, match="mixed root"):
         MixedDataset(
-            larcv={},
-            hdf5={"entry_list": [0]},
+            primary={
+                "name": "larcv",
+            },
+            cache={"name": "cache", "entry_list": [0]},
             dtype="float32",
             entry_filter="accepted.yaml",
         )
 
 
-def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
-    """Explicit HDF5 alignment mappings should override automatic source_* lookup."""
+def test_mixed_dataset_respects_explicit_cache_align_keys(monkeypatch):
+    """Explicit cache alignment mappings should override source-key lookup."""
 
     class DummyDataset:
         def __init__(self, samples):
@@ -1773,26 +1339,19 @@ def test_mixed_dataset_respects_explicit_hdf5_align_keys(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 5}]
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 5}]
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "cache_file_id": 0, "cache_entry_id": 5}]
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "cache_file_id": 0, "cache_entry_id": 5}]
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
-        hdf5_align_keys={
+        cache_align_keys={
             "file_index": "cache_file_id",
             "file_entry_index": "cache_entry_id",
         },
@@ -1834,28 +1393,21 @@ def test_mixed_dataset_key_collision_can_be_overwritten(monkeypatch):
         def overlay_methods(self):
             return self._overlay_methods
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}],
-            {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
-            {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}],
+        {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
+        {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}],
-            {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
-            {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}],
+        {"index": "scalar", "file_index": "scalar", "file_entry_index": "scalar"},
+        {"index": "cat", "file_index": "cat", "file_entry_index": "cat"},
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
         allow_overwrite=True,
     )
@@ -1893,24 +1445,17 @@ def test_mixed_dataset_key_collision_raises(monkeypatch):
                 "file_entry_index": "cat",
             }
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}]
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "larcv"}]
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}]
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        [{"index": 0, "file_index": 0, "file_entry_index": 0, "shared": "cache"}]
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 
@@ -1941,46 +1486,39 @@ def test_mixed_dataset_overlay_collision_raises(monkeypatch):
         def overlay_methods(self):
             return self._overlay_methods
 
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "LArCVDataset",
-        lambda **kwargs: DummyDataset(
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "shared": "tensor",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "shared": "first",
-            },
-        ),
+    primary_factory = lambda **kwargs: DummyDataset(
+        {
+            "index": "scalar",
+            "file_index": "scalar",
+            "file_entry_index": "scalar",
+            "shared": "tensor",
+        },
+        {
+            "index": "cat",
+            "file_index": "cat",
+            "file_entry_index": "cat",
+            "shared": "first",
+        },
     )
-    monkeypatch.setattr(
-        mixed_dataset_module,
-        "HDF5Dataset",
-        lambda **kwargs: DummyDataset(
-            {
-                "index": "scalar",
-                "file_index": "scalar",
-                "file_entry_index": "scalar",
-                "shared": "tensor",
-            },
-            {
-                "index": "cat",
-                "file_index": "cat",
-                "file_entry_index": "cat",
-                "shared": "last",
-            },
-        ),
+    cache_factory = lambda **kwargs: DummyDataset(
+        {
+            "index": "scalar",
+            "file_index": "scalar",
+            "file_entry_index": "scalar",
+            "shared": "tensor",
+        },
+        {
+            "index": "cat",
+            "file_index": "cat",
+            "file_entry_index": "cat",
+            "shared": "last",
+        },
     )
+    patch_mixed_child_factory(monkeypatch, primary_factory, cache_factory)
 
     dataset = MixedDataset(
-        larcv={"file_keys": "dummy.root", "schema": {}},
-        hdf5={"file_keys": "dummy.h5"},
+        primary={"name": "larcv", "file_keys": "dummy.root", "schema": {}},
+        cache={"name": "cache", "file_keys": "dummy.h5"},
         dtype="float32",
     )
 

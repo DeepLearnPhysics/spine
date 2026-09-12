@@ -23,12 +23,97 @@ SourceOverride = dict[str, str | list[str]]
 SourceOverrides = dict[str | None, SourceOverride]
 
 
-# These are configuration slot names, not necessarily dataset backends. Joint
-# datasets use roles because both inputs may have the same underlying type.
-_COMPOSITE_SOURCE_KEYS = {
-    "joint": ("primary", "secondary"),
-    "mixed": ("larcv", "hdf5"),
-}
+def _source_slots(
+    dataset_name: str | None,
+) -> tuple[dict[str, str], tuple[str, ...]] | None:
+    """Resolve public CLI roles to configured composite child blocks.
+
+    Mixed datasets expose storage-independent ``primary`` and ``cache`` roles,
+    so launch commands do not depend on the physical child implementations.
+
+    Parameters
+    ----------
+    dataset_name : str, optional
+        Composite dataset implementation name.
+
+    Returns
+    -------
+    tuple or None
+        CLI-target-to-config-key mapping and canonical required roles, or
+        ``None`` for an ordinary dataset.
+    """
+    if dataset_name == "joint":
+        return (
+            {"primary": "primary", "secondary": "secondary"},
+            ("primary", "secondary"),
+        )
+    if dataset_name == "mixed":
+        return {"primary": "primary", "cache": "cache"}, ("primary", "cache")
+    return None
+
+
+def _apply_source_override(
+    config: MutableMapping,
+    override: SourceOverride,
+    *,
+    source_option: str,
+    source_list_option: str,
+    mask_alternate: bool = True,
+    cache_role: bool = False,
+) -> None:
+    """Route one parsed selector according to its backend contract.
+
+    Flat-file readers consume ``file_keys`` or ``file_list``. A cache reader
+    instead consumes exactly one repository ``path``; accepting the former
+    keys would make a CLI override appear successful while leaving the cache
+    destination unchanged.
+
+    Parameters
+    ----------
+    config : MutableMapping
+        Reader or dataset child configuration to update.
+    override : dict
+        Parsed ``file_keys`` or ``file_list`` selector.
+    source_option, source_list_option : str
+        Option names used in actionable validation messages.
+    mask_alternate : bool, default True
+        Store ``None`` for the unused flat-file selector. This is required for
+        inherited joint configs, but unnecessary in standalone validation
+        overlays.
+    cache_role : bool, default False
+        Enforce the single-repository contract for a mixed ``cache`` child,
+        whose backend name is implicit until dataset construction.
+    Raises
+    ------
+    ValueError
+        If a cache receives a file list or more than one repository path.
+    """
+    is_cache = cache_role or config.get("name") == "cache"
+    if is_cache:
+        if override.get("file_list") is not None:
+            raise ValueError(
+                f"{source_list_option} is not valid for a cache repository; "
+                f"use {source_option} with one .spine-cache path."
+            )
+        paths = override.get("file_keys")
+        if not isinstance(paths, list) or len(paths) != 1:
+            raise ValueError(
+                f"A cache dataset requires exactly one {source_option} path."
+            )
+        config.pop("file_keys", None)
+        config.pop("file_list", None)
+        config["path"] = paths[0]
+        return
+
+    config.pop("path", None)
+    for key in ("file_keys", "file_list"):
+        value = override.get(key)
+        if value is not None:
+            config[key] = value
+        elif mask_alternate:
+            config[key] = None
+        else:
+            config.pop(key, None)
 
 
 def _normalize_source_values(values: SourceValues) -> list[str]:
@@ -246,45 +331,48 @@ def apply_source_overrides(
         return
 
     # Identify the ordinary input block or composite dataset definition.
-    input_cfg, is_dataset = get_input_config(io_cfg)
-    name_value = input_cfg.get("name") if is_dataset else None
+    input_cfg, _ = get_input_config(io_cfg)
+    name_value = input_cfg.get("name")
     dataset_name = name_value if isinstance(name_value, str) else None
-    source_keys = (
-        _COMPOSITE_SOURCE_KEYS.get(dataset_name) if dataset_name is not None else None
-    )
+    slots = _source_slots(dataset_name)
 
     # Flat sources retain their historical reader or ordinary-dataset target.
     if None in overrides:
-        if source_keys is not None:
+        if slots is not None:
             raise ValueError(
                 f"The '{dataset_name}' dataset requires target-qualified "
                 "--source/--source-list values."
             )
-        override = overrides[None]
-        input_cfg["file_keys"] = override.get("file_keys")
-        input_cfg["file_list"] = override.get("file_list")
+        _apply_source_override(
+            input_cfg,
+            overrides[None],
+            source_option="--source",
+            source_list_option="--source-list",
+        )
         return
 
-    if source_keys is None:
+    if slots is None:
         raise ValueError(
             "Target-qualified --source/--source-list values require an inline "
             "joint or mixed loader dataset."
         )
 
     # Route each qualified selector to its named composite source block.
+    target_map, public_keys = slots
     for target, override in overrides.items():
         assert target is not None
-        if target not in source_keys:
-            expected = ", ".join(source_keys)
+        if target not in target_map:
+            expected = ", ".join(public_keys)
             raise ValueError(
                 f"Unknown source target '{target}' for '{dataset_name}' dataset. "
                 f"Expected one of: {expected}."
             )
-        if target not in input_cfg:
+        config_key = target_map[target]
+        if config_key not in input_cfg:
             raise KeyError(
-                f"The '{dataset_name}' dataset has no `{target}` source block."
+                f"The '{dataset_name}' dataset has no `{config_key}` source block."
             )
-        target_cfg = input_cfg[target]
+        target_cfg = input_cfg[config_key]
         if not isinstance(target_cfg, MutableMapping):
             raise TypeError(
                 f"CLI source overrides require an inline `{target}` source block."
@@ -292,8 +380,13 @@ def apply_source_overrides(
 
         # None masks an alternate selector inherited by a joint source from
         # the shared base configuration.
-        target_cfg["file_keys"] = override.get("file_keys")
-        target_cfg["file_list"] = override.get("file_list")
+        _apply_source_override(
+            target_cfg,
+            override,
+            source_option="--source",
+            source_list_option="--source-list",
+            cache_role=config_key == "cache",
+        )
 
 
 def apply_validation_source_overrides(
@@ -337,28 +430,40 @@ def apply_validation_source_overrides(
     if not overrides:
         return
 
-    input_cfg, is_dataset = get_input_config(io_cfg)
-    name_value = input_cfg.get("name") if is_dataset else None
+    input_cfg, _ = get_input_config(io_cfg)
+    name_value = input_cfg.get("name")
     dataset_name = name_value if isinstance(name_value, str) else None
-    source_keys = (
-        _COMPOSITE_SOURCE_KEYS.get(dataset_name) if dataset_name is not None else None
-    )
+    slots = _source_slots(dataset_name)
 
     # Flat validation selectors live directly alongside validation policies.
     if None in overrides:
-        if source_keys is not None:
+        if slots is not None:
             raise ValueError(
                 f"The '{dataset_name}' validation dataset requires "
                 "target-qualified --val-source/--val-source-list values."
             )
-        override = overrides[None]
         validation_cfg.pop("sources", None)
         validation_cfg.pop("file_keys", None)
         validation_cfg.pop("file_list", None)
-        validation_cfg.update(override)
+        validation_cfg.pop("path", None)
+
+        # Validation inherits the main dataset name only later, so route its
+        # selector using the main input's backend contract now.
+        target = dict(validation_cfg)
+        if input_cfg.get("name") == "cache":
+            target["name"] = "cache"
+        _apply_source_override(
+            target,
+            overrides[None],
+            source_option="--val-source",
+            source_list_option="--val-source-list",
+            mask_alternate=False,
+        )
+        target.pop("name", None)
+        validation_cfg.update(target)
         return
 
-    if source_keys is None:
+    if slots is None:
         raise ValueError(
             "Target-qualified --val-source/--val-source-list values require an "
             "inline joint or mixed loader dataset."
@@ -369,19 +474,41 @@ def apply_validation_source_overrides(
     configured_sources = validation_cfg.get("sources", {})
     if not isinstance(configured_sources, MutableMapping):
         raise TypeError("The `validation.sources` block must be an inline mapping.")
+    target_map, public_keys = slots
     merged_sources = dict(configured_sources)
     for target, override in overrides.items():
         assert target is not None
-        if target not in source_keys:
-            expected = ", ".join(source_keys)
+        if target not in target_map:
+            expected = ", ".join(public_keys)
             raise ValueError(
                 f"Unknown validation source target '{target}' for "
                 f"'{dataset_name}' dataset. Expected one of: {expected}."
             )
-        merged_sources[target] = override
+        config_key = target_map[target]
+        child_cfg = input_cfg.get(config_key)
+        if child_cfg is None:
+            raise KeyError(
+                f"The '{dataset_name}' dataset has no `{config_key}` source block."
+            )
+        if not isinstance(child_cfg, MutableMapping):
+            raise TypeError(
+                f"CLI validation overrides require an inline `{config_key}` block."
+            )
+        routed = {"name": child_cfg.get("name")}
+        _apply_source_override(
+            routed,
+            override,
+            source_option="--val-source",
+            source_list_option="--val-source-list",
+            mask_alternate=False,
+            cache_role=config_key == "cache",
+        )
+        routed.pop("name", None)
+        merged_sources[config_key] = routed
 
-    if set(merged_sources) != set(source_keys):
-        expected = ", ".join(source_keys)
+    configured_keys = {target_map[key] for key in public_keys}
+    if set(merged_sources) != configured_keys:
+        expected = ", ".join(public_keys)
         raise ValueError(
             f"Validation sources for '{dataset_name}' dataset must provide "
             f"exactly: {expected}."

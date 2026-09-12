@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import stat
+
 import h5py
 import numpy as np
 import pytest
@@ -65,6 +67,7 @@ def test_structural_lite_matches_event_writer(tmp_path):
     _write_source(source)
 
     litify_hdf5(str(source), str(structural), keys=("particles",))
+    assert stat.S_IMODE(structural.stat().st_mode) == 0o664
 
     reader = HDF5Reader(str(source))
     with HDF5Writer(

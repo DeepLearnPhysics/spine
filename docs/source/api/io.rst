@@ -18,7 +18,7 @@ The I/O layer is organized into a few cooperating pieces:
 
 - **Readers** expose event products from on-disk formats such as HDF5 and
   LArCV.
-- **Writers** persist flat outputs and staged cache products.
+- **Writers** persist flat outputs and transactional cache stages.
 - **Parsers** convert raw reader outputs into SPINE parser products used by
   downstream code.
 - **Datasets and pipeline utilities** bridge readers/parsers into PyTorch
@@ -43,7 +43,7 @@ File Readers
 
    read.HDF5Reader
    read.LArCVReader
-   read.StageHDF5Reader
+   read.CacheReader
 
 Entry Filtering
 ---------------
@@ -70,7 +70,7 @@ File Writers
    :toctree: generated
 
    write.HDF5Writer
-   write.StageHDF5Writer
+   write.CacheWriter
 
 Tabular metric logs are written by :class:`spine.logging.CSVLogger`, not by
 the generic event-output writer interface.
@@ -147,60 +147,165 @@ Datasets
 --------
 
 The dataset layer bridges low-level readers and parser logic into PyTorch
-``Dataset`` objects. The staged cache workflow is exposed through the HDF5
-dataset and the mixed LArCV/HDF5 dataset.
+``Dataset`` objects. SPINE cache repositories have their own dataset type and
+can also be paired with raw input through the mixed dataset.
 
 .. autosummary::
    :toctree: generated
 
    dataset.LArCVDataset
+   dataset.CacheDataset
    dataset.HDF5Dataset
    dataset.MixedDataset
    dataset.JointDataset
 
-Extending staged caches
------------------------
+Sharded cache repositories
+--------------------------
 
-When a staged HDF5 cache is both the input and output of a driver job, SPINE
-automatically writes the new stage to a temporary sidecar file. The canonical
-cache remains read-only while the loader is active, so HDF5 dataset reads may
-use multiple workers without competing with a writer handle. After successful
-processing, finalization builds a merged temporary copy beside each canonical
-cache and publishes it with an atomic file replacement. A failed run removes
-its uncommitted sidecars and leaves the canonical cache unchanged.
+SPINE's production cache is a directory, conventionally named
+``train.spine-cache``, containing an atomic ``manifest.json`` and immutable
+HDF5 V2 shards. Each source and processing-stage generation owns one shard.
+Publishing a later stage writes only that stage and atomically replaces the
+small manifest; it never recopies earlier cache products. Readers snapshot the
+manifest at initialization. Adding new downstream stages does not disturb an
+active reader, but replacing stages while jobs are reading the same repository
+is intentionally unsupported.
 
-No additional writer option is required for the usual same-file workflow. It
-is selected when both reader and writer use ``stage_hdf5`` and the writer has
-no explicit ``file_name`` or ``directory``. For example:
+Create the first stage with an explicit repository path:
 
 .. code-block:: yaml
 
    base:
-     split_output: true
+     unwrap: true
+
+   io:
+     writer:
+       name: cache
+       path: /path/to/train.spine-cache
+       stage: deghosting
+       keys: [data_adapt, seg_pred, orig_index]
+
+A later cache-backed job can omit the writer path. The I/O manager discovers
+the input repository and publishes the new stage back to it:
+
+.. code-block:: yaml
+
+   base:
+     unwrap: true
 
    io:
      loader:
        minibatch_size: 64
        num_workers: 4
-       shuffle: false
        dataset:
-         name: hdf5
-         staged: true
-         stage: fragmentation
-         file_keys: null
+         name: cache
+         path: /path/to/train.spine-cache
+         stage: deghosting
      writer:
-       name: stage_hdf5
-       file_name: null
-       stage: particle_aggregation
-       overwrite_stage: true
+       name: cache
+       stage: fragmentation
 
-An explicit output destination retains the ordinary separate-output behavior.
-``sidecar: false`` may be used to opt out of automatic same-file sidecars, but
-direct writes again require the caller to avoid concurrent handles. Each
-canonical file is replaced atomically; a multi-file job is validated in full
-before publication, but is not a single filesystem-wide transaction. During
-finalization, the destination filesystem must have enough free space for one
-temporary copy of the canonical cache plus the new stage sidecar.
+Mixed raw/cache training remains a normal mixed dataset. The child roles are
+explicit: ``primary`` selects the authoritative dataset implementation, while
+``cache`` is a manifest-backed SPINE cache. Storage-format aliases such as
+``larcv`` and ``hdf5`` are intentionally not part of the mixed-dataset
+contract:
+
+.. code-block:: yaml
+
+   dataset:
+     name: mixed
+     primary:
+       name: larcv
+       file_keys: /path/to/raw/*.root
+       schema: {...}
+     cache:
+       path: /path/to/train.spine-cache
+       stage: deghosting
+
+When a scheduler-array task opens only a subset of the primary source files,
+the mixed dataset automatically projects the complete repository onto matching
+source identities in primary-file order. Cache shards belonging to other tasks
+are not opened and do not participate in cardinality checks.
+
+Set ``overwrite_stage: true`` to publish a replacement generation. The new
+manifest is committed first; SPINE then removes the replaced generation and
+every transitive descendant derived from it. A failed write or publication
+therefore leaves the previously published cache untouched, while a successful
+pipeline does not accumulate obsolete cache payloads. The manifest records the
+exact upstream stage generations consumed by each new stage.
+
+Hard process termination may leave unpublished transaction directories or
+other unreachable generations. They can be inspected and removed explicitly::
+
+   spine-cache gc /path/to/train.spine-cache --dry-run
+   spine-cache gc /path/to/train.spine-cache
+
+Garbage collection never removes files referenced by the current manifest and
+defaults to a one-day minimum inactivity age. Active writers refresh a pending
+transaction heartbeat, protecting both their pending data and shards being
+moved into publication. This command is recovery maintenance, not a required
+step in a successful production pipeline.
+
+Scheduler arrays may build one repository without a final HDF5 merge by
+setting ``parallel: true`` on every cache writer. Each task publishes a
+disjoint set of source shards under the manifest lock. The first stage grows
+the source roster as contributions arrive. For subsequent stages, the
+manifest records the stage as incomplete—and readers reject it—until shards
+for the complete established source roster have arrived::
+
+   io:
+     writer:
+       name: cache
+       path: /path/to/train.spine-cache
+       stage: deghosting
+       parallel: true
+       expected_sources: 400
+
+Every task in one submission attempt must also receive the same
+``SPINE_CACHE_PUBLICATION_ID`` environment variable. The orchestration layer
+should generate a fresh UUID for each cache-stage submission and propagate it
+to every array task and scheduler chunk. This attempt identity is intentionally
+separate from experiment YAML and prevents shards from different retries or
+configurations from being combined.
+
+Before submitting those workers, register the attempt atomically::
+
+   spine-cache begin /path/to/train.spine-cache deghosting \
+     --publication-id 4c277...
+
+Omitting ``--publication-id`` generates one and prints it for the launcher to
+capture. Registration is the publication fence: workers may contribute only
+under the currently registered ID. Beginning a newer attempt retires an older
+incomplete candidate before any new worker starts, so delayed tasks from the
+old attempt are rejected rather than allowed to reclaim the stage.
+
+``expected_sources`` is the total number of source files with accepted entries
+across all array tasks. A source rejected completely by an entry filter does
+not need an empty shard and is not included in this count. The field provides
+the completion barrier without a merge job and ensures a missing task cannot
+leave a partial first stage looking valid. Parallel contributions must expose
+identical product schemas and lineage. During initial construction, their
+source sets must be disjoint.
+
+Parallel replacement combines ``parallel: true`` with
+``overwrite_stage: true``. Contributions are recorded as a hidden replacement
+while readers continue seeing the old complete stage. Repeating a source
+replaces that source's hidden contribution, which makes individual array tasks
+safe to retry within one publication ID. The first contribution carrying a new
+publication ID discards an incomplete candidate left by an older attempt. When
+the final expected source arrives, the manifest atomically activates the
+assembled replacement and invalidates the old stage plus all of its
+descendants. No merge or finalization job is required.
+
+The ordinary CLI path options understand this cache contract. For example,
+``--output train.spine-cache`` overrides a cache writer's ``path``, while
+``--source train.spine-cache`` and ``--val-source train-val.spine-cache``
+override a cache dataset's ``path``. A cache repository is a single logical
+input, so ``--source-list`` and multiple direct paths are rejected. Canonical
+mixed datasets use role-qualified values such as
+``--source primary=raw.root cache=train.spine-cache``; the same contract
+applies to ``--val-source``.
 
 Data augmentation
 -----------------
