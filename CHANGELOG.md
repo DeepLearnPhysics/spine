@@ -1,15 +1,30 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.0] - 2026-09-11
 
 ### Added
-- **Graceful training completion**: Treat ``SIGUSR1`` as a request to finish the current iteration, run configured validation, write a complete resumable checkpoint, flush outputs and exit successfully across all distributed ranks.
-- **File-aware entry filtering**: Add the ``spine-filter`` scan/build workflow, fingerprinted per-source measurement caches, transactional dataset manifests, LArCV product-size inspection, and composable training/validation reader filters.
+- **Graceful training completion**: Treat ``SIGUSR1`` or a submission-specific marker file as a request to finish the current optimizer update, synchronize all distributed ranks, run configured validation, write a complete resumable checkpoint, flush outputs and exit successfully.
+- **File-aware entry filtering**: Add the ``spine-filter`` scan/build workflow, fingerprinted per-source measurement caches, transactional dataset manifests, LArCV product-size inspection, and composable training/validation filters for raw, HDF5 and SPINE cache inputs.
+- **Sharded cache repositories**: Add ``CacheReader``, ``CacheWriter`` and ``CacheDataset`` around atomic manifests and immutable per-source/per-stage HDF5 V2 shards, with lineage validation, transparent mixed-dataset source projection, parallel array publication, retry fencing, atomic stage replacement and conservative recovery garbage collection through ``spine-cache``.
+- **Sparse CNN lattice phases**: Randomize each training image's alignment with the sparse convolution lattice while retaining detector-frame inputs and outputs, with automatic encoder-depth periods or explicit scalar/per-axis periods.
 
 ### Changed
 - **Standalone configuration composition**: Load report and entry-filter configurations through the standard SPINE resolver, including search paths, nested includes, overrides/removals, environment expansion, and cycle detection.
 - **PPN particle supervision**: Restrict PPN targets with raw particle associations aligned to the final sparse coordinates, keep reconstructed-domain label adaptation for downstream objectives, and allow segmentation-only full chains to disable adapted-label production.
 - **Learning-rate scheduler cadence**: Add explicit optimizer-step, epoch, and scheduled-validation timebases, deprecate the operational ``checkpoint`` spelling in favor of ``validation``, warn when the historical ``step`` default is implicit, and prevent graceful-completion snapshots from advancing the schedule.
+- **Cache production contract**: Replace monolithic staged HDF5 output and end-of-job sidecar merging with ``*.spine-cache`` repositories. Parallel replacement contributions share a launcher-provided publication identity and are fenced by an explicit begin operation so delayed tasks cannot mix submission attempts.
+- **Rotation augmentation sampling**: Accept either one quarter-turn value or a list of choices through ``k``, and optionally gate the complete rotation with ``p``.
+- **Shared artifact permissions**: Create SPINE output files as collaboration-readable and shared output directories as group-writable and group-inheriting, independent of restrictive temporary-file defaults.
+
+### Fixed
+- **LArCV entry-filter counts**: Inspect products through direct ROOT branch access and invalidate stale version-1 scan records that could report false zero counts.
+- **Crop augmentation coordinates**: Preserve continuous subvoxel coordinates, validate quantized crop bounds deterministically, intersect explicit sampling bounds with the source volume and support activity-biased selection from one coordinate product.
+- **Cached input alignment**: Preserve original source-entry provenance in compact caches and publish upstream sparse-index mappings so raw segmentation labels align with cached model inputs.
+- **Distributed checkpoint failures**: Synchronize ordinary rank-zero serialization failures before any worker rank can leave checkpoint collectives.
+- **Geometry-aware weight export**: Initialize a configured detector geometry before constructing a model-only full-chain export.
+
+### Removed
+- **Staged HDF5 sidecars**: Remove the experimental ``stage_hdf5`` reader/writer surface and its expensive sidecar merge path in favor of the cache repository abstraction.
 
 ## [1.1.0] - 2026-09-05
 
