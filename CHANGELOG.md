@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.1] - 2026-09-12
+
+### Added
+- **Categorical display resolution**: Add a common data-object API for fixed and scheme-dependent enum labels, interpret neutrino interaction fields under their stored LArSoft or GENIE scheme, and resolve PDG particle names through the optional Scikit-HEP ``particle`` visualization dependency.
+- **Legacy HDF5 object defaults**: Allow fixed-width scalar fields absent from older object schemas to receive provenance-driven reader defaults without replacing values stored by newer files.
+
+### Fixed
+- **Geometry-aware data loading**: Initialize configured detector geometry inside every DataLoader worker, including workers created with the ``spawn`` multiprocessing context, while preserving caller-provided worker initialization.
+- **Neutrino PDG sentinels**: Use ``0`` as the default unknown PDG identifier and conservatively prevent legacy unset or target-only neutrino records from presenting ``-1`` as a physical anti-down quark.
+
 ## [1.2.0] - 2026-09-11
 
 ### Added
