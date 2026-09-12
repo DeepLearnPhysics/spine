@@ -6,8 +6,6 @@ from typing import Any
 
 import numpy as np
 
-import spine.data.out
-
 __all__ = [
     "dep_tostr",
     "enum_name",
@@ -103,21 +101,8 @@ def enum_name(obj: Any, attr: str, value: Any) -> str | None:
     Optional[str]
         Enum label if one can be resolved, otherwise ``None``.
     """
-    # Truth interactions expose their enum accessors differently from the
-    # generic enum_values mapping used by the other output objects.
-    if isinstance(obj, spine.data.out.TruthInteraction) and attr in (
-        "interaction_type",
-        "interaction_mode",
-    ):
-        enum_value = getattr(obj, f"{attr}_enum")
-        if enum_value is not None:
-            return enum_value.name
-        return None
-
-    if not hasattr(obj, "enum_values") or attr not in obj.enum_values:
-        return None
-
-    return obj.enum_values[attr].get(value)
+    enum_value = obj.resolve_enum(attr, value)
+    return enum_value.name if enum_value is not None else None
 
 
 def format_hover_value(obj: Any, attr: str, value: Any) -> Any:

@@ -629,6 +629,23 @@ class TestDataBase:
         assert enum_values["particle_type"][0] == "ELECTRON"
         assert enum_values["particle_type"][1] == "MUON"
 
+    def test_resolve_enum(self):
+        """Test enum resolution from stored and explicit values."""
+        obj = EnumData(particle_type=1)
+
+        assert obj.resolve_enum("particle_type") == SampleParticleType.MUON
+        assert obj.resolve_enum("particle_type", 2) == SampleParticleType.PION
+        assert obj.resolve_enum("particle_type", 999) is None
+
+    def test_resolve_enum_without_enum(self):
+        """Test enum resolution for a field without enum metadata."""
+        assert SimpleData().resolve_enum("value") is None
+
+    def test_resolve_enum_unknown_attribute(self):
+        """Test enum resolution rejects attributes outside the schema."""
+        with pytest.raises(AttributeError, match="does_not_exist"):
+            SimpleData().resolve_enum("does_not_exist")
+
     def test_field_units(self):
         """Test field_units property."""
         obj = DerivedData()

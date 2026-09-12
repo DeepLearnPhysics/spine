@@ -131,6 +131,7 @@ class TestNeutrinoCreation:
         from spine.constants import (
             GenieNuInteractionType,
             LArSoftNuInteractionType,
+            NuCurrentType,
             NuInteractionScheme,
         )
         from spine.data import Neutrino
@@ -152,6 +153,11 @@ class TestNeutrinoCreation:
         )
         assert genie_nu.interaction_mode_enum == GenieNuInteractionType.QE
         assert genie_nu.interaction_type_enum == GenieNuInteractionType.DIS
+        assert genie_nu.resolve_enum("interaction_mode") == GenieNuInteractionType.QE
+        assert (
+            genie_nu.resolve_enum("interaction_type", 4) == GenieNuInteractionType.RES
+        )
+        assert genie_nu.resolve_enum("current_type", 0) == NuCurrentType.CC
 
         unknown_nu = Neutrino(id=2, interaction_mode=0, interaction_type=1001)
         assert unknown_nu.interaction_mode_enum is None

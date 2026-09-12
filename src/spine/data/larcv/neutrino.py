@@ -4,7 +4,8 @@ This copies the internal structure of :class:`larcv.Neutrino`.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from enum import IntEnum
+from typing import Any, cast
 from warnings import warn
 
 import numpy as np
@@ -188,19 +189,29 @@ class Neutrino(PosDataBase):
         self,
     ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
         """Interpret the interaction mode under the stored interaction scheme."""
-        return self._resolve_interaction_enum(self.interaction_mode)
+        return cast(
+            LArSoftNuInteractionType | GenieNuInteractionType | None,
+            self.resolve_enum("interaction_mode"),
+        )
 
     @property
     def interaction_type_enum(
         self,
     ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
         """Interpret the interaction type under the stored interaction scheme."""
-        return self._resolve_interaction_enum(self.interaction_type)
+        return cast(
+            LArSoftNuInteractionType | GenieNuInteractionType | None,
+            self.resolve_enum("interaction_type"),
+        )
 
-    def _resolve_interaction_enum(
-        self, value: int
-    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
-        """Resolve a raw interaction code to the appropriate source enum."""
+    def resolve_enum(self, attr: str, value: Any | None = None) -> IntEnum | None:
+        """Resolve fixed and scheme-dependent enumerated attributes."""
+        if attr not in ("interaction_mode", "interaction_type"):
+            return super().resolve_enum(attr, value)
+
+        if value is None:
+            value = getattr(self, attr)
+
         scheme_to_enum = {
             int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
             int(NuInteractionScheme.GENIE): GenieNuInteractionType,
@@ -211,7 +222,7 @@ class Neutrino(PosDataBase):
 
         try:
             return enum_type(value)
-        except ValueError:
+        except (TypeError, ValueError):
             return None
 
     @classmethod

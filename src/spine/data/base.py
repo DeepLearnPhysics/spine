@@ -476,6 +476,40 @@ class DataBase:
         metadata = cls.attr_metadata(attr)
         return metadata.return_type
 
+    def resolve_enum(self, attr: str, value: Any | None = None) -> IntEnum | None:
+        """Resolve an enumerated attribute to its enum member.
+
+        Parameters
+        ----------
+        attr : str
+            Name of the attribute to interpret.
+        value : Any, optional
+            Raw value to interpret. If omitted, use the value stored on this
+            object.
+
+        Returns
+        -------
+        IntEnum, optional
+            Matching enum member, or ``None`` when the attribute has no fixed
+            enum or the value is not recognized.
+
+        Raises
+        ------
+        AttributeError
+            If the attribute is not part of the data class schema.
+        """
+        enum_type = self.attr_metadata(attr).enum
+        if enum_type is None:
+            return None
+
+        if value is None:
+            value = getattr(self, attr)
+
+        try:
+            return enum_type(value)
+        except (TypeError, ValueError):
+            return None
+
     def scalar_dict(
         self,
         attrs: Sequence[str] | None = None,
