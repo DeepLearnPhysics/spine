@@ -164,8 +164,16 @@ def test_hdf5_reader_validates_object_defaults():
     normalize = HDF5Reader._normalize_object_defaults
     with pytest.raises(TypeError, match="must be a mapping"):
         normalize([])
+    with pytest.raises(TypeError, match="class names must be strings"):
+        normalize({1: {}})
     with pytest.raises(ValueError, match="Unknown SPINE object class"):
         normalize({"MissingClass": {"id": 1}})
+    with pytest.raises(TypeError, match="Defaults for `Neutrino` must be a mapping"):
+        normalize({"Neutrino": []})
+    with pytest.raises(ValueError, match="Unknown SPINE object class"):
+        normalize({"pdg_name": {}})
+    with pytest.raises(TypeError, match="attributes.*must be strings"):
+        normalize({"Neutrino": {1: 0}})
     with pytest.raises(ValueError, match="Unknown `Neutrino` object field"):
         normalize({"Neutrino": {"missing": 1}})
     with pytest.raises(ValueError, match="Unknown `Neutrino` object field"):

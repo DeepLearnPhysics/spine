@@ -47,6 +47,31 @@ def record_geometry_worker_init(worker_id):
     WORKER_INIT_CALLED = True
 
 
+def test_initialize_loader_worker_composes_initializers(monkeypatch):
+    """Worker setup should initialize geometry before caller-provided setup."""
+    calls = []
+
+    monkeypatch.setattr(
+        factories_module.GeoManager,
+        "initialize_or_get",
+        lambda **geo: calls.append(("geometry", geo)),
+    )
+
+    def caller_init(worker_id):
+        calls.append(("caller", worker_id))
+
+    factories_module._initialize_loader_worker(
+        3,
+        {"detector": "icarus", "version": 4},
+        caller_init,
+    )
+
+    assert calls == [
+        ("geometry", {"detector": "icarus", "version": 4}),
+        ("caller", 3),
+    ]
+
+
 @pytest.mark.skipif(
     not TORCH_AVAILABLE,
     reason="PyTorch is required for torch-backed dataset factory tests.",
