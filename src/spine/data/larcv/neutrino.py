@@ -242,21 +242,22 @@ class Neutrino(PosDataBase):
             return None
 
     def resolve_label(self, attr: str, value: Any | None = None) -> str | None:
-        """Resolve a categorical label, guarding an unset target triplet.
+        """Resolve a categorical label, guarding incomplete target details.
 
         A quark PDG code of ``-1`` normally identifies an anti-down quark.
         Legacy neutrino records also use ``-1`` for every unset target field;
         when the complete target/nucleon/quark triplet is unset, interpret the
-        quark value as missing rather than as a physical anti-down quark.
+        quark value as missing rather than as a physical anti-down quark. Some
+        legacy ND records store only the target, so apply the same guard when
+        the target is set but the struck nucleon is not.
         """
         resolved_value = getattr(self, attr) if value is None else value
-        if (
-            attr == "quark"
-            and resolved_value == -1
-            and self.target == -1
-            and self.nucleon == -1
-        ):
-            return "UNKNOWN"
+        if attr == "quark" and resolved_value == -1:
+            unset_codes = (-1, INVALID_PDG)
+            legacy_unset_triplet = self.target == -1 and self.nucleon == -1
+            target_only = self.target not in unset_codes and self.nucleon in unset_codes
+            if legacy_unset_triplet or target_only:
+                return "UNKNOWN"
 
         return super().resolve_label(attr, value)
 

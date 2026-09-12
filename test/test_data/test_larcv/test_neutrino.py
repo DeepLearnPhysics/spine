@@ -168,6 +168,16 @@ class TestNeutrinoCreation:
         assert unset_target_nu.resolve_label("nucleon") == "UNKNOWN"
         assert unset_target_nu.resolve_label("quark") == "UNKNOWN"
 
+        target_only_nu = Neutrino(target=18, nucleon=-1, quark=-1)
+        assert target_only_nu.resolve_label("quark") == "UNKNOWN"
+
+        target_only_current_sentinel_nu = Neutrino(
+            target=1000180400,
+            nucleon=0,
+            quark=-1,
+        )
+        assert target_only_current_sentinel_nu.resolve_label("quark") == "UNKNOWN"
+
         struck_antidown_nu = Neutrino(
             target=1000060120,
             nucleon=2112,
