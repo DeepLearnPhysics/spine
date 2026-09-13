@@ -1,14 +1,20 @@
 # Changelog
 
+## [1.2.2] - 2026-09-12
+
+### Added
+- **Scheduler restart policy**: Allow resumed training to preserve optimizer tensor state while explicitly restarting a newly configured learning-rate schedule; complete scheduler restoration remains the default.
+
+### Fixed
+- **Iteration-based training limits**: Keep positive explicit iteration counts independent from epoch limits so ordinary and resumed runs do not stop after one input pass.
+
 ## [1.2.1] - 2026-09-12
 
 ### Added
 - **Categorical display resolution**: Add a common data-object API for fixed and scheme-dependent enum labels, interpret neutrino interaction fields under their stored LArSoft or GENIE scheme, and resolve PDG particle names through the optional Scikit-HEP ``particle`` visualization dependency.
 - **Legacy HDF5 object defaults**: Allow fixed-width scalar fields absent from older object schemas to receive provenance-driven reader defaults without replacing values stored by newer files.
-- **Scheduler restart policy**: Allow resumed training to preserve optimizer tensor state while explicitly restarting a newly configured learning-rate schedule; complete scheduler restoration remains the default.
 
 ### Fixed
-- **Iteration-based training limits**: Keep positive explicit iteration counts independent from epoch limits so ordinary and resumed runs do not stop after one input pass.
 - **Geometry-aware data loading**: Initialize configured detector geometry inside every DataLoader worker, including workers created with the ``spawn`` multiprocessing context, while preserving caller-provided worker initialization.
 - **Neutrino PDG sentinels**: Use ``0`` as the default unknown PDG identifier and conservatively prevent legacy unset or target-only neutrino records from presenting ``-1`` as a physical anti-down quark.
 
