@@ -1232,6 +1232,61 @@ def test_run_loop_resets_loader_logs_and_closes():
         drv.run()
 
 
+@pytest.mark.parametrize(
+    ("start_iteration", "start_epoch", "expected_iterations"),
+    [
+        (0, 0.0, list(range(7))),
+        (4, 2.0, [4, 5, 6]),
+    ],
+)
+def test_iteration_based_run_keeps_absolute_limit_across_epochs_and_resume(
+    monkeypatch, start_iteration, start_epoch, expected_iterations
+):
+    """Positive iteration limits should not become one-epoch limits."""
+    drv = bare_driver()
+    drv.cfg = {}
+    drv.rank = None
+    drv.main_process = True
+    drv.dtype = "float32"
+    drv.world_size = 0
+    drv.distributed = False
+    drv.unwrap = False
+    drv.iterations = 7
+    drv.epochs = None
+    drv.epoch_based = False
+    drv.split_output = False
+    drv.geo_cfg = None
+    monkeypatch.setattr(io_manager_mod, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(
+        io_manager_mod,
+        "loader_factory",
+        lambda **_kwargs: FakeLoader(),
+    )
+    drv.initialize_io({"loader": {"dataset": {}}})
+
+    processed: list[int] = []
+    drv.model = SimpleNamespace(
+        train=True,
+        start_iteration=start_iteration,
+        start_epoch=start_epoch,
+        should_save=lambda _iteration: False,
+        step_scheduler=lambda *_args: None,
+    )
+    drv.validation = None
+    drv.ana = None
+    drv.log_manager = None
+    drv.initialize_log = lambda: None
+    drv.process = lambda **kwargs: processed.append(kwargs["iteration"]) or {}
+    drv.log = lambda *_args, **_kwargs: None
+    drv.cleanup = lambda **_kwargs: None
+
+    assert drv.iterations == 7
+    assert drv.epochs is None
+    drv.run()
+
+    assert processed == expected_iterations
+
+
 def test_run_resumes_epoch_progress_across_batch_size_change():
     """Saved epochs should not be reinterpreted through the new loader length."""
     drv = bare_driver()

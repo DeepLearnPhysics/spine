@@ -393,7 +393,7 @@ class IOManager:
         if self.iterations is not None:
             if self.iterations < 0:
                 self.iterations = self.iter_per_epoch
-            self.epochs = 1.0
+                self.epochs = 1.0
         elif self.epochs is not None:
             self.iterations = int(self.epochs * self.iter_per_epoch)
 

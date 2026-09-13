@@ -240,6 +240,22 @@ def test_io_manager_allows_on_demand_iteration_config(monkeypatch):
     assert manager.iter_per_epoch == 4
 
 
+@pytest.mark.parametrize(
+    ("requested", "expected_iterations", "expected_epochs"),
+    [(450_000, 450_000, None), (-1, 4, 1.0)],
+)
+def test_io_manager_preserves_iteration_limit_semantics(
+    monkeypatch, requested, expected_iterations, expected_epochs
+):
+    """Only the negative one-pass sentinel should derive an epoch limit."""
+    monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: FakeReader())
+
+    manager = IOManager(reader={"name": "hdf5"}, iterations=requested)
+
+    assert manager.iterations == expected_iterations
+    assert manager.epochs == expected_epochs
+
+
 def test_io_manager_validation(monkeypatch):
     """IOManager should reject invalid I/O combinations."""
     with pytest.raises(ValueError, match="either a loader or a reader"):
