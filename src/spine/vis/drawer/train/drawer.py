@@ -180,6 +180,7 @@ class TrainDrawer:
         same_plot: bool = True,
         leg_ncols: int = 1,
         figure_name: str | None = None,
+        x_axis: str = "epoch",
     ) -> None:
         """Draw training and validation metric histories for one or more models.
 
@@ -213,12 +214,21 @@ class TrainDrawer:
             Number of legend columns for Matplotlib figures.
         figure_name : str, optional
             Base filename used to save Matplotlib figures.
+        x_axis : str, default ``"epoch"``
+            Horizontal-axis unit. Must be either ``"epoch"`` or
+            ``"iteration"``.
         """
         if isinstance(model, str):
             model = [model]
         if isinstance(metric, str):
             metric = [metric]
         interactive = self.interactive
+
+        if x_axis not in ("epoch", "iteration"):
+            raise ValueError(
+                f"Invalid `x_axis` '{x_axis}'; expected 'epoch' or 'iteration'."
+            )
+        x_label = f"{x_axis.capitalize()}s"
 
         # Normalize the model and metric display-name mappings so the plotting
         # code can always rely on dictionary lookups.
@@ -276,7 +286,7 @@ class TrainDrawer:
                 fig.update_layout(self.layout)
                 for i, metric_key in enumerate(metric, start=1):
                     fig.update_xaxes(
-                        title_text="Epochs" if i == len(metric) else None,
+                        title_text=x_label if i == len(metric) else None,
                         row=i,
                         col=1,
                     )
@@ -294,6 +304,7 @@ class TrainDrawer:
 
             if len(metric) == 1:
                 fig.update_yaxes(title_text=metric_name[metric[0]])
+            fig.update_xaxes(title_text=x_label)
 
             if same_plot and len(model) == 1:
                 fig.update_layout(legend_title_text=model_name[model[0]])
@@ -314,10 +325,11 @@ class TrainDrawer:
         for i, metric_list in enumerate(metric):
             for j, key in enumerate(dfs.keys()):
                 iter_t, epoch_t = dfs[key]["iter"], dfs[key]["epoch"]
+                x_t = epoch_t if x_axis == "epoch" else iter_t
                 metric_key, metric_label = self.find_key(dfs[key], metric_list)
                 metric_t = cast(pd.Series, dfs[key][metric_key])
                 iter_v: np.ndarray[Any, Any] | None = None
-                epoch_v: np.ndarray[Any, Any] | None = None
+                x_v: np.ndarray[Any, Any] | None = None
                 metric_v_mean: np.ndarray[Any, Any] | None = None
                 metric_v_err: np.ndarray[Any, Any] | None = None
 
@@ -326,39 +338,41 @@ class TrainDrawer:
                     metric_v_mean = val_dfs[key][f"{metric_label}_mean"].to_numpy()
                     metric_v_err = val_dfs[key][f"{metric_label}_err"].to_numpy()
 
-                    if iter_per_epoch is None:
+                    if x_axis == "iteration":
+                        x_v = iter_v
+                    elif iter_per_epoch is None:
                         epoch_matches = [epoch_t[iter_t == it] for it in iter_v]
                         mask = np.where(
                             np.array([len(epoch) for epoch in epoch_matches]) == 1
                         )[0]
-                        epoch_v = np.asarray(
+                        x_v = np.asarray(
                             [float(epoch_matches[idx].iloc[0]) for idx in mask]
                         )
                         iter_v = iter_v[mask]
                         metric_v_mean = metric_v_mean[mask]
                         metric_v_err = metric_v_err[mask]
                     else:
-                        epoch_v = iter_v / iter_per_epoch
+                        x_v = iter_v / iter_per_epoch
 
                     # Apply the same iteration cut to the validation points so
                     # training and validation stay visually aligned.
                     if max_iter is not None:
                         mask_val = np.where(iter_v < max_iter)[0]
                         iter_v = iter_v[mask_val]
-                        epoch_v = epoch_v[mask_val]
+                        x_v = x_v[mask_val]
                         metric_v_mean = metric_v_mean[mask_val]
                         metric_v_err = metric_v_err[mask_val]
 
                 has_validation = (
                     iter_v is not None
-                    and epoch_v is not None
+                    and x_v is not None
                     and metric_v_mean is not None
                     and metric_v_err is not None
                     and len(iter_v) > 0
                 )
 
                 if max_iter is not None:
-                    epoch_t = epoch_t[:max_iter]
+                    x_t = x_t[:max_iter]
                     metric_t = cast(pd.Series, metric_t.iloc[:max_iter])
 
                 if smoothing is not None and smoothing > 1:
@@ -368,7 +382,7 @@ class TrainDrawer:
                     )
 
                 if step is not None and step > 1:
-                    epoch_t = epoch_t[::step]
+                    x_t = x_t[::step]
                     metric_t = cast(pd.Series, metric_t.iloc[::step])
 
                 # Resolve the legend label based on whether curves are grouped
@@ -399,7 +413,7 @@ class TrainDrawer:
                 if not interactive:
                     axis = plt if not uses_subplots else axes[i]
                     axis.plot(
-                        epoch_t,
+                        x_t,
                         metric_t,
                         label=label,
                         color=color,
@@ -409,12 +423,12 @@ class TrainDrawer:
 
                     if has_validation:
                         assert (
-                            epoch_v is not None
+                            x_v is not None
                             and metric_v_mean is not None
                             and metric_v_err is not None
                         )
                         axis.errorbar(
-                            epoch_v,
+                            x_v,
                             metric_v_mean,
                             yerr=metric_v_err,
                             fmt=".",
@@ -428,7 +442,7 @@ class TrainDrawer:
                     showlegend = same_plot or not i
                     traces.append(
                         go.Scatter(
-                            x=epoch_t,
+                            x=x_t,
                             y=metric_t,
                             name=label,
                             line={"color": color},
@@ -442,14 +456,14 @@ class TrainDrawer:
                     if has_validation:
                         assert (
                             iter_v is not None
-                            and epoch_v is not None
+                            and x_v is not None
                             and metric_v_mean is not None
                             and metric_v_err is not None
                         )
                         hovertext = [f"(Iteration: {it:d})" for it in iter_v]
                         traces.append(
                             go.Scatter(
-                                x=epoch_v,
+                                x=x_v,
                                 y=metric_v_mean,
                                 error_y={"array": metric_v_err},
                                 mode="markers",
@@ -465,13 +479,13 @@ class TrainDrawer:
         if not interactive:
             if uses_subplots:
                 for i, metric_key in enumerate(metric):
-                    axes[i].set_xlabel("Epochs")
+                    axes[i].set_xlabel(x_label)
                     axes[i].set_ylabel(metric_name[metric_key])
                     if limits is not None and metric_key in limits:
                         axes[i].set_ylim(*limits[metric_key])
                 axes[0].legend(ncol=leg_ncols)
             else:
-                plt.xlabel("Epochs")
+                plt.xlabel(x_label)
                 ylabel = metric_name[metric[0]]
                 plt.ylabel(ylabel if len(metric) == 1 else "Metric")
                 if limits is not None and metric[0] in limits:

@@ -171,3 +171,49 @@ def test_train_drawer_validates_display_names_and_empty_chunks(tmp_path, monkeyp
         paper_drawer = TrainDrawer(str(tmp_path), interactive=False, paper=True)
         assert paper_drawer.linewidth == 0.5
     plt.close("all")
+
+
+def test_train_drawer_supports_iteration_x_axis(tmp_path, monkeypatch):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    pd.DataFrame(
+        {
+            "iter": [10, 20],
+            "epoch": [0.5, 1.0],
+            "loss": [2.0, 1.0],
+        }
+    ).to_csv(model_dir / "train-0.csv", index=False)
+    pd.DataFrame({"loss": [0.8, 1.2]}).to_csv(
+        model_dir / "inference-21.csv", index=False
+    )
+
+    figures = []
+    monkeypatch.setattr(train_drawer_module, "iplot", figures.append)
+    interactive = TrainDrawer(str(tmp_path), interactive=True)
+    interactive.draw("model", "loss", x_axis="iteration")
+
+    figure = figures.pop()
+    assert figure.layout.xaxis.title.text == "Iterations"
+    assert list(figure.data[0].x) == [10, 20]
+    assert list(figure.data[1].x) == [20]
+
+    # Epochs remain the default axis for backward compatibility.
+    interactive.draw("model", "loss")
+    figure = figures.pop()
+    assert figure.layout.xaxis.title.text == "Epochs"
+    assert list(figure.data[0].x) == [0.5, 1.0]
+    assert list(figure.data[1].x) == [1.0]
+
+    monkeypatch.setattr("matplotlib.pyplot.show", lambda: None)
+    matplotlib_drawer = TrainDrawer(str(tmp_path), interactive=False)
+    matplotlib_drawer.draw("model", "loss", x_axis="iteration")
+    axis = plt.gca()
+    assert axis.get_xlabel() == "Iterations"
+    assert list(axis.lines[0].get_xdata()) == [10, 20]
+    plt.close("all")
+
+
+def test_train_drawer_rejects_unknown_x_axis(tmp_path):
+    drawer = TrainDrawer(str(tmp_path), interactive=True)
+    with pytest.raises(ValueError, match="`x_axis`"):
+        drawer.draw("model", "loss", x_axis="batch")

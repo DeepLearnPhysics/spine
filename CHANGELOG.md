@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Training-curve iteration axis**: Allow `TrainDrawer` to plot training and validation metrics against their native iteration numbers while retaining epochs as the default.
+
 ## [1.2.2] - 2026-09-12
 
 ### Added
