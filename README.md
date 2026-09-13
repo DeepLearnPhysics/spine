@@ -428,6 +428,30 @@ inference-only facility. During automatic resume, a legacy checkpoint without
 optimizer state retains its saved progress, restarts the optimizer and emits
 a warning.
 
+By default, resumed training also restores the complete learning-rate-scheduler
+state, including its saved progress and constructor parameters. Set
+`scheduler_resume: restart` to preserve accumulated optimizer tensor state while
+reapplying the configured optimizer parameter-group values and starting the
+configured scheduler from its initial state:
+
+```yaml
+train:
+  resume: true
+  scheduler_resume: restart
+  optimizer:
+    name: Adam
+    lr: 0.001
+  lr_scheduler:
+    name: CosineAnnealingLR
+    interval: step
+    T_max: 100000
+    eta_min: 1.0e-7
+```
+
+The default `scheduler_resume: restore` retains exact-resume behavior. A legacy
+checkpoint with no scheduler state follows the restart behavior and emits a
+warning.
+
 Epoch progress is restored independently from the global iteration number.
 Changing the batch size while resuming therefore continues from the saved
 epoch and recomputes the remaining epoch-based run length using the new

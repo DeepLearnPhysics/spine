@@ -239,6 +239,7 @@ class ModelManager:
         save_epoch: float | None = None,
         lr_scheduler: Mapping[str, Any] | None = None,
         iter_per_epoch: int | None = None,
+        scheduler_resume: str = "restore",
     ) -> None:
         """Initialize the training regimen.
 
@@ -269,6 +270,11 @@ class ModelManager:
             optimizer-step behavior with a migration warning.
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
+        scheduler_resume : {"restore", "restart"}, default "restore"
+            Scheduler policy when resuming training. ``restore`` loads the
+            scheduler checkpoint state. ``restart`` preserves optimizer tensor
+            state but reapplies the configured optimizer parameter-group values
+            and starts the configured scheduler from its initial state.
         """
         # Turn train on
         self.train = True
@@ -278,6 +284,12 @@ class ModelManager:
         self.weight_prefix = weight_prefix
         if resume is not None and not isinstance(resume, bool):
             raise TypeError("Training `resume` must be a boolean.")
+        if not isinstance(scheduler_resume, str):
+            raise TypeError("Training `scheduler_resume` must be a string.")
+        if scheduler_resume not in {"restore", "restart"}:
+            raise ValueError(
+                "Training `scheduler_resume` must be 'restore' or 'restart'."
+            )
         if resume is False and restore_optimizer:
             raise ValueError("Cannot combine `resume: false` with `restore_optimizer`.")
 
@@ -300,6 +312,9 @@ class ModelManager:
             raise ValueError("Explicit resume requires a global `weight_path`.")
         self.restore_optimizer = self.resume_training
         self.load_training_progress = resume is not False
+        self.scheduler_resume = scheduler_resume
+        if scheduler_resume == "restart" and lr_scheduler is None:
+            raise ValueError("`scheduler_resume: restart` requires `lr_scheduler`.")
 
         # Store the saving parameters
         if save_step is not None and save_epoch is not None:
@@ -326,6 +341,7 @@ class ModelManager:
         self.lr_scheduler = None
         self.lr_scheduler_interval = "step"
         self.lr_scheduler_monitor = None
+        self._scheduler_restart_param_groups = None
         if lr_scheduler is not None:
             if not isinstance(lr_scheduler, Mapping):
                 raise TypeError("`lr_scheduler` must be a mapping.")
@@ -366,6 +382,20 @@ class ModelManager:
                     "`interval: validation`."
                 )
             self.lr_scheduler = lr_sched_factory(scheduler_cfg, self.optimizer)
+
+            # Optimizer.load_state_dict restores saved hyperparameters as well as
+            # tensor state. Keep the freshly configured group values so an
+            # explicit scheduler restart can restore its true initial conditions.
+            param_groups = getattr(self.optimizer, "param_groups", None)
+            if param_groups is not None:
+                self._scheduler_restart_param_groups = [
+                    {
+                        key: deepcopy(value)
+                        for key, value in group.items()
+                        if key != "params"
+                    }
+                    for group in param_groups
+                ]
 
     def __call__(
         self,
@@ -791,6 +821,13 @@ class ModelManager:
                         lr_scheduler = getattr(self, "lr_scheduler", None)
                         if lr_scheduler is not None:
                             scheduler = checkpoint.get("lr_scheduler")
+                            restart_scheduler = (
+                                scheduler is None
+                                or getattr(self, "scheduler_resume", "restore")
+                                == "restart"
+                            )
+                            if restart_scheduler:
+                                self._restore_scheduler_initial_param_groups()
                             if scheduler is None:
                                 warnings.warn(
                                     "Checkpoint has no learning-rate-scheduler "
@@ -798,7 +835,7 @@ class ModelManager:
                                     RuntimeWarning,
                                     stacklevel=2,
                                 )
-                            else:
+                            elif not restart_scheduler:
                                 lr_scheduler.load_state_dict(scheduler)
 
                 # Restore progress and provenance from the main checkpoint only.
@@ -1058,6 +1095,26 @@ class ModelManager:
                 f"scalar metrics: {available or 'none'}."
             )
         self.lr_scheduler.step(float(metrics[self.lr_scheduler_monitor]))
+
+    def _restore_scheduler_initial_param_groups(self) -> None:
+        """Reapply optimizer values captured from the fresh scheduler setup.
+
+        Optimizer checkpoints include parameter-group hyperparameters such as
+        the current learning rate. Reapplying the configured values keeps the
+        optimizer's accumulated tensor state while giving a restarted scheduler
+        the same initial conditions it had immediately after construction.
+        """
+        configured_groups = getattr(self, "_scheduler_restart_param_groups", None)
+        optimizer_groups = getattr(self.optimizer, "param_groups", None)
+        if configured_groups is None or optimizer_groups is None:
+            return
+        if len(configured_groups) != len(optimizer_groups):
+            raise ValueError(
+                "Cannot restart the learning-rate scheduler because the "
+                "configured and restored optimizer parameter-group counts differ."
+            )
+        for group, configured in zip(optimizer_groups, configured_groups):
+            group.update(deepcopy(configured))
 
     def save_state(
         self,

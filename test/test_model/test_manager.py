@@ -186,6 +186,7 @@ def make_bare_manager(**attributes):
         "lr_scheduler": None,
         "lr_scheduler_interval": "step",
         "lr_scheduler_monitor": None,
+        "scheduler_resume": "restore",
     }
     defaults.update(attributes)
     for name, value in defaults.items():
@@ -264,6 +265,21 @@ def test_initialize_train_validates_save_cadence(monkeypatch, tmp_path):
             restore_optimizer=True,
             resume=False,
         )
+    with pytest.raises(TypeError, match="scheduler_resume.*string"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            scheduler_resume=False,
+        )
+    with pytest.raises(ValueError, match="'restore' or 'restart'"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            scheduler_resume="continue",
+        )
+    with pytest.raises(ValueError, match="requires `lr_scheduler`"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            scheduler_resume="restart",
+        )
 
     scheduler = object()
     scheduler_cfg = []
@@ -307,6 +323,7 @@ def test_initialize_train_selects_resume_mode_from_weight_path():
     assert manager.restore_optimizer
     assert not manager.strict_resume
     assert manager.load_training_progress
+    assert manager.scheduler_resume == "restore"
 
 
 def test_initialize_train_requires_checkpoint_for_explicit_resume():
@@ -1006,6 +1023,133 @@ def test_load_weights_restores_complete_available_training_state(monkeypatch, tm
     assert manager.checkpoint_config == checkpoint["config"]
     assert manager.checkpoint_datasets == checkpoint["datasets"]
     assert manager.checkpoint_runtime_state == checkpoint["runtime_state"]
+
+
+def test_resume_can_restart_configured_scheduler_and_preserve_optimizer_state(
+    monkeypatch, tmp_path
+):
+    """Scheduler restart should retain tensors but restore configured group values."""
+    path = tmp_path / "resume.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {
+        "state_dict": net.state_dict(),
+        "optimizer": {
+            "state": {0: {"momentum_buffer": "saved"}},
+            "param_groups": [
+                {
+                    "params": [0],
+                    "lr": 1.0e-5,
+                    "initial_lr": 1.0e-3,
+                    "momentum": 0.8,
+                }
+            ],
+        },
+        "lr_scheduler": {"last_epoch": 100, "eta_min": 1.0e-5},
+    }
+
+    class Optimizer:
+        def __init__(self):
+            self.state = {}
+            self.param_groups = []
+
+        def load_state_dict(self, state):
+            self.state = dict(state["state"])
+            self.param_groups = [dict(group) for group in state["param_groups"]]
+
+    scheduler_loads = []
+    optimizer = Optimizer()
+    scheduler = SimpleNamespace(
+        load_state_dict=lambda state: scheduler_loads.append(state)
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=net,
+        train=True,
+        restore_optimizer=True,
+        resume_training=True,
+        scheduler_resume="restart",
+        optimizer=optimizer,
+        lr_scheduler=scheduler,
+        _scheduler_restart_param_groups=[
+            {"lr": 2.0e-3, "initial_lr": 2.0e-3, "momentum": 0.9}
+        ],
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    with pytest.warns(RuntimeWarning):
+        manager.load_weights(None)
+
+    assert optimizer.state == {0: {"momentum_buffer": "saved"}}
+    assert optimizer.param_groups == [
+        {
+            "params": [0],
+            "lr": 2.0e-3,
+            "initial_lr": 2.0e-3,
+            "momentum": 0.9,
+        }
+    ]
+    assert not scheduler_loads
+
+
+@pytest.mark.parametrize("has_scheduler_state", [True, False])
+def test_scheduler_restart_uses_fresh_pytorch_schedule(
+    monkeypatch, tmp_path, has_scheduler_state
+):
+    """A real scheduler restart should retain moments and use new parameters."""
+    path = tmp_path / "resume.ckpt"
+    path.touch()
+    source_net = torch.nn.Linear(1, 1)
+    source_optimizer = torch.optim.SGD(source_net.parameters(), lr=1.0e-3, momentum=0.8)
+    source_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        source_optimizer, T_max=10, eta_min=1.0e-5
+    )
+    source_net(torch.ones(1, 1)).sum().backward()
+    source_optimizer.step()
+    source_scheduler.step()
+    checkpoint = {
+        "state_dict": source_net.state_dict(),
+        "optimizer": source_optimizer.state_dict(),
+        "global_step": 0,
+        "global_epoch": 0.5,
+        "runtime_state": {"world_size": 1, "ranks": []},
+    }
+    if has_scheduler_state:
+        checkpoint["lr_scheduler"] = source_scheduler.state_dict()
+
+    target_net = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        net=target_net,
+        train=True,
+    )
+    manager.initialize_train(
+        optimizer={"name": "SGD", "lr": 2.0e-3, "momentum": 0.9},
+        resume=True,
+        scheduler_resume="restart",
+        lr_scheduler={
+            "name": "CosineAnnealingLR",
+            "interval": "step",
+            "T_max": 20,
+            "eta_min": 1.0e-7,
+        },
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    if has_scheduler_state:
+        manager.load_weights(None)
+    else:
+        with pytest.warns(RuntimeWarning, match="scheduler will restart"):
+            manager.load_weights(None)
+
+    assert manager.optimizer.state
+    assert manager.optimizer.param_groups[0]["lr"] == pytest.approx(2.0e-3)
+    assert manager.optimizer.param_groups[0]["momentum"] == pytest.approx(0.9)
+    assert manager.lr_scheduler.last_epoch == 0
+    assert manager.lr_scheduler.T_max == 20
+    assert manager.lr_scheduler.eta_min == pytest.approx(1.0e-7)
 
 
 def test_resume_legacy_checkpoint_reports_missing_training_state(monkeypatch, tmp_path):
