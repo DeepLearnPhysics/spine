@@ -217,3 +217,56 @@ def test_train_drawer_rejects_unknown_x_axis(tmp_path):
     drawer = TrainDrawer(str(tmp_path), interactive=True)
     with pytest.raises(ValueError, match="`x_axis`"):
         drawer.draw("model", "loss", x_axis="batch")
+
+
+def test_train_drawer_toggles_training_and_validation(tmp_path, monkeypatch):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    pd.DataFrame({"iter": [0, 1], "epoch": [0.0, 0.5], "loss": [2.0, 1.0]}).to_csv(
+        model_dir / "train-0.csv", index=False
+    )
+    pd.DataFrame({"val_loss": [0.8, 1.2]}).to_csv(
+        model_dir / "inference-2.csv", index=False
+    )
+
+    figures = []
+    monkeypatch.setattr(train_drawer_module, "iplot", figures.append)
+    drawer = TrainDrawer(str(tmp_path), interactive=True)
+
+    # Training-only plots do not attempt to load validation metrics.
+    drawer.draw("model", "loss", show_validation=False)
+    figure = figures.pop()
+    assert len(figure.data) == 1
+    assert list(figure.data[0].y) == [2.0, 1.0]
+
+    # Validation-only metrics need not exist in the training log.
+    drawer.draw(
+        "model",
+        "val_loss",
+        x_axis="iteration",
+        show_train=False,
+    )
+    figure = figures.pop()
+    assert len(figure.data) == 1
+    assert figure.data[0].mode == "markers"
+    assert figure.data[0].showlegend
+    assert list(figure.data[0].x) == [1]
+    assert list(figure.data[0].y) == [1.0]
+
+    monkeypatch.setattr("matplotlib.pyplot.show", lambda: None)
+    drawer = TrainDrawer(str(tmp_path), interactive=False)
+    drawer.draw("model", "val_loss", show_train=False)
+    axis = plt.gca()
+    assert [text.get_text() for text in axis.get_legend().get_texts()] == ["val_loss"]
+    plt.close("all")
+
+
+def test_train_drawer_rejects_hidden_training_and_validation(tmp_path):
+    drawer = TrainDrawer(str(tmp_path), interactive=True)
+    with pytest.raises(ValueError, match="At least one"):
+        drawer.draw(
+            "model",
+            "loss",
+            show_train=False,
+            show_validation=False,
+        )

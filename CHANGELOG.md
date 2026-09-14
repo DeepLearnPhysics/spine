@@ -4,6 +4,7 @@
 
 ### Added
 - **Training-curve iteration axis**: Allow `TrainDrawer` to plot training and validation metrics against their native iteration numbers while retaining epochs as the default.
+- **Training-curve visibility controls**: Allow `TrainDrawer` callers to independently show or hide training curves and validation points.
 
 ## [1.2.2] - 2026-09-12
 

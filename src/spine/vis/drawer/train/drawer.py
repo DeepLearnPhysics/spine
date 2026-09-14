@@ -181,6 +181,8 @@ class TrainDrawer:
         leg_ncols: int = 1,
         figure_name: str | None = None,
         x_axis: str = "epoch",
+        show_train: bool = True,
+        show_validation: bool = True,
     ) -> None:
         """Draw training and validation metric histories for one or more models.
 
@@ -217,6 +219,10 @@ class TrainDrawer:
         x_axis : str, default ``"epoch"``
             Horizontal-axis unit. Must be either ``"epoch"`` or
             ``"iteration"``.
+        show_train : bool, default True
+            If ``True``, draw the training curves.
+        show_validation : bool, default True
+            If ``True``, draw the validation points and uncertainties.
         """
         if isinstance(model, str):
             model = [model]
@@ -227,6 +233,10 @@ class TrainDrawer:
         if x_axis not in ("epoch", "iteration"):
             raise ValueError(
                 f"Invalid `x_axis` '{x_axis}'; expected 'epoch' or 'iteration'."
+            )
+        if not show_train and not show_validation:
+            raise ValueError(
+                "At least one of `show_train` or `show_validation` must be True."
             )
         x_label = f"{x_axis.capitalize()}s"
 
@@ -315,9 +325,13 @@ class TrainDrawer:
         draw_val: dict[str, bool] = {}
         for i, key in enumerate(model):
             log_subdir = f"{self.log_dir}/{key}"
-            dfs[key] = self.get_training_df(log_subdir, metric)
-            val_dfs[key] = self.get_validation_df(log_subdir, metric)
-            draw_val[key] = bool(len(val_dfs[key]["iter"]))
+            train_metrics = metric if show_train else []
+            dfs[key] = self.get_training_df(log_subdir, train_metrics)
+            if show_validation:
+                val_dfs[key] = self.get_validation_df(log_subdir, metric)
+                draw_val[key] = bool(len(val_dfs[key]["iter"]))
+            else:
+                draw_val[key] = False
             colors[key] = self.colors[i % len(self.colors)]
 
         # Loop over metric/model pairs and add the corresponding training and
@@ -326,8 +340,11 @@ class TrainDrawer:
             for j, key in enumerate(dfs.keys()):
                 iter_t, epoch_t = dfs[key]["iter"], dfs[key]["epoch"]
                 x_t = epoch_t if x_axis == "epoch" else iter_t
-                metric_key, metric_label = self.find_key(dfs[key], metric_list)
-                metric_t = cast(pd.Series, dfs[key][metric_key])
+                metric_label = metric_list.split(self.separator)[0]
+                metric_t: pd.Series | None = None
+                if show_train:
+                    metric_key, metric_label = self.find_key(dfs[key], metric_list)
+                    metric_t = cast(pd.Series, dfs[key][metric_key])
                 iter_v: np.ndarray[Any, Any] | None = None
                 x_v: np.ndarray[Any, Any] | None = None
                 metric_v_mean: np.ndarray[Any, Any] | None = None
@@ -373,9 +390,10 @@ class TrainDrawer:
 
                 if max_iter is not None:
                     x_t = x_t[:max_iter]
-                    metric_t = cast(pd.Series, metric_t.iloc[:max_iter])
+                    if metric_t is not None:
+                        metric_t = cast(pd.Series, metric_t.iloc[:max_iter])
 
-                if smoothing is not None and smoothing > 1:
+                if metric_t is not None and smoothing is not None and smoothing > 1:
                     metric_t = cast(
                         pd.Series,
                         metric_t.rolling(smoothing, min_periods=1, center=True).mean(),
@@ -383,7 +401,8 @@ class TrainDrawer:
 
                 if step is not None and step > 1:
                     x_t = x_t[::step]
-                    metric_t = cast(pd.Series, metric_t.iloc[::step])
+                    if metric_t is not None:
+                        metric_t = cast(pd.Series, metric_t.iloc[::step])
 
                 # Resolve the legend label based on whether curves are grouped
                 # by model, metric, or both on the active plot.
@@ -412,14 +431,16 @@ class TrainDrawer:
 
                 if not interactive:
                     axis = plt if not uses_subplots else axes[i]
-                    axis.plot(
-                        x_t,
-                        metric_t,
-                        label=label,
-                        color=color,
-                        alpha=self.alpha,
-                        linewidth=self.linewidth,
-                    )
+                    if show_train:
+                        assert metric_t is not None
+                        axis.plot(
+                            x_t,
+                            metric_t,
+                            label=label,
+                            color=color,
+                            alpha=self.alpha,
+                            linewidth=self.linewidth,
+                        )
 
                     if has_validation:
                         assert (
@@ -432,6 +453,7 @@ class TrainDrawer:
                             metric_v_mean,
                             yerr=metric_v_err,
                             fmt=".",
+                            label=label if not show_train else None,
                             color=color,
                             linewidth=self.linewidth,
                             markersize=self.markersize,
@@ -440,18 +462,20 @@ class TrainDrawer:
                 else:
                     legendgroup = f"group{idx}"
                     showlegend = same_plot or not i
-                    traces.append(
-                        go.Scatter(
-                            x=x_t,
-                            y=metric_t,
-                            name=label,
-                            line={"color": color},
-                            legendgroup=legendgroup,
-                            showlegend=showlegend,
+                    if show_train:
+                        assert metric_t is not None
+                        traces.append(
+                            go.Scatter(
+                                x=x_t,
+                                y=metric_t,
+                                name=label,
+                                line={"color": color},
+                                legendgroup=legendgroup,
+                                showlegend=showlegend,
+                            )
                         )
-                    )
-                    if uses_subplots:
-                        trace_rows.append(i + 1)
+                        if uses_subplots:
+                            trace_rows.append(i + 1)
 
                     if has_validation:
                         assert (
@@ -467,10 +491,11 @@ class TrainDrawer:
                                 y=metric_v_mean,
                                 error_y={"array": metric_v_err},
                                 mode="markers",
+                                name=label,
                                 hovertext=hovertext,
                                 marker={"color": color},
                                 legendgroup=legendgroup,
-                                showlegend=False,
+                                showlegend=showlegend if not show_train else False,
                             )
                         )
                         if uses_subplots:
