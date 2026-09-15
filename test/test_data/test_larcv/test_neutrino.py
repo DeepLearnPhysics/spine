@@ -130,9 +130,12 @@ class TestNeutrinoCreation:
         """Test scheme-aware interaction enum helper properties."""
         from spine.constants import (
             GenieNuInteractionType,
+            GiBUUNuInteractionType,
             LArSoftNuInteractionType,
+            NeutNuInteractionType,
             NuCurrentType,
             NuInteractionScheme,
+            NuWroNuInteractionType,
         )
         from spine.data import Neutrino
 
@@ -157,6 +160,33 @@ class TestNeutrinoCreation:
         assert (
             genie_nu.resolve_enum("interaction_type", 4) == GenieNuInteractionType.RES
         )
+
+        gibuu_nu = Neutrino(
+            id=2,
+            interaction_scheme=int(NuInteractionScheme.GIBUU),
+            interaction_mode=400,
+            interaction_type=301,
+        )
+        assert gibuu_nu.interaction_mode_enum == GiBUUNuInteractionType.CC_RES_DELTA
+        assert gibuu_nu.interaction_type_enum == GiBUUNuInteractionType.CC_2P2H_DELTA
+
+        nuwro_nu = Neutrino(
+            id=3,
+            interaction_scheme=int(NuInteractionScheme.NUWRO),
+            interaction_mode=2,
+            interaction_type=100,
+        )
+        assert nuwro_nu.interaction_mode_enum == NuWroNuInteractionType.CCMEC
+        assert nuwro_nu.interaction_type_enum == NuWroNuInteractionType.CCHYPERON
+
+        neut_nu = Neutrino(
+            id=4,
+            interaction_scheme=int(NuInteractionScheme.NEUT),
+            interaction_mode=600,
+            interaction_type=225,
+        )
+        assert neut_nu.interaction_mode_enum == NeutNuInteractionType.CC_DIS_NU
+        assert neut_nu.interaction_type_enum == NeutNuInteractionType.CC_QE_PROTON_NUBAR
         assert genie_nu.resolve_enum("current_type", 0) == NuCurrentType.CC
         assert genie_nu.resolve_label("pdg_code", 14) == "nu(mu)"
         assert genie_nu.resolve_label("target", 1000060120) == "C12"
@@ -185,7 +215,7 @@ class TestNeutrinoCreation:
         )
         assert struck_antidown_nu.resolve_label("quark") == "d~"
 
-        unknown_nu = Neutrino(id=2, interaction_mode=0, interaction_type=1001)
+        unknown_nu = Neutrino(id=5, interaction_mode=0, interaction_type=1001)
         assert unknown_nu.interaction_mode_enum is None
         assert unknown_nu.interaction_type_enum is None
         assert unknown_nu.pdg_code == 0

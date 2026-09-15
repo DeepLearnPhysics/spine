@@ -13,9 +13,12 @@ import numpy as np
 from spine.constants import (
     INVALID_PDG,
     GenieNuInteractionType,
+    GiBUUNuInteractionType,
     LArSoftNuInteractionType,
+    NeutNuInteractionType,
     NuCurrentType,
     NuInteractionScheme,
+    NuWroNuInteractionType,
 )
 from spine.data.base import PosDataBase
 from spine.data.decorator import stored_property
@@ -203,20 +206,44 @@ class Neutrino(PosDataBase):
     @property
     def interaction_mode_enum(
         self,
-    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
+    ) -> (
+        LArSoftNuInteractionType
+        | GenieNuInteractionType
+        | GiBUUNuInteractionType
+        | NuWroNuInteractionType
+        | NeutNuInteractionType
+        | None
+    ):
         """Interpret the interaction mode under the stored interaction scheme."""
         return cast(
-            LArSoftNuInteractionType | GenieNuInteractionType | None,
+            LArSoftNuInteractionType
+            | GenieNuInteractionType
+            | GiBUUNuInteractionType
+            | NuWroNuInteractionType
+            | NeutNuInteractionType
+            | None,
             self.resolve_enum("interaction_mode"),
         )
 
     @property
     def interaction_type_enum(
         self,
-    ) -> LArSoftNuInteractionType | GenieNuInteractionType | None:
+    ) -> (
+        LArSoftNuInteractionType
+        | GenieNuInteractionType
+        | GiBUUNuInteractionType
+        | NuWroNuInteractionType
+        | NeutNuInteractionType
+        | None
+    ):
         """Interpret the interaction type under the stored interaction scheme."""
         return cast(
-            LArSoftNuInteractionType | GenieNuInteractionType | None,
+            LArSoftNuInteractionType
+            | GenieNuInteractionType
+            | GiBUUNuInteractionType
+            | NuWroNuInteractionType
+            | NeutNuInteractionType
+            | None,
             self.resolve_enum("interaction_type"),
         )
 
@@ -231,6 +258,9 @@ class Neutrino(PosDataBase):
         scheme_to_enum = {
             int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
             int(NuInteractionScheme.GENIE): GenieNuInteractionType,
+            int(NuInteractionScheme.GIBUU): GiBUUNuInteractionType,
+            int(NuInteractionScheme.NUWRO): NuWroNuInteractionType,
+            int(NuInteractionScheme.NEUT): NeutNuInteractionType,
         }
         enum_type = scheme_to_enum.get(self.interaction_scheme)
         if enum_type is None:
