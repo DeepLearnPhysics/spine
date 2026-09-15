@@ -1093,6 +1093,17 @@ def test_resume_can_restart_configured_scheduler_and_preserve_optimizer_state(
     assert not scheduler_loads
 
 
+def test_scheduler_restart_rejects_parameter_group_count_mismatch():
+    """Scheduler restart requires configured and restored groups to align."""
+    manager = make_bare_manager(
+        optimizer=SimpleNamespace(param_groups=[{"lr": 1.0e-3}]),
+        _scheduler_restart_param_groups=[{"lr": 2.0e-3}, {"lr": 3.0e-3}],
+    )
+
+    with pytest.raises(ValueError, match="parameter-group counts differ"):
+        manager._restore_scheduler_initial_param_groups()
+
+
 @pytest.mark.parametrize("has_scheduler_state", [True, False])
 def test_scheduler_restart_uses_fresh_pytorch_schedule(
     monkeypatch, tmp_path, has_scheduler_state
