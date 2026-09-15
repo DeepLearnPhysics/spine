@@ -73,10 +73,13 @@ from spine.constants.enums import (
     TRACK_SHP,
     UNKWN_SHP,
     GenieNuInteractionType,
+    GiBUUNuInteractionType,
     LArSoftNuInteractionType,
+    NeutNuInteractionType,
     NuCurrentType,
     NuInteractionScheme,
     NuInteractionType,
+    NuWroNuInteractionType,
     ParticlePID,
     ParticleShape,
 )
@@ -139,6 +142,9 @@ def test_enum_factory_parses_scalar_and_sequence_values():
     assert enum_factory("shape", "shower") == int(ParticleShape.SHOWER)
     assert enum_factory("pid", "MUON") == int(ParticlePID.MUON)
     assert enum_factory("interaction_scheme", "genie") == int(NuInteractionScheme.GENIE)
+    assert enum_factory("interaction_scheme", "gibuu") == int(NuInteractionScheme.GIBUU)
+    assert enum_factory("interaction_scheme", "nuwro") == int(NuInteractionScheme.NUWRO)
+    assert enum_factory("interaction_scheme", "neut") == int(NuInteractionScheme.NEUT)
     assert enum_factory("pid", ["photon", "proton"]) == [
         int(ParticlePID.PHOTON),
         int(ParticlePID.PROTON),
@@ -167,6 +173,9 @@ def test_package_root_reexports_common_symbols():
     assert constants.NuInteractionScheme is NuInteractionScheme
     assert constants.LArSoftNuInteractionType is LArSoftNuInteractionType
     assert constants.GenieNuInteractionType is GenieNuInteractionType
+    assert constants.GiBUUNuInteractionType is GiBUUNuInteractionType
+    assert constants.NuWroNuInteractionType is NuWroNuInteractionType
+    assert constants.NeutNuInteractionType is NeutNuInteractionType
     assert constants.enum_factory is enum_factory
     assert constants.COORD_COLS == COORD_COLS
     assert constants.LAR_DENSITY_G_CM3 == LAR_DENSITY_G_CM3

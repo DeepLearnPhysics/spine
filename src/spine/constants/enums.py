@@ -24,6 +24,9 @@ __all__ = [
     "NuInteractionScheme",
     "LArSoftNuInteractionType",
     "GenieNuInteractionType",
+    "GiBUUNuInteractionType",
+    "NuWroNuInteractionType",
+    "NeutNuInteractionType",
     # Backward-compatible aliases
     "SHOWR_SHP",
     "TRACK_SHP",
@@ -88,6 +91,9 @@ class NuInteractionScheme(IntEnum):
     UNKNOWN = -1
     LARSOFT = 0
     GENIE = 1
+    GIBUU = 2
+    NUWRO = 3
+    NEUT = 4
 
 
 # LArSoft/SBN neutrino interaction categories
@@ -194,6 +200,120 @@ class GenieNuInteractionType(IntEnum):
     DARKMATTERDIS = 102
     DARKMATTERELECTRON = 103
     NORM = 104
+
+
+# GiBUU neutrino interaction categories
+# --------------------------------------
+# Source: GiBUU's NuHepMC process table (NuHepMC.ProcessInfo metadata).
+class GiBUUNuInteractionType(IntEnum):
+    """Enumerates GiBUU NuHepMC process identifiers."""
+
+    UNKNOWN = -1
+    UNRECOGNIZED = 0
+    CCQE = 200
+    NCQE = 250
+    CC_2P2H_QE = 300
+    CC_2P2H_DELTA = 301
+    NC_2P2H_QE = 350
+    NC_2P2H_DELTA = 351
+    CC_RES_DELTA = 400
+    CC_RES_OTHER = 401
+    NC_RES_DELTA = 450
+    NC_RES_OTHER = 451
+    CC_BKGD_NEUTRON = 500
+    CC_BKGD_PROTON = 501
+    CC_BKGD_2PI = 502
+    NC_BKGD_NEUTRON = 550
+    NC_BKGD_PROTON = 551
+    NC_BKGD_2PI = 552
+    CC_DIS = 600
+    NC_DIS = 650
+
+
+# NuWro neutrino interaction categories
+# --------------------------------------
+# Source: NuWro's nuwro2rootracker GetNeutChannel conversion. These are the
+# simplified NEUT-style channel identifiers written to EvtCode.
+class NuWroNuInteractionType(IntEnum):
+    """Enumerates NuWro RooTracker interaction channel identifiers."""
+
+    UNKNOWN = -1
+    CCQE = 1
+    CCMEC = 2
+    CCRES = 11
+    CCCOH = 16
+    CCDIS = 26
+    NCRES = 31
+    NCCOH = 36
+    NCDIS = 46
+    NCQE = 51
+    CCHYPERON = 100
+
+
+# NEUT neutrino interaction categories
+# -------------------------------------
+# Source: neutvect-converter's NuHepMC.ProcessInfo table. Positive NuHepMC
+# process IDs are used instead of signed NEUT mode values so that NEUT's -1
+# CCQE antineutrino mode cannot collide with SPINE's missing-value sentinel.
+class NeutNuInteractionType(IntEnum):
+    """Enumerates NEUT NuHepMC process identifiers."""
+
+    UNKNOWN = -1
+    CC_COH_NU = 100
+    CC_DIF_NU = 110
+    CC_COH_NUBAR = 125
+    CC_DIF_NUBAR = 135
+    NC_COH_NU = 150
+    NC_DIF_NU = 160
+    NC_COH_NUBAR = 175
+    NC_DIF_NUBAR = 185
+    CC_QE_NU = 200
+    CC_QE_PROTON_NUBAR = 225
+    NC_ELASTIC_PROTON_NU = 250
+    NC_ELASTIC_NEUTRON_NU = 251
+    NC_ELASTIC_PROTON_NUBAR = 275
+    NC_ELASTIC_NEUTRON_NUBAR = 276
+    CC_2P2H_NU = 300
+    CC_2P2H_NUBAR = 325
+    CC_RES_PROTON_PI_PLUS_NU = 400
+    CC_RES_PROTON_PI_ZERO_NU = 401
+    CC_RES_NEUTRON_PI_PLUS_NU = 402
+    CC_ETA_NU = 410
+    CC_KAON_NU = 411
+    CC_SINGLE_GAMMA_NU = 412
+    CC_RES_NEUTRON_PI_MINUS_NUBAR = 425
+    CC_RES_PROTON_PI_ZERO_NUBAR = 426
+    CC_RES_PROTON_PI_MINUS_NUBAR = 427
+    CC_ETA_NUBAR = 435
+    CC_KAON_NUBAR = 436
+    CC_SINGLE_GAMMA_NUBAR = 437
+    NC_RES_NEUTRON_PI_ZERO_NU = 450
+    NC_RES_PROTON_PI_ZERO_NU = 451
+    NC_RES_NEUTRON_PI_PLUS_NU = 452
+    NC_ETA_NEUTRON_NU = 460
+    NC_ETA_PROTON_NU = 461
+    NC_KAON_NEUTRON_NU = 462
+    NC_KAON_PROTON_NU = 463
+    NC_SINGLE_GAMMA_NEUTRON_NU = 464
+    NC_SINGLE_GAMMA_PROTON_NU = 465
+    NC_RES_NEUTRON_PI_ZERO_NUBAR = 475
+    NC_RES_PROTON_PI_ZERO_NUBAR = 476
+    NC_RES_PROTON_PI_MINUS_NUBAR = 478
+    NC_RES_NEUTRON_PI_PLUS_NUBAR = 479
+    NC_ETA_NEUTRON_NUBAR = 485
+    NC_ETA_PROTON_NUBAR = 486
+    NC_KAON_NEUTRON_NUBAR = 487
+    NC_KAON_PROTON_NUBAR = 488
+    NC_SINGLE_GAMMA_NEUTRON_NUBAR = 489
+    NC_SINGLE_GAMMA_PROTON_NUBAR = 490
+    CC_MULTI_PI_NU = 500
+    CC_MULTI_PI_NUBAR = 525
+    NC_MULTI_PI_NU = 550
+    NC_MULTI_PI_NUBAR = 575
+    CC_DIS_NU = 600
+    NC_DIS_NU = 601
+    CC_DIS_NUBAR = 625
+    NC_DIS_NUBAR = 675
 
 
 # Temporary compatibility alias
