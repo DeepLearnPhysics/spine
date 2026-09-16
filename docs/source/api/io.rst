@@ -163,6 +163,13 @@ used through a data loader. Defaults are restricted to fixed-width scalar data
 class fields and apply only when the field is absent from the stored schema;
 they do not reinterpret an explicitly stored sentinel value.
 
+The LArCV neutrino parser accepts ``larsoft``, ``genie``, ``gibuu``, ``nuwro``,
+and ``neut`` for ``interaction_scheme``. The selected scheme controls how
+``interaction_mode`` and ``interaction_type`` are resolved to named enum
+members; it does not translate codes between generators. GiBUU and NEUT use
+the process IDs published in their NuHepMC metadata, while NuWro uses the
+simplified NEUT-style channel ID written by ``nuwro2rootracker``.
+
 Datasets
 --------
 
