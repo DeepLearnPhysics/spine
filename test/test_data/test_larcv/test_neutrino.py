@@ -164,28 +164,28 @@ class TestNeutrinoCreation:
         gibuu_nu = Neutrino(
             id=2,
             interaction_scheme=int(NuInteractionScheme.GIBUU),
-            interaction_mode=400,
+            interaction_mode=4,
             interaction_type=301,
         )
-        assert gibuu_nu.interaction_mode_enum == GiBUUNuInteractionType.CC_RES_DELTA
+        assert gibuu_nu.interaction_mode_enum == GenieNuInteractionType.RES
         assert gibuu_nu.interaction_type_enum == GiBUUNuInteractionType.CC_2P2H_DELTA
 
         nuwro_nu = Neutrino(
             id=3,
             interaction_scheme=int(NuInteractionScheme.NUWRO),
-            interaction_mode=2,
+            interaction_mode=10,
             interaction_type=100,
         )
-        assert nuwro_nu.interaction_mode_enum == NuWroNuInteractionType.CCMEC
+        assert nuwro_nu.interaction_mode_enum == GenieNuInteractionType.MEC
         assert nuwro_nu.interaction_type_enum == NuWroNuInteractionType.CCHYPERON
 
         neut_nu = Neutrino(
             id=4,
             interaction_scheme=int(NuInteractionScheme.NEUT),
-            interaction_mode=600,
+            interaction_mode=3,
             interaction_type=225,
         )
-        assert neut_nu.interaction_mode_enum == NeutNuInteractionType.CC_DIS_NU
+        assert neut_nu.interaction_mode_enum == GenieNuInteractionType.DIS
         assert neut_nu.interaction_type_enum == NeutNuInteractionType.CC_QE_PROTON_NUBAR
         assert genie_nu.resolve_enum("current_type", 0) == NuCurrentType.CC
         assert genie_nu.resolve_label("pdg_code", 14) == "nu(mu)"

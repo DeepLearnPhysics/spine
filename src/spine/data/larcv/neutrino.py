@@ -256,12 +256,21 @@ class Neutrino(PosDataBase):
             value = getattr(self, attr)
 
         scheme_to_enum = {
-            int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
-            int(NuInteractionScheme.GENIE): GenieNuInteractionType,
-            int(NuInteractionScheme.GIBUU): GiBUUNuInteractionType,
-            int(NuInteractionScheme.NUWRO): NuWroNuInteractionType,
-            int(NuInteractionScheme.NEUT): NeutNuInteractionType,
-        }
+            "interaction_mode": {
+                int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
+                int(NuInteractionScheme.GENIE): GenieNuInteractionType,
+                int(NuInteractionScheme.GIBUU): GenieNuInteractionType,
+                int(NuInteractionScheme.NUWRO): GenieNuInteractionType,
+                int(NuInteractionScheme.NEUT): GenieNuInteractionType,
+            },
+            "interaction_type": {
+                int(NuInteractionScheme.LARSOFT): LArSoftNuInteractionType,
+                int(NuInteractionScheme.GENIE): GenieNuInteractionType,
+                int(NuInteractionScheme.GIBUU): GiBUUNuInteractionType,
+                int(NuInteractionScheme.NUWRO): NuWroNuInteractionType,
+                int(NuInteractionScheme.NEUT): NeutNuInteractionType,
+            },
+        }[attr]
         enum_type = scheme_to_enum.get(self.interaction_scheme)
         if enum_type is None:
             return None
