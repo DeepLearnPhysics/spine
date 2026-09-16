@@ -416,9 +416,9 @@ def test_initialize_io_reader_writer_and_iteration_harmonization(monkeypatch):
     assert drv.iterations is None
     assert drv.epochs is None
 
-    with pytest.raises(ValueError, match="either a loader or a reader"):
+    with pytest.raises(ValueError, match="exactly one"):
         drv.initialize_io({})
-    with pytest.raises(ValueError, match="either a loader or a reader"):
+    with pytest.raises(ValueError, match="exactly one"):
         drv.initialize_io({"loader": {}, "reader": {}})
 
 

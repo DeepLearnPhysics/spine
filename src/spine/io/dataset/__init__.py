@@ -1,9 +1,9 @@
-"""Torch-backed dataset adapters for SPINE IO.
+"""Framework-neutral event dataset adapters for SPINE IO.
 
-The dataset layer sits between low-level readers and PyTorch DataLoaders. It is
+The dataset layer sits between low-level readers and optional data loaders. It is
 responsible for:
 
-- exposing ``__len__`` and ``__getitem__`` for torch
+- exposing map-style ``__len__`` and ``__getitem__`` access
 - converting raw reader outputs into parser products
 - attaching augmentation, collate-type, and overlay metadata
 - composing source datasets when training needs aligned cache products

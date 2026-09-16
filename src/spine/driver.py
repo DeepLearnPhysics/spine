@@ -511,8 +511,8 @@ class Driver:
         Parameters
         ----------
         io : Mapping[str, Any]
-            Top-level I/O configuration mapping. This may contain ``loader``,
-            ``reader``, and/or ``writer`` sections.
+            Top-level I/O configuration mapping. This contains exactly one of
+            ``loader``, ``dataset`` or ``reader``, plus an optional ``writer``.
         """
         geo_kwargs = {}
         if getattr(self, "geo_cfg", None) is not None:

@@ -28,8 +28,9 @@ Configuration
 -------------
 
 ``Configuration file must contain an io block``
-   Every driver run needs ``io`` with a reader and/or loader. A model requires
-   ``io.loader``; random-access inspection of existing HDF5 output normally
+   Every driver run needs ``io`` with exactly one reader, direct dataset, or
+   loader. A model requires ``io.loader``; parsed event-at-a-time workflows use
+   ``io.dataset``; random-access inspection of existing HDF5 output normally
    uses ``io.reader``.
 
 ``Unrecognized keys in base configuration``
@@ -46,15 +47,15 @@ An include or relative file cannot be found
 A command-line override has no effect
    Confirm the dot path against the resolved configuration. ``--output`` only
    modifies an existing ``io.writer``; it does not create one. Source overrides
-   target the configured reader or loader dataset. Composite datasets may
-   require ``TARGET=PATH`` syntax.
+   target the configured reader, direct dataset, or loader dataset. Composite
+   datasets may require ``TARGET=PATH`` syntax.
 
 Reader, Loader, And Products
 ----------------------------
 
 ``The model can only be used in conjunction with a loader``
    Models consume collated batches. Configure ``io.loader`` rather than
-   ``io.reader`` for model training or inference.
+   ``io.dataset`` or ``io.reader`` for model training or inference.
 
 A post-processor reports a missing key
    Post-processors declare required products and execute after model forwarding,

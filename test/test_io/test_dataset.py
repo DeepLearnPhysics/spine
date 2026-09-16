@@ -1,6 +1,5 @@
 """Test that the dataset classes work as intended."""
 
-import importlib
 import warnings
 
 import numpy as np
@@ -11,7 +10,6 @@ from spine.io import dataset as dataset_module
 from spine.io.collate import CollateAll
 from spine.io.dataset import *
 from spine.io.dataset import base as dataset_base_module
-from spine.io.dataset import hdf5 as hdf5_dataset_module
 from spine.io.dataset import joint as joint_dataset_module
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset import mixed as mixed_dataset_module
@@ -289,12 +287,10 @@ def test_hdf5_dataset_discovers_unprojected_data_keys():
     assert dataset.data_keys == ()
 
 
-def test_hdf5_dataset_rejects_missing_torch(monkeypatch, hdf5_data):
-    """The HDF5 dataset should fail clearly when torch support is disabled."""
-    monkeypatch.setattr(hdf5_dataset_module, "TORCH_AVAILABLE", False)
-
-    with pytest.raises(ImportError, match="PyTorch is required"):
-        HDF5Dataset(file_keys=hdf5_data, build_classes=False)
+def test_hdf5_dataset_is_framework_neutral(hdf5_data):
+    """The HDF5 dataset should not require the PyTorch runtime."""
+    dataset = HDF5Dataset(file_keys=hdf5_data, build_classes=False)
+    assert len(dataset) > 0
 
 
 def test_mixed_dataset_uses_source_file_metadata_alignment(monkeypatch, tmp_path):
@@ -2014,17 +2010,9 @@ def test_larcv_dataset_parser_failure_logs_and_raises(monkeypatch):
         dataset[0]
 
 
-def test_dataset_module_import_safe_without_torch(monkeypatch):
-    """The dataset base module should define a stand-in Dataset without torch."""
-    import spine.utils.conditional as conditional
-
-    monkeypatch.setattr(conditional, "TORCH_AVAILABLE", False)
-    reloaded = importlib.reload(dataset_base_module)
-    try:
-        assert reloaded.Dataset.__name__ == "Dataset"
-    finally:
-        monkeypatch.setattr(conditional, "TORCH_AVAILABLE", TORCH_AVAILABLE)
-        importlib.reload(dataset_base_module)
+def test_dataset_base_is_framework_neutral():
+    """The dataset base should inherit directly from the Python object type."""
+    assert dataset_base_module.BaseDataset.__bases__ == (object,)
 
 
 def test_dataset_package_exports_classes():

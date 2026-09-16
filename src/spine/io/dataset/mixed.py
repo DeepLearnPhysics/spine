@@ -27,7 +27,7 @@ CACHE_ENTRY_DOMAINS = ("auto", "source", "filtered")
 
 
 class MixedDataset(BaseDataset):
-    """Torch dataset that merges samples from aligned primary and cache sources.
+    """Event dataset that merges samples from aligned primary and cache sources.
 
     The primary dataset owns iteration order and usually supplies raw or truth
     products. The cache dataset supplies materialized products from an earlier

@@ -12,7 +12,7 @@ __all__ = ["JointDataset"]
 
 
 class JointDataset(BaseDataset):
-    """Torch dataset that overlays unaligned primary/secondary events.
+    """Event dataset that overlays unaligned primary/secondary events.
 
     This class is intentionally different from :class:`MixedDataset`:
 
@@ -171,7 +171,9 @@ class JointDataset(BaseDataset):
             Instantiated or pass-through source dataset.
         """
         if isinstance(source, (Mapping, str)):
-            from ..factories import dataset_factory
+            # Import lazily to avoid a cycle while the dataset factory builds
+            # its registry from this package.
+            from ..factories import dataset_factory  # pylint: disable=C0415
 
             return dataset_factory(source, dtype=dtype)
 
@@ -184,6 +186,27 @@ class JointDataset(BaseDataset):
         secondary indexes to pair with those primary entries.
         """
         return len(self.primary)
+
+    def sequential_pair_index(self, primary_idx: int) -> tuple[int, int]:
+        """Pair one primary entry with a cycling secondary entry.
+
+        This deterministic policy mirrors :class:`JointSequentialBatchSampler`
+        without requiring a loader or PyTorch. The primary dataset continues
+        to define the traversal length; a shorter secondary source cycles and
+        a longer one contributes its first ``len(primary)`` entries.
+
+        Parameters
+        ----------
+        primary_idx : int
+            Index into the primary dataset.
+
+        Returns
+        -------
+        tuple[int, int]
+            Primary index and corresponding modulo-wrapped secondary index.
+        """
+        primary_idx = int(primary_idx)
+        return primary_idx, primary_idx % len(self.secondary)
 
     def __getitem__(self, idx: int | tuple[int, int | None]) -> DataDict:
         """Return one primary sample or one primary/secondary overlay.

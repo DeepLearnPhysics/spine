@@ -1,9 +1,9 @@
 """Parse and apply CLI input-source overrides.
 
-Standard SPINE datasets accept one unqualified ``file_keys`` or ``file_list``
-selector. Composite datasets instead contain named source blocks, so their
-command-line values use ``target=path`` syntax. This module owns the parsing,
-validation and configuration routing for both forms.
+Standard SPINE readers and datasets accept one unqualified ``file_keys`` or
+``file_list`` selector. Composite datasets instead contain named source
+blocks, so their command-line values use ``target=path`` syntax. This module
+owns the parsing, validation and configuration routing for both forms.
 """
 
 from __future__ import annotations
@@ -253,12 +253,13 @@ def get_input_config(io_cfg: MutableMapping) -> tuple[MutableMapping, bool]:
     Parameters
     ----------
     io_cfg : MutableMapping
-        Top-level ``io`` configuration containing either a reader or loader.
+        Top-level ``io`` configuration containing a reader, direct dataset or
+        loader.
 
     Returns
     -------
     MutableMapping
-        Inline reader configuration or loader dataset configuration.
+        Inline reader or dataset configuration.
     bool
         ``True`` when the returned block is a dataset, ``False`` for a reader.
 
@@ -278,6 +279,14 @@ def get_input_config(io_cfg: MutableMapping) -> tuple[MutableMapping, bool]:
             raise TypeError("CLI source overrides require an inline `io.reader` block.")
         return reader, False
 
+    dataset = io_cfg.get("dataset")
+    if dataset is not None:
+        if not isinstance(dataset, MutableMapping):
+            raise TypeError(
+                "CLI source overrides require an inline `io.dataset` block."
+            )
+        return dataset, True
+
     loader = io_cfg.get("loader")
     if loader is not None:
         if not isinstance(loader, MutableMapping):
@@ -292,7 +301,10 @@ def get_input_config(io_cfg: MutableMapping) -> tuple[MutableMapping, bool]:
             )
         return dataset, True
 
-    raise KeyError("Must specify `loader` or `reader` in the `io` block.")
+    raise KeyError(
+        "Must specify `loader` or `reader`, or a direct `dataset`, "
+        "in the `io` block. Supported input blocks are loader, dataset, reader."
+    )
 
 
 def apply_source_overrides(

@@ -1,28 +1,18 @@
-"""Shared helpers for torch-backed datasets."""
+"""Shared helpers for framework-neutral event datasets."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
-from spine.utils.conditional import TORCH_AVAILABLE
-
 from ..augment import AugmentManager
-
-if TORCH_AVAILABLE:
-    from torch.utils.data import Dataset
-else:
-
-    class Dataset:
-        """Import-safe stand-in used when PyTorch is unavailable."""
-
 
 DataDict = dict[str, Any]
 Augmenter = Callable[[DataDict], DataDict]
 
 
-class BaseDataset(Dataset):
-    """Shared behavior for SPINE torch datasets.
+class BaseDataset:
+    """Shared behavior for SPINE event datasets.
 
     This base class centralizes the small amount of logic that every SPINE
     dataset needs:
@@ -33,6 +23,9 @@ class BaseDataset(Dataset):
 
     Concrete dataset classes remain responsible for instantiating their
     backend reader and converting raw reader outputs into parser products.
+    The map-style ``__len__``/``__getitem__`` protocol is deliberately
+    framework-neutral; PyTorch data loaders can consume it without requiring
+    dataset classes to inherit from a PyTorch base class.
     """
 
     _index_keys: ClassVar[tuple[str, str, str]] = (
@@ -47,10 +40,35 @@ class BaseDataset(Dataset):
         "source_file_entry_index",
     )
     augmenter: Augmenter | None
+    reader: Any
 
     def __init__(self) -> None:
         """Initialize shared dataset state."""
         self.augmenter = None
+
+    def __len__(self) -> int:
+        """Return the number of entries exposed by the dataset.
+
+        Concrete datasets must implement this map-style dataset operation.
+        Declaring it here makes the framework-neutral interface explicit to
+        static type checkers without introducing an abstract-base dependency.
+        """
+        raise NotImplementedError
+
+    def __getitem__(self, index: Any) -> DataDict:
+        """Return one parsed event from the dataset.
+
+        Parameters
+        ----------
+        index : object
+            Dataset-specific scalar or composite index.
+
+        Returns
+        -------
+        dict
+            Parsed event dictionary.
+        """
+        raise NotImplementedError
 
     def __getitems__(self, indices: Sequence[Any]) -> list[DataDict]:
         """Return a batch of samples using the scalar access fallback.
@@ -162,3 +180,13 @@ class BaseDataset(Dataset):
         """
         keys = (*cls._index_keys, *cls._source_keys)
         return {key: "cat" for key in keys}
+
+    @property
+    def overlay_methods(self) -> Mapping[str, str | None]:
+        """Return the overlay strategy for each exposed data product."""
+        raise NotImplementedError
+
+    @property
+    def data_keys(self) -> tuple[str, ...]:
+        """Return the names of all products emitted by the dataset."""
+        raise NotImplementedError

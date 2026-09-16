@@ -42,8 +42,8 @@ Top-level Contract
        an empty block if omitted, but direct :func:`spine.main.run` requires it.
    * - ``io``
      - Required
-     - :class:`spine.io.manager.IOManager`. A run needs a reader and/or loader;
-       models require a loader.
+     - :class:`spine.io.manager.IOManager`. A run needs exactly one reader,
+       direct dataset, or loader; models require a loader.
    * - ``geo``
      - Optional
      - :class:`spine.geo.manager.GeoManager`; required by geometry-dependent
@@ -140,10 +140,11 @@ The ``vertex`` key selects
 authoritative list of accepted settings, including inherited post-processing
 controls such as ``run_mode`` and truth-coordinate modes.
 
-Nested registries follow the same rule. A parser under
-``io.loader.dataset.schema``, an augmenter under
-``io.loader.dataset.augment``, and a calibrator nested in a calibration
-processor each resolve to the class listed in their package API page.
+Nested registries follow the same rule. A parser under either
+``io.dataset.schema`` or ``io.loader.dataset.schema``, an augmenter under the
+corresponding dataset ``augment`` block, and a calibrator nested in a
+calibration processor each resolve to the class listed in their package API
+page.
 
 Finding a setting
 -----------------
