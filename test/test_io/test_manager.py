@@ -303,6 +303,17 @@ def test_io_manager_initializes_direct_dataset(monkeypatch):
         "parsed": True,
     }
     assert dataset.calls == [2, 3]
+    assert manager.dataset_provenance() == {
+        "type": "fake",
+        "entries": 4,
+        "files": FakeReader.file_paths,
+    }
+
+    with pytest.raises(ValueError, match="entry number"):
+        manager.load()
+    manager.reader = None
+    with pytest.raises(RuntimeError, match="without a reader"):
+        manager.load(entry=0)
 
 
 def test_io_manager_direct_dataset_writer_needs_no_unwrap(monkeypatch):
@@ -411,6 +422,27 @@ def test_io_manager_validation(monkeypatch):
     manager.columnar = False
     with pytest.raises(RuntimeError, match="not configured"):
         manager.configure_columnar({"value": (("id",), True)})
+
+
+def test_io_manager_rejects_invalid_direct_dataset_readers(monkeypatch):
+    """Direct datasets should require a non-columnar backing reader."""
+    monkeypatch.setattr(
+        manager_mod,
+        "dataset_factory",
+        lambda *args, **kwargs: SimpleNamespace(reader=None),
+    )
+    with pytest.raises(RuntimeError, match="did not produce a reader"):
+        IOManager(dataset={"name": "invalid"})
+
+    dataset = FakeDataset()
+    dataset.reader.columnar = True
+    monkeypatch.setattr(manager_mod, "dataset_factory", lambda *args, **kwargs: dataset)
+    with pytest.raises(ValueError, match="Columnar input"):
+        IOManager(dataset={"name": "invalid"})
+
+    manager = object.__new__(IOManager)
+    manager.reader = None
+    assert manager._reader_post_processors(default=()) == ()
 
 
 def test_io_manager_prefix_variants(monkeypatch):

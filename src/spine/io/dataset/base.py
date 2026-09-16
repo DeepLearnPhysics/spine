@@ -40,10 +40,35 @@ class BaseDataset:
         "source_file_entry_index",
     )
     augmenter: Augmenter | None
+    reader: Any
 
     def __init__(self) -> None:
         """Initialize shared dataset state."""
         self.augmenter = None
+
+    def __len__(self) -> int:
+        """Return the number of entries exposed by the dataset.
+
+        Concrete datasets must implement this map-style dataset operation.
+        Declaring it here makes the framework-neutral interface explicit to
+        static type checkers without introducing an abstract-base dependency.
+        """
+        raise NotImplementedError
+
+    def __getitem__(self, index: Any) -> DataDict:
+        """Return one parsed event from the dataset.
+
+        Parameters
+        ----------
+        index : object
+            Dataset-specific scalar or composite index.
+
+        Returns
+        -------
+        dict
+            Parsed event dictionary.
+        """
+        raise NotImplementedError
 
     def __getitems__(self, indices: Sequence[Any]) -> list[DataDict]:
         """Return a batch of samples using the scalar access fallback.
@@ -155,3 +180,13 @@ class BaseDataset:
         """
         keys = (*cls._index_keys, *cls._source_keys)
         return {key: "cat" for key in keys}
+
+    @property
+    def overlay_methods(self) -> Mapping[str, str | None]:
+        """Return the overlay strategy for each exposed data product."""
+        raise NotImplementedError
+
+    @property
+    def data_keys(self) -> tuple[str, ...]:
+        """Return the names of all products emitted by the dataset."""
+        raise NotImplementedError

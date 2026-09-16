@@ -303,7 +303,7 @@ def get_input_config(io_cfg: MutableMapping) -> tuple[MutableMapping, bool]:
 
     raise KeyError(
         "Must specify `loader` or `reader`, or a direct `dataset`, "
-        "in the `io` block."
+        "in the `io` block. Supported input blocks are loader, dataset, reader."
     )
 
 
