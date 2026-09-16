@@ -136,7 +136,8 @@ class IOManager:
         # Must provide exactly one input configuration.
         if sum(value is not None for value in (loader, dataset, reader)) != 1:
             raise ValueError(
-                "Must provide exactly one of `loader`, `dataset`, or `reader`."
+                "Must provide exactly one input: `loader` or `reader`, or a "
+                "direct `dataset`."
             )
 
         # A bounded run can be expressed in iterations or epochs, but not both.
@@ -151,6 +152,7 @@ class IOManager:
         self.watch = StopwatchManager()
         self.loader = None
         self.dataset = None
+        self._direct_joint = False
         self.loader_iter = None
         self.unwrapper = None
         self.reader = None
@@ -291,18 +293,13 @@ class IOManager:
         Raises
         ------
         ValueError
-            If the configured dataset requires sampler-provided joint indexes
-            or exposes columnar reader output.
+            If the configured dataset exposes columnar reader output.
         """
         self.watch.initialize("load")
         if geo is not None:
             GeoManager.initialize_or_get(**geo)
         self.dataset = dataset_factory(dataset, dtype=dtype)
-        if getattr(self.dataset, "joint", False):
-            raise ValueError(
-                "JointDataset requires loader sampler-provided pair indexes and "
-                "cannot be traversed directly through `io.dataset`."
-            )
+        self._direct_joint = bool(getattr(self.dataset, "joint", False))
 
         self.reader = getattr(self.dataset, "reader", None)
         if self.reader is None:
@@ -433,6 +430,9 @@ class IOManager:
             return self.reader
 
         dataset = getattr(self, "dataset", None)
+        if dataset is None:
+            loader = getattr(self, "loader", None)
+            dataset = getattr(loader, "dataset", None)
         cache = getattr(dataset, "cache", None)
         cache_reader = getattr(cache, "reader", None)
         if getattr(cache_reader, "name", None) == "cache":
@@ -645,8 +645,11 @@ class IOManager:
 
             if entry is None:
                 entry = self.reader.get_run_event_index(run, subrun, event)
+            dataset_index: int | tuple[int, int] = entry
+            if self._direct_joint:
+                dataset_index = self.dataset.sequential_pair_index(entry)
             self.watch.start("load")
-            data = self.dataset[entry]
+            data = self.dataset[dataset_index]
             self.watch.stop("load")
             return data
 
@@ -894,7 +897,13 @@ class IOManager:
 
         self.watch.reset_if_active()
         self.watch.start("write")
-        self.writer(data, cfg)
+        writer_data = data
+        if self._direct_joint:
+            # A joint event carries vector-valued source indexes. Writers use
+            # the outer index dimension as the event axis, so add the one-entry
+            # batch boundary explicitly without collating downstream products.
+            writer_data = {key: [value] for key, value in data.items()}
+        self.writer(writer_data, cfg)
         self.watch.stop("write")
 
     def close(self, finalize: bool = True) -> None:

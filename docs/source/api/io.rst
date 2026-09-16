@@ -215,8 +215,11 @@ same parser schema as a loader-backed configuration:
      interactions: true
 
 Exactly one of ``io.reader``, ``io.dataset``, or ``io.loader`` must be
-configured. Direct ``JointDataset`` traversal is rejected because joint event
-pairs are selected by a loader sampler.
+configured. A direct ``JointDataset`` uses deterministic sequential pairing:
+the primary source defines the traversal length and primary entry ``i`` is
+overlaid with secondary entry ``i % len(secondary)``. Loader-backed joint
+datasets retain their configured random, probabilistic, or sequential sampler
+behavior.
 
 SPINE cache repositories have their own dataset type and can also be paired
 with raw input through the mixed dataset.

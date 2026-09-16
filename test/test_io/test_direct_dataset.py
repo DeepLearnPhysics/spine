@@ -4,10 +4,12 @@ import sys
 
 import numpy as np
 
+import spine.io.manager as manager_module
 from spine.driver import Driver
 from spine.io import IOManager
 from spine.io.dataset import larcv as larcv_dataset_module
 from spine.io.dataset.base import BaseDataset
+from spine.io.dataset.joint import JointDataset
 from spine.io.read import HDF5Reader
 from spine.io.write import HDF5Writer
 from spine.utils.conditional import TORCH_AVAILABLE
@@ -113,6 +115,85 @@ def test_direct_larcv_dataset_parses_reader_products(monkeypatch):
     assert data["index"] == 0
     assert np.issubdtype(data["value"].dtype, np.floating)
     np.testing.assert_array_equal(data["value"], np.asarray([1.0, 2.0]))
+
+
+def test_direct_joint_dataset_cycles_secondary_entries(monkeypatch, tmp_path):
+    """Direct joint traversal should write one event per primary entry."""
+
+    class DummyReader:
+        file_paths = ["input.root"]
+
+    class ScalarDataset(BaseDataset):
+        data_keys = ("index", "value")
+        overlay_methods = {"index": "cat", "value": "sum"}
+
+        def __init__(self, values):
+            super().__init__()
+            self.values = values
+            self.reader = DummyReader()
+
+        def __len__(self):
+            return len(self.values)
+
+        def __getitem__(self, index):
+            return {"index": index, "value": self.values[index]}
+
+    dataset = JointDataset(
+        primary=ScalarDataset([1.0, 2.0, 3.0]),
+        secondary=ScalarDataset([10.0, 20.0]),
+    )
+    monkeypatch.setattr(
+        manager_module, "dataset_factory", lambda *args, **kwargs: dataset
+    )
+    output_path = tmp_path / "joint.h5"
+    manager = IOManager(
+        dataset={"name": "joint"},
+        writer={
+            "name": "hdf5",
+            "file_name": str(output_path),
+            "overwrite": True,
+        },
+        iterations=-1,
+    )
+
+    for entry in range(manager.iterations):
+        data = manager.load(entry=entry)
+        manager.write(data, {})
+    manager.close()
+
+    reader = HDF5Reader(str(output_path), keep_open=False)
+    assert len(reader) == 3
+    assert [reader[index]["value"] for index in range(3)] == [11.0, 22.0, 13.0]
+
+
+def test_direct_joint_dataset_stops_at_primary_length():
+    """A longer secondary source should not extend direct joint traversal."""
+
+    class ScalarDataset(BaseDataset):
+        data_keys = ("index",)
+        overlay_methods = {"index": "cat"}
+
+        def __init__(self, size):
+            super().__init__()
+            self.size = size
+            self.reader = object()
+
+        def __len__(self):
+            return self.size
+
+        def __getitem__(self, index):
+            return {"index": index}
+
+    dataset = JointDataset(
+        primary=ScalarDataset(2),
+        secondary=ScalarDataset(5),
+    )
+
+    assert len(dataset) == 2
+    assert [dataset.sequential_pair_index(index) for index in range(len(dataset))] == [
+        (0, 0),
+        (1, 1),
+    ]
 
 
 def test_driver_converts_direct_dataset_without_loader(tmp_path):

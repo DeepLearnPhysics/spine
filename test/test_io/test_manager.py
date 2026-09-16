@@ -142,6 +142,24 @@ class FakeDataset:
         return {"index": entry, "parsed": True}
 
 
+class FakeJointDataset(FakeDataset):
+    """Joint dataset exposing deterministic direct-pair construction."""
+
+    joint = True
+
+    def __init__(self, secondary_size: int = 2) -> None:
+        super().__init__()
+        self.secondary = range(secondary_size)
+        self.calls: list[tuple[int, int]] = []
+
+    def sequential_pair_index(self, entry: int) -> tuple[int, int]:
+        return entry, entry % len(self.secondary)
+
+    def __getitem__(self, entry: tuple[int, int]) -> dict[str, object]:
+        self.calls.append(entry)
+        return {"index": list(entry), "parsed": True}
+
+
 def test_io_manager_initializes_reader_writer_and_iterations(monkeypatch):
     """Reader setup should derive prefixes, writer and iteration count."""
     writer_calls: list[tuple[object, str | list[str], bool]] = []
@@ -301,6 +319,27 @@ def test_io_manager_direct_dataset_writer_needs_no_unwrap(monkeypatch):
     )
 
     assert manager.writer == "writer"
+
+
+def test_io_manager_traverses_direct_joint_dataset(monkeypatch):
+    """Direct joint traversal should cycle secondary entries over primaries."""
+    dataset = FakeJointDataset(secondary_size=2)
+    written = []
+    monkeypatch.setattr(manager_mod, "dataset_factory", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(
+        manager_mod,
+        "writer_factory",
+        lambda *args, **kwargs: lambda data, cfg: written.append(data),
+    )
+
+    manager = IOManager(dataset={"name": "joint"}, writer={"name": "hdf5"})
+
+    first = manager.load(entry=3)
+    assert first == {"index": [3, 1], "parsed": True}
+    assert dataset.calls == [(3, 1)]
+
+    manager.write(first, {})
+    assert written == [{"index": [[3, 1]], "parsed": [True]}]
 
 
 def test_io_manager_allows_on_demand_iteration_config(monkeypatch):

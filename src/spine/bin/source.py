@@ -301,7 +301,10 @@ def get_input_config(io_cfg: MutableMapping) -> tuple[MutableMapping, bool]:
             )
         return dataset, True
 
-    raise KeyError("Must specify `loader`, `dataset`, or `reader` in the `io` block.")
+    raise KeyError(
+        "Must specify `loader` or `reader`, or a direct `dataset`, "
+        "in the `io` block."
+    )
 
 
 def apply_source_overrides(
