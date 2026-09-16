@@ -18,7 +18,7 @@ __all__ = ["LArCVDataset"]
 
 
 class LArCVDataset(BaseDataset):
-    """Torch dataset that parses LArCV entries into SPINE products.
+    """Event dataset that parses LArCV entries into SPINE products.
 
     The dataset wraps :class:`spine.io.read.LArCVReader` and a parser schema.
     The schema maps output product names to parser configurations from

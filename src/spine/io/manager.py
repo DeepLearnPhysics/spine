@@ -7,10 +7,11 @@ import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from spine.geo import GeoManager
 from spine.utils.conditional import TORCH_AVAILABLE
 from spine.utils.stopwatch import StopwatchManager
 
-from .factories import loader_factory, reader_factory, writer_factory
+from .factories import dataset_factory, loader_factory, reader_factory, writer_factory
 from .unwrap import Unwrapper
 
 __all__ = ["IOManager"]
@@ -20,10 +21,11 @@ class IOManager:
     """Central I/O setup manager.
 
     The manager owns the I/O-specific setup rules used by
-    :class:`spine.driver.Driver`. It selects exactly one input path, either a
-    PyTorch-style loader or an entry reader, exposes the underlying reader used
-    for event addressing, derives log/output prefixes from input file names,
-    configures the optional writer and harmonizes ``iterations`` and ``epochs``.
+    :class:`spine.driver.Driver`. It selects exactly one input path: a
+    PyTorch-style loader, a framework-neutral event dataset, or an entry
+    reader. It exposes the underlying reader used for event addressing,
+    derives log/output prefixes from input file names, configures the optional
+    writer and harmonizes ``iterations`` and ``epochs``.
     It also owns loader-batch unwrapping because that operation converts the
     loader I/O view into the per-entry view consumed by writers, builders,
     post-processors and analysis scripts.
@@ -32,7 +34,11 @@ class IOManager:
     ----------
     loader : object or None
         Instantiated PyTorch DataLoader-like object. ``None`` when running from
-        a reader.
+        a dataset or reader.
+    dataset : object or None
+        Framework-neutral event dataset. For loader mode this is the dataset
+        owned by the loader; for direct dataset mode it is traversed one event
+        at a time. ``None`` in raw reader mode.
     loader_iter : iterator or None
         Loader iterator used for sequential batch access.
     watch : StopwatchManager
@@ -40,11 +46,11 @@ class IOManager:
         into its aggregate stopwatch manager after processing.
     unwrapper : Unwrapper or None
         Batch unwrapper initialized when requested for loader-based execution.
-        This belongs to the I/O boundary: reader mode already yields one entry,
-        while loader mode may need to convert batched values into per-entry
-        value lists.
+        This belongs to the I/O boundary: reader and direct dataset modes
+        already yield one entry, while loader mode may need to convert batched
+        values into per-entry value lists.
     reader : object
-        Reader object backing either the configured reader or the loader
+        Reader object backing the configured reader, direct dataset, or loader
         dataset.
     writer : object or None
         Optional writer object used to persist driver outputs.
@@ -67,6 +73,7 @@ class IOManager:
     def __init__(
         self,
         loader: Mapping[str, Any] | None = None,
+        dataset: Mapping[str, Any] | None = None,
         reader: Mapping[str, Any] | None = None,
         writer: Mapping[str, Any] | None = None,
         *,
@@ -86,10 +93,15 @@ class IOManager:
         ----------
         loader : mapping, optional
             PyTorch DataLoader configuration mapping. Mutually exclusive
-            with ``reader``.
+            with ``dataset`` and ``reader``.
+        dataset : mapping, optional
+            Event dataset configuration mapping. Direct dataset mode applies
+            reader parsing and projection one event at a time without a
+            PyTorch DataLoader, collation, or unwrapping. Mutually exclusive
+            with ``loader`` and ``reader``.
         reader : mapping, optional
-            Reader configuration mapping. Mutually exclusive with
-            ``loader``.
+            Reader configuration mapping. Mutually exclusive with ``loader``
+            and ``dataset``.
         writer : mapping, optional
             Writer configuration mapping. If provided with a loader, the
             loader output must be unwrapped before writing. This is enforced
@@ -106,8 +118,8 @@ class IOManager:
             If ``True``, initialize distributed data loading hooks.
         unwrap : bool, default False
             If ``True`` and using a loader, initialize an ``Unwrapper``. This
-            is ignored for reader mode, which already loads one event at a
-            time.
+            is ignored for reader and direct dataset modes, which already load
+            one event at a time.
         iterations : int, optional
             Number of batches/entries to process. ``-1`` means one epoch.
         epochs : float, optional
@@ -118,13 +130,13 @@ class IOManager:
         Raises
         ------
         ValueError
-            If neither or both of ``loader`` and ``reader`` are provided, or if
-            both ``iterations`` and ``epochs`` are specified.
+            If exactly one of ``loader``, ``dataset`` and ``reader`` is not
+            provided, or if both ``iterations`` and ``epochs`` are specified.
         """
-        # Must provide exactly one of loader or reader configurations.
-        if (loader is not None) == (reader is not None):
+        # Must provide exactly one input configuration.
+        if sum(value is not None for value in (loader, dataset, reader)) != 1:
             raise ValueError(
-                "Must provide either a loader or a reader configuration, not both."
+                "Must provide exactly one of `loader`, `dataset`, or `reader`."
             )
 
         # A bounded run can be expressed in iterations or epochs, but not both.
@@ -138,6 +150,7 @@ class IOManager:
         # Initialize attributes to default values before calling setup methods.
         self.watch = StopwatchManager()
         self.loader = None
+        self.dataset = None
         self.loader_iter = None
         self.unwrapper = None
         self.reader = None
@@ -163,6 +176,8 @@ class IOManager:
                 distributed=distributed,
                 unwrap=unwrap,
             )
+        elif dataset is not None:
+            self._initialize_dataset(dataset, dtype=dtype, geo=geo)
         else:
             self._initialize_reader(reader)
 
@@ -237,8 +252,9 @@ class IOManager:
             world_size=world_size,
             distributed=distributed,
         )
+        self.dataset = self.loader.dataset
         self.iter_per_epoch = len(self.loader)
-        self.reader = self.loader.dataset.reader
+        self.reader = self.dataset.reader
 
         # Initialize the unwrapper if requested. This stays with I/O because it
         # is only meaningful for loader-backed batches.
@@ -248,6 +264,56 @@ class IOManager:
 
         # If working from LArCV files, no post-processor was yet run.
         self.post_list = ()
+
+    def _initialize_dataset(
+        self,
+        dataset: Mapping[str, Any],
+        *,
+        dtype: str,
+        geo: Mapping[str, Any] | None,
+    ) -> None:
+        """Initialize direct event-dataset traversal.
+
+        Direct datasets retain reader-side parsing and projection while
+        deliberately omitting loader batching, collation and worker setup.
+        Their scalar event products already match the representation consumed
+        by builders, post-processors, analysis scripts and writers.
+
+        Parameters
+        ----------
+        dataset : mapping
+            Dataset configuration mapping.
+        dtype : str
+            Floating-point precision forwarded to parser construction.
+        geo : mapping, optional
+            Geometry configuration initialized before dataset construction.
+
+        Raises
+        ------
+        ValueError
+            If the configured dataset requires sampler-provided joint indexes
+            or exposes columnar reader output.
+        """
+        self.watch.initialize("load")
+        if geo is not None:
+            GeoManager.initialize_or_get(**geo)
+        self.dataset = dataset_factory(dataset, dtype=dtype)
+        if getattr(self.dataset, "joint", False):
+            raise ValueError(
+                "JointDataset requires loader sampler-provided pair indexes and "
+                "cannot be traversed directly through `io.dataset`."
+            )
+
+        self.reader = getattr(self.dataset, "reader", None)
+        if self.reader is None:
+            raise RuntimeError(
+                "Direct dataset initialization did not produce a reader."
+            )
+        if bool(getattr(self.reader, "columnar", False)):
+            raise ValueError("Columnar input must be configured through `io.reader`.")
+
+        self.iter_per_epoch = len(self.dataset)
+        self.post_list = self._reader_post_processors(default=())
 
     def _initialize_reader(self, reader: Mapping[str, Any] | None) -> None:
         """Initialize the configured reader.
@@ -269,20 +335,28 @@ class IOManager:
 
         # Prefer cumulative provenance. Legacy files fall back to their stored
         # configuration, preserving the historical two-generation behavior.
-        self.post_list = getattr(self.reader, "post_processors", None)
-        if (
-            self.post_list is None
-            and self.reader.cfg is not None
-            and "post" in self.reader.cfg
-        ):
-            post_cfg = self.reader.cfg["post"]
+        self.post_list = self._reader_post_processors()
+
+    def _reader_post_processors(
+        self, default: tuple[str, ...] | None = None
+    ) -> tuple[str, ...] | None:
+        """Return cumulative or legacy post-processing provenance."""
+        if self.reader is None:
+            return default
+
+        post_list = getattr(self.reader, "post_processors", None)
+        reader_cfg = getattr(self.reader, "cfg", None)
+        if post_list is None and reader_cfg is not None and "post" in reader_cfg:
+            post_cfg = reader_cfg["post"]
             if isinstance(post_cfg, Mapping):
-                self.post_list = tuple(
+                post_list = tuple(
                     spec.get("name", key) if isinstance(spec, Mapping) else key
                     for key, spec in post_cfg.items()
                 )
             else:
-                self.post_list = tuple(post_cfg)
+                post_list = tuple(post_cfg)
+
+        return default if post_list is None else tuple(post_list)
 
     def _initialize_writer(
         self,
@@ -358,7 +432,7 @@ class IOManager:
         if getattr(self.reader, "name", None) == "cache":
             return self.reader
 
-        dataset = getattr(self.loader, "dataset", None)
+        dataset = getattr(self, "dataset", None)
         cache = getattr(dataset, "cache", None)
         cache_reader = getattr(cache, "reader", None)
         if getattr(cache_reader, "name", None) == "cache":
@@ -413,6 +487,11 @@ class IOManager:
     def has_loader(self) -> bool:
         """Whether this manager is backed by a sequential loader."""
         return self.loader is not None
+
+    @property
+    def has_dataset(self) -> bool:
+        """Whether this manager owns a parsed event dataset."""
+        return self.dataset is not None
 
     @property
     def has_writer(self) -> bool:
@@ -552,6 +631,22 @@ class IOManager:
 
             self.watch.start("load")
             data = next(self.loader_iter)
+            self.watch.stop("load")
+            return data
+
+        if self.dataset is not None:
+            if entry is None and (run is None or subrun is None or event is None):
+                raise ValueError(
+                    "Provide either the entry number or the run, subrun "
+                    "and event number to load from a dataset."
+                )
+            if self.reader is None:
+                raise RuntimeError("Cannot load dataset data without a reader.")
+
+            if entry is None:
+                entry = self.reader.get_run_event_index(run, subrun, event)
+            self.watch.start("load")
+            data = self.dataset[entry]
             self.watch.stop("load")
             return data
 
@@ -702,6 +797,8 @@ class IOManager:
     def dataset_provenance(self) -> dict[str, Any] | None:
         """Describe resolved dataset sources owned by this manager."""
         if self.loader is None:
+            if getattr(self, "dataset", None) is not None:
+                return self._dataset_provenance(self.dataset)
             if self.reader is None:
                 return None
             return {
@@ -855,8 +952,12 @@ class IOManager:
             skip_entry_list,
             run_event_list,
             skip_run_event_list,
+            False,
             entry_fraction_range,
         )
+        if self.loader is None:
+            source = self.dataset if self.dataset is not None else self.reader
+            self.iter_per_epoch = len(source)
         self.loader_iter = None
 
     def get_prefixes(

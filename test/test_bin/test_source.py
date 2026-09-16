@@ -90,6 +90,7 @@ def test_apply_source_overrides_rejects_incompatible_configs(
     ("io_cfg", "message"),
     [
         ({"reader": "reader.yaml"}, "inline `io.reader`"),
+        ({"dataset": "dataset.yaml"}, "inline `io.dataset`"),
         ({"loader": "loader.yaml"}, "`io.loader` block must be a mapping"),
         (
             {"loader": {"dataset": "dataset.yaml"}},
@@ -103,12 +104,22 @@ def test_input_config_rejects_external_blocks(io_cfg, message):
         source_module.get_input_config(io_cfg)
 
 
-def test_input_config_resolves_reader_and_rejects_missing_input():
-    """Inline readers resolve directly and absent input fails clearly."""
+def test_input_config_resolves_reader_dataset_and_rejects_missing_input():
+    """Inline reader/dataset inputs resolve and absent input fails clearly."""
     reader = {"name": "cache", "path": "input.spine-cache"}
+    dataset = {"name": "larcv", "file_keys": ["input.root"]}
     assert source_module.get_input_config({"reader": reader}) == (reader, False)
-    with pytest.raises(KeyError, match="loader.*reader"):
+    assert source_module.get_input_config({"dataset": dataset}) == (dataset, True)
+    with pytest.raises(KeyError, match="loader.*dataset.*reader"):
         source_module.get_input_config({})
+
+
+def test_apply_source_overrides_to_direct_dataset():
+    """Ordinary source flags should target a top-level direct dataset."""
+    io_cfg = {"dataset": {"name": "larcv", "file_keys": ["old.root"]}}
+    source_module.apply_source_overrides(io_cfg, ["new.root"], None)
+    assert io_cfg["dataset"]["file_keys"] == ["new.root"]
+    assert io_cfg["dataset"]["file_list"] is None
 
 
 def test_apply_source_overrides_without_values_is_a_noop():

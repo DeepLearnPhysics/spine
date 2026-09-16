@@ -1,28 +1,18 @@
-"""Shared helpers for torch-backed datasets."""
+"""Shared helpers for framework-neutral event datasets."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar
 
-from spine.utils.conditional import TORCH_AVAILABLE
-
 from ..augment import AugmentManager
-
-if TORCH_AVAILABLE:
-    from torch.utils.data import Dataset
-else:
-
-    class Dataset:
-        """Import-safe stand-in used when PyTorch is unavailable."""
-
 
 DataDict = dict[str, Any]
 Augmenter = Callable[[DataDict], DataDict]
 
 
-class BaseDataset(Dataset):
-    """Shared behavior for SPINE torch datasets.
+class BaseDataset:
+    """Shared behavior for SPINE event datasets.
 
     This base class centralizes the small amount of logic that every SPINE
     dataset needs:
@@ -33,6 +23,9 @@ class BaseDataset(Dataset):
 
     Concrete dataset classes remain responsible for instantiating their
     backend reader and converting raw reader outputs into parser products.
+    The map-style ``__len__``/``__getitem__`` protocol is deliberately
+    framework-neutral; PyTorch data loaders can consume it without requiring
+    dataset classes to inherit from a PyTorch base class.
     """
 
     _index_keys: ClassVar[tuple[str, str, str]] = (

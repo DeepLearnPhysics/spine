@@ -12,7 +12,7 @@ __all__ = ["JointDataset"]
 
 
 class JointDataset(BaseDataset):
-    """Torch dataset that overlays unaligned primary/secondary events.
+    """Event dataset that overlays unaligned primary/secondary events.
 
     This class is intentionally different from :class:`MixedDataset`:
 

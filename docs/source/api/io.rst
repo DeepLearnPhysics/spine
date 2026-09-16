@@ -21,8 +21,10 @@ The I/O layer is organized into a few cooperating pieces:
 - **Writers** persist flat outputs and transactional cache stages.
 - **Parsers** convert raw reader outputs into SPINE parser products used by
   downstream code.
-- **Datasets and pipeline utilities** bridge readers/parsers into PyTorch
-  data loading workflows.
+- **Datasets** combine readers and parsers into framework-neutral event
+  products. They may be traversed directly or passed to a PyTorch loader.
+- **Pipeline utilities** add batching, collation, sampling, and unwrapping for
+  model workflows.
 
 This is the first stage of the driver pipeline and the point where external
 detector data is mapped into SPINE's internal data structures.
@@ -175,9 +177,49 @@ NEUT-style channel ID written by ``nuwro2rootracker``.
 Datasets
 --------
 
-The dataset layer bridges low-level readers and parser logic into PyTorch
-``Dataset`` objects. SPINE cache repositories have their own dataset type and
-can also be paired with raw input through the mixed dataset.
+The dataset layer bridges low-level readers and parser logic into map-style
+event sources. A dataset can be nested below ``io.loader`` when a model needs
+batched and collated products, or selected directly as ``io.dataset`` for
+event-level construction, post-processing, analysis, and writing.
+
+Direct dataset traversal does not require PyTorch and does not collate or
+unwrap its products. For example, a LArCV-to-HDF5 conversion can reuse the
+same parser schema as a loader-backed configuration:
+
+.. code-block:: yaml
+
+   base:
+     iterations: -1
+
+   io:
+     dataset:
+       name: larcv
+       file_keys: /path/to/input.root
+       schema:
+         particles:
+           parser: particle
+           particle_event: particle_pcluster
+           cluster_event: cluster3d_pcluster
+         meta:
+           parser: meta
+           sparse_event: sparse3d_pcluster
+     writer:
+       name: hdf5
+       file_name: /path/to/output.h5
+
+   build:
+     mode: truth
+     units: cm
+     fragments: true
+     particles: true
+     interactions: true
+
+Exactly one of ``io.reader``, ``io.dataset``, or ``io.loader`` must be
+configured. Direct ``JointDataset`` traversal is rejected because joint event
+pairs are selected by a loader sampler.
+
+SPINE cache repositories have their own dataset type and can also be paired
+with raw input through the mixed dataset.
 
 .. autosummary::
    :toctree: generated

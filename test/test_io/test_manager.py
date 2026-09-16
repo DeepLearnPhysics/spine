@@ -124,6 +124,24 @@ class FakeLoaderNoReader:
         return 1
 
 
+class FakeDataset:
+    """Framework-neutral parsed dataset used by direct-input tests."""
+
+    name = "fake"
+
+    def __init__(self) -> None:
+        self.reader = FakeReader()
+        self.reader.get_run_event_index = lambda run, subrun, event: event
+        self.calls: list[int] = []
+
+    def __len__(self) -> int:
+        return len(self.reader)
+
+    def __getitem__(self, entry: int) -> dict[str, object]:
+        self.calls.append(entry)
+        return {"index": entry, "parsed": True}
+
+
 def test_io_manager_initializes_reader_writer_and_iterations(monkeypatch):
     """Reader setup should derive prefixes, writer and iteration count."""
     writer_calls: list[tuple[object, str | list[str], bool]] = []
@@ -229,6 +247,62 @@ def test_io_manager_initializes_loader_and_unwrapper(monkeypatch):
     assert calls[0]["geo"] == {"detector": "icarus"}
 
 
+def test_io_manager_initializes_direct_dataset(monkeypatch):
+    """Direct datasets should parse scalar events without loader machinery."""
+    dataset = FakeDataset()
+    calls: list[tuple[object, object]] = []
+    geometry_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        manager_mod.GeoManager,
+        "initialize_or_get",
+        lambda **kwargs: geometry_calls.append(kwargs),
+    )
+    monkeypatch.setattr(
+        manager_mod,
+        "dataset_factory",
+        lambda cfg, dtype=None: calls.append((cfg, dtype)) or dataset,
+    )
+
+    manager = IOManager(
+        dataset={"name": "fake"},
+        dtype="float64",
+        geo={"detector": "icarus"},
+        iterations=-1,
+    )
+
+    assert manager.loader is None
+    assert manager.dataset is dataset
+    assert manager.reader is dataset.reader
+    assert manager.has_dataset
+    assert not manager.has_loader
+    assert manager.iterations == len(dataset)
+    assert manager.post_list == ("existing",)
+    assert calls == [({"name": "fake"}, "float64")]
+    assert geometry_calls == [{"detector": "icarus"}]
+    assert manager.load(entry=2) == {"index": 2, "parsed": True}
+    assert manager.load(run=1, subrun=2, event=3) == {
+        "index": 3,
+        "parsed": True,
+    }
+    assert dataset.calls == [2, 3]
+
+
+def test_io_manager_direct_dataset_writer_needs_no_unwrap(monkeypatch):
+    """Scalar dataset products should be writable without batch unwrapping."""
+    monkeypatch.setattr(
+        manager_mod, "dataset_factory", lambda *args, **kwargs: FakeDataset()
+    )
+    monkeypatch.setattr(manager_mod, "writer_factory", lambda *args, **kwargs: "writer")
+
+    manager = IOManager(
+        dataset={"name": "fake"},
+        writer={"name": "hdf5"},
+        unwrap=False,
+    )
+
+    assert manager.writer == "writer"
+
+
 def test_io_manager_allows_on_demand_iteration_config(monkeypatch):
     """IOManager should allow omitted iteration bounds for on-demand loading."""
     monkeypatch.setattr(manager_mod, "reader_factory", lambda cfg: FakeReader())
@@ -258,11 +332,14 @@ def test_io_manager_preserves_iteration_limit_semantics(
 
 def test_io_manager_validation(monkeypatch):
     """IOManager should reject invalid I/O combinations."""
-    with pytest.raises(ValueError, match="either a loader or a reader"):
+    with pytest.raises(ValueError, match="exactly one"):
         IOManager()
 
-    with pytest.raises(ValueError, match="either a loader or a reader"):
+    with pytest.raises(ValueError, match="exactly one"):
         IOManager(loader={}, reader={})
+
+    with pytest.raises(ValueError, match="exactly one"):
+        IOManager(dataset={}, reader={})
 
     with pytest.raises(ValueError, match="iterations"):
         IOManager(reader={}, iterations=1, epochs=1)
@@ -525,11 +602,11 @@ def test_io_manager_apply_filter(monkeypatch):
     assert reader.calls == [
         (
             "process_entry_list",
-            (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)], None),
+            (1, 2, [3], [4], [(1, 2, 3)], [(4, 5, 6)], False, None),
         ),
         (
             "process_entry_list",
-            (None, None, None, None, None, None, (0.25, 0.75)),
+            (None, None, None, None, None, None, False, (0.25, 0.75)),
         ),
     ]
     assert manager.loader_iter is None

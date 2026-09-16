@@ -7,7 +7,6 @@ from typing import Any, ClassVar
 
 from spine.config.factory import instantiate, module_dict
 from spine.logging import logger
-from spine.utils.conditional import TORCH_AVAILABLE
 
 from ..parse import hdf5 as parse_hdf5
 from ..read import HDF5Reader
@@ -20,7 +19,7 @@ PARSER_DICT = module_dict(parse_hdf5)
 
 
 class HDF5Dataset(BaseDataset):
-    """Torch dataset wrapper around ordinary flat HDF5 files.
+    """Event dataset wrapper around ordinary flat HDF5 files.
 
     The dataset exposes a parser-driven interface to the DataLoader layer.
     Reader-produced metadata such as entry indexes and source provenance are
@@ -76,8 +75,6 @@ class HDF5Dataset(BaseDataset):
 
         # Validate the configuration and prepare reader arguments before
         # instantiating the backend.
-        if not TORCH_AVAILABLE:
-            raise ImportError("PyTorch is required to use HDF5Dataset.")
         if keys is not None and skip_keys is not None:
             raise ValueError("Provide either `keys` or `skip_keys`, not both.")
         stage_aware = self.supports_stages
