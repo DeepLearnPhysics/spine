@@ -1,10 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.3] - 2026-09-16
 
 ### Added
 - **Training-curve iteration axis**: Allow `TrainDrawer` to plot training and validation metrics against their native iteration numbers while retaining epochs as the default.
 - **Training-curve visibility controls**: Allow `TrainDrawer` callers to independently show or hide training curves and validation points.
+- **Generator-specific neutrino schemes**: Resolve native GiBUU, NuWro and NEUT interaction-type codes through dedicated enums while retaining GENIE-compatible normalized interaction modes for cross-generator comparisons.
 
 ## [1.2.2] - 2026-09-12
 
