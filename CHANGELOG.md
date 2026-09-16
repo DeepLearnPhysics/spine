@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.4] - 2026-09-16
+
+### Added
+- **Framework-neutral direct datasets**: Configure `io.dataset` to parse LArCV or HDF5 events directly for construction, post-processing, analysis and writing without importing PyTorch or passing through loader batching, collation and unwrapping.
+- **Direct joint-dataset traversal**: Traverse the primary source once with deterministic sequential secondary pairing and modulo cycling, while retaining loader-controlled random, probabilistic and sequential pairing for model workflows.
+
+### Changed
+- **Dataset interface contract**: Keep SPINE datasets compatible with PyTorch data loaders while declaring their map-style and overlay metadata interfaces independently of PyTorch.
+
+### Fixed
+- **Direct input overrides and output shape**: Apply CLI source and entry-filter overrides to direct datasets, preserve fractional entry selection arguments and write overlaid joint events as one logical HDF5 entry.
+
 ## [1.2.3] - 2026-09-16
 
 ### Added
