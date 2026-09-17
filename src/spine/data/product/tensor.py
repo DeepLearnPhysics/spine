@@ -293,6 +293,11 @@ class TensorData(DataProduct):
         """Return the shape of the canonical packed representation."""
         return self.data.shape
 
+    @property
+    def dtype(self) -> Any:
+        """Return the dtype of the canonical packed representation."""
+        return self.data.dtype
+
     def __getitem__(self, index: Any) -> Any:
         """Index the canonical packed representation."""
         return self.data[index]

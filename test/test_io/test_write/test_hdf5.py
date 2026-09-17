@@ -372,6 +372,25 @@ def test_hdf5_writer_expands_batched_cluster_labels_for_v1(hdf5_output):
     writer.close()
 
 
+def test_hdf5_v1_serializes_tensor_data_as_packed_array(hdf5_output):
+    """Legacy output should retain the historical packed tensor layout."""
+    tensor = TensorData(
+        coords=np.asarray([[1, 2, 3], [4, 5, 6]], dtype=np.float32),
+        features=np.asarray([[7.0, 8.0], [9.0, 10.0]], dtype=np.float32),
+        feature_fields={"charge": (0,), "multiplicity": (1,)},
+    )
+
+    with HDF5Writer(hdf5_output, format_version=1) as writer:
+        writer({"index": np.asarray([0]), "data_adapt": [tensor]}, cfg={})
+
+    reader = HDF5Reader(hdf5_output)
+    restored = reader.get(0)["data_adapt"]
+    reader.close()
+
+    assert isinstance(restored, np.ndarray)
+    np.testing.assert_array_equal(restored, tensor.data)
+
+
 def test_hdf5_writer_rejects_inconsistent_v2_products(hdf5_output):
     """V2 schema discovery should reject inconsistent event products."""
     writer = HDF5Writer(hdf5_output, format_version=2)
