@@ -218,15 +218,18 @@ def _legacy_chain_plan(
     deghosting = config.get("deghosting")
     charge_rescaling = config.get("charge_rescaling")
     if deghosting is not None or charge_rescaling is not None:
+        deghost_config = {
+            "mode": deghosting,
+            "charge_rescaling": charge_rescaling,
+            "uresnet_deghost": modules.get("uresnet_deghost"),
+        }
+        if "store_charge_info" in config:
+            deghost_config["store_charge_info"] = config["store_charge_info"]
         stages.append(
             StageConfig(
                 "deghosting",
                 "deghost",
-                {
-                    "mode": deghosting,
-                    "charge_rescaling": charge_rescaling,
-                    "uresnet_deghost": modules.get("uresnet_deghost"),
-                },
+                deghost_config,
                 modules.get("uresnet_deghost_loss"),
             )
         )

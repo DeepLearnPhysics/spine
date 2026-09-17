@@ -265,8 +265,12 @@ def test_charge_rescaler_numpy_torch_and_collection_fallback():
         ],
         dtype=np.float32,
     )
-    expected = ChargeRescaler().process_single(rows)
+    expected, plane_charge, multiplicity = ChargeRescaler().process_single(
+        rows, return_info=True
+    )
     assert np.allclose(expected, [8.0, 6.0])
+    assert np.array_equal(plane_charge, rows[:, :3])
+    assert np.array_equal(multiplicity, [[2, 1, 1], [2, 1, 0]])
     collection = ChargeRescaler(collection_only=True).process_single(rows.copy())
     assert np.allclose(collection, [12.0, 6.0])
 
@@ -277,7 +281,23 @@ def test_charge_rescaler_numpy_torch_and_collection_fallback():
         ChargeRescaler().process_single(tensor_rows).cpu().numpy(), expected
     )
     batch = TensorBatch(np.vstack((rows, rows)), counts=[2, 2])
-    assert ChargeRescaler()(batch).shape == (4,)
+    charges, plane_charge, multiplicity = ChargeRescaler()(batch, return_info=True)
+    assert charges.shape == (4,)
+    assert charges.dtype == rows.dtype
+    assert plane_charge.shape == multiplicity.shape == (4, 3)
+
+    plain_charges = ChargeRescaler()(batch)
+    assert np.allclose(plain_charges, np.tile(expected, 2))
+    assert plain_charges.dtype == rows.dtype
+
+    tensor_batch = TensorBatch(torch.vstack((tensor_rows, tensor_rows)), counts=[2, 2])
+    tensor_charge, tensor_plane_charge, tensor_multiplicity = ChargeRescaler()(
+        tensor_batch, return_info=True
+    )
+    tensor_expected = torch.as_tensor(np.tile(expected, 2), dtype=tensor_rows.dtype)
+    assert torch.allclose(tensor_charge, tensor_expected)
+    assert tensor_charge.dtype == tensor_rows.dtype
+    assert tensor_plane_charge.shape == tensor_multiplicity.shape == (4, 3)
 
 
 def test_flash_merger_all_dispatch_paths():

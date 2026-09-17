@@ -1,8 +1,9 @@
 """Algorithms associated with the deghosting process."""
 
+from typing import Any
+
 import numpy as np
 
-from spine.constants import DELTA_SHP, MICHL_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import TensorBatch
 from spine.utils.conditional import torch
 
@@ -29,27 +30,65 @@ class ChargeRescaler:
         self.collection_only = collection_only
         self.collection_id = collection_id
 
-    def __call__(self, data):
+    def __call__(self, data: TensorBatch, return_info: bool = False) -> Any:
         """Rescale the charge of one batch of deghosted data.
 
         Parameters
         ----------
         data : TensorBatch
             (N, 1 + D + N_f + 6) tensor of voxel/value pairs
+        return_info : bool, default False
+            Return the three input plane charges and their hit multiplicities
+            alongside the rescaled charge
 
         Returns
         -------
-        data : Union[np.ndarray, torch.Tensor]
-            (N) Rescaled charge values
+        Union[np.ndarray, torch.Tensor, tuple]
+            (N) rescaled charge values. If ``return_info`` is ``True``, also
+            returns (N, 3) plane-charge and hit-multiplicity arrays.
         """
-        charges = data._empty(len(data.tensor))
+        # Charge must retain the input floating-point dtype. ``TensorBatch``'s
+        # generic ``_empty`` helper intentionally allocates integer indexes.
+        charges: Any
+        plane_charges: Any = None
+        multiplicities: Any = None
+        if torch.is_tensor(data.tensor):
+            charges = torch.empty(
+                len(data.tensor), dtype=data.dtype, device=data.device
+            )
+            if return_info:
+                plane_charges = torch.empty(
+                    (len(charges), 3), dtype=data.dtype, device=data.device
+                )
+                multiplicities = torch.empty(
+                    (len(charges), 3), dtype=torch.long, device=data.device
+                )
+        else:
+            charges = np.empty(len(data.tensor), dtype=data.dtype)
+            if return_info:
+                plane_charges = np.empty((len(charges), 3), dtype=data.dtype)
+                multiplicities = np.empty((len(charges), 3), dtype=np.int64)
+
         for b in range(data.batch_size):
             lower, upper = data.edges[b], data.edges[b + 1]
-            charges[lower:upper] = self.process_single(data[b])
+            result = self.process_single(data[b], return_info=return_info)
+            if return_info:
+                assert plane_charges is not None
+                assert multiplicities is not None
+                charge, plane_charge, multiplicity = result
+                charges[lower:upper] = charge
+                plane_charges[lower:upper] = plane_charge
+                multiplicities[lower:upper] = multiplicity
+            else:
+                charges[lower:upper] = result
 
+        if return_info:
+            assert plane_charges is not None
+            assert multiplicities is not None
+            return charges, plane_charges, multiplicities
         return charges
 
-    def process_single(self, data):
+    def process_single(self, data: Any, return_info: bool = False) -> Any:
         """Rescale the charge of one event.
 
         The last 6 columns of the input tensor *MUST* contain:
@@ -64,24 +103,20 @@ class ChargeRescaler:
         ----------
         data : Union[np.ndarray, torch.Tensor]
             (N, 1 + D + N_f + 6) tensor of voxel/value pairs
+        return_info : bool, default False
+            Return the per-plane inputs used to form the rescaled charge
 
         Returns
         -------
-        data : Union[np.ndarray, torch.Tensor]
-            (N) Rescaled charge values
+        Union[np.ndarray, torch.Tensor, tuple]
+            (N) rescaled charge values. If ``return_info`` is ``True``, also
+            returns the (N, 3) plane charges and corresponding multiplicities.
         """
         # Define operations on the basis of the input type
         if torch.is_tensor(data):
             unique, where = torch.unique, torch.where
-
-            def sum_rows(values):
-                return torch.sum(values, dim=1)
-
         else:
             unique, where = np.unique, np.where
-
-            def sum_rows(values):
-                return np.sum(values, axis=1)
 
         # Count how many times each wire hit is used to form a space point
         hit_ids = data[:, -3:]
@@ -93,7 +128,9 @@ class ChargeRescaler:
         if not self.collection_only:
             # Take the average of the charge estimates from each active plane
             pmask = hit_ids > -1
-            charges = sum_rows((hit_charges * pmask) / mult) / sum_rows(pmask)
+            charges = self._sum_rows((hit_charges * pmask) / mult) / self._sum_rows(
+                pmask
+            )
         else:
             # Only use the collection plane measurement, when available
             charges = hit_charges[:, self.collection_id] / mult[:, self.collection_id]
@@ -102,8 +139,23 @@ class ChargeRescaler:
             bad_index = where(hit_ids[:, self.collection_id] < 0)[0]
             if len(bad_index) > 0:
                 pmask = hit_ids[bad_index] > -1
-                charges[bad_index] = sum_rows(
+                charges[bad_index] = self._sum_rows(
                     (hit_charges[bad_index] * pmask) / mult[bad_index]
-                ) / sum_rows(pmask)
+                ) / self._sum_rows(pmask)
+
+        if return_info:
+            # Missing-plane sentinels are grouped by ``unique`` for the
+            # arithmetic above but do not represent a used hit. Report zero
+            # so the diagnostic is the physical use count for every plane.
+            info_mult = torch.clone(mult) if torch.is_tensor(mult) else np.copy(mult)
+            info_mult[hit_ids < 0] = 0
+            return charges, hit_charges, info_mult
 
         return charges
+
+    @staticmethod
+    def _sum_rows(values: Any) -> Any:
+        """Sum matrix rows without changing the active array backend."""
+        if torch.is_tensor(values):
+            return torch.sum(values, dim=1)
+        return np.sum(values, axis=1)

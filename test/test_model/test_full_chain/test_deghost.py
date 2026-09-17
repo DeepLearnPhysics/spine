@@ -105,9 +105,56 @@ def test_learned_deghosting_publishes_scores_and_rescales_charge() -> None:
 
     assert result.outputs["ghost"] is not None
     assert result.outputs["ghost_pred"].torch_tensor().tolist() == [0, 1, 0, 1]
+    assert "charge_per_plane" not in result.outputs
+    assert "charge_multiplicity" not in result.outputs
     adapted = result.products["point_data"]
     assert adapted.data.values.torch_tensor().tolist() == [100.0, 200.0]
     assert adapted.data_q is adapted.data
+
+
+def test_charge_rescaling_optionally_publishes_plane_information() -> None:
+    """Opt-in diagnostics retain inputs on the post-deghost voxel domain."""
+
+    class Model:
+        def __call__(self, _data):
+            return {
+                "segmentation": TensorBatch(
+                    torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0], [0.0, 2.0]]),
+                    counts=[4],
+                )
+            }
+
+    rows = torch.tensor(
+        [
+            [0, 0, 0, 0, 1, 6, 9, 12, 0, 1, 2],
+            [0, 1, 0, 0, 2, 6, 9, 12, 0, 1, 2],
+            [0, 2, 0, 0, 3, 6, 15, 18, 0, 4, -1],
+            [0, 3, 0, 0, 4, 6, 15, 18, 0, 4, -1],
+        ],
+        dtype=torch.float32,
+    )
+    data = TensorBatch(
+        rows,
+        counts=[4],
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    stage = DeghostStage("deghost", "uresnet", Model(), "average", True)
+    result = stage(ChainState(data=data))
+
+    assert result.products["point_data"].data.values.torch_tensor().tolist() == [
+        8.0,
+        9.0,
+    ]
+    assert result.outputs["charge_per_plane"].torch_tensor().tolist() == [
+        [6.0, 9.0, 12.0],
+        [6.0, 15.0, 18.0],
+    ]
+    assert result.outputs["charge_multiplicity"].torch_tensor().tolist() == [
+        [2, 1, 1],
+        [2, 1, 0],
+    ]
+    assert result.outputs["charge_per_plane"].counts.tolist() == [2]
 
 
 def test_deghost_stage_validates_modes_and_inputs() -> None:
@@ -118,6 +165,10 @@ def test_deghost_stage_validates_modes_and_inputs() -> None:
         DeghostStage("deghost", "label", None, "bad")
     with pytest.raises(ValueError, match="requires label deghosting"):
         DeghostStage("deghost", "uresnet", None, "label")
+    with pytest.raises(TypeError, match="must be a boolean"):
+        DeghostStage("deghost", "label", None, None, "yes")
+    with pytest.raises(ValueError, match="only be stored"):
+        DeghostStage("deghost", "label", None, None, True)
     with pytest.raises(ValueError, match="requires `seg_label`"):
         DeghostStage("deghost", "label", None, None)(ChainState(data=make_data()))
     with pytest.raises(ValueError, match="requires `clust_label`"):
@@ -171,10 +222,16 @@ def test_deghost_builders_validate_and_register_native_modules(monkeypatch) -> N
         build_deghost_stage("deghost", {"mode": "uresnet"}, owner)
     stage = build_deghost_stage(
         "deghost",
-        {"mode": "uresnet", "uresnet_deghost": {"depth": 2}},
+        {
+            "mode": "uresnet",
+            "uresnet_deghost": {"depth": 2},
+            "charge_rescaling": "average",
+            "store_charge_info": True,
+        },
         owner,
     )
     assert owner.uresnet_deghost is stage.model
+    assert stage.store_charge_info
 
     assert build_deghost_loss("deghost", {}, owner) is None
     with pytest.raises(TypeError, match="must be mappings"):

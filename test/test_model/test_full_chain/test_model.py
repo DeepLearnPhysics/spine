@@ -425,6 +425,7 @@ def test_legacy_plan_translates_voxel_and_interaction_stages() -> None:
         {
             "deghosting": "label",
             "charge_rescaling": "label",
+            "store_charge_info": False,
             "segmentation": "label",
             "point_proposal": "label",
             "inter_aggregation": "label",
@@ -441,6 +442,7 @@ def test_legacy_plan_translates_voxel_and_interaction_stages() -> None:
         "interaction_aggregation",
     ]
     assert plan[0].config["charge_rescaling"] == "label"
+    assert plan[0].config["store_charge_info"] is False
     assert plan[1].config["point_proposal"] == "label"
     assert plan[2].config["task_modes"] == {
         "type": None,
