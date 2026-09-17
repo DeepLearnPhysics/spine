@@ -53,6 +53,29 @@ model:
           mode: graph_spice
 ```
 
+## Deghosted charge diagnostics
+
+Reconstructed charge redistribution can optionally retain its per-voxel
+inputs. Enable `store_charge_info` on the deghost provider together with
+`average` or `collection` charge rescaling:
+
+```yaml
+      - name: deghosting
+        provider: deghost
+        config:
+          mode: uresnet
+          charge_rescaling: average
+          store_charge_info: true
+```
+
+This publishes `charge_per_plane` and `charge_multiplicity`, each with three
+columns and the same post-deghost row partition as `data_adapt`. Together they
+record the plane charge and number of retained space points sharing each hit,
+so the redistributed contribution from an active plane is
+`charge_per_plane / charge_multiplicity`. These potentially large diagnostics
+are absent by default. In the historical mode-matrix schema,
+`store_charge_info` belongs beside `charge_rescaling` in `modules.chain`.
+
 `uses` lists sibling module blocks injected into the provider configuration.
 `loss` is either one sibling loss block or a mapping of provider-owned task
 names to blocks. The historical `chain` mode matrix remains accepted and is

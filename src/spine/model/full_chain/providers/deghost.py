@@ -35,6 +35,7 @@ class DeghostStage(ChainStage):
         mode: str | None,
         model: UResNetSegmentation | None,
         charge_rescaling: str | None,
+        store_charge_info: bool = False,
     ) -> None:
         """Initialize the deghosting implementation.
 
@@ -48,6 +49,9 @@ class DeghostStage(ChainStage):
             Binary semantic model used in ``uresnet`` mode.
         charge_rescaling : {"collection", "average", "label"}, optional
             Charge correction applied after ghost removal.
+        store_charge_info : bool, default False
+            Publish the three plane charges and hit-use multiplicities used by
+            reconstructed charge redistribution.
         """
         super().__init__(name)
         if mode not in {"uresnet", "label"}:
@@ -56,9 +60,17 @@ class DeghostStage(ChainStage):
             raise ValueError(f"Unknown charge-rescaling mode `{charge_rescaling}`.")
         if charge_rescaling == "label" and mode != "label":
             raise ValueError("Label charge rescaling requires label deghosting.")
+        if not isinstance(store_charge_info, bool):
+            raise TypeError("`store_charge_info` must be a boolean.")
+        if store_charge_info and charge_rescaling not in {"collection", "average"}:
+            raise ValueError(
+                "Charge information can only be stored with reconstructed "
+                "charge rescaling."
+            )
         self.mode = mode
         self.model = model
         self.charge_rescaling = charge_rescaling
+        self.store_charge_info = store_charge_info
         self.charge_rescaler = (
             ChargeRescaler(collection_only=charge_rescaling == "collection")
             if charge_rescaling in {"collection", "average"}
@@ -114,7 +126,18 @@ class DeghostStage(ChainStage):
 
         # Optionally replace charge with rescaled reconstruction or truth values.
         if self.charge_rescaler is not None:
-            values = self.charge_rescaler(adapted.data)
+            if self.store_charge_info:
+                values, plane_charge, multiplicity = self.charge_rescaler(
+                    adapted.data, return_info=True
+                )
+                outputs["charge_per_plane"] = TensorBatch(
+                    plane_charge, adapted.data.counts
+                )
+                outputs["charge_multiplicity"] = TensorBatch(
+                    multiplicity, adapted.data.counts
+                )
+            else:
+                values = self.charge_rescaler(adapted.data)
             adapted = adapted.with_charge(values)
         elif self.charge_rescaling == "label":
             if clust_label is None:
@@ -222,7 +245,13 @@ def build_deghost_stage(
             raise ValueError("UResNet deghosting requires `uresnet_deghost` config.")
         model = UResNetSegmentation(model_config)
         owner.add_module("uresnet_deghost", model)
-    return DeghostStage(name, mode, model, config.get("charge_rescaling"))
+    return DeghostStage(
+        name,
+        mode,
+        model,
+        config.get("charge_rescaling"),
+        config.get("store_charge_info", False),
+    )
 
 
 def build_deghost_loss(
