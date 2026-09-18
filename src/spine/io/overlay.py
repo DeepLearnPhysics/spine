@@ -202,8 +202,6 @@ class Overlayer:
         particle_tables = []
         cluster_offset = 0
         particle_table_offset = 0
-        particle_id_offset = 0
-        group_offset = 0
         interaction_offset = 0
         neutrino_offset = 0
         has_precedence = precedence is not None
@@ -223,13 +221,14 @@ class Overlayer:
                 features[valid_particle, 2] += particle_table_offset
                 table = {name: value.copy() for name, value in entry.particles.items()}
 
-                # Physical particle/group/interaction IDs have distinct namespaces
-                particle_id_count = int(np.max(table["particle"], initial=-1)) + 1
+                # Particle and group IDs both reference positions in the particle
+                # list. Shift them by the full table length rather than by their
+                # observed maxima: group IDs can be sparse and particle tables may
+                # contain retained placeholders for invisible particles.
                 valid = table["particle"] >= 0
-                table["particle"][valid] += particle_id_offset
-                group_count = int(np.max(table["group"], initial=-1)) + 1
+                table["particle"][valid] += particle_table_offset
                 valid = table["group"] >= 0
-                table["group"][valid] += group_offset
+                table["group"][valid] += particle_table_offset
                 valid = table["ancestor"] >= 0
                 table["ancestor"][valid] += particle_table_offset
                 interaction_count = int(np.max(table["interaction"], initial=-1)) + 1
@@ -239,8 +238,6 @@ class Overlayer:
                 valid = table["nu"] >= 0
                 table["nu"][valid] += neutrino_offset
                 particle_table_offset += len(table["particle"])
-                particle_id_offset += particle_id_count
-                group_offset += group_count
                 interaction_offset += interaction_count
                 neutrino_offset += neutrino_count
                 particle_tables.append(table)

@@ -11,6 +11,7 @@ from spine.data import (
     IndexListData,
     Meta,
     ObjectListData,
+    Particle,
     TensorData,
 )
 from spine.io.overlay import Overlayer
@@ -278,6 +279,49 @@ def test_overlayer_cluster_labels_without_particles():
 
     assert result.particles is None
     np.testing.assert_array_equal(result.voxel_field("cluster"), [0, 1])
+
+
+def test_overlayer_cluster_labels_use_particle_table_reference_offsets():
+    """Sparse group IDs should not shrink the next event's particle offset."""
+    labels = []
+    for coord, size in (([0, 0, 0], 3), ([1, 1, 1], 2)):
+        particle_table = {
+            "particle": np.arange(size, dtype=np.int64),
+            "group": np.zeros(size, dtype=np.int64),
+            "ancestor": np.zeros(size, dtype=np.int64),
+            "interaction": np.zeros(size, dtype=np.int64),
+            "nu": np.zeros(size, dtype=np.int64),
+            "shape": np.zeros(size, dtype=np.int64),
+        }
+        labels.append(
+            {
+                "label": ClusterLabelData(
+                    coords=np.asarray([coord], dtype=np.int64),
+                    features=np.asarray([[1.0, 0.0, 0.0]], dtype=np.float32),
+                    particles=particle_table,
+                    meta=make_meta(),
+                    precedence=SHAPE_PREC,
+                ),
+                "particles": ObjectListData(
+                    [Particle(id=i, group_id=0) for i in range(size)], Particle()
+                ),
+            }
+        )
+
+    overlay = Overlayer(
+        data_keys=("label", "particles"),
+        methods={"label": "cat", "particles": "cat"},
+        multiplicity=2,
+    )
+    result = overlay(labels)[0]
+    label = result["label"]
+
+    np.testing.assert_array_equal(label.particles["particle"], [0, 1, 2, 3, 4])
+    np.testing.assert_array_equal(label.particles["group"], [0, 0, 0, 3, 3])
+    np.testing.assert_array_equal(label.particles["ancestor"], [0, 0, 0, 3, 3])
+    np.testing.assert_array_equal(label.group_ids, [0, 3])
+    for group_id in np.unique(label.group_ids):
+        assert result["particles"][group_id].id == group_id
 
 
 def test_overlayer_cluster_labels_do_not_treat_particle_indexes_as_shapes():
