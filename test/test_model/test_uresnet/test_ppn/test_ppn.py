@@ -519,6 +519,41 @@ def test_vertex_loss_trains_foreground_and_offsets(cnn_config):
     assert len(result["mask_labels"]) == 1
 
 
+def test_vertex_loss_empty_positives_keep_offset_head_in_graph(cnn_config):
+    """An all-negative vertex batch should produce zero offset gradients."""
+    inputs = _positive_vertex_loss_inputs()
+    point_predictions = (
+        inputs["vertex_points_unique"].torch_tensor().detach().clone().requires_grad_()
+    )
+    points = TensorBatch(
+        point_predictions,
+        counts=[1],
+        schema=inputs["vertex_points_unique"].schema,
+    )
+    inputs.update(
+        {
+            "vertex_label": TensorBatch(
+                torch.empty((0, 5)),
+                counts=[0],
+                has_batch_col=True,
+                coord_cols=(1, 2, 3),
+                schema=VERTEX_LABEL_SCHEMA,
+            ),
+            "vertex_points": points,
+            "vertex_points_unique": points,
+        }
+    )
+
+    result = VertexPPNLoss(cnn_config, {"balance_mask_loss": False})(**inputs)
+    result["loss"].backward()
+
+    assert torch.isfinite(result["loss"])
+    assert point_predictions.grad is not None
+    torch.testing.assert_close(
+        point_predictions.grad[:, :3], torch.zeros_like(point_predictions[:, :3])
+    )
+
+
 def test_vertex_loss_separates_internal_and_canonical_coordinates(cnn_config):
     """Vertex masks use phased sites while offset targets stay canonical."""
     inputs = _positive_vertex_loss_inputs()
@@ -1095,6 +1130,67 @@ def test_ppn_loss_supervises_endpoint_and_returns_masks(cnn_config):
     assert result["type_accuracy"] == 1.0
     assert result["classify_endpoints_accuracy"] == 1.0
     assert len(result["mask_labels"]) == 1
+
+
+def test_ppn_loss_empty_positives_keep_prediction_heads_in_graph(cnn_config):
+    """An all-negative batch should give every conditional head a zero gradient."""
+    inputs = _positive_ppn_loss_inputs()
+
+    point_predictions = (
+        inputs["ppn_points_unique"].torch_tensor().detach().clone().requires_grad_()
+    )
+    points = TensorBatch(
+        point_predictions,
+        counts=[1],
+        schema=ppn_raw_schema(),
+    )
+    endpoint_predictions = (
+        inputs["ppn_classify_endpoints_unique"]
+        .torch_tensor()
+        .detach()
+        .clone()
+        .requires_grad_()
+    )
+    endpoints = TensorBatch(
+        endpoint_predictions,
+        counts=[1],
+        schema=TensorSchema(
+            feature_fields={"endpoint_logits": (0, 1)},
+            feats_only=True,
+        ),
+    )
+    inputs.update(
+        {
+            "ppn_label": TensorBatch(
+                torch.empty((0, 7)),
+                counts=[0],
+                has_batch_col=True,
+                coord_cols=(1, 2, 3),
+                schema=PPN_LABEL_SCHEMA,
+            ),
+            "ppn_points": points,
+            "ppn_points_unique": points,
+            "ppn_classify_endpoints": endpoints,
+            "ppn_classify_endpoints_unique": endpoints,
+        }
+    )
+
+    result = PPNLoss(
+        cnn_config,
+        {"balance_mask_loss": False, "balance_type_loss": False},
+    )(**inputs)
+    result["loss"].backward()
+
+    assert torch.isfinite(result["loss"])
+    assert result["loss"].requires_grad
+    assert point_predictions.grad is not None
+    assert endpoint_predictions.grad is not None
+    torch.testing.assert_close(
+        point_predictions.grad[:, :8], torch.zeros_like(point_predictions[:, :8])
+    )
+    torch.testing.assert_close(
+        endpoint_predictions.grad, torch.zeros_like(endpoint_predictions)
+    )
 
 
 def test_ppn_loss_separates_internal_and_canonical_coordinates(cnn_config):

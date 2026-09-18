@@ -493,13 +493,12 @@ class VertexPPNLoss(torch.nn.Module):
         # Offset regression uses ground-truth-positive sites so an initially
         # weak foreground classifier cannot starve the regression head.
         positive_indices = torch.where(positives)[0]
-        reg_loss = mask_losses.sum() * 0.0
+        offset_predictions = loss_points.feature("offsets").torch_tensor()
+        reg_loss = offset_predictions.sum() * 0.0
         reg_accuracy = torch.tensor(1.0, dtype=dtype, device=device)
         if len(positive_indices) > 0:
             anchors = vertex_output_coords.coords.torch_tensor() + 0.5
-            predictions = (loss_points.feature("offsets").torch_tensor() + anchors)[
-                positive_indices
-            ]
+            predictions = (offset_predictions + anchors)[positive_indices]
             targets = label_points[closest[positive_indices]]
             reg_loss = torch.nn.functional.mse_loss(predictions, targets)
             with torch.no_grad():

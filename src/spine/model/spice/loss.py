@@ -304,7 +304,9 @@ class SPICELoss(torch.nn.Module):
 
         # Preserve a differentiable zero when no class can be supervised
         if not terms:
-            zero = embedding_tensor.sum() * 0.0
+            zero = (
+                embedding_tensor.sum() + margin_tensor.sum() + seediness_tensor.sum()
+            ) * 0.0
             return {
                 "loss": zero,
                 "mask_loss": 0.0,

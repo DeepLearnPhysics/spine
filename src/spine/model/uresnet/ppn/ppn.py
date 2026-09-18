@@ -1356,9 +1356,26 @@ class PPNLoss(torch.nn.Module):
                 mask_tensor = downsample(mask_tensor)
 
         # Apply the other losses to the last layer only
-        zero = torch.tensor(0.0, dtype=dtype, device=device)
         one = torch.tensor(1.0, dtype=dtype, device=device)
-        type_loss, reg_loss, end_loss = zero, zero, zero
+        offset_predictions = loss_points.feature("offsets").torch_tensor()
+        type_logits = loss_points.feature("type_logits").torch_tensor()
+        endpoint_logits = (
+            loss_endpoints.feature("endpoint_logits").torch_tensor()
+            if loss_endpoints is not None
+            else None
+        )
+
+        # Keep every prediction head in the autograd graph even when this rank
+        # has no positive sites (or no positive tracks for the endpoint head).
+        # This produces real zero gradients instead of unused parameters under
+        # distributed training.
+        type_loss = type_logits.sum() * 0.0
+        reg_loss = offset_predictions.sum() * 0.0
+        end_loss = (
+            endpoint_logits.sum() * 0.0
+            if endpoint_logits is not None
+            else type_logits.sum() * 0.0
+        )
         type_acc, end_acc = one, one
         pos_mask = torch.where(positives)[0]
         if len(pos_mask) > 0:
@@ -1371,8 +1388,8 @@ class PPNLoss(torch.nn.Module):
             closest_indices = closest_indices[pos_mask]
 
             anchors = ppn_output_coords.coords.torch_tensor() + 0.5
-            pixel_pos = loss_points.feature("offsets").torch_tensor() + anchors
-            pixel_logits = loss_points.feature("type_logits").torch_tensor()
+            pixel_pos = offset_predictions + anchors
+            pixel_logits = type_logits
 
             pixel_pos = pixel_pos[pos_mask]
             pixel_logits = pixel_logits[pos_mask]
@@ -1412,11 +1429,9 @@ class PPNLoss(torch.nn.Module):
             # If the upstream models produced endpoint predictions, apply loss.
             # Narrow the problem down to predictions closest to track points
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
-            if loss_endpoints is not None and len(track_index) > 0:
+            if endpoint_logits is not None and len(track_index) > 0:
                 # Get the end point predictions
-                end_logits = loss_endpoints.feature("endpoint_logits").torch_tensor()[
-                    pos_mask
-                ]
+                end_logits = endpoint_logits[pos_mask]
                 end_logits = end_logits[track_index]
 
                 # The endpoint class belongs to the same closest track target

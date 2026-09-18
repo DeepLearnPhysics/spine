@@ -369,14 +369,18 @@ def test_spice_loss_handles_unsupervised_and_misaligned_outputs():
     _, _, labels = spice_batch()
     loss_fn = SPICELoss({}, {"min_voxels": 3})
     embeddings = TensorBatch(torch.zeros((2, 3), requires_grad=True), [2])
-    margins = TensorBatch(torch.ones((2, 1)), [2])
-    seediness = TensorBatch(torch.zeros((2, 1)), [2])
+    margins = TensorBatch(torch.ones((2, 1), requires_grad=True), [2])
+    seediness = TensorBatch(torch.zeros((2, 1), requires_grad=True), [2])
     indexes = IndexBatch(torch.tensor([0, 1]), spans=[64], counts=[2])
 
     result = loss_fn(labels, embeddings, margins, seediness, indexes)
     assert result["count"] == 0
     assert result["accuracy"] == 1.0
     result["loss"].backward()
+    for prediction in (embeddings, margins, seediness):
+        gradient = prediction.torch_tensor().grad
+        assert gradient is not None
+        torch.testing.assert_close(gradient, torch.zeros_like(gradient))
 
     bad_seediness = TensorBatch(torch.zeros((1, 1)), [1])
     with pytest.raises(ValueError, match="equal length"):
