@@ -530,14 +530,18 @@ class ValidationManager:
 
             # Preserve overlay frequency with repeatable pair selection
             pair_probability = 1.0
+            length_policy = None
             train_sampler = loader_cfg.get("sampler")
             if isinstance(train_sampler, Mapping):
                 pair_probability = train_sampler.get("pair_probability", 1.0)
+                length_policy = train_sampler.get("length_policy")
             loader_cfg["sampler"] = {
                 "name": "joint_sequential",
                 "seed": seed,
                 "pair_probability": pair_probability,
             }
+            if length_policy is not None:
+                loader_cfg["sampler"]["length_policy"] = length_policy
 
         elif dataset_name == "mixed":
             source_names = ("primary", "cache")

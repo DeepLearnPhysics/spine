@@ -61,9 +61,10 @@ def test_build_loader_config_preserves_joint_overlay_structure():
     """Joint validation should replace both sources and retain overlay rate."""
     loader = ordinary_loader()
     loader["sampler"] = {
-        "name": "joint_random_sequence",
+        "name": "joint_sequential",
         "seed": 7,
         "pair_probability": 0.4,
+        "length_policy": "shortest",
     }
     loader["dataset"] = {
         "name": "joint",
@@ -97,6 +98,7 @@ def test_build_loader_config_preserves_joint_overlay_structure():
         "name": "joint_sequential",
         "seed": 11,
         "pair_probability": 0.4,
+        "length_policy": "shortest",
     }
 
 

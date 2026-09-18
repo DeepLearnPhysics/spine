@@ -173,6 +173,52 @@ def test_joint_sequential_sampler_pairs_primary_and_secondary():
     assert list(sampler) == [(0, 0), (1, 1), (2, 0), (3, 1)]
 
 
+def test_joint_sequential_sampler_can_stop_at_shortest_source():
+    """Shortest sequential epochs should pair once without cycling."""
+    dataset = DummyJointDataset(size=5, secondary_size=3)
+    sampler = JointSequentialBatchSampler(
+        dataset,
+        batch_size=2,
+        seed=1,
+        drop_last=False,
+        length_policy="shortest",
+    )
+
+    assert len(sampler) == 3
+    assert list(sampler) == [(0, 0), (1, 1), (2, 2)]
+
+    primary_shorter = JointSequentialBatchSampler(
+        DummyJointDataset(size=2, secondary_size=5),
+        batch_size=2,
+        seed=1,
+        length_policy="shortest",
+    )
+    assert list(primary_shorter) == [(0, 0), (1, 1)]
+
+
+def test_joint_sequential_shortest_length_applies_drop_last():
+    """Batch truncation should be applied after selecting the shorter source."""
+    sampler = JointSequentialBatchSampler(
+        DummyJointDataset(size=5, secondary_size=3),
+        batch_size=2,
+        seed=1,
+        length_policy="shortest",
+    )
+
+    assert len(sampler) == 2
+    assert list(sampler) == [(0, 0), (1, 1)]
+
+
+def test_joint_sequential_sampler_rejects_invalid_length_policy():
+    """Sequential joint length policies should be explicit and validated."""
+    with pytest.raises(ValueError, match="length_policy"):
+        JointSequentialBatchSampler(
+            DummyJointDataset(size=4, secondary_size=2),
+            batch_size=2,
+            length_policy="secondary",
+        )
+
+
 def test_joint_sequential_sampler_repeats_probability_mask():
     """Sequential joint validation should pair identically on every pass."""
     sampler = JointSequentialBatchSampler(

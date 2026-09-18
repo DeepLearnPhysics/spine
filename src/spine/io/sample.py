@@ -320,6 +320,10 @@ class AbstractJointBatchSampler(Sampler):
     joint = True
     sampler_cls: type[AbstractBatchSampler]
 
+    def primary_source(self, dataset: Sized) -> Sized:
+        """Return the sized source which defines the primary epoch length."""
+        return dataset
+
     def __init__(
         self,
         dataset: Sized,
@@ -353,7 +357,10 @@ class AbstractJointBatchSampler(Sampler):
         if pair_probability < 0.0 or pair_probability > 1.0:
             raise ValueError("`pair_probability` must be between 0 and 1.")
 
-        self.primary_sampler = self.sampler_cls(dataset, batch_size, seed, drop_last)
+        primary_source = self.primary_source(dataset)
+        self.primary_sampler = self.sampler_cls(
+            primary_source, batch_size, seed, drop_last
+        )
         secondary_seed = None if seed is None else seed + 1
         self.secondary_sampler = self.sampler_cls(
             _Sized(len(self.primary_sampler)),
@@ -449,6 +456,50 @@ class JointSequentialBatchSampler(AbstractJointBatchSampler):
 
     name = "joint_sequential"
     sampler_cls = SequentialBatchSampler
+
+    _length_policies = ("primary", "shortest")
+
+    def __init__(
+        self,
+        dataset: Sized,
+        batch_size: int,
+        seed: int | None = None,
+        drop_last: bool = True,
+        pair_probability: float = 1.0,
+        length_policy: str = "primary",
+    ) -> None:
+        """Build a deterministic joint sampler.
+
+        Parameters
+        ----------
+        dataset : JointDataset
+            Joint dataset whose primary and secondary sources are paired.
+        batch_size : int
+            Number of samples to load per iteration.
+        seed : int, optional
+            Seed used for deterministic fractional pairing.
+        drop_last : bool, default True
+            Whether to drop an incomplete final batch.
+        pair_probability : float, default 1.0
+            Probability that each primary entry receives a secondary overlay.
+        length_policy : {"primary", "shortest"}, default "primary"
+            ``primary`` traverses the primary source and cycles the secondary.
+            ``shortest`` stops at the smaller source before applying
+            ``drop_last``, so paired secondary entries are not reused.
+        """
+        if length_policy not in self._length_policies:
+            raise ValueError(
+                f"Invalid joint sequential `length_policy`: {length_policy}. "
+                f"Must be one of {self._length_policies}."
+            )
+        self.length_policy = length_policy
+        super().__init__(dataset, batch_size, seed, drop_last, pair_probability)
+
+    def primary_source(self, dataset: Sized) -> Sized:
+        """Select the source length used to construct the primary stream."""
+        if self.length_policy == "shortest":
+            return _Sized(min(len(dataset), len(dataset.secondary)))
+        return dataset
 
     def __iter__(self) -> Iterator[tuple[int, int | None]]:
         """Return a repeatable sequential pairing for every pass.
