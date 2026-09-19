@@ -650,7 +650,9 @@ class ModelManager:
         full_weight_path : str
             Path to the weights for the full model
         """
-        # If a general model path is provided, add it to the loading list first
+        # If a general model path is provided, add it to the loading list first.
+        # The request provenance, rather than its module name, determines
+        # whether this is a full-model restore or a scoped module import.
         weight_paths: list[tuple[str, str, str | None, bool]] = []
         if full_weight_path:
             weight_paths = [(self.model_name, full_weight_path, "", True)]
@@ -668,7 +670,7 @@ class ModelManager:
                         module,
                         config["weight_path"],
                         model_name,
-                        module == self.model_name,
+                        False,
                     )
                 )
             for key in config:
@@ -696,7 +698,10 @@ class ModelManager:
             else self.net
         )
 
-        # Loop over provided model paths
+        # Resolve and validate every request before mutating the network. This
+        # prevents a malformed later request from leaving a partially composed
+        # model behind.
+        resolved_weights = []
         for module, weight_path, model_name, is_full_model in weight_paths:
             # Module-level weight paths must resolve to a single checkpoint.
             if not os.path.isfile(weight_path):
@@ -704,9 +709,11 @@ class ModelManager:
                     "Weight file not found for module " f"{module}: {weight_path}"
                 )
 
-            # Load weight file into existing model
             logger.info(
-                "Restoring weights for module %s from %s...", module, weight_path
+                "Resolving %s weights for module %s from %s...",
+                "full-model" if is_full_model else "scoped",
+                module,
+                weight_path,
             )
             with open(weight_path, "rb") as f:
                 # Read checkpoint
@@ -719,172 +726,265 @@ class ModelManager:
                         raise
                     f.seek(0)
                     checkpoint = torch.load(f, map_location=self.device)
-                state_dict = checkpoint["state_dict"]
+                checkpoint_state = checkpoint["state_dict"]
 
-                # Check that all the needed weights are provided
-                missing_keys = []
-                if is_full_model:
-                    for name in net.state_dict():
-                        if not name in state_dict.keys():
-                            missing_keys.append((name, name))
-
-                else:
-                    # Try the configured namespace exactly. Without one, first
-                    # accept keys from a full-chain checkpoint, then fall back
-                    # to the unprefixed keys of a standalone model checkpoint.
-                    source_names = (
-                        (model_name,) if model_name is not None else (module, "")
-                    )
-                    candidate_states = []
-                    for source_name in source_names:
-                        candidate_state = {}
-                        candidate_missing = []
-                        for name in net.state_dict():
-                            if f"{module}." in name:
-                                suffix = "." if source_name else ""
-                                key = name.replace(
-                                    f"{module}.", f"{source_name}{suffix}"
-                                )
-                                if key in checkpoint["state_dict"]:
-                                    candidate_state[name] = checkpoint["state_dict"][
-                                        key
-                                    ]
-                                else:
-                                    candidate_missing.append((name, key))
-                        candidate_states.append(
-                            (source_name, candidate_state, candidate_missing)
-                        )
-
-                    selected = next(
-                        (
-                            candidate
-                            for candidate in candidate_states
-                            if not candidate[2] and candidate[1]
-                        ),
-                        candidate_states[0],
-                    )
-                    model_name, state_dict, missing_keys = selected
-
-                # If some necessary keys were not found, throw
-                if missing_keys:
-                    logger.critical("These necessary parameters could not be found:")
-                    for name, key in missing_keys:
-                        logger.critical("Parameter %s is missing for %s.", key, name)
-                    raise ValueError(
-                        "To be loaded, a set of weights "
-                        "must provide all necessary parameters."
-                    )
-
-                # Load checkpoint. Check that all weights are used
-                bad_keys = net.load_state_dict(state_dict, strict=False)
-                if len(bad_keys.unexpected_keys) > 0:
-                    logger.warning(
-                        "This weight file contains parameters that could "
-                        "not be loaded, indicating that the weight file "
-                        "contains more than needed. This might be ok."
-                    )
-                    logger.warning("Unexpected keys: %s", bad_keys.unexpected_keys)
-
-                # Record destination coverage after a successful load. Weight
-                # export uses this to reject constructor-initialized leftovers.
-                loaded_keys = tuple(sorted(state_dict))
-                self.loaded_weight_keys.update(loaded_keys)
-                self.loaded_weight_sources.append(
-                    {
-                        "module": module,
-                        "model_name": model_name,
-                        "path": weight_path,
-                        "keys": loaded_keys,
+            net_state = net.state_dict()
+            destination_name = "<root>"
+            if is_full_model:
+                # Full checkpoints always use the destination namespace
+                # exactly; namespace tolerance is intentionally scoped to
+                # module-level imports.
+                destination_keys = {name: name for name in net_state}
+                source_names = ("",)
+            else:
+                prefix = f"{module}."
+                child_names = {name for name, _ in net.named_children()}
+                if module in child_names:
+                    destination_keys = {
+                        name: name[len(prefix) :]
+                        for name in net_state
+                        if name.startswith(prefix)
                     }
+                    destination_name = prefix[:-1]
+                elif module == self.model_name:
+                    destination_keys = {name: name for name in net_state}
+                    destination_name = "<root>"
+                else:
+                    raise ValueError(
+                        f"Could not find destination module `{module}` in "
+                        f"model `{self.model_name}`."
+                    )
+                if not destination_keys:
+                    raise ValueError(
+                        f"Destination module `{module}` does not contain any "
+                        "parameters or persistent buffers."
+                    )
+
+                # An explicit model_name is strict. Otherwise tolerate the two
+                # useful checkpoint layouts: a full-chain module prefix and a
+                # standalone root namespace.
+                source_names = (model_name,) if model_name is not None else (module, "")
+
+            candidate_states = []
+            for source_name in source_names:
+                candidate_state = {}
+                candidate_missing = []
+                for name, local_name in destination_keys.items():
+                    key = f"{source_name}.{local_name}" if source_name else local_name
+                    if key in checkpoint_state:
+                        candidate_state[name] = checkpoint_state[key]
+                    else:
+                        candidate_missing.append((name, key))
+                candidate_states.append(
+                    (source_name, candidate_state, candidate_missing)
                 )
 
-                # Load the optimizer state from the main weight file only
-                if self.train and is_full_model and self.restore_optimizer:
-                    if "optimizer" not in checkpoint:
-                        strict_resume = getattr(
-                            self, "strict_resume", self.restore_optimizer
+            complete = [candidate for candidate in candidate_states if not candidate[2]]
+            if len(complete) > 1:
+                reference = complete[0][1]
+                equivalent = all(
+                    all(
+                        torch.equal(reference[key], candidate[1][key])
+                        for key in reference
+                    )
+                    for candidate in complete[1:]
+                )
+                if not equivalent:
+                    namespaces = [name or "<root>" for name, _, _ in complete]
+                    raise ValueError(
+                        f"Checkpoint namespaces {namespaces} both completely "
+                        f"match module `{module}` but contain different values. "
+                        "Set `model_name` explicitly to select one."
+                    )
+
+            selected = complete[0] if complete else candidate_states[0]
+            selected_name, state_dict, missing_keys = selected
+
+            if missing_keys:
+                logger.critical("These necessary parameters could not be found:")
+                for name, key in missing_keys:
+                    logger.critical("Parameter %s is missing for %s.", key, name)
+                raise ValueError(
+                    "To be loaded, a set of weights must provide all "
+                    "necessary parameters."
+                )
+
+            # Validate structural compatibility up front. PyTorch otherwise
+            # copies earlier tensors before reporting a later shape mismatch.
+            for name, value in state_dict.items():
+                target = net_state[name]
+                if not isinstance(value, torch.Tensor):
+                    raise TypeError(
+                        f"Checkpoint parameter `{name}` is not a tensor "
+                        f"(got {type(value).__name__})."
+                    )
+                if value.shape != target.shape:
+                    raise ValueError(
+                        f"Checkpoint parameter `{name}` has shape "
+                        f"{tuple(value.shape)}, expected {tuple(target.shape)}."
+                    )
+                compatible_dtype = (
+                    value.is_floating_point() == target.is_floating_point()
+                    and value.is_complex() == target.is_complex()
+                    and (value.is_floating_point() or value.dtype == target.dtype)
+                )
+                if not compatible_dtype:
+                    raise ValueError(
+                        f"Checkpoint parameter `{name}` has incompatible dtype "
+                        f"{value.dtype}, expected {target.dtype}."
+                    )
+
+            resolved_weights.append(
+                {
+                    "module": module,
+                    "path": weight_path,
+                    "source_name": selected_name,
+                    "is_full_model": is_full_model,
+                    "checkpoint": checkpoint,
+                    "state_dict": state_dict,
+                    "destination_name": destination_name,
+                    "unexpected_keys": (
+                        tuple(sorted(set(checkpoint_state) - set(state_dict)))
+                        if is_full_model
+                        else ()
+                    ),
+                }
+            )
+
+        # Every request is now complete and structurally compatible. Apply
+        # weights in configuration order, preserving intentional overrides.
+        for resolved in resolved_weights:
+            module = resolved["module"]
+            weight_path = resolved["path"]
+            model_name = resolved["source_name"]
+            is_full_model = resolved["is_full_model"]
+            checkpoint = resolved["checkpoint"]
+            state_dict = resolved["state_dict"]
+            logger.info(
+                "Restoring %d tensors from namespace %s into %s...",
+                len(state_dict),
+                model_name or "<root>",
+                resolved["destination_name"],
+            )
+
+            # This mapping contains exactly the validated destination keys.
+            net.load_state_dict(state_dict, strict=False)
+            if resolved["unexpected_keys"]:
+                logger.warning(
+                    "This full-model checkpoint contains parameters that "
+                    "could not be loaded. This may be acceptable."
+                )
+                logger.warning("Unexpected keys: %s", resolved["unexpected_keys"])
+
+            # Record destination coverage after a successful load. Weight
+            # export uses this to reject constructor-initialized leftovers.
+            loaded_keys = tuple(sorted(state_dict))
+            self.loaded_weight_keys.update(loaded_keys)
+            self.loaded_weight_sources.append(
+                {
+                    "module": module,
+                    "model_name": model_name,
+                    "path": weight_path,
+                    "keys": loaded_keys,
+                }
+            )
+
+            # Only a top-level model.weight_path request may restore training
+            # state. Module-scoped imports are weights-only, even when the
+            # module happens to have the same name as the standalone model.
+            if not is_full_model and any(
+                key in checkpoint
+                for key in ("optimizer", "lr_scheduler", "global_step")
+            ):
+                logger.info(
+                    "Ignoring training state in scoped checkpoint for module %s.",
+                    module,
+                )
+            if self.train and is_full_model and self.restore_optimizer:
+                if "optimizer" not in checkpoint:
+                    strict_resume = getattr(
+                        self, "strict_resume", self.restore_optimizer
+                    )
+                    if strict_resume:
+                        raise KeyError(
+                            "Cannot resume training: checkpoint has no "
+                            "optimizer state."
                         )
-                        if strict_resume:
-                            raise KeyError(
-                                "Cannot resume training: checkpoint has no "
-                                "optimizer state."
+                    warnings.warn(
+                        "Checkpoint has no optimizer state; automatic resume "
+                        "will retain saved progress but restart the optimizer.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                else:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+
+                    lr_scheduler = getattr(self, "lr_scheduler", None)
+                    if lr_scheduler is not None:
+                        scheduler = checkpoint.get("lr_scheduler")
+                        restart_scheduler = (
+                            scheduler is None
+                            or getattr(self, "scheduler_resume", "restore") == "restart"
+                        )
+                        if restart_scheduler:
+                            self._restore_scheduler_initial_param_groups()
+                        if scheduler is None:
+                            warnings.warn(
+                                "Checkpoint has no learning-rate-scheduler "
+                                "state; the configured scheduler will restart.",
+                                RuntimeWarning,
+                                stacklevel=2,
                             )
+                        elif not restart_scheduler:
+                            lr_scheduler.load_state_dict(scheduler)
+
+            # Restore progress and provenance from the main checkpoint only.
+            if is_full_model:
+                load_progress = not self.train or getattr(
+                    self, "load_training_progress", True
+                )
+                if load_progress and "global_step" in checkpoint:
+                    self.start_iteration = checkpoint["global_step"] + 1
+                    global_epoch = checkpoint.get("global_epoch")
+                    self.start_epoch = (
+                        None if global_epoch is None else float(global_epoch)
+                    )
+                    if self.train and self.start_epoch is None:
                         warnings.warn(
-                            "Checkpoint has no optimizer state; automatic resume "
-                            "will retain saved progress but restart the optimizer.",
+                            "Checkpoint has no global epoch; resumed epoch "
+                            "progress must be inferred from the current batch "
+                            "size.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                manifest = checkpoint.get("manifest")
+                if manifest is not None:
+                    self.checkpoint_manifest = deepcopy(manifest)
+                config = checkpoint.get("config")
+                if config is not None:
+                    self.checkpoint_config = deepcopy(config)
+                datasets = checkpoint.get("datasets")
+                if datasets is not None:
+                    self.checkpoint_datasets = deepcopy(datasets)
+                if load_progress:
+                    validation = checkpoint.get("validation")
+                    if validation is not None:
+                        self.checkpoint_validation = deepcopy(validation)
+                if getattr(
+                    self,
+                    "resume_training",
+                    getattr(self, "restore_optimizer", False),
+                ):
+                    runtime_state = checkpoint.get("runtime_state")
+                    if runtime_state is None:
+                        warnings.warn(
+                            "Checkpoint has no RNG or loader runtime state; "
+                            "continuation will not be bit-for-bit exact.",
                             RuntimeWarning,
                             stacklevel=2,
                         )
                     else:
-                        self.optimizer.load_state_dict(checkpoint["optimizer"])
-
-                        lr_scheduler = getattr(self, "lr_scheduler", None)
-                        if lr_scheduler is not None:
-                            scheduler = checkpoint.get("lr_scheduler")
-                            restart_scheduler = (
-                                scheduler is None
-                                or getattr(self, "scheduler_resume", "restore")
-                                == "restart"
-                            )
-                            if restart_scheduler:
-                                self._restore_scheduler_initial_param_groups()
-                            if scheduler is None:
-                                warnings.warn(
-                                    "Checkpoint has no learning-rate-scheduler "
-                                    "state; the configured scheduler will restart.",
-                                    RuntimeWarning,
-                                    stacklevel=2,
-                                )
-                            elif not restart_scheduler:
-                                lr_scheduler.load_state_dict(scheduler)
-
-                # Restore progress and provenance from the main checkpoint only.
-                if is_full_model:
-                    load_progress = not self.train or getattr(
-                        self, "load_training_progress", True
-                    )
-                    if load_progress and "global_step" in checkpoint:
-                        self.start_iteration = checkpoint["global_step"] + 1
-                        global_epoch = checkpoint.get("global_epoch")
-                        self.start_epoch = (
-                            None if global_epoch is None else float(global_epoch)
-                        )
-                        if self.train and self.start_epoch is None:
-                            warnings.warn(
-                                "Checkpoint has no global epoch; resumed epoch "
-                                "progress must be inferred from the current batch "
-                                "size.",
-                                RuntimeWarning,
-                                stacklevel=2,
-                            )
-                    manifest = checkpoint.get("manifest")
-                    if manifest is not None:
-                        self.checkpoint_manifest = deepcopy(manifest)
-                    config = checkpoint.get("config")
-                    if config is not None:
-                        self.checkpoint_config = deepcopy(config)
-                    datasets = checkpoint.get("datasets")
-                    if datasets is not None:
-                        self.checkpoint_datasets = deepcopy(datasets)
-                    if load_progress:
-                        validation = checkpoint.get("validation")
-                        if validation is not None:
-                            self.checkpoint_validation = deepcopy(validation)
-                    if getattr(
-                        self,
-                        "resume_training",
-                        getattr(self, "restore_optimizer", False),
-                    ):
-                        runtime_state = checkpoint.get("runtime_state")
-                        if runtime_state is None:
-                            warnings.warn(
-                                "Checkpoint has no RNG or loader runtime state; "
-                                "continuation will not be bit-for-bit exact.",
-                                RuntimeWarning,
-                                stacklevel=2,
-                            )
-                        else:
-                            self.checkpoint_runtime_state = deepcopy(runtime_state)
+                        self.checkpoint_runtime_state = deepcopy(runtime_state)
 
             logger.info("Done.")
 

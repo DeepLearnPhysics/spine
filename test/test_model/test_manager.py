@@ -951,12 +951,7 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
     )
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={
-            "test": {
-                "weight_path": str(path),
-                "model_name": "test",
-            }
-        },
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=True,
@@ -964,7 +959,7 @@ def test_load_weights_supports_legacy_torch_and_restores_optimizer(
     )
     monkeypatch.setattr(torch, "load", load)
     with pytest.warns(RuntimeWarning) as records:
-        manager.load_weights(None)
+        manager.load_weights(str(path))
 
     assert len(calls) == 3
     assert calls[-1] == {"optimizer": checkpoint["optimizer"]}
@@ -1001,7 +996,7 @@ def test_load_weights_restores_complete_available_training_state(monkeypatch, tm
     )
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=True,
@@ -1011,7 +1006,7 @@ def test_load_weights_restores_complete_available_training_state(monkeypatch, tm
     )
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
-    manager.load_weights(None)
+    manager.load_weights(str(path))
 
     assert calls == [
         ("optimizer", checkpoint["optimizer"]),
@@ -1064,7 +1059,7 @@ def test_resume_can_restart_configured_scheduler_and_preserve_optimizer_state(
     )
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=True,
@@ -1079,7 +1074,7 @@ def test_resume_can_restart_configured_scheduler_and_preserve_optimizer_state(
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
     with pytest.warns(RuntimeWarning):
-        manager.load_weights(None)
+        manager.load_weights(str(path))
 
     assert optimizer.state == {0: {"momentum_buffer": "saved"}}
     assert optimizer.param_groups == [
@@ -1132,7 +1127,7 @@ def test_scheduler_restart_uses_fresh_pytorch_schedule(
     target_net = torch.nn.Linear(1, 1)
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=target_net,
         train=True,
     )
@@ -1150,10 +1145,10 @@ def test_scheduler_restart_uses_fresh_pytorch_schedule(
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
     if has_scheduler_state:
-        manager.load_weights(None)
+        manager.load_weights(str(path))
     else:
         with pytest.warns(RuntimeWarning, match="scheduler will restart"):
-            manager.load_weights(None)
+            manager.load_weights(str(path))
 
     assert manager.optimizer.state
     assert manager.optimizer.param_groups[0]["lr"] == pytest.approx(2.0e-3)
@@ -1171,7 +1166,7 @@ def test_resume_legacy_checkpoint_reports_missing_training_state(monkeypatch, tm
     checkpoint = {"state_dict": net.state_dict(), "global_step": 2}
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=True,
@@ -1182,11 +1177,11 @@ def test_resume_legacy_checkpoint_reports_missing_training_state(monkeypatch, tm
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
     with pytest.raises(KeyError, match="optimizer state"):
-        manager.load_weights(None)
+        manager.load_weights(str(path))
 
     checkpoint["optimizer"] = {}
     with pytest.warns(RuntimeWarning) as records:
-        manager.load_weights(None)
+        manager.load_weights(str(path))
 
     assert len(records) == 3
     assert "scheduler" in str(records[0].message)
@@ -1205,7 +1200,7 @@ def test_automatic_resume_allows_legacy_checkpoint_without_optimizer(
     optimizer_calls = []
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=True,
@@ -1219,7 +1214,7 @@ def test_automatic_resume_allows_legacy_checkpoint_without_optimizer(
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
     with pytest.warns(RuntimeWarning) as records:
-        manager.load_weights(None)
+        manager.load_weights(str(path))
 
     assert manager.start_iteration == 3
     assert not optimizer_calls
@@ -1239,7 +1234,7 @@ def test_explicit_non_resume_loads_weights_without_progress(monkeypatch, tmp_pat
     }
     manager = make_bare_manager(
         model_name="test",
-        model_cfg={"test": {"weight_path": str(path), "model_name": "test"}},
+        model_cfg={},
         net=net,
         train=True,
         restore_optimizer=False,
@@ -1248,7 +1243,7 @@ def test_explicit_non_resume_loads_weights_without_progress(monkeypatch, tmp_pat
     )
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
 
-    manager.load_weights(None)
+    manager.load_weights(str(path))
 
     assert manager.start_iteration == 0
     assert manager.checkpoint_validation is None
@@ -1329,6 +1324,271 @@ def test_load_weights_translates_nested_module_names(tmp_path) -> None:
     )
     manager.load_weights(None)
     assert manager.start_iteration == 0
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("prefixed", [False, True])
+def test_scoped_root_and_nested_modules_accept_checkpoint_namespaces(
+    tmp_path, nested, prefixed
+) -> None:
+    """Scoped imports accept standalone and full-chain checkpoint layouts."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.graph_spice = torch.nn.Linear(2, 1)
+
+    source = torch.nn.Linear(2, 1)
+    with torch.no_grad():
+        source.weight.fill_(3.0)
+        source.bias.fill_(4.0)
+    source_state = {
+        (f"graph_spice.{name}" if prefixed else name): value
+        for name, value in source.state_dict().items()
+    }
+    path = tmp_path / f"weights-{nested}-{prefixed}.ckpt"
+    torch.save({"state_dict": source_state, "global_step": 17}, path)
+
+    net = Network() if nested else torch.nn.Linear(2, 1)
+    manager = make_bare_manager(
+        model_name="full_chain" if nested else "graph_spice",
+        model_cfg={"graph_spice": {"weight_path": str(path)}},
+        net=net,
+    )
+    manager.load_weights(None)
+
+    target = net.graph_spice if nested else net
+    assert torch.equal(target.weight, source.weight)
+    assert torch.equal(target.bias, source.bias)
+    assert manager.start_iteration == 0
+    assert manager.loaded_weight_sources[0]["model_name"] == (
+        "graph_spice" if prefixed else ""
+    )
+
+
+def test_scoped_root_import_does_not_restore_training_state(tmp_path) -> None:
+    """A same-named root module assignment remains a weights-only import."""
+    path = tmp_path / "graph-spice.ckpt"
+    source = torch.nn.Linear(1, 1)
+    torch.save(
+        {
+            "state_dict": source.state_dict(),
+            "optimizer": {"state": "must-not-load"},
+            "global_step": 12,
+        },
+        path,
+    )
+    optimizer_loads = []
+    target = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        model_name="graph_spice",
+        model_cfg={"graph_spice": {"weight_path": str(path)}},
+        net=target,
+        train=True,
+        restore_optimizer=True,
+        optimizer=SimpleNamespace(
+            load_state_dict=lambda state: optimizer_loads.append(state)
+        ),
+    )
+
+    manager.load_weights(None)
+
+    assert torch.equal(target.weight, source.weight)
+    assert manager.start_iteration == 0
+    assert not optimizer_loads
+
+
+def test_scoped_import_rejects_ambiguous_checkpoint_namespaces(tmp_path) -> None:
+    """Automatic namespace detection refuses conflicting complete matches."""
+    path = tmp_path / "ambiguous.ckpt"
+    source = torch.nn.Linear(1, 1)
+    state = {}
+    for name, value in source.state_dict().items():
+        state[name] = value.detach().clone()
+        state[f"graph_spice.{name}"] = value.detach().clone() + 1
+    torch.save({"state_dict": state}, path)
+    target = torch.nn.Linear(1, 1)
+    initial = {name: value.clone() for name, value in target.state_dict().items()}
+    manager = make_bare_manager(
+        model_name="graph_spice",
+        model_cfg={"graph_spice": {"weight_path": str(path)}},
+        net=target,
+    )
+
+    with pytest.raises(ValueError, match="both completely match"):
+        manager.load_weights(None)
+
+    for name, value in target.state_dict().items():
+        assert torch.equal(value, initial[name])
+
+
+def test_scoped_import_explicit_namespace_resolves_ambiguity(tmp_path) -> None:
+    """An explicit source model name strictly selects its checkpoint prefix."""
+    path = tmp_path / "explicit.ckpt"
+    source = torch.nn.Linear(1, 1)
+    state = {}
+    for name, value in source.state_dict().items():
+        state[name] = value.detach().clone()
+        state[f"preferred.{name}"] = value.detach().clone() + 2
+    torch.save({"state_dict": state}, path)
+    target = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        model_name="graph_spice",
+        model_cfg={
+            "graph_spice": {
+                "weight_path": str(path),
+                "model_name": "preferred",
+            }
+        },
+        net=target,
+    )
+
+    manager.load_weights(None)
+
+    assert torch.equal(target.weight, state["preferred.weight"])
+    assert torch.equal(target.bias, state["preferred.bias"])
+
+
+def test_scoped_import_validates_shapes_before_mutating_network(tmp_path) -> None:
+    """A late shape mismatch must not copy earlier valid tensors."""
+    path = tmp_path / "bad-shape.ckpt"
+    target = torch.nn.Linear(2, 1)
+    initial = {name: value.clone() for name, value in target.state_dict().items()}
+    torch.save(
+        {
+            "state_dict": {
+                "weight": torch.full_like(target.weight, 9.0),
+                "bias": torch.zeros(2),
+            }
+        },
+        path,
+    )
+    manager = make_bare_manager(
+        model_name="graph_spice",
+        model_cfg={"graph_spice": {"weight_path": str(path)}},
+        net=target,
+    )
+
+    with pytest.raises(ValueError, match="has shape"):
+        manager.load_weights(None)
+
+    for name, value in target.state_dict().items():
+        assert torch.equal(value, initial[name])
+
+
+def test_scoped_import_rejects_unknown_destination_module(tmp_path) -> None:
+    """A scoped assignment must identify a root model or direct child."""
+    path = tmp_path / "unknown-module.ckpt"
+    torch.save({"state_dict": {}}, path)
+    manager = make_bare_manager(
+        model_name="full_chain",
+        model_cfg={"missing": {"weight_path": str(path)}},
+        net=torch.nn.Linear(1, 1),
+    )
+
+    with pytest.raises(ValueError, match="Could not find destination module"):
+        manager.load_weights(None)
+
+
+def test_scoped_import_rejects_empty_destination_module(tmp_path) -> None:
+    """A scoped destination must own parameters or persistent buffers."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.empty = torch.nn.Identity()
+
+    path = tmp_path / "empty-module.ckpt"
+    torch.save({"state_dict": {}}, path)
+    manager = make_bare_manager(
+        model_name="full_chain",
+        model_cfg={"empty": {"weight_path": str(path)}},
+        net=Network(),
+    )
+
+    with pytest.raises(ValueError, match="does not contain any"):
+        manager.load_weights(None)
+
+
+@pytest.mark.parametrize(
+    ("bad_weight", "error", "message"),
+    [
+        (1, TypeError, "is not a tensor"),
+        (torch.ones((1, 1), dtype=torch.int64), ValueError, "incompatible dtype"),
+    ],
+)
+def test_scoped_import_rejects_invalid_parameter_values(
+    tmp_path, bad_weight, error, message
+) -> None:
+    """Checkpoint values must be tensors with compatible data types."""
+    path = tmp_path / f"bad-value-{message}.ckpt"
+    target = torch.nn.Linear(1, 1)
+    torch.save(
+        {
+            "state_dict": {
+                "weight": bad_weight,
+                "bias": target.bias.detach().clone(),
+            }
+        },
+        path,
+    )
+    manager = make_bare_manager(
+        model_name="graph_spice",
+        model_cfg={"graph_spice": {"weight_path": str(path)}},
+        net=target,
+    )
+
+    with pytest.raises(error, match=message):
+        manager.load_weights(None)
+
+
+def test_multiple_scoped_imports_are_validated_before_any_mutation(tmp_path) -> None:
+    """A bad component must not leave earlier component weights installed."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.first = torch.nn.Linear(1, 1)
+            self.second = torch.nn.Linear(1, 1)
+
+    net = Network()
+    initial = {name: value.clone() for name, value in net.state_dict().items()}
+    first_path = tmp_path / "first.ckpt"
+    second_path = tmp_path / "second.ckpt"
+    torch.save(
+        {
+            "state_dict": {
+                name: torch.full_like(value, 7.0)
+                for name, value in net.first.state_dict().items()
+            }
+        },
+        first_path,
+    )
+    torch.save(
+        {
+            "state_dict": {
+                "weight": torch.full_like(net.second.weight, 8.0),
+                "bias": torch.zeros(2),
+            }
+        },
+        second_path,
+    )
+    # The loader pops configuration blocks from the end. This order resolves
+    # the valid first component before discovering the malformed second one.
+    manager = make_bare_manager(
+        model_name="full_chain",
+        model_cfg={
+            "second": {"weight_path": str(second_path)},
+            "first": {"weight_path": str(first_path)},
+        },
+        net=net,
+    )
+
+    with pytest.raises(ValueError, match="has shape"):
+        manager.load_weights(None)
+
+    for name, value in net.state_dict().items():
+        assert torch.equal(value, initial[name])
 
 
 def test_load_weights_reports_missing_main_and_nested_parameters(tmp_path) -> None:
