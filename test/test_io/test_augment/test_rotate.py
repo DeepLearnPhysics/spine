@@ -1,6 +1,14 @@
 """Tests for the rotate augmenter."""
 
-from .helpers import GeoManager, RotateAugment, make_meta, make_tensor, np, pytest
+from .helpers import (
+    GeoManager,
+    RotateAugment,
+    TensorData,
+    make_meta,
+    make_tensor,
+    np,
+    pytest,
+)
 
 
 def test_rotate_augment_default_uses_image_frame_rotation():
@@ -15,6 +23,38 @@ def test_rotate_augment_default_uses_image_frame_rotation():
     assert np.array_equal(result["voxels"].coords, np.asarray([[3, 0, 0], [0, 1, 1]]))
     assert np.array_equal(rot_meta.count, np.asarray([4, 2, 2]))
     assert np.array_equal(rot_meta.lower, meta.lower)
+
+
+def test_image_frame_rotation_preserves_continuous_points_and_distances():
+    """Fractional targets should use edge rather than cell-center coordinates."""
+    meta = make_meta()
+    voxels = make_tensor([[0, 1, 0]], meta)
+    points = TensorData(
+        coords=np.asarray([[0.7, 1.25, 0.4]], dtype=np.float32),
+        features=np.ones((1, 1), dtype=np.float32),
+        meta=meta,
+    )
+    original_distance = np.linalg.norm(
+        meta.to_cm(points.coords) - meta.to_cm(voxels.coords, center=True), axis=1
+    )
+    data = {"voxels": voxels, "points": points, "meta": meta}
+
+    augment = RotateAugment(axes=(0, 1), k=1)
+    result, rot_meta = augment(data, meta, ["voxels", "points", "meta"], {})
+
+    assert np.array_equal(result["voxels"].coords, [[2, 0, 0]])
+    assert np.allclose(result["points"].coords, [[2.75, 0.7, 0.4]])
+    rotated_distance = np.linalg.norm(
+        rot_meta.to_cm(result["points"].coords)
+        - rot_meta.to_cm(result["voxels"].coords, center=True),
+        axis=1,
+    )
+    assert np.allclose(rotated_distance, original_distance)
+
+    for _ in range(3):
+        result, rot_meta = augment(result, rot_meta, ["voxels", "points", "meta"], {})
+    assert np.array_equal(result["voxels"].coords, [[0, 1, 0]])
+    assert np.allclose(result["points"].coords, [[0.7, 1.25, 0.4]])
 
 
 def test_rotate_augment_explicit_center_rotates_about_pivot():
@@ -34,6 +74,26 @@ def test_rotate_augment_explicit_center_rotates_about_pivot():
     assert np.array_equal(result["voxels"].coords, np.asarray([[3, 0, 0], [0, 1, 1]]))
     assert np.allclose(rot_meta.lower, np.asarray([-1.0, 1.0, 0.0]))
     assert np.allclose(rot_meta.upper, np.asarray([3.0, 3.0, 2.0]))
+
+
+def test_explicit_center_rotation_preserves_continuous_points():
+    """Physical-pivot rotations should not round floating-point targets."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(4.0, 4.0, 2.0))
+    points = TensorData(
+        coords=np.asarray([[0.7, 1.25, 0.4]], dtype=np.float32),
+        features=np.ones((1, 1), dtype=np.float32),
+        meta=meta,
+    )
+    data = {"points": points, "meta": meta}
+
+    result, _ = RotateAugment(
+        axes=(0, 1),
+        k=1,
+        center=np.asarray([2.0, 2.0, 1.0]),
+        keep_meta=True,
+    )(data, meta, ["points", "meta"], {})
+
+    assert np.allclose(result["points"].coords, [[2.75, 0.7, 0.4]])
 
 
 def test_rotate_augment_explicit_center_can_keep_meta_fixed():

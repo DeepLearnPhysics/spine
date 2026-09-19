@@ -1,6 +1,14 @@
 """Tests for the flip augmenter."""
 
-from .helpers import FlipAugment, GeoManager, make_meta, make_tensor, np, pytest
+from .helpers import (
+    FlipAugment,
+    GeoManager,
+    TensorData,
+    make_meta,
+    make_tensor,
+    np,
+    pytest,
+)
 
 
 def test_flip_augment_reflects_about_requested_plane():
@@ -15,6 +23,37 @@ def test_flip_augment_reflects_about_requested_plane():
     assert np.array_equal(result["voxels"].coords, np.asarray([[3, 1, 2], [0, 1, 2]]))
     assert np.allclose(flip_meta.lower, meta.lower)
     assert np.allclose(flip_meta.upper, meta.upper)
+
+
+def test_flip_preserves_continuous_points_and_voxel_distances():
+    """Fractional targets should reflect without cell-center quantization."""
+    meta = make_meta(lower=(0.0, 0.0, 0.0), upper=(4.0, 4.0, 4.0))
+    voxels = make_tensor([[1, 1, 1]], meta)
+    points = TensorData(
+        coords=np.asarray([[1.7, 1.25, 2.75]], dtype=np.float32),
+        features=np.ones((1, 1), dtype=np.float32),
+        meta=meta,
+    )
+    original_distance = np.linalg.norm(
+        meta.to_cm(points.coords) - meta.to_cm(voxels.coords, center=True), axis=1
+    )
+    data = {"voxels": voxels, "points": points, "meta": meta}
+
+    augment = FlipAugment(axis=0)
+    result, _ = augment(data, meta, ["voxels", "points", "meta"], {})
+
+    assert np.array_equal(result["voxels"].coords, [[2, 1, 1]])
+    assert np.allclose(result["points"].coords, [[2.3, 1.25, 2.75]])
+    reflected_distance = np.linalg.norm(
+        meta.to_cm(result["points"].coords)
+        - meta.to_cm(result["voxels"].coords, center=True),
+        axis=1,
+    )
+    assert np.allclose(reflected_distance, original_distance)
+
+    result, _ = augment(result, meta, ["voxels", "points", "meta"], {})
+    assert np.array_equal(result["voxels"].coords, [[1, 1, 1]])
+    assert np.allclose(result["points"].coords, [[1.7, 1.25, 2.75]])
 
 
 def test_flip_augment_can_use_detector_center():

@@ -108,25 +108,29 @@ class AugmentBase(ABC):
 
     @staticmethod
     def voxel_to_cm(coords: np.ndarray, meta: Meta) -> np.ndarray:
-        """Convert voxel indices to detector coordinates at voxel centers.
+        """Convert discrete cells or continuous voxel points to detector units.
 
         Parameters
         ----------
         coords : np.ndarray
-            ``(N, 3)`` Array of voxel indices
+            ``(N, 3)`` Array of integer voxel indices or floating-point
+            coordinates in voxel units.
         meta : Meta
             Metadata used to convert voxel indices to detector coordinates
 
         Returns
         -------
         np.ndarray
-            ``(N, 3)`` Detector coordinates in cm at voxel centers
+            ``(N, 3)`` Detector coordinates in cm. Integer inputs are placed
+            at voxel centers; floating-point inputs retain their continuous
+            position relative to voxel edges.
         """
-        return meta.to_cm(coords, center=True)
+        discrete = np.issubdtype(coords.dtype, np.integer)
+        return meta.to_cm(coords, center=discrete)
 
     @staticmethod
     def cm_to_voxel(coords_cm: np.ndarray, meta: Meta, dtype: np.dtype) -> np.ndarray:
-        """Convert detector coordinates at voxel centers back to indices.
+        """Convert detector coordinates back to discrete cells or points.
 
         Parameters
         ----------
@@ -135,14 +139,16 @@ class AugmentBase(ABC):
         meta : Meta
             Metadata used to convert detector coordinates back to pixel space
         dtype : np.dtype
-            Output dtype to use for the returned voxel indices
+            Output dtype. Integer types request discrete voxel indexes;
+            floating types preserve continuous voxel coordinates.
 
         Returns
         -------
         np.ndarray
-            ``(N, 3)`` Array of voxel indices
+            ``(N, 3)`` Array of voxel indexes or continuous coordinates.
         """
-        return np.rint(meta.to_px(coords_cm) - 0.5).astype(dtype)
+        discrete = np.issubdtype(dtype, np.integer)
+        return meta.to_px(coords_cm, floor=discrete).astype(dtype)
 
     @staticmethod
     def parse_optional_vector(

@@ -273,16 +273,19 @@ class RotateAugment(AugmentBase):
         count_a = int(count[axis_a])
         count_b = int(count[axis_b])
 
-        # Apply the exact integer transform for the requested quarter turn
+        # Integer coordinates identify cell centers and therefore reflect about
+        # ``count - 1``. Floating coordinates locate continuous points relative
+        # to image edges and reflect about ``count`` without quantization.
+        offset = int(np.issubdtype(coords.dtype, np.integer))
         if k == 1:
-            rot_coords[:, axis_a] = count_b - 1 - coords[:, axis_b]
+            rot_coords[:, axis_a] = count_b - offset - coords[:, axis_b]
             rot_coords[:, axis_b] = coords[:, axis_a]
         elif k == 2:
-            rot_coords[:, axis_a] = count_a - 1 - coords[:, axis_a]
-            rot_coords[:, axis_b] = count_b - 1 - coords[:, axis_b]
+            rot_coords[:, axis_a] = count_a - offset - coords[:, axis_a]
+            rot_coords[:, axis_b] = count_b - offset - coords[:, axis_b]
         elif k == 3:
             rot_coords[:, axis_a] = coords[:, axis_b]
-            rot_coords[:, axis_b] = count_a - 1 - coords[:, axis_a]
+            rot_coords[:, axis_b] = count_a - offset - coords[:, axis_a]
 
         return rot_coords
 
