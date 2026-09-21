@@ -45,6 +45,10 @@ from spine.model.full_chain.providers.image import (
     build_particle_image_loss,
     build_particle_image_stage,
 )
+from spine.model.full_chain.providers.materialization import (
+    GrapPAGraphMaterializationStage,
+    GrapPATargetMaterializationStage,
+)
 from spine.model.full_chain.providers.segmentation import (
     SegmentationLossStage,
     SegmentationStage,
@@ -1354,6 +1358,116 @@ def test_grappa_builder_validates_and_registers_group_model(monkeypatch) -> None
     owner = torch.nn.Module()
     model = _build_grappa("particle_grappa", {"make_groups": True}, owner)
     assert owner.particle_grappa is model
+
+
+@pytest.mark.parametrize(
+    ("level", "required", "prefix"),
+    [
+        (
+            "fragment",
+            {"point_data", "fragment_clusts", "fragment_shapes"},
+            "shower_fragment_",
+        ),
+        (
+            "particle",
+            {
+                "point_data",
+                "particle_clusts",
+                "particle_shapes",
+                "particle_primaries",
+            },
+            "particle_",
+        ),
+    ],
+)
+def test_grappa_graph_materialization_stops_before_model_forward(
+    level,
+    required,
+    prefix,
+) -> None:
+    """Both object levels should publish static graphs without inference."""
+    clusts, shapes = make_clusters()
+    calls = []
+
+    class Model:
+        node_type = [SHOWR_SHP, TRACK_SHP]
+
+        def __call__(self, **_kwargs):
+            raise AssertionError("Materialization must not run GrapPA.forward.")
+
+        def materialize_graph(self, **inputs):
+            calls.append(inputs)
+            return {
+                "clusts": inputs["clusts"],
+                "edge_index": object(),
+                "node_features": object(),
+            }
+
+    operations = AggregationOperations()
+    operations.prepare_grappa_input = lambda _model, _data, nodes, node_shapes, **kw: {
+        "data": _data,
+        "clusts": nodes,
+        "shapes": node_shapes,
+        **({"primaries": kw["primaries"]} if kw.get("primaries") is not None else {}),
+    }
+    models = {"shower": Model()} if level == "fragment" else {"inter": Model()}
+    stage = GrapPAGraphMaterializationStage(
+        "materialize",
+        level,
+        models,
+        operations,
+    )
+    products = {"data": make_data(), "point_data": PointBatch.from_input(make_data())}
+    if level == "fragment":
+        products.update(fragment_clusts=clusts, fragment_shapes=shapes)
+    else:
+        products.update(
+            particle_clusts=clusts,
+            particle_shapes=shapes,
+            particle_primaries=clusts,
+        )
+
+    result = stage(ChainState(**products))
+
+    assert stage.requires == frozenset(required)
+    assert len(calls) == 1
+    assert f"{prefix}edge_index" in result.outputs
+    assert f"{prefix}node_features" in result.outputs
+    if level == "particle":
+        assert calls[0]["primaries"] is clusts
+
+
+def test_grappa_target_materialization_uses_namespaced_graph() -> None:
+    """The loss-side adapter should emit targets without evaluating a loss."""
+    marker = object()
+
+    class Loss:
+        def materialize_targets(self, **inputs):
+            assert inputs["edge_index"] is marker
+            return {"edge_target": marker, "edge_valid": marker}
+
+    stage = GrapPATargetMaterializationStage("inter", "particle_", Loss())
+    result = stage(
+        {
+            "clust_label": make_cluster_label(),
+            "particle_edge_index": marker,
+        }
+    )
+
+    assert result["edge_target"] is marker
+    assert result["edge_valid"] is marker
+    assert result["loss"].item() == 0.0
+
+
+def test_grappa_materialization_providers_are_registered() -> None:
+    """Both node-level materialization providers should resolve lazily."""
+    fragment = provider_spec("fragment_graph")
+    particle = provider_spec("particle_graph")
+
+    assert fragment.name == "fragment_graph"
+    assert particle.name == "particle_graph"
+    assert fragment.loss is not None
+    assert particle.loss is not None
 
 
 def test_group_builder_uses_primary_shape_and_voxels() -> None:

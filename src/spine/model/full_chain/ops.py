@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import torch
@@ -19,6 +19,22 @@ from spine.model.grappa.evaluation import primary_assignment_batch
 from spine.utils.ppn import ParticlePointPredictor
 
 __all__ = ["AggregationOperations"]
+
+
+class _RequiredGrapPAInput(TypedDict):
+    """Required keyword arguments prepared for a GrapPA graph."""
+
+    data: TensorBatch
+    clusts: IndexBatch
+    shapes: TensorBatch
+
+
+class _PreparedGrapPAInput(_RequiredGrapPAInput, total=False):
+    """Optional encoder inputs added according to the GrapPA configuration."""
+
+    coord_label: TensorBatch
+    points: TensorBatch
+    extra: TensorBatch
 
 
 class AggregationOperations:
@@ -97,7 +113,7 @@ class AggregationOperations:
         coord_label: TensorBatch | None = None,
         ppn_points: TensorBatch | None = None,
         point_use_primaries: bool = False,
-    ) -> dict[str, TensorBatch | IndexBatch]:
+    ) -> _PreparedGrapPAInput:
         """Build explicit supplemental inputs required by GrapPA.
 
         Parameters
@@ -134,7 +150,7 @@ class AggregationOperations:
             If the configured encoder requires unavailable point inputs or
             primary indexes.
         """
-        result: dict[str, TensorBatch | IndexBatch] = {
+        result: _PreparedGrapPAInput = {
             "data": data,
             "clusts": clusts,
             "shapes": shapes,

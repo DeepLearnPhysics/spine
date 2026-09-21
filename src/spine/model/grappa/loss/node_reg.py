@@ -224,6 +224,34 @@ class NodeRegressionLoss(torch.nn.Module):
 
         return result
 
+    def materialize_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        overlap_cache: ClusterOverlapCache | None = None,
+        **kwargs: object,
+    ) -> dict[str, TensorBatch]:
+        """Build stable node-regression supervision without predictions.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used to label graph nodes.
+        clusts : IndexBatch
+            Cluster membership whose ordering defines the node axis.
+        overlap_cache : dict, optional
+            Cluster-overlap cache shared by materialized objectives.
+        **kwargs : object, optional
+            Unused graph products accepted for a common objective interface.
+
+        Returns
+        -------
+        dict
+            ``target`` and static ``valid`` batches aligned with graph nodes.
+        """
+        target, valid, _ = self._build_target(clust_label, clusts, overlap_cache)
+        return {"target": target, "valid": validity_batch(valid, target)}
+
     def _build_target(
         self,
         clust_label: ClusterLabelBatch,

@@ -107,6 +107,52 @@ The historical mode-matrix schema is unordered. For that schema only,
 knows which generated stage calibration must precede. The translator consumes
 that option; it is not part of the calibration provider interface.
 
+## GrapPA graph materialization
+
+Cache jobs can stop at GrapPA's deterministic graph boundary instead of
+running message passing, prediction heads, grouping, and object construction.
+Fragment-node materialization supports the shower, track, and joint-particle
+paths:
+
+```yaml
+    chain:
+      stages:
+      - name: fragmentation
+        provider: fragmentation
+        uses: graph_spice
+        config:
+          mode: graph_spice
+      - name: fragment_graph
+        provider: fragment_graph
+        uses: [grappa_shower, grappa_track]
+        loss:
+          shower: grappa_shower_loss
+          track: grappa_track_loss
+```
+
+The stage intrinsically publishes each path's edge index, node and edge
+features, and configured static target/validity pairs. GrapPA checkpoints and
+the historical ``return_features`` and ``return_targets`` overrides are not
+needed.
+
+Interaction GrapPA uses particles as graph nodes. A particle-node cache job
+may either receive the canonical particle products as declared chain inputs or
+run an upstream provider which constructs them:
+
+```yaml
+    chain:
+      inputs: [particle_clusts, particle_shapes, particle_primaries]
+      stages:
+      - name: particle_graph
+        provider: particle_graph
+        uses: grappa_inter
+        loss: grappa_inter_loss
+```
+
+Both providers cache only iteration-independent supervision. Dynamic forest
+selection and predicted-group purity are rebuilt from the current network
+outputs during cached training.
+
 ## Particle image tasks
 
 An image encoder can classify or regress reconstructed particle clusters after

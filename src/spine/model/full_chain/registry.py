@@ -54,6 +54,8 @@ _BUILTIN_MODULES = {
     "deghost": "spine.model.full_chain.providers.deghost",
     "segmentation": "spine.model.full_chain.providers.segmentation",
     "fragmentation": "spine.model.full_chain.providers.fragmentation",
+    "fragment_graph": "spine.model.full_chain.providers.materialization",
+    "particle_graph": "spine.model.full_chain.providers.materialization",
     "particle_aggregation": "spine.model.full_chain.providers.aggregation",
     "interaction_aggregation": "spine.model.full_chain.providers.aggregation",
     "interaction_vertexing": "spine.model.full_chain.providers.vertexing",

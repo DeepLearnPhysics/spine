@@ -257,7 +257,7 @@ class EdgeChannelLoss(torch.nn.Module):
                 cache_target,
                 static_valid,
                 count_rejected,
-            ) = self._build_target(
+            ) = self._build_live_target(
                 clust_label,
                 clusts,
                 edge_index,
@@ -307,7 +307,54 @@ class EdgeChannelLoss(torch.nn.Module):
 
         return result
 
-    def _build_target(
+    def materialize_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        true_edge_index: EdgeIndexBatch | None = None,
+        overlap_cache: ClusterOverlapCache | None = None,
+        **kwargs: object,
+    ) -> dict[str, TensorBatch]:
+        """Build stable edge supervision without evaluating graph logits.
+
+        Forest mode returns node-aligned group IDs as its target so the
+        prediction-dependent spanning tree can be rebuilt on every iteration.
+        Other modes return their final edge-aligned binary target.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used to label graph nodes and edges.
+        clusts : IndexBatch
+            Cluster membership whose ordering defines the node axis.
+        edge_index : EdgeIndexBatch
+            Graph incidence matrix whose ordering defines the edge axis.
+        true_edge_index : EdgeIndexBatch, optional
+            Reference particle graph required by ``particle_forest`` mode.
+        overlap_cache : dict, optional
+            Cluster-overlap cache shared by materialized objectives.
+        **kwargs : object, optional
+            Unused graph products accepted for a common objective interface.
+
+        Returns
+        -------
+        dict
+            Stable ``target`` and edge-aligned ``valid`` batches.
+        """
+        target, valid, _ = self._build_target(
+            clust_label,
+            clusts,
+            edge_index,
+            true_edge_index,
+            overlap_cache,
+        )
+        return {
+            "target": target,
+            "valid": validity_batch(valid, TensorBatch(valid, edge_index.counts)),
+        }
+
+    def _build_live_target(
         self,
         clust_label: ClusterLabelBatch,
         clusts: IndexBatch,
@@ -352,6 +399,62 @@ class EdgeChannelLoss(torch.nn.Module):
         int
             Number of otherwise eligible edges rejected by overlap quality.
         """
+        cache_target, static_valid, count_rejected = self._build_target(
+            clust_label,
+            clusts,
+            edge_index,
+            true_edge_index,
+            overlap_cache,
+        )
+
+        # Forest supervision selects a fresh target tree from current logits.
+        dynamic_valid = np.ones_like(static_valid)
+        if self.mode == "forest":
+            edge_assn, valid_mask_mst = edge_assignment_forest_batch(
+                edge_index,
+                edge_pred.to_numpy(),
+                cache_target,
+            )
+            dynamic_valid = valid_mask_mst.numpy_tensor()
+        else:
+            edge_assn = cache_target
+
+        valid_mask = static_valid & dynamic_valid
+        return edge_assn, valid_mask, cache_target, static_valid, count_rejected
+
+    def _build_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        edge_index: EdgeIndexBatch,
+        true_edge_index: EdgeIndexBatch | None,
+        overlap_cache: ClusterOverlapCache | None,
+    ) -> tuple[TensorBatch, np.ndarray, int]:
+        """Build prediction-independent edge supervision from truth.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used to label graph nodes and edges.
+        clusts : IndexBatch
+            Cluster membership whose ordering defines the node axis.
+        edge_index : EdgeIndexBatch
+            Graph incidence matrix whose ordering defines the edge axis.
+        true_edge_index : EdgeIndexBatch, optional
+            Reference particle graph required by ``particle_forest`` mode.
+        overlap_cache : dict, optional
+            Cluster-overlap cache shared by materialized objectives.
+
+        Returns
+        -------
+        TensorBatch
+            Stable cache target. Forest targets are node-aligned group IDs;
+            all other modes return edge-aligned binary labels.
+        np.ndarray
+            Static edge-validity mask.
+        int
+            Number of otherwise eligible edges rejected by overlap quality.
+        """
         # Build the static supervision and validity mask from structured truth.
         group_ids = get_cluster_label_batch(clust_label, clusts, self.target)
         static_valid = np.all(
@@ -367,14 +470,12 @@ class EdgeChannelLoss(torch.nn.Module):
                 edge_index, part_ids, group_ids, prim_ids
             )
 
-        # Construct the exact binary supervision requested by the loss mode.
-        dynamic_valid = np.ones_like(static_valid)
+        # Construct the stable cache primitive requested by the loss mode.
         if self.mode == "group":
-            edge_assn = edge_assignment_batch(edge_index, group_ids)
-            cache_target = edge_assn
+            cache_target = edge_assignment_batch(edge_index, group_ids)
 
         elif self.mode == "forest":
-            forest_group_ids = group_ids
+            cache_target = group_ids
             if self.quality_filter.active:
                 # Prevent a target path from traversing a rejected endpoint.
                 node_quality_mask = self.quality_filter.node_mask(
@@ -386,15 +487,7 @@ class EdgeChannelLoss(torch.nn.Module):
                 invalid_index = np.where(~node_quality_mask)[0]
                 next_id = int(np.max(forest_ids, initial=-1)) + 1
                 forest_ids[invalid_index] = next_id + np.arange(len(invalid_index))
-                forest_group_ids = TensorBatch(forest_ids, group_ids.counts)
-
-            edge_assn, valid_mask_mst = edge_assignment_forest_batch(
-                edge_index,
-                edge_pred.to_numpy(),
-                forest_group_ids,
-            )
-            dynamic_valid = valid_mask_mst.numpy_tensor()
-            cache_target = forest_group_ids
+                cache_target = TensorBatch(forest_ids, group_ids.counts)
 
         elif self.mode == "particle_forest":
             if true_edge_index is None:
@@ -403,10 +496,9 @@ class EdgeChannelLoss(torch.nn.Module):
                     "the `particle_forest` truth mode"
                 )
             part_ids = get_cluster_label_batch(clust_label, clusts, "particle")
-            edge_assn = edge_assignment_from_graph_batch(
+            cache_target = edge_assignment_from_graph_batch(
                 edge_index, true_edge_index, part_ids
             )
-            cache_target = edge_assn
 
         else:
             raise ValueError(f"Loss mode not recognized: {self.mode}")
@@ -415,7 +507,7 @@ class EdgeChannelLoss(torch.nn.Module):
         count_rejected = 0
         if self.quality_filter.active:
             quality_classes = (
-                None if self.mode == "forest" else edge_assn.numpy_tensor()
+                None if self.mode == "forest" else cache_target.numpy_tensor()
             )
             edge_quality_mask = self.quality_filter.edge_mask(
                 clust_label,
@@ -427,11 +519,7 @@ class EdgeChannelLoss(torch.nn.Module):
             count_rejected = int(np.count_nonzero(static_valid & ~edge_quality_mask))
             static_valid &= edge_quality_mask
 
-        # The spanning tree is selected from the current edge logits. All other
-        # modes have no dynamic validity component.
-        valid_mask = static_valid & dynamic_valid
-
-        return edge_assn, valid_mask, cache_target, static_valid, count_rejected
+        return cache_target, static_valid, count_rejected
 
     @staticmethod
     def _prepare_cached_forest_target(
