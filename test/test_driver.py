@@ -484,6 +484,7 @@ def test_initialize_log_names_and_writer(monkeypatch, tmp_path):
             buffer_size=1,
             tensorboard=None,
             tensorboard_dir=None,
+            log_gpu_memory=False,
         ):
             created.append((path, overwrite, buffer_size, tensorboard, tensorboard_dir))
 
@@ -532,6 +533,7 @@ def test_initialize_tensorboard_logger(monkeypatch, tmp_path):
             buffer_size=1,
             tensorboard=None,
             tensorboard_dir=None,
+            log_gpu_memory=False,
         ):
             created.append((path, tensorboard, tensorboard_dir))
 

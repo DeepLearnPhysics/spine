@@ -19,7 +19,11 @@ __all__ = [
     "manual_seed",
     "cuda_is_available",
     "cuda_mem_info",
+    "cuda_memory_allocated",
     "cuda_max_memory_allocated",
+    "cuda_memory_reserved",
+    "cuda_max_memory_reserved",
+    "cuda_memory_stats",
     "is_tensor",
     "distributed_barrier",
     "distributed_any",
@@ -171,10 +175,24 @@ def cuda_is_available():
 
 
 def cuda_mem_info():
-    """Get CUDA memory info if available."""
-    if TORCH_AVAILABLE:
+    """Return free and total CUDA device memory in bytes, if available.
+
+    Returns
+    -------
+    tuple[int, int]
+        The ``(free, total)`` device-memory values reported by CUDA. Returns
+        ``(0, 0)`` when PyTorch or CUDA is unavailable.
+    """
+    if TORCH_AVAILABLE and torch.cuda.is_available():
         return torch.cuda.mem_get_info()
-    return (0, 0)  # Return (used, total) as 0,0 if not available
+    return (0, 0)
+
+
+def cuda_memory_allocated():
+    """Return current CUDA tensor memory in bytes, if available."""
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        return torch.cuda.memory_allocated()
+    return 0
 
 
 def cuda_max_memory_allocated():
@@ -182,6 +200,27 @@ def cuda_max_memory_allocated():
     if TORCH_AVAILABLE and torch.cuda.is_available():
         return torch.cuda.max_memory_allocated()
     return 0
+
+
+def cuda_memory_reserved():
+    """Return current CUDA caching-allocator memory in bytes, if available."""
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        return torch.cuda.memory_reserved()
+    return 0
+
+
+def cuda_max_memory_reserved():
+    """Return peak CUDA caching-allocator memory in bytes, if available."""
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        return torch.cuda.max_memory_reserved()
+    return 0
+
+
+def cuda_memory_stats():
+    """Return CUDA allocator statistics, or an empty mapping if unavailable."""
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        return torch.cuda.memory_stats()
+    return {}
 
 
 def is_tensor(obj: Any) -> TypeGuard[_TensorLike]:

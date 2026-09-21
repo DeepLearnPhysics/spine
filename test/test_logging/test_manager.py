@@ -75,9 +75,25 @@ def test_log_manager_collects_and_writes_scalars(monkeypatch, tmp_path):
         lambda: SimpleNamespace(used=4.0e9, percent=50.0),
     )
     monkeypatch.setattr(log_manager_mod.runtime, "cuda_is_available", lambda: True)
-    monkeypatch.setattr(log_manager_mod.runtime, "cuda_mem_info", lambda: (0, 8.0e9))
+    monkeypatch.setattr(
+        log_manager_mod.runtime, "cuda_mem_info", lambda: (3.0e9, 8.0e9)
+    )
+    monkeypatch.setattr(log_manager_mod.runtime, "cuda_memory_allocated", lambda: 1.0e9)
     monkeypatch.setattr(
         log_manager_mod.runtime, "cuda_max_memory_allocated", lambda: 2.0e9
+    )
+    monkeypatch.setattr(log_manager_mod.runtime, "cuda_memory_reserved", lambda: 3.0e9)
+    monkeypatch.setattr(
+        log_manager_mod.runtime, "cuda_max_memory_reserved", lambda: 4.0e9
+    )
+    monkeypatch.setattr(
+        log_manager_mod.runtime,
+        "cuda_memory_stats",
+        lambda: {
+            "inactive_split_bytes.all.current": 0.5e9,
+            "num_alloc_retries": 1,
+            "num_ooms": 2,
+        },
     )
     monkeypatch.setattr(
         log_manager_mod.runtime, "create_summary_writer", lambda *args, **kwargs: None
@@ -97,6 +113,7 @@ def test_log_manager_collects_and_writes_scalars(monkeypatch, tmp_path):
         str(tmp_path / "log.csv"),
         overwrite=True,
         buffer_size=10,
+        log_gpu_memory=True,
     )
     manager.tb_logger = SimpleNamespace(
         add_scalar=lambda key, value, step: tb_scalars.append((key, value, step)),
@@ -120,8 +137,17 @@ def test_log_manager_collects_and_writes_scalars(monkeypatch, tmp_path):
     assert writers[0].rows == [row]
     assert row["first_entry"] == 7
     assert row["cpu_mem"] == 4.0
-    assert row["gpu_mem"] == 2.0
-    assert row["gpu_mem_perc"] == 25.0
+    assert row["gpu_mem"] == 5.0
+    assert row["gpu_mem_perc"] == 62.5
+    assert row["gpu_mem_allocated"] == 1.0
+    assert row["gpu_mem_allocated_peak"] == 2.0
+    assert row["gpu_mem_reserved"] == 3.0
+    assert row["gpu_mem_reserved_peak"] == 4.0
+    assert row["gpu_mem_total"] == 8.0
+    assert row["gpu_mem_inactive_split"] == 0.5
+    assert row["gpu_alloc_retries"] == 1
+    assert "gpu_mem_free" not in row
+    assert "gpu_ooms" not in row
     assert row["iteration_time"] == 2.0
     assert row["tensor_metric"] == 3.5
     assert ("loss", 1.25, 0) in tb_scalars
@@ -131,6 +157,14 @@ def test_log_manager_collects_and_writes_scalars(monkeypatch, tmp_path):
     assert ("flag", 1, 1) in tb_scalars
     manager.close()
     assert writers[0].closed is True
+
+
+def test_log_manager_omits_gpu_metrics_without_cuda(monkeypatch):
+    """CPU-only runs should not emit inapplicable GPU fields."""
+    monkeypatch.setattr(log_manager_mod.runtime, "cuda_is_available", lambda: False)
+    metrics = LogManager.get_memory_metrics()
+    assert "cpu_mem" in metrics
+    assert not any(key.startswith("gpu_") for key in metrics)
 
 
 def test_log_manager_preserves_timer_columns_before_first_measurement(tmp_path):

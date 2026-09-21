@@ -36,6 +36,7 @@ class LogManager:
         buffer_size: int = 1,
         tensorboard: bool | Mapping[str, Any] | None = None,
         tensorboard_dir: str | None = None,
+        log_gpu_memory: bool = False,
     ) -> None:
         """Initialize scalar logging backends.
 
@@ -54,6 +55,9 @@ class LogManager:
         tensorboard_dir : str | None, optional
             Default TensorBoard event-file directory. If ``tensorboard`` is a
             mapping with a ``log_dir`` key, that value takes precedence.
+        log_gpu_memory : bool, default False
+            Whether to collect CUDA memory metrics. Enable only for a run
+            whose selected compute device is a GPU.
         """
         self.csv_logger = CSVLogger(
             file_name, overwrite=overwrite, buffer_size=buffer_size
@@ -61,6 +65,7 @@ class LogManager:
         self.tb_logger = self.initialize_tensorboard_logger(
             tensorboard, tensorboard_dir
         )
+        self.log_gpu_memory = log_gpu_memory
 
     @staticmethod
     def initialize_tensorboard_logger(
@@ -161,7 +166,7 @@ class LogManager:
         """
         first_entry = get_first_entry(data["index"])
         log_row = {"iter": iteration, "epoch": epoch, "first_entry": first_entry}
-        log_row.update(self.get_memory_metrics())
+        log_row.update(self.get_memory_metrics(self.log_gpu_memory))
         log_row.update(self.get_watch_metrics(watch))
 
         for key, value in data.items():
@@ -173,18 +178,41 @@ class LogManager:
         return log_row
 
     @staticmethod
-    def get_memory_metrics() -> dict[str, float]:
-        """Collect CPU and GPU memory metrics for the current process."""
+    def get_memory_metrics(log_gpu_memory: bool = False) -> dict[str, float | int]:
+        """Collect CPU and, when enabled, GPU memory metrics."""
         metrics = {
             "cpu_mem": psutil.virtual_memory().used / 1.0e9,
             "cpu_mem_perc": psutil.virtual_memory().percent,
-            "gpu_mem": 0.0,
-            "gpu_mem_perc": 0.0,
         }
-        if runtime.cuda_is_available():
-            gpu_total = runtime.cuda_mem_info()[-1] / 1.0e9
-            metrics["gpu_mem"] = runtime.cuda_max_memory_allocated() / 1.0e9
-            metrics["gpu_mem_perc"] = 100 * metrics["gpu_mem"] / gpu_total
+        if log_gpu_memory and runtime.cuda_is_available():
+            gpu_free_bytes, gpu_total_bytes = runtime.cuda_mem_info()
+            gpu_allocated_bytes = runtime.cuda_memory_allocated()
+            gpu_allocated_peak_bytes = runtime.cuda_max_memory_allocated()
+            gpu_reserved_bytes = runtime.cuda_memory_reserved()
+            gpu_reserved_peak_bytes = runtime.cuda_max_memory_reserved()
+            gpu_stats = runtime.cuda_memory_stats()
+            gpu_used_bytes = gpu_total_bytes - gpu_free_bytes
+
+            # These fields feed the human-readable progress table. Report
+            # current device-wide occupancy rather than PyTorch tensor peaks.
+            metrics["gpu_mem"] = gpu_used_bytes / 1.0e9
+            metrics["gpu_mem_perc"] = (
+                100 * gpu_used_bytes / gpu_total_bytes if gpu_total_bytes else 0.0
+            )
+            metrics.update(
+                {
+                    "gpu_mem_allocated": gpu_allocated_bytes / 1.0e9,
+                    "gpu_mem_allocated_peak": gpu_allocated_peak_bytes / 1.0e9,
+                    "gpu_mem_reserved": gpu_reserved_bytes / 1.0e9,
+                    "gpu_mem_reserved_peak": gpu_reserved_peak_bytes / 1.0e9,
+                    "gpu_mem_total": gpu_total_bytes / 1.0e9,
+                    "gpu_mem_inactive_split": gpu_stats.get(
+                        "inactive_split_bytes.all.current", 0
+                    )
+                    / 1.0e9,
+                    "gpu_alloc_retries": gpu_stats.get("num_alloc_retries", 0),
+                }
+            )
 
         return metrics
 

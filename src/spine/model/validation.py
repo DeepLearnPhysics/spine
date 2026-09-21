@@ -440,6 +440,7 @@ class ValidationManager:
             distributed=distributed,
         )
         self.model = model
+        self.log_gpu_memory = world_size > 0
         self.distributed = distributed
         self.rank = rank
         self.log_dir = log_dir
@@ -883,6 +884,7 @@ class ValidationManager:
             os.path.join(log_dir, log_name),
             overwrite=self.overwrite_log,
             buffer_size=self.csv_buffer_size,
+            log_gpu_memory=self.log_gpu_memory,
         )
 
     def update_early_stopping(self, metrics: Mapping[str, float]) -> bool:

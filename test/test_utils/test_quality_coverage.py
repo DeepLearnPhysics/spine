@@ -344,6 +344,36 @@ def test_cuda_device_selection_with_mocked_runtime(monkeypatch):
     assert devices.set_visible_devices(world_size=3) == 3
 
 
+def test_cuda_memory_helpers_with_fake_runtime(monkeypatch):
+    """CUDA memory helpers should report values and tolerate CPU-only runs."""
+    fake_torch = SimpleNamespace(
+        cuda=SimpleNamespace(is_available=lambda: False),
+    )
+    monkeypatch.setattr(runtime, "TORCH_AVAILABLE", True)
+    monkeypatch.setattr(runtime, "torch", fake_torch)
+    assert runtime.cuda_mem_info() == (0, 0)
+    assert runtime.cuda_memory_allocated() == 0
+    assert runtime.cuda_memory_reserved() == 0
+    assert runtime.cuda_max_memory_reserved() == 0
+    assert runtime.cuda_memory_stats() == {}
+
+    fake_torch.cuda = SimpleNamespace(
+        is_available=lambda: True,
+        mem_get_info=lambda: (2, 8),
+        memory_allocated=lambda: 3,
+        max_memory_allocated=lambda: 4,
+        memory_reserved=lambda: 5,
+        max_memory_reserved=lambda: 6,
+        memory_stats=lambda: {"num_ooms": 7},
+    )
+    assert runtime.cuda_mem_info() == (2, 8)
+    assert runtime.cuda_memory_allocated() == 3
+    assert runtime.cuda_max_memory_allocated() == 4
+    assert runtime.cuda_memory_reserved() == 5
+    assert runtime.cuda_max_memory_reserved() == 6
+    assert runtime.cuda_memory_stats() == {"num_ooms": 7}
+
+
 def test_runtime_helpers_with_mocked_optional_states(monkeypatch):
     """Runtime adapters should exercise CPU, CUDA, distributed, and writer paths."""
     monkeypatch.setattr(runtime, "TORCH_AVAILABLE", False)

@@ -877,6 +877,7 @@ class Driver:
                 self.tensorboard_cfg if getattr(self, "main_process", True) else None
             ),
             tensorboard_dir=tb_dir,
+            log_gpu_memory=getattr(self, "world_size", 0) > 0,
         )
 
     def __len__(self) -> int:

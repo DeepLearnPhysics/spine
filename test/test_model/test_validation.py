@@ -401,6 +401,7 @@ def test_validation_log_uses_distributed_and_input_prefixes(monkeypatch, tmp_pat
     manager.prefix_log = True
     manager.overwrite_log = True
     manager.csv_buffer_size = 8
+    manager.log_gpu_memory = False
     manager.io = SimpleNamespace(
         format_log_name=lambda name, _directory: f"sample_{name}"
     )
@@ -418,7 +419,11 @@ def test_validation_log_uses_distributed_and_input_prefixes(monkeypatch, tmp_pat
     assert calls == [
         (
             str(tmp_path / "logs" / "sample_validation_proc2_log-0000010.csv"),
-            {"overwrite": True, "buffer_size": 8},
+            {
+                "overwrite": True,
+                "buffer_size": 8,
+                "log_gpu_memory": False,
+            },
         )
     ]
 
