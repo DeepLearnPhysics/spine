@@ -156,23 +156,20 @@ class GrapPAGraphMaterializationStage(ChainStage):
             clusts = state.require("fragment_clusts", self.name)
             shapes = state.require("fragment_shapes", self.name)
             definitions = {
-                "shower": ([SHOWR_SHP, MICHL_SHP, DELTA_SHP], "shower_fragment"),
-                "track": ([TRACK_SHP], "track_fragment"),
-                "particle": (
-                    [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
-                    "fragment",
-                ),
+                "shower": [SHOWR_SHP, MICHL_SHP, DELTA_SHP],
+                "track": [TRACK_SHP],
+                "particle": [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP],
             }
             for path, model in self.models.items():
-                accepted_shapes, prefix = definitions[path]
                 graph = self._materialize_path(
                     model,
                     data,
                     clusts,
                     shapes,
-                    accepted_shapes,
+                    definitions[path],
                     state,
                 )
+                prefix = f"{self.name}_{path}"
                 outputs.update(
                     {f"{prefix}_{key}": value for key, value in graph.items()}
                 )
@@ -191,7 +188,9 @@ class GrapPAGraphMaterializationStage(ChainStage):
                 state,
                 primaries,
             )
-            outputs.update({f"particle_{key}": value for key, value in graph.items()})
+            outputs.update(
+                {f"{self.name}_{key}": value for key, value in graph.items()}
+            )
 
         return StageResult(outputs=outputs)
 
@@ -362,11 +361,6 @@ def build_fragment_graph_loss(
     loss_configs = config.get("loss") or {}
     if not isinstance(loss_configs, dict):
         raise TypeError("Fragment graph materialization loss must be a mapping.")
-    prefixes = {
-        "shower": "shower_fragment_",
-        "track": "track_fragment_",
-        "particle": "fragment_",
-    }
     stages = []
     for path, loss_config in loss_configs.items():
         if not isinstance(loss_config, dict):
@@ -374,7 +368,8 @@ def build_fragment_graph_loss(
         model_config = config.get(f"grappa_{path}")
         loss = GrapPALoss(loss_config, model_config)
         owner.add_module(f"grappa_{path}_loss", loss)
-        stages.append(GrapPATargetMaterializationStage(path, prefixes[path], loss))
+        prefix = f"{name}_{path}_"
+        stages.append(GrapPATargetMaterializationStage(path, prefix, loss))
     if not stages:
         return None
     return CompositeLossStage(name, stages)
@@ -408,7 +403,7 @@ def build_particle_graph_loss(
         raise TypeError("Particle graph materialization loss must be a mapping.")
     loss = GrapPALoss(loss_config, config.get("grappa_inter"))
     owner.add_module("grappa_inter_loss", loss)
-    return GrapPATargetMaterializationStage(name, "particle_", loss)
+    return GrapPATargetMaterializationStage(name, f"{name}_", loss)
 
 
 FRAGMENT_GRAPH_SPEC = register_provider(

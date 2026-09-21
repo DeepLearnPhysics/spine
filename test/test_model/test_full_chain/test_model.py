@@ -1366,27 +1366,30 @@ def test_grappa_builder_validates_and_registers_group_model(monkeypatch) -> None
 
 
 @pytest.mark.parametrize(
-    ("level", "required", "prefix"),
+    ("level", "stage_name", "required", "prefix"),
     [
         (
             "fragment",
+            "fragment_graph",
             {"point_data", "fragment_clusts", "fragment_shapes"},
-            "shower_fragment_",
+            "fragment_graph_shower_",
         ),
         (
             "particle",
+            "particle_graph",
             {
                 "point_data",
                 "particle_clusts",
                 "particle_shapes",
                 "particle_primaries",
             },
-            "particle_",
+            "particle_graph_",
         ),
     ],
 )
 def test_grappa_graph_materialization_stops_before_model_forward(
     level,
+    stage_name,
     required,
     prefix,
 ) -> None:
@@ -1418,7 +1421,7 @@ def test_grappa_graph_materialization_stops_before_model_forward(
     }
     models = {"shower": Model()} if level == "fragment" else {"inter": Model()}
     stage = GrapPAGraphMaterializationStage(
-        "materialize",
+        stage_name,
         level,
         models,
         operations,
@@ -1487,20 +1490,64 @@ def test_grappa_target_materialization_uses_namespaced_graph() -> None:
             assert inputs["edge_index"] is marker
             return {"edge_target": marker, "edge_valid": marker}
 
-    stage = GrapPATargetMaterializationStage("inter", "particle_", Loss())
+    stage = GrapPATargetMaterializationStage("inter", "particle_graph_", Loss())
     with pytest.raises(ValueError, match="requires `clust_label`"):
-        stage({"particle_edge_index": marker})
+        stage({"particle_graph_edge_index": marker})
 
     result = stage(
         {
             "clust_label": make_cluster_label(),
-            "particle_edge_index": marker,
+            "particle_graph_edge_index": marker,
         }
     )
 
     assert result["edge_target"] is marker
     assert result["edge_valid"] is marker
     assert result["loss"].item() == 0.0
+
+
+def test_grappa_materialization_uses_stage_first_public_namespace() -> None:
+    """Feature and target products share one stage-owned cache namespace."""
+
+    class Loss:
+        def materialize_targets(self, **_inputs):
+            marker = object()
+            return {"edge_target": marker, "edge_valid": marker}
+
+    clust_label = make_cluster_label()
+    fragment = CompositeLossStage(
+        "fragment_graph",
+        [
+            GrapPATargetMaterializationStage(
+                "shower", "fragment_graph_shower_", Loss()
+            ),
+            GrapPATargetMaterializationStage("track", "fragment_graph_track_", Loss()),
+        ],
+    )
+    particle = GrapPATargetMaterializationStage(
+        "particle_graph", "particle_graph_", Loss()
+    )
+    loss = object.__new__(FullChainLoss)
+    torch.nn.Module.__init__(loss)
+
+    loss.stages = [fragment]
+    fragment_result = loss(
+        clust_label=clust_label,
+        fragment_graph_shower_edge_index=object(),
+        fragment_graph_track_edge_index=object(),
+    )
+    assert "fragment_graph_shower_edge_target" in fragment_result
+    assert "fragment_graph_shower_edge_valid" in fragment_result
+    assert "fragment_graph_track_edge_target" in fragment_result
+    assert "fragment_graph_track_edge_valid" in fragment_result
+
+    loss.stages = [particle]
+    particle_result = loss(
+        clust_label=clust_label,
+        particle_graph_edge_index=object(),
+    )
+    assert "particle_graph_edge_target" in particle_result
+    assert "particle_graph_edge_valid" in particle_result
 
 
 def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> None:
@@ -1529,7 +1576,7 @@ def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> N
 
     fragment_owner = torch.nn.Module()
     fragment_stage = build_fragment_graph_stage(
-        "fragment",
+        "fragment_graph",
         {"grappa_shower": {"kind": "shower"}},
         fragment_owner,
     )
@@ -1537,25 +1584,27 @@ def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> N
 
     particle_owner = torch.nn.Module()
     particle_stage = build_particle_graph_stage(
-        "particle",
+        "particle_graph",
         {"grappa_inter": {"kind": "interaction"}},
         particle_owner,
     )
     assert particle_stage.models["inter"] is particle_owner.grappa_inter
 
-    assert build_fragment_graph_loss("fragment", {}, torch.nn.Module()) is None
+    assert build_fragment_graph_loss("fragment_graph", {}, torch.nn.Module()) is None
     with pytest.raises(TypeError, match="loss must be a mapping"):
-        build_fragment_graph_loss("fragment", {"loss": "invalid"}, torch.nn.Module())
+        build_fragment_graph_loss(
+            "fragment_graph", {"loss": "invalid"}, torch.nn.Module()
+        )
     with pytest.raises(TypeError, match="`shower` loss must be a mapping"):
         build_fragment_graph_loss(
-            "fragment",
+            "fragment_graph",
             {"loss": {"shower": "invalid"}},
             torch.nn.Module(),
         )
 
     fragment_loss_owner = torch.nn.Module()
     fragment_loss = build_fragment_graph_loss(
-        "fragment",
+        "fragment_graph",
         {
             "grappa_shower": {"kind": "shower"},
             "loss": {"shower": {"name": "class"}},
@@ -1563,15 +1612,18 @@ def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> N
         fragment_loss_owner,
     )
     assert isinstance(fragment_loss, CompositeLossStage)
+    assert fragment_loss.stages[0].prefix == "fragment_graph_shower_"
     assert fragment_loss_owner.grappa_shower_loss.model_config == {"kind": "shower"}
 
-    assert build_particle_graph_loss("particle", {}, torch.nn.Module()) is None
+    assert build_particle_graph_loss("particle_graph", {}, torch.nn.Module()) is None
     with pytest.raises(TypeError, match="loss must be a mapping"):
-        build_particle_graph_loss("particle", {"loss": "invalid"}, torch.nn.Module())
+        build_particle_graph_loss(
+            "particle_graph", {"loss": "invalid"}, torch.nn.Module()
+        )
 
     particle_loss_owner = torch.nn.Module()
     particle_loss = build_particle_graph_loss(
-        "particle",
+        "particle_graph",
         {
             "grappa_inter": {"kind": "interaction"},
             "loss": {"name": "channel"},
@@ -1579,6 +1631,7 @@ def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> N
         particle_loss_owner,
     )
     assert isinstance(particle_loss, GrapPATargetMaterializationStage)
+    assert particle_loss.prefix == "particle_graph_"
     assert particle_loss_owner.grappa_inter_loss.model_config == {"kind": "interaction"}
 
 

@@ -136,7 +136,10 @@ the historical ``return_features`` and ``return_targets`` overrides are not
 needed. If grouped or class-selected GrapPA node dropout is configured, the
 stage also materializes its truth-derived group IDs and eligibility mask from
 ``clust_label``. Cached training then samples a fresh dropout selection on
-every iteration.
+every iteration. Public graph products consistently use the stage-first
+namespace, such as ``fragment_graph_shower_edge_index`` and
+``fragment_graph_shower_edge_target``. The upstream canonical products
+``fragment_clusts`` and ``fragment_shapes`` retain their existing names.
 
 Interaction GrapPA uses particles as graph nodes. A particle-node cache job
 may either receive the canonical particle products as declared chain inputs or
