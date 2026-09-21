@@ -149,6 +149,15 @@ def test_node_regression_loss_masks_invalid_targets(graph_labels, graph_clusters
     assert result["count"] == 2
     torch.testing.assert_close(result["loss"], torch.tensor(2.5))
     assert result["accuracy"] == pytest.approx(0.5)
+    materialized = loss_fn.materialize_target(graph_labels, graph_clusters)
+    np.testing.assert_array_equal(
+        materialized["target"].numpy_tensor(),
+        result["target"].numpy_tensor(),
+    )
+    np.testing.assert_array_equal(
+        materialized["valid"].numpy_tensor(),
+        result["valid"].numpy_tensor(),
+    )
     cached = loss_fn(
         prediction,
         clusts=graph_clusters,
@@ -921,6 +930,15 @@ def test_shower_primary_reuses_cached_target(graph_labels, graph_clusters):
         clusts=graph_clusters,
         return_target=True,
     )
+    materialized = loss_fn.materialize_target(graph_labels, graph_clusters)
+    np.testing.assert_array_equal(
+        materialized["target"].numpy_tensor(),
+        live["target"].numpy_tensor(),
+    )
+    np.testing.assert_array_equal(
+        materialized["valid"].numpy_tensor(),
+        live["valid"].numpy_tensor(),
+    )
     cached = loss_fn(
         prediction,
         clusts=graph_clusters,
@@ -1070,6 +1088,22 @@ def test_node_orientation_filters_low_quality_tracks(graph_labels):
     assert result["count"] == 1
     assert result["count_rejected"] == 2
     assert result["accuracy"] == 1.0
+
+    materialized = loss_fn.materialize_target(
+        graph_labels,
+        coord_label,
+        objects,
+        starts,
+        ends,
+    )
+    np.testing.assert_array_equal(
+        materialized["target"].numpy_tensor(),
+        result["target"].numpy_tensor(),
+    )
+    np.testing.assert_array_equal(
+        materialized["valid"].numpy_tensor(),
+        result["valid"].numpy_tensor(),
+    )
 
     # Cached supervision must bypass endpoint requirements at the call boundary.
     cached = loss_fn(

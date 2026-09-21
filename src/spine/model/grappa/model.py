@@ -491,7 +491,7 @@ class GrapPA(torch.nn.Module):
             shapes=self.node_type, min_size=self.node_min_size, **kwargs
         )
 
-    def forward(
+    def materialize_graph(
         self,
         data: ClusterLabelBatch | TensorBatch | None = None,
         coord_label: TensorBatch | None = None,
@@ -507,7 +507,7 @@ class GrapPA(torch.nn.Module):
         points: TensorBatch | None = None,
         extra: TensorBatch | None = None,
     ) -> dict[str, Any]:
-        """Prepare particle clusters and feed them to the GNN model.
+        """Build the deterministic graph products consumed by the GNN.
 
         Parameters
         ----------
@@ -554,41 +554,16 @@ class GrapPA(torch.nn.Module):
 
         Returns
         -------
-        clusts : IndexBatch, optional
-            (C, N_c, N_{c,i}) Cluster indexes. Present only when supplied or
-            constructed by the dynamic path.
-        edge_index : EdgeIndexBatch
-            (E, 2) Incidence matrix
-        node_features : TensorBatch
-            (C, N_c,f) Node features
-        edge_features : TensorBatch
-            (C, N_e,f) Node features
-        global_features : TensorBatch
-            (C, N_g,f) Global features
-        node_dropout_group_ids : TensorBatch, optional
-            (C) Physical dropout groups, when feature return and grouped node
-            dropout are configured.
-        node_dropout_eligible : TensorBatch, optional
-            (C) Static dropout eligibility mask, when feature return and a
-            node-dropout ``select`` mapping are configured.
-        node_keep : TensorBatch, optional
-            (C_original) Training-time mask selecting retained graph nodes.
-        edge_keep : TensorBatch, optional
-            (E_original) Training-time mask selecting retained graph edges.
-        node_pred : TensorBatch
-            (C, N_n) Node predictions (logits)
-        edge_pred : TensorBatch
-            (C, N_e) Edge predictions (logits)
-        global_pred : TensorBatch
-            (C, N_e) Global predictions (logits)
+        dict
+            Static cluster membership, graph indexes, encoded features and
+            augmentation metadata. No GNN, prediction head or grouping logic
+            is evaluated.
 
         Notes
         -----
-        Dynamic execution constructs missing graph products from ``data`` and
-        ``clusts``. Materialized execution may omit both and provide the graph
-        index and feature batches directly. Each encoder enforces its own raw
-        input requirements, so partially materialized configurations remain
-        supported without weakening validation.
+        This method defines the cache boundary for GrapPA. Training-only graph
+        dropout, feature corruption and all prediction-dependent operations are
+        deliberately applied later by :meth:`forward`.
         """
         result: dict[str, Any] = {}
         voxel_data = None
@@ -606,14 +581,12 @@ class GrapPA(torch.nn.Module):
             or (global_features is None and self.global_encoder is not None)
             or (shapes is None and self.make_groups and self.grouping_through_track)
             or (
-                self.training
-                and self.node_dropout is not None
+                self.node_dropout is not None
                 and self.node_dropout.group_by is not None
                 and node_dropout_group_ids is None
             )
             or (
-                self.training
-                and self.node_dropout is not None
+                self.node_dropout is not None
                 and self.node_dropout.select is not None
                 and node_dropout_eligible is None
             )
@@ -648,15 +621,6 @@ class GrapPA(torch.nn.Module):
             # Explicit shapes may be cached as floating-point tensors; restore
             # their categorical representation before grouping uses them.
             shapes = self._get_shapes(data, clusts, shapes)
-
-        # Edge dropout precedes dynamic edge encoding so no work is spent on
-        # removed connections. Track the original-axis mask for cached targets.
-        edge_selection: EdgeSelection | None = None
-        if self.training and self.edge_dropout is not None:
-            edge_selection = self.edge_dropout(edge_index)
-            edge_index = edge_selection.filter_edge_index(edge_index)
-            if edge_features is not None:
-                edge_features = edge_selection.filter_tensor(edge_features)
 
         # Fetch the node features
         if node_features is None:
@@ -728,12 +692,10 @@ class GrapPA(torch.nn.Module):
                 )
             global_features = cast(TensorBatch, self.global_encoder(voxel_data, clusts))
 
-        # Resolve physical group labels from live truth when possible. This is
-        # also exposed by feature-producing cache jobs for later materialized
-        # grouped augmentation.
+        # Resolve static augmentation metadata while structured truth and
+        # membership are available. Cached training reuses these products.
         if (
             node_dropout_group_ids is None
-            and (self.training or self.return_features)
             and self.node_dropout is not None
             and self.node_dropout.group_by is not None
             and isinstance(data, ClusterLabelBatch)
@@ -744,7 +706,6 @@ class GrapPA(torch.nn.Module):
             )
         if (
             node_dropout_eligible is None
-            and (self.training or self.return_features)
             and self.node_dropout is not None
             and self.node_dropout.select is not None
             and isinstance(data, ClusterLabelBatch)
@@ -752,13 +713,64 @@ class GrapPA(torch.nn.Module):
         ):
             node_dropout_eligible = self.node_dropout.build_eligibility(data, clusts)
 
-        # Node dropout acts at the common materialized boundary. Every
-        # node-aligned product and every incident edge follows one selection.
-        if self.training and self.node_dropout is not None:
+        result["edge_index"] = edge_index
+        result["node_features"] = node_features
+        if edge_features is not None:
+            result["edge_features"] = edge_features
+        if global_features is not None:
+            result["global_features"] = global_features
+        if shapes is not None:
+            result["shapes"] = shapes
+        if node_dropout_group_ids is not None:
+            result["node_dropout_group_ids"] = node_dropout_group_ids
+        if node_dropout_eligible is not None:
+            result["node_dropout_eligible"] = node_dropout_eligible
+
+        # Materialized products retain all graph partition metadata needed by
+        # the GNN. Validate event boundaries before touching their payloads.
+        self._validate_materialized_inputs(
+            node_features,
+            edge_features,
+            global_features,
+            edge_index,
+            shapes,
+        )
+
+        return result
+
+    def _augment_materialized_graph(self, graph: dict[str, Any]) -> dict[str, Any]:
+        """Apply training-only augmentation to one materialized graph.
+
+        Parameters
+        ----------
+        graph : dict
+            Output of :meth:`materialize_graph`.
+
+        Returns
+        -------
+        dict
+            Graph products filtered and corrupted consistently for the current
+            training iteration.
+        """
+        result = dict(graph)
+        edge_index = cast(EdgeIndexBatch, result["edge_index"])
+        node_features = cast(TensorBatch, result["node_features"])
+        edge_features = cast(TensorBatch | None, result.get("edge_features"))
+
+        # Edge dropout retains an original-axis mask for cached supervision.
+        edge_selection: EdgeSelection | None = None
+        if self.edge_dropout is not None:
+            edge_selection = self.edge_dropout(edge_index)
+            edge_index = edge_selection.filter_edge_index(edge_index)
+            if edge_features is not None:
+                edge_features = edge_selection.filter_tensor(edge_features)
+
+        # Every node-aligned product and every incident edge follows one draw.
+        if self.node_dropout is not None:
             node_selection = self.node_dropout(
                 node_features.counts,
-                node_dropout_group_ids,
-                node_dropout_eligible,
+                result.get("node_dropout_group_ids"),
+                result.get("node_dropout_eligible"),
             )
             edge_index, incident_selection = node_selection.filter_edge_index(
                 edge_index
@@ -766,23 +778,17 @@ class GrapPA(torch.nn.Module):
             node_features = node_selection.filter_tensor(node_features)
             if edge_features is not None:
                 edge_features = incident_selection.filter_tensor(edge_features)
-            if clusts is not None:
-                clusts = node_selection.filter_index(clusts)
-                result["clusts"] = clusts
-            if shapes is not None:
-                shapes = node_selection.filter_tensor(shapes)
-            if node_dropout_group_ids is not None:
-                node_dropout_group_ids = node_selection.filter_tensor(
-                    node_dropout_group_ids
-                )
-            if node_dropout_eligible is not None:
-                node_dropout_eligible = node_selection.filter_tensor(
-                    node_dropout_eligible
-                )
-            for key in ("start_points", "end_points"):
+            for key in (
+                "shapes",
+                "node_dropout_group_ids",
+                "node_dropout_eligible",
+                "start_points",
+                "end_points",
+            ):
                 if key in result:
                     result[key] = node_selection.filter_tensor(result[key])
-
+            if "clusts" in result:
+                result["clusts"] = node_selection.filter_index(result["clusts"])
             edge_selection = (
                 incident_selection
                 if edge_selection is None
@@ -790,45 +796,110 @@ class GrapPA(torch.nn.Module):
             )
             result["node_keep"] = node_selection.keep
 
-        # Corrupt features only after the structural graph is finalized. Noise
-        # precedes masking so additive perturbations cannot refill masked values.
-        if self.training:
-            if self.node_feature_noise is not None:
-                node_features = self.node_feature_noise(node_features)
-            if self.node_feature_mask is not None:
-                node_features = self.node_feature_mask(node_features)
-
-            if self.edge_feature_noise is not None:
-                if edge_features is None:
-                    raise ValueError(
-                        "Edge feature noise requires materialized or encoded "
-                        "`edge_features`."
-                    )
-                edge_features = self.edge_feature_noise(edge_features)
-            if self.edge_feature_mask is not None:
-                if edge_features is None:
-                    raise ValueError(
-                        "Edge feature masking requires materialized or encoded "
-                        "`edge_features`."
-                    )
-                edge_features = self.edge_feature_mask(edge_features)
+        # Noise precedes masking so perturbations cannot refill masked values.
+        if self.node_feature_noise is not None:
+            node_features = self.node_feature_noise(node_features)
+        if self.node_feature_mask is not None:
+            node_features = self.node_feature_mask(node_features)
+        if self.edge_feature_noise is not None:
+            if edge_features is None:
+                raise ValueError(
+                    "Edge feature noise requires materialized or encoded "
+                    "`edge_features`."
+                )
+            edge_features = self.edge_feature_noise(edge_features)
+        if self.edge_feature_mask is not None:
+            if edge_features is None:
+                raise ValueError(
+                    "Edge feature masking requires materialized or encoded "
+                    "`edge_features`."
+                )
+            edge_features = self.edge_feature_mask(edge_features)
 
         result["edge_index"] = edge_index
+        result["node_features"] = node_features
+        if edge_features is not None:
+            result["edge_features"] = edge_features
         if edge_selection is not None:
             result["edge_keep"] = edge_selection.keep
-        if self.return_features:
-            result["node_features"] = node_features
-            if edge_features is not None:
-                result["edge_features"] = edge_features
-            if global_features is not None:
-                result["global_features"] = global_features
-            if node_dropout_group_ids is not None:
-                result["node_dropout_group_ids"] = node_dropout_group_ids
-            if node_dropout_eligible is not None:
-                result["node_dropout_eligible"] = node_dropout_eligible
+        return result
 
-        # Materialized products retain all graph partition metadata needed by
-        # the GNN. Validate event boundaries before touching their payloads.
+    def forward(
+        self,
+        data: ClusterLabelBatch | TensorBatch | None = None,
+        coord_label: TensorBatch | None = None,
+        clusts: IndexBatch | None = None,
+        edge_index: EdgeIndexBatch | None = None,
+        node_features: TensorBatch | None = None,
+        edge_features: TensorBatch | None = None,
+        global_features: TensorBatch | None = None,
+        shapes: TensorBatch | None = None,
+        groups: TensorBatch | None = None,
+        node_dropout_group_ids: TensorBatch | None = None,
+        node_dropout_eligible: TensorBatch | None = None,
+        points: TensorBatch | None = None,
+        extra: TensorBatch | None = None,
+    ) -> dict[str, Any]:
+        """Materialize a graph, evaluate the GNN and build predictions.
+
+        Parameters are identical to :meth:`materialize_graph`. Fully cached
+        graph products may be supplied without raw voxel data or membership.
+
+        Returns
+        -------
+        dict
+            Native graph diagnostics, configured predictions and optional
+            grouping assignments.
+        """
+        graph = self.materialize_graph(
+            data=data,
+            coord_label=coord_label,
+            clusts=clusts,
+            edge_index=edge_index,
+            node_features=node_features,
+            edge_features=edge_features,
+            global_features=global_features,
+            shapes=shapes,
+            groups=groups,
+            node_dropout_group_ids=node_dropout_group_ids,
+            node_dropout_eligible=node_dropout_eligible,
+            points=points,
+            extra=extra,
+        )
+        if self.training:
+            graph = self._augment_materialized_graph(graph)
+
+        edge_index = cast(EdgeIndexBatch, graph["edge_index"])
+        node_features = cast(TensorBatch, graph["node_features"])
+        edge_features = cast(TensorBatch | None, graph.get("edge_features"))
+        global_features = cast(TensorBatch | None, graph.get("global_features"))
+        shapes = cast(TensorBatch | None, graph.get("shapes"))
+
+        # Only stable public diagnostics escape the internal graph dictionary.
+        result = {
+            key: value
+            for key, value in graph.items()
+            if key
+            in {
+                "clusts",
+                "edge_index",
+                "start_points",
+                "end_points",
+                "node_keep",
+                "edge_keep",
+            }
+        }
+        if self.return_features:
+            for key in (
+                "node_features",
+                "edge_features",
+                "global_features",
+                "node_dropout_group_ids",
+                "node_dropout_eligible",
+            ):
+                if key in graph:
+                    result[key] = graph[key]
+
         self._validate_materialized_inputs(
             node_features,
             edge_features,
@@ -1319,6 +1390,7 @@ class GrapPALoss(torch.nn.Module):
         self.edge_loss_keys: list[str] = []
         self.global_loss_keys: list[str] = []
         self.return_targets = False
+        self.grappa_config = grappa or {}
 
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
@@ -1396,6 +1468,106 @@ class GrapPALoss(torch.nn.Module):
                 setattr(self, loss_key, constructor(cfg))
 
         setattr(self, f"{prefix}_loss_keys", loss_keys)
+
+    def _prediction_width(self, prefix: str) -> int:
+        """Return the configured output width for one prediction head.
+
+        Parameters
+        ----------
+        prefix : str
+            Objective prefix such as ``node`` or ``node_type``.
+
+        Returns
+        -------
+        int
+            Number of values produced for each graph item.
+
+        Raises
+        ------
+        ValueError
+            If the GrapPA model configuration does not describe the requested
+            prediction head.
+        """
+        output_type, _, name = prefix.partition("_")
+        prediction = self.grappa_config.get("gnn_model", {}).get(f"{output_type}_pred")
+        if name:
+            if isinstance(prediction, dict):
+                prediction = prediction.get(name)
+            else:
+                prediction = None
+        if not isinstance(prediction, int):
+            raise ValueError(
+                f"Cannot materialize `{prefix}` targets without its configured "
+                "prediction-head width."
+            )
+        return prediction
+
+    def materialize_targets(
+        self,
+        clust_label: ClusterLabelBatch,
+        coord_label: TensorBatch | None = None,
+        graph_label: EdgeIndexBatch | None = None,
+        **graph: Any,
+    ) -> dict[str, TensorBatch]:
+        """Build all configured static targets and validity masks.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used by GrapPA objectives.
+        coord_label : TensorBatch, optional
+            Particle start and end coordinates used by geometric objectives.
+        graph_label : EdgeIndexBatch, optional
+            Reference truth graph used by particle-forest supervision.
+        **graph : object
+            Materialized graph products, including cluster membership, graph
+            indexes and any encoded endpoints needed by an objective.
+
+        Returns
+        -------
+        dict
+            Stable ``<objective>_target`` and ``<objective>_valid`` products.
+
+        Raises
+        ------
+        ValueError
+            If a configured objective has prediction-dependent targets which
+            cannot be represented by the static cache contract.
+        """
+        result: dict[str, TensorBatch] = {}
+        overlap_cache: ClusterOverlapCache = {}
+        for output_type in self.out_types:
+            for key in getattr(self, f"{output_type}_loss_keys"):
+                prefix = key.removesuffix("_loss")
+                objective = getattr(self, key)
+                if output_type == "global" or not getattr(
+                    objective, "cacheable_targets", True
+                ):
+                    raise ValueError(
+                        f"Objective `{prefix}` does not support static target "
+                        "materialization."
+                    )
+                builder = getattr(objective, "materialize_target", None)
+                if builder is None:
+                    raise ValueError(
+                        f"Objective `{prefix}` does not implement static target "
+                        "materialization."
+                    )
+
+                extra: dict[str, Any] = {}
+                if getattr(objective, "materialize_uses_prediction_width", False):
+                    extra["num_classes"] = self._prediction_width(prefix)
+                target = builder(
+                    clust_label=clust_label,
+                    coord_label=coord_label,
+                    true_edge_index=graph_label,
+                    overlap_cache=overlap_cache,
+                    **graph,
+                    **extra,
+                )
+                result[f"{prefix}_target"] = target["target"]
+                result[f"{prefix}_valid"] = target["valid"]
+        return result
 
     def forward(
         self,

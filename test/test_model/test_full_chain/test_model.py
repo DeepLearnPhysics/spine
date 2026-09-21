@@ -45,6 +45,14 @@ from spine.model.full_chain.providers.image import (
     build_particle_image_loss,
     build_particle_image_stage,
 )
+from spine.model.full_chain.providers.materialization import (
+    GrapPAGraphMaterializationStage,
+    GrapPATargetMaterializationStage,
+    build_fragment_graph_loss,
+    build_fragment_graph_stage,
+    build_particle_graph_loss,
+    build_particle_graph_stage,
+)
 from spine.model.full_chain.providers.segmentation import (
     SegmentationLossStage,
     SegmentationStage,
@@ -58,6 +66,7 @@ from spine.model.full_chain.registry import (
 )
 from spine.model.full_chain.stage import ChainStage
 from spine.model.full_chain.state import ChainState, StageResult
+from spine.model.grappa.augment import NodeDropout
 
 
 class ExternalStage(ChainStage):
@@ -1356,6 +1365,287 @@ def test_grappa_builder_validates_and_registers_group_model(monkeypatch) -> None
     assert owner.particle_grappa is model
 
 
+@pytest.mark.parametrize(
+    ("level", "stage_name", "required", "prefix"),
+    [
+        (
+            "fragment",
+            "fragment_graph",
+            {"point_data", "fragment_clusts", "fragment_shapes"},
+            "fragment_graph_shower_",
+        ),
+        (
+            "particle",
+            "particle_graph",
+            {
+                "point_data",
+                "particle_clusts",
+                "particle_shapes",
+                "particle_primaries",
+            },
+            "particle_graph_",
+        ),
+    ],
+)
+def test_grappa_graph_materialization_stops_before_model_forward(
+    level,
+    stage_name,
+    required,
+    prefix,
+) -> None:
+    """Both object levels should publish static graphs without inference."""
+    clusts, shapes = make_clusters()
+    calls = []
+
+    class Model:
+        node_type = [SHOWR_SHP, TRACK_SHP]
+        node_dropout = None
+
+        def __call__(self, **_kwargs):
+            raise AssertionError("Materialization must not run GrapPA.forward.")
+
+        def materialize_graph(self, **inputs):
+            calls.append(inputs)
+            return {
+                "clusts": inputs["clusts"],
+                "edge_index": object(),
+                "node_features": object(),
+            }
+
+    operations = AggregationOperations()
+    operations.prepare_grappa_input = lambda _model, _data, nodes, node_shapes, **kw: {
+        "data": _data,
+        "clusts": nodes,
+        "shapes": node_shapes,
+        **({"primaries": kw["primaries"]} if kw.get("primaries") is not None else {}),
+    }
+    models = {"shower": Model()} if level == "fragment" else {"inter": Model()}
+    stage = GrapPAGraphMaterializationStage(
+        stage_name,
+        level,
+        models,
+        operations,
+    )
+    products = {"data": make_data(), "point_data": PointBatch.from_input(make_data())}
+    if level == "fragment":
+        products.update(fragment_clusts=clusts, fragment_shapes=shapes)
+    else:
+        products.update(
+            particle_clusts=clusts,
+            particle_shapes=shapes,
+            particle_primaries=clusts,
+        )
+
+    result = stage(ChainState(**products))
+
+    assert stage.requires == frozenset(required)
+    assert len(calls) == 1
+    assert f"{prefix}edge_index" in result.outputs
+    assert f"{prefix}node_features" in result.outputs
+    if level == "particle":
+        assert calls[0]["primaries"] is clusts
+
+
+def test_grappa_graph_materialization_rejects_unknown_level() -> None:
+    """Graph materialization accepts only the two canonical node levels."""
+    with pytest.raises(ValueError, match="Unknown GrapPA materialization level"):
+        GrapPAGraphMaterializationStage(
+            "materialize",
+            "interaction",
+            {},
+            AggregationOperations(),
+        )
+
+
+def test_grappa_graph_materialization_requires_dropout_truth() -> None:
+    """Truth-selected node dropout cannot produce an incomplete cache."""
+    clusts, shapes = make_clusters()
+    model = SimpleNamespace(
+        node_dropout=NodeDropout(probability=0.5, group_by="group"),
+    )
+    stage = GrapPAGraphMaterializationStage(
+        "materialize",
+        "fragment",
+        {"shower": model},
+        AggregationOperations(),
+    )
+
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage._materialize_path(
+            model,
+            make_data(),
+            clusts,
+            shapes,
+            [SHOWR_SHP, TRACK_SHP],
+            ChainState(),
+        )
+
+
+def test_grappa_target_materialization_uses_namespaced_graph() -> None:
+    """The loss-side adapter should emit targets without evaluating a loss."""
+    marker = object()
+
+    class Loss:
+        def materialize_targets(self, **inputs):
+            assert inputs["edge_index"] is marker
+            return {"edge_target": marker, "edge_valid": marker}
+
+    stage = GrapPATargetMaterializationStage("inter", "particle_graph_", Loss())
+    with pytest.raises(ValueError, match="requires `clust_label`"):
+        stage({"particle_graph_edge_index": marker})
+
+    result = stage(
+        {
+            "clust_label": make_cluster_label(),
+            "particle_graph_edge_index": marker,
+        }
+    )
+
+    assert result["edge_target"] is marker
+    assert result["edge_valid"] is marker
+    assert result["loss"].item() == 0.0
+
+
+def test_grappa_materialization_uses_stage_first_public_namespace() -> None:
+    """Feature and target products share one stage-owned cache namespace."""
+
+    class Loss:
+        def materialize_targets(self, **_inputs):
+            marker = object()
+            return {"edge_target": marker, "edge_valid": marker}
+
+    clust_label = make_cluster_label()
+    fragment = CompositeLossStage(
+        "fragment_graph",
+        [
+            GrapPATargetMaterializationStage(
+                "shower", "fragment_graph_shower_", Loss()
+            ),
+            GrapPATargetMaterializationStage("track", "fragment_graph_track_", Loss()),
+        ],
+    )
+    particle = GrapPATargetMaterializationStage(
+        "particle_graph", "particle_graph_", Loss()
+    )
+    loss = object.__new__(FullChainLoss)
+    torch.nn.Module.__init__(loss)
+
+    loss.stages = [fragment]
+    fragment_result = loss(
+        clust_label=clust_label,
+        fragment_graph_shower_edge_index=object(),
+        fragment_graph_track_edge_index=object(),
+    )
+    assert "fragment_graph_shower_edge_target" in fragment_result
+    assert "fragment_graph_shower_edge_valid" in fragment_result
+    assert "fragment_graph_track_edge_target" in fragment_result
+    assert "fragment_graph_track_edge_valid" in fragment_result
+
+    loss.stages = [particle]
+    particle_result = loss(
+        clust_label=clust_label,
+        particle_graph_edge_index=object(),
+    )
+    assert "particle_graph_edge_target" in particle_result
+    assert "particle_graph_edge_valid" in particle_result
+
+
+def test_grappa_materialization_builders_validate_and_register(monkeypatch) -> None:
+    """Materialization builders validate configs and register native modules."""
+
+    class FakeGrapPA(torch.nn.Module):
+        def __init__(self, config):
+            super().__init__()
+            self.config = config
+            self.node_type = [SHOWR_SHP, TRACK_SHP]
+
+    class FakeGrapPALoss(torch.nn.Module):
+        def __init__(self, config, model_config):
+            super().__init__()
+            self.config = config
+            self.model_config = model_config
+
+    module = "spine.model.full_chain.providers.materialization"
+    monkeypatch.setattr(f"{module}.GrapPA", FakeGrapPA)
+    monkeypatch.setattr(f"{module}.GrapPALoss", FakeGrapPALoss)
+
+    with pytest.raises(ValueError, match="at least one GrapPA block"):
+        build_fragment_graph_stage("fragment", {}, torch.nn.Module())
+    with pytest.raises(ValueError, match="requires a `grappa_inter` block"):
+        build_particle_graph_stage("particle", {}, torch.nn.Module())
+
+    fragment_owner = torch.nn.Module()
+    fragment_stage = build_fragment_graph_stage(
+        "fragment_graph",
+        {"grappa_shower": {"kind": "shower"}},
+        fragment_owner,
+    )
+    assert fragment_stage.models["shower"] is fragment_owner.grappa_shower
+
+    particle_owner = torch.nn.Module()
+    particle_stage = build_particle_graph_stage(
+        "particle_graph",
+        {"grappa_inter": {"kind": "interaction"}},
+        particle_owner,
+    )
+    assert particle_stage.models["inter"] is particle_owner.grappa_inter
+
+    assert build_fragment_graph_loss("fragment_graph", {}, torch.nn.Module()) is None
+    with pytest.raises(TypeError, match="loss must be a mapping"):
+        build_fragment_graph_loss(
+            "fragment_graph", {"loss": "invalid"}, torch.nn.Module()
+        )
+    with pytest.raises(TypeError, match="`shower` loss must be a mapping"):
+        build_fragment_graph_loss(
+            "fragment_graph",
+            {"loss": {"shower": "invalid"}},
+            torch.nn.Module(),
+        )
+
+    fragment_loss_owner = torch.nn.Module()
+    fragment_loss = build_fragment_graph_loss(
+        "fragment_graph",
+        {
+            "grappa_shower": {"kind": "shower"},
+            "loss": {"shower": {"name": "class"}},
+        },
+        fragment_loss_owner,
+    )
+    assert isinstance(fragment_loss, CompositeLossStage)
+    assert fragment_loss.stages[0].prefix == "fragment_graph_shower_"
+    assert fragment_loss_owner.grappa_shower_loss.model_config == {"kind": "shower"}
+
+    assert build_particle_graph_loss("particle_graph", {}, torch.nn.Module()) is None
+    with pytest.raises(TypeError, match="loss must be a mapping"):
+        build_particle_graph_loss(
+            "particle_graph", {"loss": "invalid"}, torch.nn.Module()
+        )
+
+    particle_loss_owner = torch.nn.Module()
+    particle_loss = build_particle_graph_loss(
+        "particle_graph",
+        {
+            "grappa_inter": {"kind": "interaction"},
+            "loss": {"name": "channel"},
+        },
+        particle_loss_owner,
+    )
+    assert isinstance(particle_loss, GrapPATargetMaterializationStage)
+    assert particle_loss.prefix == "particle_graph_"
+    assert particle_loss_owner.grappa_inter_loss.model_config == {"kind": "interaction"}
+
+
+def test_grappa_materialization_providers_are_registered() -> None:
+    """Both node-level materialization providers should resolve lazily."""
+    fragment = provider_spec("fragment_graph")
+    particle = provider_spec("particle_graph")
+
+    assert fragment.name == "fragment_graph"
+    assert particle.name == "particle_graph"
+    assert fragment.loss is not None
+    assert particle.loss is not None
+
+
 def test_group_builder_uses_primary_shape_and_voxels() -> None:
     """Primary-aware grouping selects the marked node's identity and indexes."""
     clusts, shapes = make_clusters()
@@ -1460,6 +1750,36 @@ def test_aggregation_input_derives_truth_points(monkeypatch) -> None:
         coord_label=TensorBatch(torch.zeros((2, 6)), [2]),
     )
     assert result["points"] is expected
+
+
+def test_aggregation_input_materializes_node_dropout_metadata() -> None:
+    """Truth-derived dropout selectors are cached beside point-data features."""
+    operations = AggregationOperations()
+    clusts, shapes = make_clusters()
+    model = SimpleNamespace(
+        node_encoder=SimpleNamespace(
+            add_points=False,
+            add_value=False,
+            add_shape=False,
+        ),
+        node_dropout=NodeDropout(
+            probability=0.5,
+            group_by="group",
+            select={"shape": SHOWR_SHP},
+        ),
+    )
+
+    result = operations.prepare_grappa_input(
+        model,
+        make_data(),
+        clusts,
+        shapes,
+        clust_label=make_cluster_label(),
+    )
+
+    assert result["data"].shape[0] == 4
+    assert result["node_dropout_group_ids"].numpy_tensor().tolist() == [7, 9]
+    assert result["node_dropout_eligible"].numpy_tensor().tolist() == [True, False]
 
 
 def test_grappa_execution_requires_logits_for_primary_grouping() -> None:

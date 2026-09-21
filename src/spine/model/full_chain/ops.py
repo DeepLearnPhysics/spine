@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 import numpy as np
 import torch
@@ -19,6 +19,24 @@ from spine.model.grappa.evaluation import primary_assignment_batch
 from spine.utils.ppn import ParticlePointPredictor
 
 __all__ = ["AggregationOperations"]
+
+
+class _RequiredGrapPAInput(TypedDict):
+    """Required keyword arguments prepared for a GrapPA graph."""
+
+    data: TensorBatch
+    clusts: IndexBatch
+    shapes: TensorBatch
+
+
+class _PreparedGrapPAInput(_RequiredGrapPAInput, total=False):
+    """Optional encoder inputs added according to the GrapPA configuration."""
+
+    coord_label: TensorBatch
+    points: TensorBatch
+    extra: TensorBatch
+    node_dropout_group_ids: TensorBatch
+    node_dropout_eligible: TensorBatch
 
 
 class AggregationOperations:
@@ -97,7 +115,7 @@ class AggregationOperations:
         coord_label: TensorBatch | None = None,
         ppn_points: TensorBatch | None = None,
         point_use_primaries: bool = False,
-    ) -> dict[str, TensorBatch | IndexBatch]:
+    ) -> _PreparedGrapPAInput:
         """Build explicit supplemental inputs required by GrapPA.
 
         Parameters
@@ -114,7 +132,7 @@ class AggregationOperations:
             Primary-fragment indexes used as point references.
         clust_label : ClusterLabelBatch, optional
             Structured truth used to derive point labels when PPN output is
-            unavailable.
+            unavailable and static selectors for configured node dropout.
         coord_label : TensorBatch, optional
             Particle start and end point truth.
         ppn_points : TensorBatch, optional
@@ -134,7 +152,7 @@ class AggregationOperations:
             If the configured encoder requires unavailable point inputs or
             primary indexes.
         """
-        result: dict[str, TensorBatch | IndexBatch] = {
+        result: _PreparedGrapPAInput = {
             "data": data,
             "clusts": clusts,
             "shapes": shapes,
@@ -201,6 +219,23 @@ class AggregationOperations:
                     )
                 )
             result["extra"] = TensorBatch(torch.stack(extra).t(), clusts.counts)
+
+        # Cache truth-derived selectors beside the graph features. Point data
+        # remains the encoder input; structured labels are used only for this
+        # static augmentation metadata.
+        node_dropout = getattr(model, "node_dropout", None)
+        if clust_label is not None and node_dropout is not None:
+            if node_dropout.group_by is not None:
+                result["node_dropout_group_ids"] = get_cluster_label_batch(
+                    clust_label,
+                    clusts,
+                    node_dropout.group_by,
+                )
+            if node_dropout.select is not None:
+                result["node_dropout_eligible"] = node_dropout.build_eligibility(
+                    clust_label,
+                    clusts,
+                )
 
         return result
 

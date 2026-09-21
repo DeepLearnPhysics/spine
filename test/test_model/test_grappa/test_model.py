@@ -45,6 +45,64 @@ def test_grappa_constructs_global_encoder() -> None:
     assert model.global_encoder.feature_size == 0
 
 
+def test_grappa_materializes_graph_without_running_gnn(
+    graph_labels,
+    graph_clusters,
+    monkeypatch,
+) -> None:
+    """Static graph materialization must stop before learned inference."""
+    model = GrapPA(shower_model_config())
+    model.eval()
+
+    def fail(*_args, **_kwargs):
+        raise AssertionError("The GNN must not run during materialization.")
+
+    monkeypatch.setattr(model.gnn, "forward", fail)
+    points = TensorBatch(torch.zeros((3, 6)), graph_clusters.counts)
+    tensor_labels = graph_labels.to_tensor()
+    graph = model.materialize_graph(
+        data=tensor_labels,
+        clusts=graph_clusters,
+        points=points,
+    )
+
+    assert {
+        "clusts",
+        "edge_index",
+        "node_features",
+        "edge_features",
+    }.issubset(graph)
+    assert not any(key.endswith("_pred") for key in graph)
+    assert "group_pred" not in graph
+
+
+def test_grappa_materialized_graph_matches_forward_inputs(
+    graph_labels,
+    graph_clusters,
+) -> None:
+    """Ordinary evaluation should consume the public materialization result."""
+    model = GrapPA(shower_model_config())
+    model.return_features = True
+    model.eval()
+    points = TensorBatch(torch.zeros((3, 6)), graph_clusters.counts)
+    tensor_labels = graph_labels.to_tensor()
+
+    graph = model.materialize_graph(
+        data=tensor_labels,
+        clusts=graph_clusters,
+        points=points,
+    )
+    output = model(data=tensor_labels, clusts=graph_clusters, points=points)
+
+    np.testing.assert_array_equal(output["edge_index"].index, graph["edge_index"].index)
+    torch.testing.assert_close(
+        output["node_features"].data, graph["node_features"].data
+    )
+    torch.testing.assert_close(
+        output["edge_features"].data, graph["edge_features"].data
+    )
+
+
 def test_grappa_accepts_named_node_source_and_integer_shapes():
     """Accept named data fields and canonical integer semantic shapes."""
     grappa_cfg = shower_model_config()
@@ -303,6 +361,100 @@ def test_grappa_loss_routes_cached_forest_primitives(
     )
     torch.testing.assert_close(cached["loss"], live["loss"])
     assert cached["accuracy"] == live["accuracy"]
+
+
+def test_grappa_loss_materializes_targets_without_predictions(
+    graph_labels,
+    graph_clusters,
+) -> None:
+    """The loss wrapper should build static node and edge supervision alone."""
+    model_config = shower_model_config()
+    model = GrapPA(model_config)
+    model.eval()
+    points = TensorBatch(torch.zeros((3, 6)), graph_clusters.counts)
+    tensor_labels = graph_labels.to_tensor()
+    graph = model.materialize_graph(
+        data=tensor_labels,
+        clusts=graph_clusters,
+        points=points,
+    )
+    target_config = deepcopy(model_config)
+    target_config["gnn_model"]["node_pred"] = {"type": 5}
+    objective = GrapPALoss(
+        {
+            "node_loss": {
+                "type": {"name": "class", "target": "pid"},
+            },
+            "edge_loss": {"name": "channel", "target": "group"},
+        },
+        target_config,
+    )
+
+    targets = objective.materialize_targets(
+        clust_label=graph_labels,
+        **graph,
+    )
+
+    assert set(targets) == {
+        "node_type_target",
+        "node_type_valid",
+        "edge_target",
+        "edge_valid",
+    }
+    assert targets["node_type_target"].shape[0] == len(graph_clusters.index_list)
+    assert targets["edge_target"].shape[0] == graph["edge_index"].shape[1]
+
+
+def test_grappa_loss_materializes_prediction_independent_forest_primitives(
+    graph_labels,
+    graph_clusters,
+) -> None:
+    """Forest caches should contain group IDs without selecting a target tree."""
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]], dtype=np.int64),
+        counts=[2, 0],
+        spans=graph_clusters.counts,
+        directed=True,
+    )
+    objective = GrapPALoss(
+        {
+            "edge_loss": {
+                "name": "channel",
+                "target": "group",
+                "mode": "forest",
+            }
+        }
+    )
+
+    targets = objective.materialize_targets(
+        clust_label=graph_labels,
+        clusts=graph_clusters,
+        edge_index=edge_index,
+    )
+
+    assert targets["edge_target"].shape[0] == len(graph_clusters.index_list)
+    assert targets["edge_valid"].shape[0] == edge_index.shape[1]
+
+
+def test_grappa_loss_rejects_nonmaterializable_objectives(graph_labels) -> None:
+    """Static target materialization reports unsupported objective contracts."""
+    named = GrapPALoss(
+        {"node_loss": {"type": {"name": "class", "target": "pid"}}},
+        {"gnn_model": {"node_pred": 5}},
+    )
+    with pytest.raises(ValueError, match="prediction-head width"):
+        named._prediction_width("node_type")
+
+    noncacheable = GrapPALoss(
+        {"node_loss": {"name": "vertex", "only_contained": False}}
+    )
+    with pytest.raises(ValueError, match="does not support"):
+        noncacheable.materialize_targets(clust_label=graph_labels)
+
+    missing_builder = GrapPALoss({"node_loss": {"name": "class", "target": "pid"}})
+    missing_builder.node_loss = torch.nn.Identity()
+    with pytest.raises(ValueError, match="does not implement"):
+        missing_builder.materialize_targets(clust_label=graph_labels)
 
 
 def test_grappa_loss_validates_cached_target_contract(graph_labels):
@@ -587,11 +739,11 @@ def test_grappa_edge_dropout_filters_materialized_graph(monkeypatch):
     assert "edge_keep" not in result
 
 
-def test_grappa_edge_dropout_precedes_dynamic_edge_encoding(
+def test_grappa_edge_dropout_follows_static_edge_encoding(
     graph_data,
     graph_clusters,
 ):
-    """Dynamic edge encoders receive the augmented graph, including no edges."""
+    """Static materialization encodes edges before training-only dropout."""
     config = shower_model_config()
     config["graph"]["max_length"] = None
     config["augment"] = {"edge_dropout": {"probability": 1.0}}
@@ -601,9 +753,9 @@ def test_grappa_edge_dropout_precedes_dynamic_edge_encoding(
         feature_size = model.gnn.edge_feats
 
         def forward(self, data, clusts, edge_index, **kwargs):
-            assert edge_index.counts.tolist() == [0, 0]
+            assert edge_index.counts.tolist() == [2, 0]
             return TensorBatch(
-                torch.empty((0, self.feature_size)),
+                torch.ones((2, self.feature_size)),
                 edge_index.counts,
             )
 
@@ -718,6 +870,7 @@ def test_grappa_validates_feature_augmentation_targets_and_products():
         "feature_mask": {"edge": {"probability": 0.1}},
     }
     model = GrapPA(config)
+    model.gnn.edge_feats = 0
     model.make_groups = False
     model.node_pred_keys = []
     model.edge_pred_keys = []

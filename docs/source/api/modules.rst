@@ -268,6 +268,7 @@ Model modules
    spine.model.full_chain.providers.deghost
    spine.model.full_chain.providers.fragmentation
    spine.model.full_chain.providers.image
+   spine.model.full_chain.providers.materialization
    spine.model.full_chain.providers.transform.track_breaking
    spine.model.full_chain.providers.vertexing
    spine.model.full_chain.registry

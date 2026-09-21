@@ -219,6 +219,48 @@ class NodeOrientLoss(torch.nn.Module):
 
         return result
 
+    def materialize_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        coord_label: TensorBatch,
+        clusts: IndexBatch,
+        start_points: TensorBatch,
+        end_points: TensorBatch,
+        overlap_cache: ClusterOverlapCache | None = None,
+        **kwargs: object,
+    ) -> dict[str, TensorBatch]:
+        """Build stable node-orientation supervision without predictions.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used to associate graph nodes.
+        coord_label : TensorBatch
+            Truth particle start and end coordinates.
+        clusts : IndexBatch
+            Cluster membership whose ordering defines the node axis.
+        start_points, end_points : TensorBatch
+            Encoded graph-node endpoints used to define orientation.
+        overlap_cache : dict, optional
+            Cluster-overlap cache shared by materialized objectives.
+        **kwargs : object, optional
+            Unused graph products accepted for a common objective interface.
+
+        Returns
+        -------
+        dict
+            ``target`` and static ``valid`` batches aligned with graph nodes.
+        """
+        target, valid, _ = self._build_target(
+            clust_label,
+            coord_label,
+            clusts,
+            start_points,
+            end_points,
+            overlap_cache,
+        )
+        return {"target": target, "valid": validity_batch(valid, target)}
+
     def _build_target(
         self,
         clust_label: ClusterLabelBatch,

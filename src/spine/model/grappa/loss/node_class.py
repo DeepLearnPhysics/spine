@@ -54,6 +54,9 @@ class NodeClassLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("classification",)
 
+    # Static class filtering needs the configured prediction-head width.
+    materialize_uses_prediction_width = True
+
     def __init__(
         self,
         target: str,
@@ -270,6 +273,47 @@ class NodeClassLoss(torch.nn.Module):
             result["valid"] = valid_mask
 
         return result
+
+    def materialize_target(
+        self,
+        clust_label: ClusterLabelBatch,
+        clusts: IndexBatch,
+        num_classes: int,
+        coord_label: TensorBatch | None = None,
+        overlap_cache: ClusterOverlapCache | None = None,
+        **kwargs: object,
+    ) -> dict[str, TensorBatch]:
+        """Build stable node-classification supervision without predictions.
+
+        Parameters
+        ----------
+        clust_label : ClusterLabelBatch
+            Structured voxel truth used to label graph nodes.
+        clusts : IndexBatch
+            Cluster membership whose ordering defines the node axis.
+        num_classes : int
+            Configured prediction-head width and valid target range.
+        coord_label : TensorBatch, optional
+            Particle coordinates used by closest-node labeling.
+        overlap_cache : dict, optional
+            Cluster-overlap cache shared by materialized objectives.
+        **kwargs : object, optional
+            Unused graph products accepted for a common objective interface.
+
+        Returns
+        -------
+        dict
+            ``target`` and static ``valid`` batches aligned with graph nodes.
+        """
+        target, valid, _, _ = self._build_target(
+            clust_label,
+            clusts,
+            coord_label,
+            num_classes,
+            None,
+            overlap_cache,
+        )
+        return {"target": target, "valid": validity_batch(valid, target)}
 
     def _build_target(
         self,
