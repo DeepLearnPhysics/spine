@@ -112,13 +112,24 @@ class GrapPAGraphMaterializationStage(ChainStage):
             shapes,
             accepted_shapes,
         )
+        clust_label = state.get("clust_label")
+        node_dropout = model.node_dropout
+        if (
+            node_dropout is not None
+            and (node_dropout.group_by is not None or node_dropout.select is not None)
+            and clust_label is None
+        ):
+            raise ValueError(
+                "Grouped or selected GrapPA node dropout requires `clust_label` "
+                "during graph materialization."
+            )
         model_input = self.operations.prepare_grappa_input(
             model,
             data,
             clusts,
             shapes,
             primaries=primaries,
-            clust_label=state.get("clust_label"),
+            clust_label=clust_label,
             coord_label=state.get("coord_label"),
             ppn_points=state.get("ppn_points"),
             point_use_primaries=primaries is not None,

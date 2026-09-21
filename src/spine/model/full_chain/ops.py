@@ -35,6 +35,8 @@ class _PreparedGrapPAInput(_RequiredGrapPAInput, total=False):
     coord_label: TensorBatch
     points: TensorBatch
     extra: TensorBatch
+    node_dropout_group_ids: TensorBatch
+    node_dropout_eligible: TensorBatch
 
 
 class AggregationOperations:
@@ -130,7 +132,7 @@ class AggregationOperations:
             Primary-fragment indexes used as point references.
         clust_label : ClusterLabelBatch, optional
             Structured truth used to derive point labels when PPN output is
-            unavailable.
+            unavailable and static selectors for configured node dropout.
         coord_label : TensorBatch, optional
             Particle start and end point truth.
         ppn_points : TensorBatch, optional
@@ -217,6 +219,23 @@ class AggregationOperations:
                     )
                 )
             result["extra"] = TensorBatch(torch.stack(extra).t(), clusts.counts)
+
+        # Cache truth-derived selectors beside the graph features. Point data
+        # remains the encoder input; structured labels are used only for this
+        # static augmentation metadata.
+        node_dropout = getattr(model, "node_dropout", None)
+        if clust_label is not None and node_dropout is not None:
+            if node_dropout.group_by is not None:
+                result["node_dropout_group_ids"] = get_cluster_label_batch(
+                    clust_label,
+                    clusts,
+                    node_dropout.group_by,
+                )
+            if node_dropout.select is not None:
+                result["node_dropout_eligible"] = node_dropout.build_eligibility(
+                    clust_label,
+                    clusts,
+                )
 
         return result
 

@@ -133,7 +133,10 @@ paths:
 The stage intrinsically publishes each path's edge index, node and edge
 features, and configured static target/validity pairs. GrapPA checkpoints and
 the historical ``return_features`` and ``return_targets`` overrides are not
-needed.
+needed. If grouped or class-selected GrapPA node dropout is configured, the
+stage also materializes its truth-derived group IDs and eligibility mask from
+``clust_label``. Cached training then samples a fresh dropout selection on
+every iteration.
 
 Interaction GrapPA uses particles as graph nodes. A particle-node cache job
 may either receive the canonical particle products as declared chain inputs or

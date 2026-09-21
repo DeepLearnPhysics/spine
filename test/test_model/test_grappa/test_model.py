@@ -436,6 +436,27 @@ def test_grappa_loss_materializes_prediction_independent_forest_primitives(
     assert targets["edge_valid"].shape[0] == edge_index.shape[1]
 
 
+def test_grappa_loss_rejects_nonmaterializable_objectives(graph_labels) -> None:
+    """Static target materialization reports unsupported objective contracts."""
+    named = GrapPALoss(
+        {"node_loss": {"type": {"name": "class", "target": "pid"}}},
+        {"gnn_model": {"node_pred": 5}},
+    )
+    with pytest.raises(ValueError, match="prediction-head width"):
+        named._prediction_width("node_type")
+
+    noncacheable = GrapPALoss(
+        {"node_loss": {"name": "vertex", "only_contained": False}}
+    )
+    with pytest.raises(ValueError, match="does not support"):
+        noncacheable.materialize_targets(clust_label=graph_labels)
+
+    missing_builder = GrapPALoss({"node_loss": {"name": "class", "target": "pid"}})
+    missing_builder.node_loss = torch.nn.Identity()
+    with pytest.raises(ValueError, match="does not implement"):
+        missing_builder.materialize_targets(clust_label=graph_labels)
+
+
 def test_grappa_loss_validates_cached_target_contract(graph_labels):
     """Cached supervision must be paired and supported by the objective."""
     prediction = TensorBatch(torch.zeros((3, 2)), counts=[2, 1])
