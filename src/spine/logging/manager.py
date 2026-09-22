@@ -193,8 +193,8 @@ class LogManager:
             gpu_stats = runtime.cuda_memory_stats()
             gpu_used_bytes = gpu_total_bytes - gpu_free_bytes
 
-            # These fields feed the human-readable progress table. Report
-            # current device-wide occupancy rather than PyTorch tensor peaks.
+            # Preserve current device-wide occupancy in the structured log;
+            # stdout separately reports the lifetime tensor-allocation peak.
             metrics["gpu_mem"] = gpu_used_bytes / 1.0e9
             metrics["gpu_mem_perc"] = (
                 100 * gpu_used_bytes / gpu_total_bytes if gpu_total_bytes else 0.0
@@ -486,8 +486,8 @@ class LogManager:
         """
         # Resolve the table layout before rendering its shared header
         proc = mode or ("train" if model_train else "inference")
-        device = "GPU" if rank is not None else "CPU"
-        keys = [f"Time ({proc})", f"{device} memory", "Loss", "Accuracy"]
+        memory_label = "GPU peak allocated" if rank is not None else "CPU memory"
+        keys = [f"Time ({proc})", memory_label, "Loss", "Accuracy"]
         widths = list(LogManager.STDOUT_WIDTHS)
         if distributed:
             keys = ["Rank"] + keys
@@ -520,7 +520,9 @@ class LogManager:
         net_fraction = 0.0 if t_iter == 0.0 else 100 * t_net / t_iter
 
         if rank is not None:
-            mem, mem_perc = log_row["gpu_mem"], log_row["gpu_mem_perc"]
+            mem = log_row["gpu_mem_allocated_peak"]
+            gpu_total = log_row["gpu_mem_total"]
+            mem_perc = 100 * mem / gpu_total if gpu_total else 0.0
         else:
             mem, mem_perc = log_row["cpu_mem"], log_row["cpu_mem_perc"]
 

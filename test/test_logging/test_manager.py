@@ -300,6 +300,8 @@ def test_log_manager_stdout_summary(monkeypatch):
             "cpu_mem_perc": 50.0,
             "gpu_mem": 2.0,
             "gpu_mem_perc": 25.0,
+            "gpu_mem_allocated_peak": 1.5,
+            "gpu_mem_total": 8.0,
             "model_time": 1.0,
         },
         {"loss": 1.25, "accuracy": 0.5},
@@ -316,6 +318,8 @@ def test_log_manager_stdout_summary(monkeypatch):
     assert len(barriers) == 1
     assert any("Iter. 0" in msg for msg in infos)
     assert any("train" in msg for msg in infos)
+    assert any("GPU peak allocated" in msg for msg in infos)
+    assert any("1.50 GB (18.75 %)" in msg for msg in infos)
     assert any("| 0    |" in msg for msg in infos)
     assert any("| 1    |" in msg for msg in infos)
 
@@ -550,6 +554,8 @@ def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypat
             "cpu_mem_perc": 50.0,
             "gpu_mem": 2.0,
             "gpu_mem_perc": 25.0,
+            "gpu_mem_allocated_peak": 1.5,
+            "gpu_mem_total": 8.0,
             "model_time": 1.0,
         },
         {"loss": 1.25, "accuracy": 0.5},
