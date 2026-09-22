@@ -176,6 +176,7 @@ Io modules
    spine.io.augment.mask
    spine.io.augment.response
    spine.io.augment.rotate
+   spine.io.augment.spatial
    spine.io.augment.translate
    spine.io.dataset.base
    spine.io.dataset.cache
