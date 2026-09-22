@@ -8,6 +8,7 @@ from spine.data import Meta
 from spine.geo import GeoManager
 
 from .base import AugmentBase
+from .spatial import SpatialAdapter, field_to_cm
 
 
 class MaskAugment(AugmentBase):
@@ -117,6 +118,24 @@ class MaskAugment(AugmentBase):
         self.center_spread = self.parse_optional_vector(center_spread, "center_spread")
         self.center_feature_index = int(center_feature_index)
 
+    def validate_spatial(self, adapters: dict[str, SpatialAdapter]) -> None:
+        """Validate that each product supports spatial row removal.
+
+        Parameters
+        ----------
+        adapters : dict[str, SpatialAdapter]
+            Spatial products discovered for the current event.
+
+        Raises
+        ------
+        ValueError
+            If a product has ambiguous or unavailable row ownership.
+        """
+        super().validate_spatial(adapters)
+        # Masking removes complete rows rather than mutating isolated fields.
+        for adapter in adapters.values():
+            adapter.validate_row_selection("Mask")
+
     def apply(
         self,
         data: dict[str, Any],
@@ -144,22 +163,18 @@ class MaskAugment(AugmentBase):
         """
         # Sample one mask volume shared by every coordinate-bearing product
         mask_meta = self.generate_mask(data, meta, keys)
+        spatial = context["spatial"]
 
         # Remove rows inside the mask while retaining the original image frame
         for key in keys:
             if isinstance(data[key], Meta):
                 continue
 
-            voxels, features = data[key].coordinate_data, data[key].features
-            voxels_cm = meta.to_cm(voxels, center=True)
+            adapter = spatial[key]
+            field = adapter.primary_fields[0]
+            voxels_cm = field_to_cm(field, meta)
             mask = mask_meta.inner_mask(voxels_cm)
-            index = np.where(~mask)[0]
-
-            # Apply the same row selection to coordinates and aligned features
-            voxels, features = voxels[index], features[index]
-
-            data[key].coordinate_data = voxels
-            data[key].features = features
+            adapter.select_rows(~mask)
 
         return data, meta
 

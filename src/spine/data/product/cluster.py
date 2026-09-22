@@ -327,6 +327,7 @@ class ClusterLabelData(_ClusterLabelFieldAccessor, DataProduct):
 
         return TensorSchema(
             coordinate_groups={"points": (0, 1, 2)},
+            coordinate_modes={"points": "discrete"},
             feature_fields=fields,
         )
 

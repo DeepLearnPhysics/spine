@@ -40,6 +40,10 @@ class TensorSchema:
     coordinate_groups : dict[str, tuple[int, ...]]
         Named groups of coordinate columns. Products with start and end points
         therefore advertise two independent three-dimensional groups.
+    coordinate_modes : dict[str, str]
+        Sampling semantics for each coordinate group. ``"discrete"`` groups
+        identify voxel cells, while ``"continuous"`` groups identify points
+        relative to voxel edges.
     feature_fields : dict[str, tuple[int, ...]]
         Optional named feature columns.
     index_cols : tuple[int, ...], optional
@@ -61,6 +65,7 @@ class TensorSchema:
     """
 
     coordinate_groups: dict[str, tuple[int, ...]] = field(default_factory=dict)
+    coordinate_modes: dict[str, str] = field(default_factory=dict)
     feature_fields: dict[str, tuple[int, ...]] = field(default_factory=dict)
     index_cols: tuple[int, ...] | None = None
     remove_duplicates: bool = False
@@ -70,6 +75,46 @@ class TensorSchema:
     precedence: tuple[int, ...] | None = None
     feats_only: bool = False
     overlay_reference: str | None = None
+
+    @classmethod
+    def infer_coordinate_mode(cls, coords: Any | None) -> str:
+        """Infer coordinate sampling semantics from an array backend.
+
+        Parameters
+        ----------
+        coords : numpy.ndarray or torch.Tensor, optional
+            Representative coordinate array.
+
+        Returns
+        -------
+        {'discrete', 'continuous'}
+            ``"discrete"`` for integral storage and ``"continuous"`` for
+            floating or absent coordinates.
+
+        Raises
+        ------
+        TypeError
+            If the coordinate dtype cannot be classified.
+        """
+        if coords is None:
+            return "continuous"
+
+        # NumPy and PyTorch dtype objects are intentionally not mutually
+        # coercible, so inspect their native type metadata independently.
+        try:
+            discrete = np.issubdtype(coords.dtype, np.integer)
+        except TypeError:
+            floating = getattr(coords.dtype, "is_floating_point", None)
+            complex_ = getattr(coords.dtype, "is_complex", None)
+            if floating is None or complex_ is None:
+                raise TypeError(
+                    f"Cannot infer coordinate semantics from dtype `{coords.dtype}`."
+                )
+            discrete = (
+                not floating and not complex_ and str(coords.dtype) != "torch.bool"
+            )
+
+        return "discrete" if discrete else "continuous"
 
     @classmethod
     def infer(
@@ -122,8 +167,10 @@ class TensorSchema:
                 fields["features"] = tuple(range(width))
 
         # Combine inferred names with the explicitly supplied schema options
+        mode = cls.infer_coordinate_mode(coords)
         return cls(
             coordinate_groups=groups,
+            coordinate_modes={name: mode for name in groups},
             feature_fields=fields,
             feats_only=feats_only,
             **kwargs,
@@ -151,11 +198,16 @@ class TensorSchema:
         values = dict(metadata)
         for key in (
             "coordinate_groups",
+            "coordinate_modes",
             "feature_fields",
         ):
-            values[key] = {
-                name: tuple(columns) for name, columns in values.get(key, {}).items()
-            }
+            if key == "coordinate_modes":
+                values[key] = dict(values.get(key, {}))
+            else:
+                values[key] = {
+                    name: tuple(columns)
+                    for name, columns in values.get(key, {}).items()
+                }
 
         # Restore all optional flat column collections in the same way
         for key in ("index_cols", "sum_cols", "avg_cols", "precedence"):

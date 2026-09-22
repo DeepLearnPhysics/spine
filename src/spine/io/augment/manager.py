@@ -12,6 +12,7 @@ from .jitter import JitterAugment
 from .mask import MaskAugment
 from .response import ResponseAugment
 from .rotate import RotateAugment
+from .spatial import discover_spatial_products
 from .translate import TranslateAugment
 
 
@@ -89,26 +90,44 @@ class AugmentManager:
         dict
             Updated dictionary of augmented data products
         """
-        # Discover coordinate-bearing products and their shared image metadata
-        augment_keys = []
+        # Classify every spatial product before resolving metadata. Product
+        # participation is defined by the spatial contract, never by a single
+        # concrete tensor class.
+        geometric_modules = [module for module in self.modules if module.geometric]
+        spatial = discover_spatial_products(data) if geometric_modules else {}
+
+        meta_keys = []
         meta = None
         for key, value in data.items():
-            if isinstance(value, TensorData) and value.coordinate_data is not None:
-                augment_keys.append(key)
+            candidate = None
+            if isinstance(value, Meta):
+                meta_keys.append(key)
+                candidate = value
+            elif key in spatial:
+                candidate = getattr(spatial[key].product, "meta", None)
+            elif not geometric_modules and isinstance(value, TensorData):
+                # Feature-only augmentation retains the historical metadata
+                # discovery path without treating this as spatial support.
+                candidate = value.meta
+
+            if candidate is not None:
                 if meta is None:
-                    meta = value.meta
-                elif meta != value.meta:
+                    meta = candidate
+                elif meta != candidate:
                     raise ValueError("Metadata should be shared by all data products.")
 
-            elif isinstance(value, Meta):
-                augment_keys.append(key)
-                meta = value
-
         if meta is None:
+            if spatial:
+                raise ValueError(
+                    "Spatial augmentation requires image metadata for every event."
+                )
             return data
+        for module in geometric_modules:
+            module.validate_spatial(spatial)
+        augment_keys = [*spatial, *meta_keys]
 
         # Preserve the original frame while threading updated metadata forward
-        context = {"original_meta": self.copy_meta(meta)}
+        context = {"original_meta": self.copy_meta(meta), "spatial": spatial}
         for module in self.modules:
             data, meta = module(data, meta, augment_keys, context)
             context["meta"] = meta

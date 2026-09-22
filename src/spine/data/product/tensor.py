@@ -160,9 +160,42 @@ class TensorData(DataProduct):
                 values = schema.to_dict()
                 if coordinate_groups is not None:
                     values["coordinate_groups"] = coordinate_groups
+                    mode = TensorSchema.infer_coordinate_mode(coords)
+                    values["coordinate_modes"] = {
+                        name: mode for name in coordinate_groups
+                    }
                 if feature_fields is not None:
                     values["feature_fields"] = feature_fields
                 schema = TensorSchema.from_dict(values)
+
+        # Normalize legacy or explicitly constructed schemas once. Spatial
+        # consumers can then rely on declared semantics instead of re-inferring
+        # voxel-versus-point behavior independently.
+        missing_modes = set(schema.coordinate_groups) - set(schema.coordinate_modes)
+        extra_modes = set(schema.coordinate_modes) - set(schema.coordinate_groups)
+        if extra_modes:
+            raise ValueError(
+                "Coordinate modes reference unknown groups: "
+                f"{tuple(sorted(extra_modes))}."
+            )
+        invalid_modes = {
+            name: mode
+            for name, mode in schema.coordinate_modes.items()
+            if mode not in ("discrete", "continuous")
+        }
+        if invalid_modes:
+            raise ValueError(
+                "Coordinate modes must be `discrete` or `continuous`, got "
+                f"{invalid_modes}."
+            )
+        if missing_modes:
+            mode = TensorSchema.infer_coordinate_mode(coords)
+            values = schema.to_dict()
+            values["coordinate_modes"] = {
+                **schema.coordinate_modes,
+                **{name: mode for name in missing_modes},
+            }
+            schema = TensorSchema.from_dict(values)
 
         # Store physical arrays separately from their immutable logical schema
         self.features = features
