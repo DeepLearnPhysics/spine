@@ -21,6 +21,8 @@ class ResponseAugment(AugmentBase):
     """
 
     name = "response"
+    # Detector-response throws are feature-only by construction.
+    geometric = False
 
     def __init__(
         self,

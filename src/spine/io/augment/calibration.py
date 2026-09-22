@@ -27,6 +27,8 @@ class CalibrationAugment(AugmentBase):
     """
 
     name = "calibration"
+    # Calibration mutates response features without changing image geometry.
+    geometric = False
     _modes = ("vary_response", "calibrate", "simulate")
 
     def __init__(

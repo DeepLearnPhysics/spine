@@ -51,6 +51,7 @@ def test_tensor_data_schema_metadata_and_named_access():
 
     assert len(tensor) == 2
     assert tensor.shape == (2, 5)
+    assert tensor.dtype == np.dtype(np.float32)
     assert tensor.coordinate_groups == {"point": (0, 1, 2)}
     np.testing.assert_array_equal(tensor.coords, coords)
     np.testing.assert_array_equal(tensor.coordinates("point"), coords)
@@ -105,6 +106,38 @@ def test_tensor_data_rejects_mixed_schema_configuration():
             schema=TensorSchema(feats_only=True),
             feature_fields={"value": (0,)},
         )
+
+
+def test_tensor_data_validates_coordinate_modes():
+    """Coordinate modes must map known groups to supported semantics."""
+    coords = np.zeros((1, 3), dtype=np.float32)
+    features = np.ones((1, 1), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="unknown groups"):
+        TensorData(
+            features,
+            coords,
+            schema=TensorSchema(
+                coordinate_groups={"point": (0, 1, 2)},
+                coordinate_modes={"missing": "continuous"},
+            ),
+        )
+
+    with pytest.raises(ValueError, match="must be `discrete` or `continuous`"):
+        TensorData(
+            features,
+            coords,
+            schema=TensorSchema(
+                coordinate_groups={"point": (0, 1, 2)},
+                coordinate_modes={"point": "unknown"},
+            ),
+        )
+
+    class UnsupportedCoordinates:
+        dtype = object()
+
+    with pytest.raises(TypeError, match="Cannot infer coordinate semantics"):
+        TensorSchema.infer_coordinate_mode(UnsupportedCoordinates())
 
 
 def test_index_and_edge_event_products_behave_like_arrays():
@@ -210,6 +243,7 @@ def test_torch_backed_event_product_paths():
     coords = torch.tensor([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]])
     features = torch.tensor([[6.0], [7.0]])
     tensor = TensorData(features, coords)
+    assert tensor.schema.coordinate_modes == {"points": "continuous"}
     assert torch.equal(tensor.data, torch.cat((coords, features), dim=1))
     np.testing.assert_array_equal(np.asarray(tensor, dtype=np.float64), tensor.data)
 
@@ -232,3 +266,6 @@ def test_torch_backed_event_product_paths():
         particles=particles,
     )
     assert torch.equal(split_labels.data, torch.tensor([[0, 1, 2, 4, 7, 0]]))
+
+    integer_tensor = TensorData(features, coords.to(dtype=torch.int64))
+    assert integer_tensor.schema.coordinate_modes == {"points": "discrete"}

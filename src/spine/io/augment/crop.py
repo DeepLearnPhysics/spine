@@ -8,6 +8,7 @@ from spine.data import Meta, TensorData
 from spine.geo import GeoManager
 
 from .base import AugmentBase
+from .spatial import SpatialAdapter, field_from_cm, field_to_cm
 
 
 class CropAugment(AugmentBase):
@@ -146,6 +147,26 @@ class CropAugment(AugmentBase):
         self.active_volume = active_volume
         self.keep_meta = keep_meta
 
+    def validate_spatial(self, adapters: dict[str, SpatialAdapter]) -> None:
+        """Validate that each product has one row-owning coordinate field.
+
+        Parameters
+        ----------
+        adapters : dict[str, SpatialAdapter]
+            Spatial products discovered for the current event.
+
+        Raises
+        ------
+        ValueError
+            If a product cannot apply one crop selection consistently to its
+            row-aligned coordinates and features.
+        """
+        super().validate_spatial(adapters)
+        # Cropping changes support, so every product must identify exactly one
+        # coordinate field which owns its selectable rows.
+        for adapter in adapters.values():
+            adapter.validate_row_selection("Crop")
+
     def apply(
         self,
         data: dict[str, Any],
@@ -185,19 +206,23 @@ class CropAugment(AugmentBase):
         if output_meta is None:
             raise ValueError("Crop augmenter must define an output metadata volume.")
 
+        spatial = context["spatial"]
+
         # Apply all enabled spatial restrictions to each coordinate product
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = output_meta
                 continue
 
-            voxels, features = data[key].coordinate_data, data[key].features
+            adapter = spatial[key]
+            field = adapter.primary_fields[0]
+            voxels = field.values
 
             # Integer coordinates identify voxel cells and are represented by
             # their centers in detector space. Floating coordinates represent
             # continuous points such as PPN targets and carry no half-cell shift.
-            discrete = np.issubdtype(voxels.dtype, np.integer)
-            voxels_cm = meta.to_cm(voxels, center=discrete)
+            discrete = field.discrete
+            voxels_cm = field_to_cm(field, meta)
             keep_mask = np.ones(len(voxels), dtype=bool)
             if crop_meta is not None:
                 keep_mask &= crop_meta.inner_mask(voxels_cm)
@@ -208,7 +233,7 @@ class CropAugment(AugmentBase):
 
             # Restrict aligned coordinates and features to surviving rows
             index = np.where(keep_mask)[0]
-            voxels_cm, features = voxels_cm[index], features[index]
+            voxels_cm = voxels_cm[index]
 
             # Preserve original indexes or express them in the cropped frame
             if self.keep_meta:
@@ -218,10 +243,21 @@ class CropAugment(AugmentBase):
                     voxels.dtype
                 )
 
-            # Update the product atomically with its new spatial metadata
-            data[key].coordinate_data = voxels
-            data[key].features = features
-            data[key].meta = output_meta
+            # Transform auxiliary point fields into the new image frame without
+            # pretending they share the voxel-row selection.
+            auxiliary = {}
+            if not self.keep_meta:
+                for aux in adapter.fields:
+                    if aux.primary:
+                        continue
+                    aux_cm = field_to_cm(aux, meta)
+                    auxiliary[aux.name] = field_from_cm(aux, aux_cm, output_meta)
+
+            adapter.select_rows(keep_mask)
+            adapter.set_field(field.name, voxels)
+            for name, values in auxiliary.items():
+                adapter.set_field(name, values)
+            adapter.set_meta(output_meta)
 
         return data, output_meta
 

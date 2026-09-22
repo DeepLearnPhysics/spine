@@ -5,14 +5,26 @@ from typing import Any
 
 import numpy as np
 
-from spine.data import Meta, TensorData
+from spine.data import Meta
 from spine.geo import GeoManager
+
+from .spatial import SpatialAdapter, discover_spatial_products, field_to_cm
 
 
 class AugmentBase(ABC):
-    """Base class for augmentation modules."""
+    """Base class for augmentation modules.
+
+    Attributes
+    ----------
+    name : str
+        Configuration name used by the augmentation factory.
+    geometric : bool, default True
+        Whether the module consumes and mutates spatial fields. Feature-only
+        modules set this to ``False`` to opt out of geometric preflight.
+    """
 
     name = ""
+    geometric = True
 
     def __call__(
         self,
@@ -39,7 +51,40 @@ class AugmentBase(ABC):
         Tuple[Dict[str, Any], Meta]
             Updated data dictionary and shared metadata
         """
+        if self.geometric and "spatial" not in context:
+            # Direct module calls receive the same discovery and validation as
+            # manager-driven calls, preventing callers from omitting a product.
+            context = dict(context)
+            context["spatial"] = discover_spatial_products(data)
+            self.validate_spatial(context["spatial"])
+            keys = [
+                *context["spatial"],
+                *(key for key, value in data.items() if isinstance(value, Meta)),
+            ]
         return self.apply(data, meta, keys, context)
+
+    def validate_spatial(self, adapters: dict[str, SpatialAdapter]) -> None:
+        """Validate product compatibility before an event is mutated.
+
+        Parameters
+        ----------
+        adapters : dict[str, SpatialAdapter]
+            Spatial products discovered for the current event.
+
+        Raises
+        ------
+        ValueError
+            If any declared spatial field is not a three-dimensional point
+            matrix.
+        """
+        for adapter in adapters.values():
+            # Accessing fields validates their declared shape eagerly.
+            for field in adapter.fields:
+                if field.values.ndim != 2 or field.values.shape[1] != 3:
+                    raise ValueError(
+                        f"Spatial field `{adapter.key}.{field.name}` must have "
+                        f"shape (N, 3), got {field.values.shape}."
+                    )
 
     @abstractmethod
     def apply(
@@ -105,50 +150,6 @@ class AugmentBase(ABC):
             return GeoManager.get_instance().tpc.center.astype(np.float32)
 
         return ((meta.lower + meta.upper) / 2.0).astype(np.float32)
-
-    @staticmethod
-    def voxel_to_cm(coords: np.ndarray, meta: Meta) -> np.ndarray:
-        """Convert discrete cells or continuous voxel points to detector units.
-
-        Parameters
-        ----------
-        coords : np.ndarray
-            ``(N, 3)`` Array of integer voxel indices or floating-point
-            coordinates in voxel units.
-        meta : Meta
-            Metadata used to convert voxel indices to detector coordinates
-
-        Returns
-        -------
-        np.ndarray
-            ``(N, 3)`` Detector coordinates in cm. Integer inputs are placed
-            at voxel centers; floating-point inputs retain their continuous
-            position relative to voxel edges.
-        """
-        discrete = np.issubdtype(coords.dtype, np.integer)
-        return meta.to_cm(coords, center=discrete)
-
-    @staticmethod
-    def cm_to_voxel(coords_cm: np.ndarray, meta: Meta, dtype: np.dtype) -> np.ndarray:
-        """Convert detector coordinates back to discrete cells or points.
-
-        Parameters
-        ----------
-        coords_cm : np.ndarray
-            ``(N, 3)`` Detector coordinates in cm at voxel centers
-        meta : Meta
-            Metadata used to convert detector coordinates back to pixel space
-        dtype : np.dtype
-            Output dtype. Integer types request discrete voxel indexes;
-            floating types preserve continuous voxel coordinates.
-
-        Returns
-        -------
-        np.ndarray
-            ``(N, 3)`` Array of voxel indexes or continuous coordinates.
-        """
-        discrete = np.issubdtype(dtype, np.integer)
-        return meta.to_px(coords_cm, floor=discrete).astype(dtype)
 
     @staticmethod
     def parse_optional_vector(
@@ -253,30 +254,28 @@ class AugmentBase(ABC):
             coordinates (cm). If no activity is available, the center falls
             back to the metadata center and the spread is ``None``.
         """
-        # Gather coordinates and optional feature weights from every product
+        # Gather primary coordinates and optional feature weights from every product
         coords_list = []
         weights_list = []
+        adapters = discover_spatial_products(data)
         for key in keys:
-            value = data.get(key)
-            if not isinstance(value, TensorData) or value.coordinate_data is None:
+            if key not in adapters:
                 continue
-            if len(value.coordinate_data) == 0:
-                continue
+            adapter = adapters[key]
+            for field in adapter.primary_fields:
+                if len(field.values) == 0:
+                    continue
+                coords_cm = field_to_cm(field, meta)
+                coords_list.append(coords_cm)
 
-            # Integer coordinates name voxel cells, whereas floating-point
-            # coordinates already locate continuous points inside the grid.
-            discrete = np.issubdtype(value.coordinate_data.dtype, np.integer)
-            coords_cm = meta.to_cm(value.coordinate_data, center=discrete)
-            coords_list.append(coords_cm)
-
-            if weighted:
-                features = np.asarray(value.features)
-                if features.ndim == 1:
-                    weights = np.abs(features)
-                else:
-                    column = min(feature_index, features.shape[1] - 1)
-                    weights = np.abs(features[:, column])
-                weights_list.append(weights)
+                if weighted:
+                    features = adapter.features
+                    if features.ndim == 1:
+                        weights = np.abs(features)
+                    else:
+                        column = min(feature_index, features.shape[1] - 1)
+                        weights = np.abs(features[:, column])
+                    weights_list.append(weights)
 
         # Empty events fall back to the center of the current image volume
         if not coords_list:

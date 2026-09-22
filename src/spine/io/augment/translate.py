@@ -8,6 +8,7 @@ from spine.data import Meta
 from spine.geo import GeoManager
 
 from .base import AugmentBase
+from .spatial import field_from_px, field_to_px
 
 
 class TranslateAugment(AugmentBase):
@@ -90,6 +91,7 @@ class TranslateAugment(AugmentBase):
         # Resolve the target frame and sample one shared event-level displacement
         target_meta = self.get_target_meta(meta, context.get("original_meta"))
         offset = self.generate_offset(meta, target_meta)
+        spatial = context["spatial"]
 
         # Apply the same voxel offset to every coordinate group in every product
         for key in keys:
@@ -97,12 +99,13 @@ class TranslateAugment(AugmentBase):
                 data[key] = target_meta
                 continue
 
-            voxels = data[key].coordinate_data
-            width = voxels.shape[1]
-            voxels = (voxels.reshape(-1, 3) + offset).reshape(-1, width)
-
-            data[key].coordinate_data = voxels
-            data[key].meta = target_meta
+            adapter = spatial[key]
+            for field in adapter.fields:
+                translated = field_to_px(field, meta) + offset
+                adapter.set_field(
+                    field.name, field_from_px(field, translated, target_meta)
+                )
+            adapter.set_meta(target_meta)
 
         return data, target_meta
 

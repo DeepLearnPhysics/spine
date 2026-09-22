@@ -7,6 +7,7 @@ import numpy as np
 from spine.data import Meta
 
 from .base import AugmentBase
+from .spatial import field_from_cm, field_to_cm
 
 
 class FlipAugment(AugmentBase):
@@ -85,26 +86,33 @@ class FlipAugment(AugmentBase):
         pivot = self.resolve_center(meta, self.center, self.use_geo_center)
         flip_meta = meta if self.keep_meta else self.generate_meta(meta, pivot)
 
-        # Reflect every coordinate-bearing product through the shared plane
+        spatial = context["spatial"]
+
+        # Reflect every declared point field through the shared plane
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = flip_meta
                 continue
 
-            coords_cm = self.voxel_to_cm(data[key].coordinate_data, meta)
-            flip_cm = self.flip_points(coords_cm, pivot)
+            adapter = spatial[key]
+            transformed = {}
+            keep_masks = []
+            for field in adapter.fields:
+                coords_cm = field_to_cm(field, meta)
+                flip_cm = self.flip_points(coords_cm, pivot)
+                if self.keep_meta and field.primary:
+                    keep_masks.append(flip_meta.inner_mask(flip_cm))
+                transformed[field.name] = field_from_cm(field, flip_cm, flip_meta)
 
-            # A fixed frame discards reflected points that leave its bounds
-            if self.keep_meta:
-                keep_mask = flip_meta.inner_mask(flip_cm)
-                flip_cm = flip_cm[keep_mask]
-                data[key].features = data[key].features[keep_mask]
-
-            # Store coordinates in the output frame alongside its metadata
-            data[key].coordinate_data = self.cm_to_voxel(
-                flip_cm, flip_meta, data[key].coordinate_data.dtype
-            )
-            data[key].meta = flip_meta
+            keep_mask = None
+            if keep_masks:
+                keep_mask = np.logical_and.reduce(keep_masks)
+                for field in adapter.primary_fields:
+                    transformed[field.name] = transformed[field.name][keep_mask]
+                adapter.select_rows(keep_mask)
+            for name, values in transformed.items():
+                adapter.set_field(name, values)
+            adapter.set_meta(flip_meta)
 
         return data, flip_meta
 

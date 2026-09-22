@@ -7,6 +7,13 @@ import numpy as np
 from spine.data import Meta
 
 from .base import AugmentBase
+from .spatial import (
+    SpatialAdapter,
+    field_from_cm,
+    field_from_px,
+    field_to_cm,
+    field_to_px,
+)
 
 
 class RotateAugment(AugmentBase):
@@ -118,7 +125,9 @@ class RotateAugment(AugmentBase):
 
         # Preserve the historical image-frame path when no pivot is requested
         if self.center is None and not self.use_geo_center:
-            return self.apply_image_frame_rotation(data, meta, keys, k)
+            return self.apply_image_frame_rotation(
+                data, meta, keys, k, context["spatial"]
+            )
 
         # Resolve the physical pivot and corresponding output image frame
         pivot = self.resolve_center(meta, self.center, self.use_geo_center)
@@ -126,25 +135,33 @@ class RotateAugment(AugmentBase):
             meta if self.keep_meta else self.generate_centered_meta(meta, pivot, k)
         )
 
-        # Rotate every coordinate-bearing product around the shared pivot
+        spatial = context["spatial"]
+
+        # Rotate every declared point field around the shared pivot
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = rot_meta
                 continue
 
-            coords_cm = self.voxel_to_cm(data[key].coordinate_data, meta)
-            rot_cm = self.rotate_points(coords_cm, pivot, k)
+            adapter = spatial[key]
+            transformed = {}
+            keep_masks = []
+            for field in adapter.fields:
+                coords_cm = field_to_cm(field, meta)
+                rot_cm = self.rotate_points(coords_cm, pivot, k)
+                if self.keep_meta and field.primary:
+                    keep_masks.append(rot_meta.inner_mask(rot_cm))
+                transformed[field.name] = field_from_cm(field, rot_cm, rot_meta)
 
-            # A fixed frame discards rotated points that leave its bounds
-            if self.keep_meta:
-                keep_mask = rot_meta.inner_mask(rot_cm)
-                rot_cm = rot_cm[keep_mask]
-                data[key].features = data[key].features[keep_mask]
-
-            # Store coordinates in the output frame alongside its metadata
-            coords = self.cm_to_voxel(rot_cm, rot_meta, data[key].coordinate_data.dtype)
-            data[key].coordinate_data = coords
-            data[key].meta = rot_meta
+            keep_mask = None
+            if keep_masks:
+                keep_mask = np.logical_and.reduce(keep_masks)
+                for field in adapter.primary_fields:
+                    transformed[field.name] = transformed[field.name][keep_mask]
+                adapter.select_rows(keep_mask)
+            for name, values in transformed.items():
+                adapter.set_field(name, values)
+            adapter.set_meta(rot_meta)
 
         return data, rot_meta
 
@@ -192,6 +209,7 @@ class RotateAugment(AugmentBase):
         meta: Meta,
         keys: list[str],
         k: int,
+        spatial: dict[str, SpatialAdapter],
     ) -> tuple[dict[str, Any], Meta]:
         """Apply the historical image-frame rotation behavior.
 
@@ -212,19 +230,21 @@ class RotateAugment(AugmentBase):
             Updated data dictionary and rotated metadata
         """
 
-        # Rotate the image grid and each product in its discrete voxel frame
+        # Rotate the image grid and each declared point field in its voxel frame
         rot_meta = self.generate_meta(meta, k)
         for key in keys:
             if isinstance(data[key], Meta):
                 data[key] = rot_meta
                 continue
 
-            coords = data[key].coordinate_data.copy()
-            coords = self.rotate_coords(coords, meta.count, k).astype(
-                data[key].coordinate_data.dtype
-            )
-            data[key].coordinate_data = coords
-            data[key].meta = rot_meta
+            adapter = spatial[key]
+            for field in adapter.fields:
+                field_px = field_to_px(field, meta)
+                coords = self.rotate_coords(
+                    field_px, meta.count, k, discrete=field.discrete
+                )
+                adapter.set_field(field.name, field_from_px(field, coords, rot_meta))
+            adapter.set_meta(rot_meta)
 
         return data, rot_meta
 
@@ -249,7 +269,11 @@ class RotateAugment(AugmentBase):
         return int(np.random.randint(4))
 
     def rotate_coords(
-        self, coords: np.ndarray, count: np.ndarray, k: int
+        self,
+        coords: np.ndarray,
+        count: np.ndarray,
+        k: int,
+        discrete: bool | None = None,
     ) -> np.ndarray:
         """Rotate voxel coordinates by quarter turns.
 
@@ -276,7 +300,9 @@ class RotateAugment(AugmentBase):
         # Integer coordinates identify cell centers and therefore reflect about
         # ``count - 1``. Floating coordinates locate continuous points relative
         # to image edges and reflect about ``count`` without quantization.
-        offset = int(np.issubdtype(coords.dtype, np.integer))
+        if discrete is None:
+            discrete = np.issubdtype(coords.dtype, np.integer)
+        offset = int(discrete)
         if k == 1:
             rot_coords[:, axis_a] = count_b - offset - coords[:, axis_b]
             rot_coords[:, axis_b] = coords[:, axis_a]

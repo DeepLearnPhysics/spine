@@ -7,6 +7,7 @@ import numpy as np
 from spine.data import Meta
 
 from .base import AugmentBase
+from .spatial import SpatialAdapter
 
 
 class JitterAugment(AugmentBase):
@@ -80,6 +81,40 @@ class JitterAugment(AugmentBase):
         self.poisson_lambda = poisson_lambda
         self.clip = clip
 
+    def validate_spatial(self, adapters: dict[str, SpatialAdapter]) -> None:
+        """Validate that voxel jitter has a well-defined correspondence.
+
+        Parameters
+        ----------
+        adapters : dict[str, SpatialAdapter]
+            Spatial products discovered for the current event.
+
+        Raises
+        ------
+        ValueError
+            If a product has multiple row-owning groups, continuous points or
+            auxiliary spatial fields whose offset cannot be inferred.
+        """
+        super().validate_spatial(adapters)
+        for adapter in adapters.values():
+            adapter.validate_row_selection("Jitter")
+            # A local random offset has no global mapping for independent
+            # vertices or other auxiliary point tables.
+            auxiliary = tuple(
+                field.name for field in adapter.fields if not field.primary
+            )
+            if auxiliary:
+                raise ValueError(
+                    f"Jitter is undefined for auxiliary spatial fields on "
+                    f"`{adapter.key}`: {auxiliary}."
+                )
+            field = adapter.primary_fields[0]
+            if not field.discrete:
+                raise ValueError(
+                    f"Jitter requires discrete voxel coordinates, but "
+                    f"`{adapter.key}.{field.name}` is continuous."
+                )
+
     def apply(
         self,
         data: dict[str, Any],
@@ -121,12 +156,13 @@ class JitterAugment(AugmentBase):
         # random transform for each product.
         coord_keys: list[str] = []
         coord_arrays: list[np.ndarray] = []
+        spatial = context["spatial"]
         for key in keys:
             if isinstance(data[key], Meta):
                 continue
 
             coord_keys.append(key)
-            coord_arrays.append(data[key].coordinate_data)
+            coord_arrays.append(spatial[key].primary_fields[0].values)
 
         if not coord_arrays:
             return data, meta
@@ -155,11 +191,13 @@ class JitterAugment(AugmentBase):
         for key, coords in zip(coord_keys, coord_arrays):
             stop = start + len(coords)
             product_inverse = inverse[start:stop]
-            data[key].coordinate_data = jittered_coords[product_inverse].astype(
-                coords.dtype,
-                copy=False,
+            adapter = spatial[key]
+            field = adapter.primary_fields[0]
+            adapter.set_field(
+                field.name,
+                jittered_coords[product_inverse].astype(coords.dtype, copy=False),
             )
-            data[key].meta = meta
+            adapter.set_meta(meta)
             start = stop
 
         return data, meta
