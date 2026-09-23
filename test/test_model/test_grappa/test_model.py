@@ -1192,6 +1192,48 @@ def test_grappa_accepts_nested_full_chain_balancing_policy():
         GrapPALoss(config, loss_balancing={"name": "fixed"})
 
 
+def test_grappa_requires_producer_loss_family(monkeypatch):
+    """Custom graph objectives must declare their balancing semantics."""
+
+    class UndeclaredLoss(torch.nn.Module):
+        pass
+
+    monkeypatch.setattr(
+        "spine.model.grappa.model.node_loss_factory",
+        lambda _config: UndeclaredLoss(),
+    )
+    with pytest.raises(TypeError, match="does not declare a loss family"):
+        GrapPALoss({"node_loss": {"name": "custom"}})
+
+
+def test_grappa_balances_compound_vertex_components():
+    """Compound graph objectives should contribute each declared leaf loss."""
+
+    class VertexLoss(torch.nn.Module):
+        def forward(self, **_):
+            return {
+                "loss": torch.tensor(5.0),
+                "accuracy": 1.0,
+                "primary_loss": torch.tensor(2.0),
+                "primary_count": 3,
+                "reg_loss": torch.tensor(8.0),
+                "reg_count": 2,
+            }
+
+    objective = GrapPALoss(
+        {"node_loss": {"name": "vertex", "only_contained": False}},
+        loss_balancing={"name": "fixed"},
+    )
+    objective.node_loss = VertexLoss()
+    prediction = TensorBatch(torch.zeros((1, 5)), counts=[1])
+
+    result = objective(node_pred=prediction)
+
+    torch.testing.assert_close(result["loss"], torch.tensor(5.0))
+    torch.testing.assert_close(result["node_primary_weight"], torch.tensor(0.5))
+    torch.testing.assert_close(result["node_reg_weight"], torch.tensor(0.5))
+
+
 def test_grappa_validates_materialized_graph_partitions():
     """Reject cached features whose event partitions differ from the graph."""
     model = GrapPA(shower_model_config())

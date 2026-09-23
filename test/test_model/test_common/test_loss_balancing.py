@@ -101,6 +101,20 @@ def test_uncertainty_balancing_supports_composite_stage_losses():
     assert balancer.log_variances["stage"].grad.item() == pytest.approx(-2.0)
 
 
+def test_uncertainty_balancing_supports_laplace_objectives():
+    """Laplace producers should use the square-root precision form."""
+    balancer = LossBalancer(
+        {"distance": "laplace"},
+        {"name": "uncertainty"},
+    )
+    balancer.log_variances["distance"].data.fill_(math.log(4.0))
+
+    loss, diagnostics = balancer({"distance": LossTerm(torch.tensor(6.0), "laplace")})
+
+    assert loss.item() == pytest.approx(3.0 + math.log(2.0))
+    assert diagnostics["distance_weight"].item() == pytest.approx(0.5)
+
+
 def test_inactive_uncertainty_term_has_zero_parameter_gradient():
     """Missing supervision must suppress both data and regularizer updates."""
     balancer = LossBalancer(
@@ -135,3 +149,45 @@ def test_loss_balancing_rejects_invalid_configuration(config, error, message):
     """Configuration errors should fail before the first training batch."""
     with pytest.raises(error, match=message):
         LossBalancer({"task": "categorical"}, config)
+
+
+def test_loss_balancing_rejects_invalid_objective_declarations():
+    """Producer metadata should fail before or at objective combination."""
+    with pytest.raises(ValueError, match="at least one"):
+        LossBalancer({})
+    with pytest.raises(TypeError, match="weights.*must be a mapping"):
+        LossBalancer({"task": "categorical"}, {"weights": []})
+    with pytest.raises(ValueError, match="task=unknown"):
+        LossBalancer(
+            {"task": "unknown"},
+            {"name": "uncertainty"},
+        )
+
+    balancer = LossBalancer({"task": "categorical"})
+    with pytest.raises(ValueError, match="missing=.*task.*extra=.*other"):
+        balancer({"other": LossTerm(torch.tensor(1.0), "categorical")})
+    with pytest.raises(ValueError, match="declared family"):
+        balancer({"task": LossTerm(torch.tensor(1.0), "gaussian")})
+
+
+@pytest.mark.parametrize(
+    ("term", "error", "message"),
+    [
+        (LossTerm(1.0, "categorical"), TypeError, "scalar tensor"),
+        (
+            LossTerm(torch.ones(2), "categorical"),
+            TypeError,
+            "scalar tensor",
+        ),
+        (
+            LossTerm(torch.tensor(1.0), "categorical", scale=float("nan")),
+            ValueError,
+            "finite and nonnegative",
+        ),
+    ],
+)
+def test_loss_balancing_rejects_invalid_runtime_terms(term, error, message):
+    """Malformed runtime values should identify the offending objective."""
+    balancer = LossBalancer({"task": "categorical"})
+    with pytest.raises(error, match=message):
+        balancer({"task": term})

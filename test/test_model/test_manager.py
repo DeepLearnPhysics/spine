@@ -840,6 +840,100 @@ def test_invalid_loss_state_is_rejected_before_network_mutation(tmp_path):
         assert torch.equal(value, initial[name])
 
 
+def test_automatic_resume_warns_when_adaptive_loss_state_is_missing(tmp_path):
+    """Automatic legacy resume should restart, rather than hide, loss state."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    net = torch.nn.Linear(1, 1)
+    path = tmp_path / "legacy-auto.ckpt"
+    torch.save({"state_dict": net.state_dict()}, path)
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=net,
+        loss_fn=Loss(),
+        distributed=False,
+        train=True,
+        restore_optimizer=False,
+        resume_training=True,
+        strict_resume=False,
+    )
+
+    with pytest.warns(RuntimeWarning, match="adaptive loss balancing will restart"):
+        manager.load_weights(str(path))
+
+
+@pytest.mark.parametrize(
+    ("loss_state", "configured_loss", "error", "message"),
+    [
+        (
+            {"log_variance": torch.tensor(1.0)},
+            False,
+            ValueError,
+            "configured objective does not",
+        ),
+        ([], True, TypeError, "must be a mapping"),
+        (
+            {"log_variance": 1.0},
+            True,
+            TypeError,
+            "is not a tensor",
+        ),
+        (
+            {"log_variance": torch.ones(2)},
+            True,
+            ValueError,
+            "shape",
+        ),
+        (
+            {"log_variance": torch.tensor(1, dtype=torch.int64)},
+            True,
+            ValueError,
+            "dtype",
+        ),
+    ],
+)
+def test_checkpoint_rejects_incompatible_loss_state(
+    tmp_path,
+    loss_state,
+    configured_loss,
+    error,
+    message,
+):
+    """Loss checkpoint structure must match before any tensor is restored."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    net = torch.nn.Linear(1, 1)
+    path = tmp_path / "incompatible-loss.ckpt"
+    torch.save(
+        {
+            "state_dict": net.state_dict(),
+            "loss_state_dict": loss_state,
+        },
+        path,
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=net,
+        loss_fn=Loss() if configured_loss else None,
+        distributed=False,
+        train=not configured_loss,
+        strict_resume=not configured_loss,
+    )
+
+    with pytest.raises(error, match=message):
+        manager.load_weights(str(path))
+
+
 def test_evaluate_restores_training_state_without_gradients():
     """Validation calls should reuse and restore the live training modules."""
 

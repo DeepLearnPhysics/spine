@@ -2257,6 +2257,11 @@ def test_full_chain_loss_skips_provider_without_objective() -> None:
     loss = FullChainLoss(chain={"stages": [{"name": "external", "provider": name}]})
     assert loss.stages == []
     assert loss() == {"loss": 0.0, "accuracy": 1.0, "num_losses": 0}
+    with pytest.raises(ValueError, match="requires at least one loss stage"):
+        FullChainLoss(
+            chain={"stages": [{"name": "external", "provider": name}]},
+            loss_balancing={"name": "fixed"},
+        )
 
 
 def test_legacy_process_chain_config_sets_owner_attributes() -> None:

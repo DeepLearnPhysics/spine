@@ -951,6 +951,72 @@ def test_combined_loss_applies_fixed_component_balancing(cnn_config):
     assert result["ppn_regression_weight"].item() == pytest.approx(2.0)
 
 
+def test_combined_loss_balances_vertex_components(cnn_config):
+    """Vertex producers should supply categorical and Gaussian leaf terms."""
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        vertex={},
+        vertex_loss={},
+        loss_balancing={"name": "fixed"},
+    )
+
+    class SegmentationLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return {"loss": torch.tensor(1.0), "accuracy": 1.0}
+
+    class VertexLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return {
+                "loss": torch.tensor(5.0),
+                "accuracy": 1.0,
+                "_loss_terms": {
+                    "vertex_mask": LossTerm(torch.tensor(2.0), "categorical"),
+                    "vertex_regression": LossTerm(
+                        torch.tensor(3.0),
+                        "gaussian",
+                    ),
+                },
+            }
+
+    loss.seg_loss = SegmentationLoss()
+    loss.vertex_loss = VertexLoss()
+    label = TensorBatch(torch.zeros(1), counts=[1])
+
+    result = loss(seg_label=label, vertex_label=label)
+
+    torch.testing.assert_close(result["loss"], torch.tensor(6.0))
+    assert result["vertex_mask_weight"].item() == pytest.approx(1.0)
+    assert result["vertex_regression_weight"].item() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("proposal", ["ppn", "vertex"])
+def test_adaptive_combined_loss_requires_component_metadata(cnn_config, proposal):
+    """Adaptive policies should reject proposal losses without leaf terms."""
+    options = {
+        proposal: {},
+        f"{proposal}_loss": {},
+    }
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        loss_balancing={"name": "uncertainty"},
+        **options,
+    )
+
+    class FixedLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return {"loss": torch.tensor(1.0), "accuracy": 1.0}
+
+    loss.seg_loss = FixedLoss()
+    setattr(loss, f"{proposal}_loss", FixedLoss())
+    label = TensorBatch(torch.zeros(1), counts=[1])
+    labels = {f"{proposal}_label": label}
+
+    with pytest.raises(RuntimeError, match="component objectives"):
+        loss(seg_label=label, **labels)
+
+
 def test_combined_loss_only_registers_adaptive_parameters_when_requested(
     cnn_config,
 ):
@@ -964,10 +1030,15 @@ def test_combined_loss_only_registers_adaptive_parameters_when_requested(
     summed = UResNetPPNLoss(**common)
     fixed = UResNetPPNLoss(**common, loss_balancing={"name": "fixed"})
     adaptive = UResNetPPNLoss(**common, loss_balancing={"name": "uncertainty"})
+    endpoint = UResNetPPNLoss(
+        **{**common, "ppn": {"classify_endpoints": True}},
+        loss_balancing={"name": "uncertainty"},
+    )
 
     assert not list(summed.parameters())
     assert not list(fixed.parameters())
     assert len(list(adaptive.parameters())) == 4
+    assert len(list(endpoint.parameters())) == 5
 
 
 def test_combined_loss_routes_raw_particle_associations(cnn_config):
