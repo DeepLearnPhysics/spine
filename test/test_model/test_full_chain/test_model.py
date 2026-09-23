@@ -11,6 +11,7 @@ import torch
 
 from spine.constants import GHOST_SHP, SHOWR_SHP, TRACK_SHP
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.common.loss_balancing import LossBalancer
 from spine.model.full_chain import (
     FullChain,
     FullChainLoss,
@@ -2172,6 +2173,83 @@ def test_full_chain_loss_aggregates_and_validates_stage_results() -> None:
         loss()
 
 
+def test_full_chain_loss_balances_provider_stages() -> None:
+    """Chain-wide balancing should use stable stage names and composite terms."""
+
+    class LossStage:
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+
+        def __call__(self, _data):
+            return {"loss": torch.tensor(self.value), "accuracy": 1.0}
+
+    loss = object.__new__(FullChainLoss)
+    torch.nn.Module.__init__(loss)
+    loss.stages = [LossStage("segmentation", 2.0), LossStage("particle", 4.0)]
+    loss.loss_balancer = LossBalancer(
+        {"segmentation": "composite", "particle": "composite"},
+        {
+            "name": "fixed",
+            "weights": {"segmentation": 2.0, "particle": 0.5},
+        },
+    )
+
+    result = loss()
+
+    torch.testing.assert_close(result["loss"], torch.tensor(6.0))
+    torch.testing.assert_close(result["segmentation_weight"], torch.tensor(2.0))
+    torch.testing.assert_close(result["particle_weight"], torch.tensor(0.5))
+
+
+def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:
+    """Global stage balancing should be manager-ready and non-redundant."""
+
+    class LossStage:
+        def __init__(self, name):
+            self.name = name
+
+        def __call__(self, _data):
+            return {"loss": torch.tensor(2.0), "accuracy": 1.0}
+
+    def build_loss(name, config, owner):
+        if config["loss"].get("nested", False):
+            owner.add_module(
+                "nested_balancer",
+                LossBalancer(
+                    {"leaf": "categorical"},
+                    {"name": "uncertainty"},
+                ),
+            )
+        return LossStage(name)
+
+    provider = "test_balanced_loss_provider"
+    register_provider(ProviderSpec(provider, _build_external, build_loss))
+    chain = {
+        "stages": [
+            {
+                "name": "semantic",
+                "provider": provider,
+                "loss": "semantic_loss",
+            }
+        ]
+    }
+    loss = FullChainLoss(
+        chain,
+        semantic_loss={},
+        loss_balancing={"name": "uncertainty"},
+    )
+    assert set(loss.loss_balancer.log_variances) == {"semantic"}
+    torch.testing.assert_close(loss()["loss"], torch.tensor(2.0))
+
+    with pytest.raises(ValueError, match="nested uncertainty"):
+        FullChainLoss(
+            chain,
+            semantic_loss={"nested": True},
+            loss_balancing={"name": "uncertainty"},
+        )
+
+
 def test_full_chain_loss_skips_provider_without_objective() -> None:
     """Inference-only providers contribute no loss stage."""
     name = "test_no_loss_provider"
@@ -2179,6 +2257,11 @@ def test_full_chain_loss_skips_provider_without_objective() -> None:
     loss = FullChainLoss(chain={"stages": [{"name": "external", "provider": name}]})
     assert loss.stages == []
     assert loss() == {"loss": 0.0, "accuracy": 1.0, "num_losses": 0}
+    with pytest.raises(ValueError, match="requires at least one loss stage"):
+        FullChainLoss(
+            chain={"stages": [{"name": "external", "provider": name}]},
+            loss_balancing={"name": "fixed"},
+        )
 
 
 def test_legacy_process_chain_config_sets_owner_attributes() -> None:

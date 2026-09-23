@@ -50,6 +50,8 @@ class NodeOrientLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("orientation",)
 
+    loss_family = "categorical"
+
     def __init__(
         self,
         loss: str | dict[str, Any] = "ce",

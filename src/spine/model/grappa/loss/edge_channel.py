@@ -58,6 +58,8 @@ class EdgeChannelLoss(torch.nn.Module):
     # Name of the GNN loss (as specified in the configuration)
     name = "channel"
 
+    loss_family = "categorical"
+
     def __init__(
         self,
         target: str,

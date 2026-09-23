@@ -11,15 +11,13 @@ import torch
 from spine.data import TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.model.cnn.blocks import ResNetBlock
+from spine.model.common.loss_balancing import LossTerm
 from spine.model.common.weighting import get_class_weights
 
 from .ppn import PointProposalDecoder, PPNLoss, ProposalTask
 
 VertexPPNOutput: TypeAlias = dict[str, TensorBatch | list[TensorBatch]]
-VertexPPNLossOutput: TypeAlias = dict[
-    str,
-    torch.Tensor | float | list[TensorBatch],
-]
+VertexPPNLossOutput: TypeAlias = dict[str, Any]
 
 __all__ = [
     "VertexPPN",
@@ -374,7 +372,9 @@ class VertexPPNLoss(torch.nn.Module):
         Returns
         -------
         VertexPPNLossOutput
-            Combined loss, component metrics and optional mask labels.
+            Combined loss, component metrics and optional mask labels. The
+            private ``_loss_terms`` entry carries differentiable foreground
+            and regression objectives to the parent loss combiner.
         """
         expected = self.depth - 1
         layer_counts = {
@@ -515,6 +515,8 @@ class VertexPPNLoss(torch.nn.Module):
         mask_accuracy = mask_accuracies.mean()
         loss = self.mask_loss_weight * mask_loss + self.reg_loss_weight * reg_loss
         accuracy = (mask_accuracy + reg_accuracy) / 2
+        # Keep leaf objectives differentiable while public metrics remain
+        # convenient scalar values; the parent strips this private metadata.
         result: VertexPPNLossOutput = {
             "loss": loss,
             "accuracy": accuracy.item(),
@@ -522,6 +524,20 @@ class VertexPPNLoss(torch.nn.Module):
             "mask_accuracy": mask_accuracy.item(),
             "reg_loss": reg_loss.item(),
             "reg_accuracy": reg_accuracy.item(),
+            "_loss_terms": {
+                "vertex_mask": LossTerm(
+                    mask_loss,
+                    "categorical",
+                    active=any(len(layer) > 0 for layer in vertex_layers),
+                    scale=self.mask_loss_weight,
+                ),
+                "vertex_regression": LossTerm(
+                    reg_loss,
+                    "gaussian",
+                    active=len(positive_indices) > 0,
+                    scale=self.reg_loss_weight,
+                ),
+            },
         }
         for layer_index in range(expected):
             result[f"mask_loss_layer_{layer_index}"] = mask_losses[layer_index]

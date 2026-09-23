@@ -172,6 +172,38 @@ def test_manager_partitions_network_and_loss_configuration(monkeypatch):
     assert loss_calls == [({"width": 2}, {"reduction": "mean"})]
 
 
+@pytest.mark.model
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is required.")
+def test_manager_optimizes_trainable_loss_state_without_weight_decay(monkeypatch):
+    """Learned objective state should be optimized in a no-decay group."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(1.0))
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, Loss)
+    )
+    manager = ModelManager(
+        name="test",
+        modules={},
+        network_input={"data": "data"},
+        loss_input={"target": "target"},
+        train={"optimizer": {"name": "SGD", "lr": 0.1, "weight_decay": 0.2}},
+    )
+
+    assert len(manager.optimizer.param_groups) == 2
+    assert manager.optimizer.param_groups[0]["weight_decay"] == pytest.approx(0.2)
+    assert manager.optimizer.param_groups[1]["weight_decay"] == 0.0
+    assert manager.optimizer.param_groups[1]["params"] == [manager.loss_fn.log_variance]
+
+
 def make_bare_manager(**attributes):
     """Construct a manager shell for testing independent lifecycle methods."""
     manager = object.__new__(ModelManager)
@@ -693,6 +725,215 @@ def test_save_state_writes_rich_checkpoint_and_requires_prefix(tmp_path, monkeyp
     assert (tmp_path / "snapshot-best.ckpt.sha256").exists()
 
 
+def test_save_and_load_state_preserves_trainable_loss_parameters(tmp_path):
+    """Adaptive objective state should round-trip outside inference weights."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self, value):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(value))
+
+    net = torch.nn.Linear(1, 1)
+    source_loss = Loss(1.5)
+    optimizer = torch.optim.SGD(
+        [
+            {"params": list(net.parameters())},
+            {"params": list(source_loss.parameters()), "weight_decay": 0.0},
+        ],
+        lr=0.1,
+    )
+    manager = make_bare_manager(
+        net=net,
+        loss_fn=source_loss,
+        optimizer=optimizer,
+        distributed=False,
+        weight_prefix=str(tmp_path / "adaptive"),
+    )
+    checkpoint_path = manager.save_state(0, None)
+    checkpoint = torch.load(checkpoint_path, weights_only=True)
+
+    assert checkpoint["loss_state_dict"]["log_variance"].item() == pytest.approx(1.5)
+
+    target_loss = Loss(-2.0)
+    target = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=torch.nn.Linear(1, 1),
+        loss_fn=target_loss,
+        distributed=False,
+        train=False,
+    )
+    target.load_weights(checkpoint_path)
+
+    assert target_loss.log_variance.item() == pytest.approx(1.5)
+
+
+def test_strict_resume_requires_trainable_loss_state(monkeypatch, tmp_path):
+    """Legacy checkpoints cannot exactly resume an adaptive objective."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    path = tmp_path / "legacy.ckpt"
+    path.touch()
+    net = torch.nn.Linear(1, 1)
+    checkpoint = {
+        "state_dict": net.state_dict(),
+        "optimizer": {},
+        "global_step": 0,
+    }
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=net,
+        loss_fn=Loss(),
+        train=True,
+        restore_optimizer=True,
+        resume_training=True,
+        strict_resume=True,
+        optimizer=SimpleNamespace(load_state_dict=lambda _state: None),
+    )
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: checkpoint)
+
+    with pytest.raises(KeyError, match="trainable loss state"):
+        manager.load_weights(str(path))
+
+
+def test_invalid_loss_state_is_rejected_before_network_mutation(tmp_path):
+    """Checkpoint validation should remain atomic across model and objective."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    source = torch.nn.Linear(1, 1)
+    with torch.no_grad():
+        source.weight.fill_(4.0)
+        source.bias.fill_(3.0)
+    path = tmp_path / "invalid-loss.ckpt"
+    torch.save(
+        {
+            "state_dict": source.state_dict(),
+            "loss_state_dict": {"wrong_name": torch.tensor(1.0)},
+        },
+        path,
+    )
+
+    target = torch.nn.Linear(1, 1)
+    initial = {name: value.clone() for name, value in target.state_dict().items()}
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=target,
+        loss_fn=Loss(),
+        distributed=False,
+        train=False,
+    )
+
+    with pytest.raises(ValueError, match="loss state does not match"):
+        manager.load_weights(str(path))
+
+    for name, value in target.state_dict().items():
+        assert torch.equal(value, initial[name])
+
+
+def test_automatic_resume_warns_when_adaptive_loss_state_is_missing(tmp_path):
+    """Automatic legacy resume should restart, rather than hide, loss state."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    net = torch.nn.Linear(1, 1)
+    path = tmp_path / "legacy-auto.ckpt"
+    torch.save({"state_dict": net.state_dict()}, path)
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=net,
+        loss_fn=Loss(),
+        distributed=False,
+        train=True,
+        restore_optimizer=False,
+        resume_training=True,
+        strict_resume=False,
+    )
+
+    with pytest.warns(RuntimeWarning, match="adaptive loss balancing will restart"):
+        manager.load_weights(str(path))
+
+
+@pytest.mark.parametrize(
+    ("loss_state", "configured_loss", "error", "message"),
+    [
+        (
+            {"log_variance": torch.tensor(1.0)},
+            False,
+            ValueError,
+            "configured objective does not",
+        ),
+        ([], True, TypeError, "must be a mapping"),
+        (
+            {"log_variance": 1.0},
+            True,
+            TypeError,
+            "is not a tensor",
+        ),
+        (
+            {"log_variance": torch.ones(2)},
+            True,
+            ValueError,
+            "shape",
+        ),
+        (
+            {"log_variance": torch.tensor(1, dtype=torch.int64)},
+            True,
+            ValueError,
+            "dtype",
+        ),
+    ],
+)
+def test_checkpoint_rejects_incompatible_loss_state(
+    tmp_path,
+    loss_state,
+    configured_loss,
+    error,
+    message,
+):
+    """Loss checkpoint structure must match before any tensor is restored."""
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+    net = torch.nn.Linear(1, 1)
+    path = tmp_path / "incompatible-loss.ckpt"
+    torch.save(
+        {
+            "state_dict": net.state_dict(),
+            "loss_state_dict": loss_state,
+        },
+        path,
+    )
+    manager = make_bare_manager(
+        model_name="test",
+        model_cfg={},
+        net=net,
+        loss_fn=Loss() if configured_loss else None,
+        distributed=False,
+        train=not configured_loss,
+        strict_resume=not configured_loss,
+    )
+
+    with pytest.raises(error, match=message):
+        manager.load_weights(str(path))
+
+
 def test_evaluate_restores_training_state_without_gradients():
     """Validation calls should reuse and restore the live training modules."""
 
@@ -813,6 +1054,57 @@ def test_manager_configures_ranked_device_anomaly_and_ddp(monkeypatch):
     assert calls["to"]["device"] == "cuda:2"
     assert calls["anomaly"] == (True, True)
     assert calls["ddp"]["device_ids"] == [2]
+
+
+def test_manager_wraps_trainable_loss_state_with_ddp(monkeypatch):
+    """Distributed training should synchronize learned objective parameters."""
+    wrapped = []
+
+    class Network(torch.nn.Module):
+        def to(self, **_kwargs):
+            return self
+
+    class Loss(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.log_variance = torch.nn.Parameter(torch.tensor(0.0))
+
+        def to(self, **_kwargs):
+            return self
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, Loss)
+    )
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
+
+    def wrap(module, **_kwargs):
+        wrapped.append(module)
+        return module
+
+    monkeypatch.setattr(torch.nn.parallel, "DistributedDataParallel", wrap)
+    manager = ModelManager(
+        name="test",
+        modules={},
+        network_input={},
+        loss_input={"target": "target"},
+        distributed=True,
+        rank=0,
+    )
+
+    assert wrapped == [manager.net, manager.loss_fn]
+
+
+def test_loss_balancing_configuration_is_loss_only():
+    """Balancing policy must not leak into network constructors."""
+    modules = {
+        "network": {"width": 2},
+        "network_loss": {"reduction": "mean"},
+        "loss_balancing": {"name": "uncertainty"},
+    }
+
+    selected = ModelManager.select_network_modules(modules)
+
+    assert selected == {"network": {"width": 2}}
 
 
 def test_manager_weight_path_selection_and_validation(monkeypatch, tmp_path):

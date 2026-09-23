@@ -55,6 +55,10 @@ class NodeVertexLoss(torch.nn.Module):
     name = "vertex"
     cacheable_targets = False
 
+    # Vertex prediction is intentionally exposed as two leaf objectives so a
+    # combiner does not have to assign one likelihood to a mixed task.
+    loss_families = {"primary": "categorical", "reg": "gaussian"}
+
     def __init__(
         self,
         balance_primary_loss: bool = False,

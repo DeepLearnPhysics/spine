@@ -49,6 +49,9 @@ class NodeRegressionLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("regression",)
 
+    # Mean-squared regression is modeled with a Gaussian likelihood.
+    loss_family = "gaussian"
+
     def __init__(
         self,
         target: str,

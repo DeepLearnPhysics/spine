@@ -81,6 +81,46 @@ The point-proposal implementation is available as
 runtime because the package defines PyTorch type aliases and modules at import
 time.
 
+Multi-task loss balancing
+-------------------------
+
+Composite objectives may select ``sum`` (the backward-compatible default),
+``fixed`` or learned ``uncertainty`` balancing through a sibling module block.
+Loss producers declare objective families and batch activity internally; user
+configuration contains only the policy and optional scientific priorities.
+
+For standalone GrapPA, weight names match its prediction heads, such as
+``node_type`` or ``edge``. Compound vertex prediction exposes distinct
+``node_vertex_primary`` and ``node_vertex_reg`` objectives::
+
+   model:
+     name: grappa
+     modules:
+       grappa: ...
+       grappa_loss: ...
+       loss_balancing:
+         name: uncertainty
+
+For ``full_chain``, a top-level policy balances complete provider stages. The
+weight names are the stage names from the normalized chain plan. These stage
+objectives are marked as composite in code, so users do not assign a fictitious
+classification or regression family to a mixed reconstruction stage::
+
+   model:
+     name: full_chain
+     modules:
+       chain: ...
+       loss_balancing:
+         name: fixed
+         weights:
+           segmentation: 1.0
+           particle_aggregation: 0.5
+
+A policy inside a native stage loss block instead balances that stage's leaf
+objectives. Chain-wide and nested fixed priorities may be composed, but two
+levels of learned uncertainty balancing are rejected because their scales are
+not independently identifiable.
+
 Sparse CNN lattice phase
 ------------------------
 
