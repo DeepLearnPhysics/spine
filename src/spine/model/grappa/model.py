@@ -1400,6 +1400,19 @@ class GrapPALoss(torch.nn.Module):
         self.return_targets = False
         self.grappa_config = grappa or {}
 
+        # Full-chain loss blocks may carry their policy beside the native
+        # GrapPA options. Standalone models normally receive it as a sibling
+        # module block through the model manager.
+        grappa_loss = dict(grappa_loss)
+        nested_balancing = grappa_loss.pop("loss_balancing", None)
+        if loss_balancing is not None and nested_balancing is not None:
+            raise ValueError(
+                "Specify GrapPA `loss_balancing` either beside `grappa_loss` "
+                "or inside it, not both."
+            )
+        if loss_balancing is None:
+            loss_balancing = nested_balancing
+
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
 

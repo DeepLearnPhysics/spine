@@ -1178,6 +1178,20 @@ def test_grappa_vertex_declares_separate_balancing_terms():
     }
 
 
+def test_grappa_accepts_nested_full_chain_balancing_policy():
+    """A referenced full-chain loss block may carry its native policy."""
+    config = {
+        "node_loss": {"name": "class", "target": "pid"},
+        "loss_balancing": {"name": "fixed", "weights": {"node": 2.0}},
+    }
+    objective = GrapPALoss(config)
+    assert objective.loss_balancer.mode == "fixed"
+    assert objective.loss_balancer.priorities == {"node": 2.0}
+
+    with pytest.raises(ValueError, match="either beside.*or inside"):
+        GrapPALoss(config, loss_balancing={"name": "fixed"})
+
+
 def test_grappa_validates_materialized_graph_partitions():
     """Reject cached features whose event partitions differ from the graph."""
     model = GrapPA(shower_model_config())

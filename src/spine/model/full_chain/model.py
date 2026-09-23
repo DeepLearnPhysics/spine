@@ -8,6 +8,7 @@ from typing import Any
 import torch
 
 from spine.data import ClusterLabelBatch, IndexBatch, RunInfo, TensorBatch
+from spine.model.common.loss_balancing import LossBalancer, LossTerm
 
 from ..registry import ModelSpec
 from .config import StageConfig, build_chain_plan, get_chain_inputs
@@ -152,10 +153,18 @@ class FullChainLoss(torch.nn.Module):
     The loss follows the same normalized plan as :class:`FullChain`, but each
     provider builds a lightweight adapter around its standalone objective.
     Component metrics are namespaced by stage while the total loss and mean
-    accuracy retain the model-manager interface.
+    accuracy retain the model-manager interface. Optional chain-wide balancing
+    treats each provider stage as a composite objective: the provider remains
+    responsible for its internal loss semantics, while the chain controls the
+    relative contribution of complete reconstruction stages.
     """
 
-    def __init__(self, chain: dict[str, Any], **modules: Any) -> None:
+    def __init__(
+        self,
+        chain: dict[str, Any],
+        loss_balancing: dict[str, Any] | None = None,
+        **modules: Any,
+    ) -> None:
         """Build loss adapters from the normalized model plan.
 
         Parameters
@@ -165,6 +174,10 @@ class FullChainLoss(torch.nn.Module):
         **modules : dict
             Named model and loss blocks. Model blocks provide context needed
             to initialize their corresponding objectives.
+        loss_balancing : dict, optional
+            Chain-wide ``sum``, ``fixed`` or ``uncertainty`` policy. Weight
+            names are the configured stage names; users do not provide task
+            families.
         """
         super().__init__()
         self.plan = build_chain_plan(chain, modules, require_losses=True)
@@ -181,6 +194,33 @@ class FullChainLoss(torch.nn.Module):
             stage = spec.loss(stage_config.name, config, self)
             if stage is not None:
                 self.stages.append(stage)
+
+        if self.stages:
+            if (
+                isinstance(loss_balancing, dict)
+                and str(loss_balancing.get("name", "sum")).lower() == "uncertainty"
+            ):
+                nested = [
+                    name
+                    for name, module in self.named_modules()
+                    if name
+                    and isinstance(module, LossBalancer)
+                    and module.mode == "uncertainty"
+                ]
+                if nested:
+                    names = ", ".join(nested)
+                    raise ValueError(
+                        "Chain-wide uncertainty balancing cannot be combined "
+                        f"with nested uncertainty balancers: {names}."
+                    )
+            families = {stage.name: "composite" for stage in self.stages}
+            self.loss_balancer = LossBalancer(families, loss_balancing)
+        else:
+            if loss_balancing is not None:
+                raise ValueError(
+                    "Full-chain loss balancing requires at least one loss stage."
+                )
+            self.loss_balancer = None
 
     def forward(self, **data: Any) -> dict[str, Any]:
         """Evaluate configured objectives and combine summary metrics.
@@ -203,6 +243,7 @@ class FullChainLoss(torch.nn.Module):
             If a provider reports an empty objective collection.
         """
         result: dict[str, Any] = {"loss": 0.0, "accuracy": 1.0, "num_losses": 0}
+        loss_terms: dict[str, LossTerm] = {}
 
         # Accumulate provider summaries using objective counts as weights.
         for stage in self.stages:
@@ -213,6 +254,11 @@ class FullChainLoss(torch.nn.Module):
 
             previous = result["num_losses"]
             result["loss"] = result["loss"] + stage_result["loss"]
+            loss_terms[stage.name] = LossTerm(
+                stage_result["loss"],
+                "composite",
+                active=bool(stage_result.get("_loss_active", True)),
+            )
             result["accuracy"] = (
                 result["accuracy"] * previous
                 + float(stage_result.get("accuracy", 1.0)) * count
@@ -222,8 +268,13 @@ class FullChainLoss(torch.nn.Module):
             # Keep component diagnostics unambiguous across interchangeable
             # providers while retaining the chain-wide summary keys above.
             for key, value in stage_result.items():
-                if key not in {"loss", "accuracy", "num_losses"}:
+                if key not in {"loss", "accuracy", "num_losses", "_loss_active"}:
                     result[f"{stage.name}_{key}"] = value
+
+        loss_balancer = getattr(self, "loss_balancer", None)
+        if loss_balancer is not None and loss_balancer.mode != "sum":
+            result["loss"], diagnostics = loss_balancer(loss_terms)
+            result.update(diagnostics)
         return result
 
 

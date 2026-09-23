@@ -86,6 +86,21 @@ def test_uncertainty_balancing_preserves_producer_priorities():
     assert diagnostics["regression_weight"].item() == pytest.approx(6.0)
 
 
+def test_uncertainty_balancing_supports_composite_stage_losses():
+    """An aggregate stage should use a generic learned scale."""
+    balancer = LossBalancer(
+        {"stage": "composite"},
+        {"name": "uncertainty"},
+    )
+
+    loss, diagnostics = balancer({"stage": LossTerm(torch.tensor(3.0), "composite")})
+    loss.backward()
+
+    assert loss.item() == pytest.approx(3.0)
+    assert diagnostics["stage_weight"].item() == pytest.approx(1.0)
+    assert balancer.log_variances["stage"].grad.item() == pytest.approx(-2.0)
+
+
 def test_inactive_uncertainty_term_has_zero_parameter_gradient():
     """Missing supervision must suppress both data and regularizer updates."""
     balancer = LossBalancer(

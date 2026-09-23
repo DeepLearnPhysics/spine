@@ -74,5 +74,7 @@ Optional weights express scientific priorities without restating task types:
 
 Valid objective names are ``segmentation``, ``ppn_mask``, ``ppn_type``,
 ``ppn_regression``, optional ``ppn_endpoint``, ``vertex_mask`` and
-``vertex_regression``. Full-chain configurations place the same
-``loss_balancing`` block inside ``uresnet_ppn_loss``.
+``vertex_regression``. Full-chain configurations may place the same block
+inside ``uresnet_ppn_loss`` to balance these leaf objectives. A top-level
+``loss_balancing`` block on ``full_chain`` instead balances complete provider
+stages by their configured stage names.
