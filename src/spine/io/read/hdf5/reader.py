@@ -11,7 +11,11 @@ import yaml
 from yaml.parser import ParserError
 
 import spine.data
-from spine.io.filter import eligible_cache_entries_from_manifest
+from spine.io.filter import (
+    eligible_cache_entries_from_manifest,
+    eligible_entries_from_manifest,
+    load_entry_filter,
+)
 from spine.logging import logger
 
 from ..base import ReaderBase
@@ -162,8 +166,9 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         entry_fraction_range : sequence[float], optional
             Half-open fractional range of the resolved entry order to select
         entry_filter : str, optional
-            LArCV entry-filter manifest projected onto this cache through its
-            persisted per-entry source provenance
+            Entry-filter manifest. HDF5 manifests address these files
+            directly; LArCV manifests are projected through persisted
+            per-entry source provenance.
         """
         # Process the list of files
         self.process_file_paths(file_keys, file_list, limit_num_files, max_print_files)
@@ -193,8 +198,18 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
             create_run_map = True
 
         # Loop over the input files, build a map from index to file ID
-        file_index, run_info = [], []
+        file_index, file_counts, run_info = [], [], []
         source_provenance: list[dict[str, Any]] = []
+        filter_backend = None
+        if entry_filter is not None:
+            # Native HDF5 manifests address the physical files directly;
+            # LArCV manifests require per-entry provenance gathered below.
+            filter_backend = load_entry_filter(entry_filter)["input"]["name"]
+            if filter_backend not in ("hdf5", "larcv"):
+                raise ValueError(
+                    f"HDF5Reader cannot apply an entry-filter with backend "
+                    f"`{filter_backend}`."
+                )
         self.num_entries = 0
         self.file_offsets = np.empty(len(self.file_paths), dtype=np.int64)
         for i, path in enumerate(self.file_paths):
@@ -265,7 +280,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
 
                 # Update the total number of entries
                 num_entries = len(events)
-                if entry_filter is not None:
+                if filter_backend == "larcv":
                     source_provenance.extend(
                         self._read_flat_source_manifest_provenance(
                             in_file,
@@ -276,6 +291,7 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
                     # The initialization handle closes after this iteration.
                     self._clear_product_handles()
                 file_index.append(i * np.ones(num_entries, dtype=np.int64))
+                file_counts.append(num_entries)
                 self.file_offsets[i] = self.num_entries
                 self.num_entries += num_entries
 
@@ -300,10 +316,20 @@ class HDF5Reader(ProductGroupBackend, RegionReferenceBackend, ReaderBase):
         # Process the entry list
         eligible_entries = None
         if entry_filter is not None:
-            eligible_entries = eligible_cache_entries_from_manifest(
-                entry_filter,
-                source_provenance,
-            )
+            if filter_backend == "larcv":
+                eligible_entries = eligible_cache_entries_from_manifest(
+                    entry_filter,
+                    source_provenance,
+                )
+            else:
+                # Compare the manifest against the exact files and event counts
+                # already validated while constructing this reader's axis.
+                eligible_entries = eligible_entries_from_manifest(
+                    entry_filter,
+                    backend="hdf5",
+                    sources=self.file_paths,
+                    file_counts=file_counts,
+                )
         self.process_entry_list(
             n_entry,
             n_skip,

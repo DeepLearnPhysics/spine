@@ -89,6 +89,7 @@ class HDF5ShardReader(HDF5Reader):
         keys: Sequence[str] | None = None,
         entry_fraction_range: Sequence[float] | None = None,
         entry_filter: str | None = None,
+        eligible_entries: Sequence[int] | np.ndarray | None = None,
         preserve_file_order: bool = False,
     ) -> None:
         """Initialize the cache-shard reader.
@@ -111,11 +112,18 @@ class HDF5ShardReader(HDF5Reader):
             See :class:`spine.io.read.HDF5Reader`. These options control file
             discovery, entry selection, object reconstruction, file-handle
             lifetime, incomplete-stage handling, and source-manifest filtering.
+        eligible_entries : sequence[int], optional
+            Precomputed global eligibility domain supplied by a logical cache
+            repository reader. Mutually exclusive with ``entry_filter``.
         preserve_file_order : bool, default False
             Preserve the order of an explicit ``file_keys`` list instead of
             sorting paths. Cache repository projections use this to match the
             authoritative primary dataset's source order.
         """
+        # Validate mutually exclusive entry-selection options before opening any files
+        if entry_filter is not None and eligible_entries is not None:
+            raise ValueError("Provide either `entry_filter` or `eligible_entries`.")
+
         # Store routing policy before inspecting the available stage schemas
         self.stage = stage
         self.stage_map = dict(stage_map or {})
@@ -175,12 +183,16 @@ class HDF5ShardReader(HDF5Reader):
         self.run_map = None
 
         # Apply the standard reader entry projection to the merged event axis
-        eligible_entries = None
+        resolved_eligible_entries = eligible_entries
         if entry_filter is not None:
-            eligible_entries = eligible_cache_entries_from_manifest(
+            # Legacy LArCV manifests are translated through the source
+            # provenance gathered above. Logical CacheReader callers provide
+            # an already translated repository eligibility axis instead.
+            resolved_eligible_entries = eligible_cache_entries_from_manifest(
                 entry_filter,
                 source_provenance,
             )
+
         self.process_entry_list(
             n_entry,
             n_skip,
@@ -190,7 +202,7 @@ class HDF5ShardReader(HDF5Reader):
             None,
             allow_missing,
             entry_fraction_range,
-            eligible_entries,
+            resolved_eligible_entries,
         )
 
         # Finish the inherited object reconstruction and file metadata setup

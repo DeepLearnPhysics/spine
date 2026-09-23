@@ -6,6 +6,7 @@ backend while allowing inspectors to perform format-specific measurements.
 """
 
 from .base import EntryInspector, SourceFingerprint, resolve_sources
+from .hdf5 import CacheEntryInspector, HDF5EntryInspector
 from .larcv import LArCVEntryInspector
 from .manager import (
     build_manifest,
@@ -18,6 +19,8 @@ from .manager import (
 
 __all__ = [
     "EntryInspector",
+    "CacheEntryInspector",
+    "HDF5EntryInspector",
     "LArCVEntryInspector",
     "SourceFingerprint",
     "build_manifest",

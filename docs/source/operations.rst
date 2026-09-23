@@ -107,8 +107,80 @@ SPINE maps each physical cache entry back to the manifest using its persisted
 ``source_file_name``, ``source_file_size``, ``source_file_mtime_ns`` and
 ``source_file_entry_index`` provenance. Missing or ambiguous provenance is a
 hard error; SPINE never assumes that physical HDF5 order equals raw LArCV
-order. This operation only applies existing LArCV manifests. Native HDF5
-product inspection and manifest generation are not currently supported.
+order.
+
+Cached products can also be inspected directly. This is useful when a product
+created during cache construction, rather than a raw LArCV product, determines
+whether an entry is safe to train on. For a logical cache repository, configure
+the ``cache`` backend and name the cached product explicitly:
+
+.. code-block:: yaml
+
+   input:
+     name: cache
+
+   measurements:
+     shower_edges:
+       kind: product_size
+       product: fragment_graph_shower_edge_index
+
+   filters:
+     shower_edges:
+       max_count: 1600001
+
+The existing ``max_count`` predicate is an exclusive upper bound. The value
+above therefore accepts edge counts through 1,600,000 and rejects larger
+graphs. If the same product name is published by more than one stage, add the
+owning stage to the measurement:
+
+.. code-block:: yaml
+
+   measurements:
+     shower_edges:
+       kind: product_size
+       product: fragment_graph_shower_edge_index
+       stage: fragment_graph
+
+Scan and build against the logical repository, not its private shard paths:
+
+.. code-block:: bash
+
+   spine-filter scan \
+     --config shower-edge-filter.yaml \
+     --source /path/to/train.spine-cache \
+     --cache-dir shower-edge-scan
+
+   spine-filter build \
+     --config shower-edge-filter.yaml \
+     --source /path/to/train.spine-cache \
+     --cache-dir shower-edge-scan \
+     --output accepted-cache.yaml \
+     --output-source-list accepted-cache-sources.txt
+
+Then configure the generated manifest on the cache dataset:
+
+.. code-block:: yaml
+
+   io:
+     loader:
+       dataset:
+         name: cache
+         path: /path/to/train.spine-cache
+         entry_filter: accepted-cache.yaml
+
+The inspector resolves the product's published stage and reads only its V2
+``event_offsets`` metadata. It does not deserialize the edge index or edge
+features. The cache reader computes one eligibility sequence before ordinary
+entry selection and applies it identically to every requested stage, including
+stages which do not own the measured product. This keeps graph inputs and
+cached targets aligned before the sampler is constructed.
+
+For an ordinary flat SPINE HDF5 cache, use ``input.name: hdf5`` and pass its
+files to the same scan and build commands. Version 2 files are measured from
+``event_offsets``; legacy version 1 files are measured from region-reference
+selection extents without reading their payloads. A native HDF5 manifest is
+tied to the exact files scanned and cannot be applied to a different physical
+cache through source provenance.
 
 A compact downstream cache which already contains only accepted entries should
 not reapply the raw-data manifest.

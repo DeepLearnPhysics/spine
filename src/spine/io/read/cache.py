@@ -9,6 +9,7 @@ import numpy as np
 
 from ..cache import CacheManifest, CacheRepository
 from ..cache.backend.hdf5.reader import HDF5ShardReader
+from ..filter import eligible_entries_from_manifest, load_entry_filter
 from .base import ReaderBase
 
 __all__ = ["CacheReader"]
@@ -63,8 +64,9 @@ class CacheReader(ReaderBase):
         build_classes, skip_unknown_attrs, allow_missing, keep_open, swmr : optional
             HDF5 decoding and handle-lifetime controls.
         entry_filter : str, optional
-            File-aware eligibility manifest applied through source provenance
-            persisted in every stage shard.
+            File-aware eligibility manifest. Cache manifests filter the
+            repository's logical event axis directly; LArCV manifests are
+            projected through source provenance persisted in every stage.
         source_ids : sequence[str], optional
             Ordered source identities to expose from the repository. This is
             used by mixed datasets to project a complete cache onto the raw
@@ -97,20 +99,29 @@ class CacheReader(ReaderBase):
         self.stage_generations = {
             name: self.manifest.stages[name].generation for name in routing
         }
-        reader_options = {
-            "n_entry": n_entry,
-            "n_skip": n_skip,
-            "entry_list": entry_list,
-            "skip_entry_list": skip_entry_list,
-            "build_classes": build_classes,
-            "skip_unknown_attrs": skip_unknown_attrs,
-            "allow_missing": allow_missing,
-            "keep_open": keep_open,
-            "swmr": swmr,
-            "entry_fraction_range": entry_fraction_range,
-            "entry_filter": entry_filter,
-            "max_print_files": max_print_files,
-        }
+        full_cache_eligible_entries = None
+        forwarded_entry_filter = entry_filter
+        if entry_filter is not None:
+            # Raw-source manifests remain delegated to each shard reader,
+            # which maps them through persisted provenance. A native cache
+            # manifest instead describes this repository's logical axis once.
+            filter_manifest = load_entry_filter(entry_filter)
+            filter_backend = filter_manifest["input"]["name"]
+            if filter_backend == "cache":
+                full_cache_eligible_entries = eligible_entries_from_manifest(
+                    entry_filter,
+                    backend="cache",
+                    sources=[str(self.repository.path)],
+                    file_counts=[
+                        sum(source.num_entries for source in self.manifest.sources)
+                    ],
+                )
+                forwarded_entry_filter = None
+            elif filter_backend != "larcv":
+                raise ValueError(
+                    f"CacheReader cannot apply an entry-filter with backend "
+                    f"`{filter_backend}`."
+                )
 
         available_sources = {source.id for source in self.manifest.sources}
         if source_ids is None:
@@ -127,6 +138,47 @@ class CacheReader(ReaderBase):
                     "Cache source projection contains unknown source IDs: "
                     f"{sorted(unknown)}."
                 )
+
+        cache_eligible_entries = None
+        if full_cache_eligible_entries is not None:
+            # Native manifests use the complete repository axis. Translate it
+            # onto an optional source projection while preserving the caller's
+            # requested source order and compacting offsets between sources.
+            eligible_set = set(full_cache_eligible_entries)
+            source_offsets = {}
+            source_offset = 0
+            for source in self.manifest.sources:
+                source_offsets[source.id] = source_offset
+                source_offset += source.num_entries
+
+            cache_eligible_entries = []
+            projected_offset = 0
+            sources_by_id = {source.id: source for source in self.manifest.sources}
+            for source_id_value in selected_sources:
+                source = sources_by_id[source_id_value]
+                original_offset = source_offsets[source_id_value]
+                cache_eligible_entries.extend(
+                    projected_offset + local_entry
+                    for local_entry in range(source.num_entries)
+                    if original_offset + local_entry in eligible_set
+                )
+                projected_offset += source.num_entries
+
+        reader_options = {
+            "n_entry": n_entry,
+            "n_skip": n_skip,
+            "entry_list": entry_list,
+            "skip_entry_list": skip_entry_list,
+            "build_classes": build_classes,
+            "skip_unknown_attrs": skip_unknown_attrs,
+            "allow_missing": allow_missing,
+            "keep_open": keep_open,
+            "swmr": swmr,
+            "entry_fraction_range": entry_fraction_range,
+            "entry_filter": forwarded_entry_filter,
+            "eligible_entries": cache_eligible_entries,
+            "max_print_files": max_print_files,
+        }
 
         # Preserve manifest order normally and primary-dataset order for an
         # explicit projection. Every selected stage uses this same shard axis.
