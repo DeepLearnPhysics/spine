@@ -52,6 +52,8 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
     # Name of the loss (as specified in the configuration)
     name = "shower_primary"
 
+    loss_family = "categorical"
+
     def __init__(
         self,
         loss: str | dict[str, Any] = "ce",

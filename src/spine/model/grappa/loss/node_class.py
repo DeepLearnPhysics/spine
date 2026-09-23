@@ -54,6 +54,10 @@ class NodeClassLoss(torch.nn.Module):
     # Alternative allowed names of the loss
     aliases = ("classification",)
 
+    # Used by generic multi-objective combiners; this is producer metadata,
+    # not a user-facing configuration choice.
+    loss_family = "categorical"
+
     # Static class filtering needs the configured prediction-head width.
     materialize_uses_prediction_width = True
 

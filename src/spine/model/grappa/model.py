@@ -26,6 +26,7 @@ from spine.constants.factory import enum_factory
 from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.common.dbscan import DBSCAN
 from spine.model.common.factories import final_factory
+from spine.model.common.loss_balancing import LossBalancer, LossTerm
 from spine.model.common.quality import ClusterOverlapCache
 from spine.model.grappa.evaluation import (
     node_assignment_batch,
@@ -1348,6 +1349,8 @@ class GrapPALoss(torch.nn.Module):
               global_loss:
                 name: <name of the global loss>
                 <dictionary of arguments to pass to the loss>
+            loss_balancing:
+              name: uncertainty
 
     Each specific loss block can also contain multiple losses by
     providing a name key in a loss block nested below it. Each loss name of a
@@ -1370,6 +1373,7 @@ class GrapPALoss(torch.nn.Module):
         self,
         grappa_loss: dict[str, Any],
         grappa: dict[str, Any] | None = None,
+        loss_balancing: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the GrapPA loss function.
 
@@ -1381,6 +1385,10 @@ class GrapPALoss(torch.nn.Module):
             Model configuration supplied through the manager's shared
             model/loss contract. Individual objectives currently infer their
             required heads from the model output.
+        loss_balancing : dict, optional
+            Policy used to combine graph objectives. Objective classes declare
+            their own likelihood families; the configuration only selects the
+            policy and optional scientific priorities.
         """
         # Initialize the parent class
         super().__init__()
@@ -1394,6 +1402,32 @@ class GrapPALoss(torch.nn.Module):
 
         # Process the loss configuration
         self.process_loss_config(**grappa_loss)
+
+        # Build stable leaf names after every configured objective exists.
+        families: dict[str, str] = {}
+        self.loss_components: dict[str, dict[str, str] | None] = {}
+        for output_type in self.out_types:
+            for key in getattr(self, f"{output_type}_loss_keys"):
+                prefix = key.removesuffix("_loss")
+                objective = getattr(self, key)
+                components = getattr(objective, "loss_families", None)
+                if components is not None:
+                    self.loss_components[prefix] = dict(components)
+                    families.update(
+                        {
+                            f"{prefix}_{component}": family
+                            for component, family in components.items()
+                        }
+                    )
+                    continue
+                self.loss_components[prefix] = None
+                family = getattr(objective, "loss_family", None)
+                if family is None:
+                    raise TypeError(
+                        f"GrapPA objective `{prefix}` does not declare a loss family."
+                    )
+                families[prefix] = family
+        self.loss_balancer = LossBalancer(families, loss_balancing)
 
     def process_loss_config(
         self,
@@ -1607,6 +1641,7 @@ class GrapPALoss(torch.nn.Module):
         num_losses = 0
         total_loss: torch.Tensor | None = None
         total_accuracy = 0.0
+        pending_terms: dict[str, tuple[torch.Tensor, str, bool, float]] = {}
         for t in self.out_types:
             loss_keys = getattr(self, f"{t}_loss_keys")
             for key in loss_keys:
@@ -1681,6 +1716,30 @@ class GrapPALoss(torch.nn.Module):
                 total_accuracy += float(out["accuracy"])
                 num_losses += 1
 
+                # Compound objectives publish named component losses; ordinary
+                # objectives contribute their single native loss.
+                components = self.loss_components[prefix]
+                if components is None:
+                    family = self.loss_balancer.families[prefix]
+                    count = out.get("count")
+                    pending_terms[prefix] = (
+                        loss_value,
+                        family,
+                        count is None or int(count) > 0,
+                        1.0,
+                    )
+                else:
+                    component_scale = 1.0 / len(components)
+                    for component, family in components.items():
+                        component_loss = out[f"{component}_loss"]
+                        component_count = out.get(f"{component}_count")
+                        pending_terms[f"{prefix}_{component}"] = (
+                            component_loss,
+                            family,
+                            component_count is None or int(component_count) > 0,
+                            component_scale,
+                        )
+
                 # Update the result dictionary
                 for k, v in out.items():
                     result[f"{prefix}_{k}"] = v
@@ -1688,8 +1747,30 @@ class GrapPALoss(torch.nn.Module):
         # Append the total loss and total accuracy
         assert total_loss is not None
         assert num_losses > 0
-        result["loss"] = total_loss / num_losses
+        if self.loss_balancer.mode == "sum":
+            combined_loss = total_loss / num_losses
+            balance_metrics = {}
+        else:
+            # GrapPA historically averages configured objectives. Retain that
+            # normalization as a producer scale for every leaf contribution.
+            terms = {
+                name: LossTerm(
+                    value,
+                    family,
+                    active=active,
+                    scale=component_scale / num_losses,
+                )
+                for name, (
+                    value,
+                    family,
+                    active,
+                    component_scale,
+                ) in pending_terms.items()
+            }
+            combined_loss, balance_metrics = self.loss_balancer(terms)
+        result["loss"] = combined_loss
         result["accuracy"] = total_accuracy / num_losses
+        result.update(balance_metrics)
 
         return result
 
