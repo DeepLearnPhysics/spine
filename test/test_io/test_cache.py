@@ -28,6 +28,7 @@ from spine.io.cache.backend.hdf5.reader import (
 )
 from spine.io.cache.maintenance import remove_retired_stages
 from spine.io.dataset import CacheDataset, HDF5Dataset, MixedDataset
+from spine.io.filter import CacheEntryInspector, build_manifest, scan_sources
 from spine.io.manager import IOManager
 from spine.io.read import CacheReader
 from spine.io.write import CacheWriter, HDF5Writer
@@ -105,6 +106,141 @@ def test_cache_round_trip_and_manifest_snapshot(tmp_path):
     reader = CacheReader(path=str(path))
     assert set(reader[0]) >= {"x", "y", "source_file_entry_index"}
     reader.close()
+
+
+def test_cache_product_filter_preserves_multistage_alignment(tmp_path):
+    """A cache-product manifest should project every selected stage equally."""
+    path = tmp_path / "train.spine-cache"
+    writer = CacheWriter(path=str(path), stage="graph", keys=["edges"])
+    batch = cache_batch([0, 0, 0], key="unused")
+    batch.pop("unused")
+    batch["edges"] = [
+        np.zeros((2, 2)),
+        np.zeros((4, 2)),
+        np.zeros((1, 2)),
+    ]
+    writer(batch, {})
+    writer.finalize()
+    writer.close()
+    write_stage(path, "target", "target", [10, 11, 12])
+
+    config = {
+        "input": {"name": "cache"},
+        "measurements": {"shower_edges": {"kind": "product_size", "product": "edges"}},
+        "filters": {"shower_edges": {"max_count": 4}},
+    }
+    cache_dir = tmp_path / "scan"
+    scan_sources(config, sources=str(path), cache_dir=cache_dir)
+    manifest = tmp_path / "accepted.yaml"
+    build_manifest(
+        config,
+        sources=str(path),
+        cache_dir=cache_dir,
+        output=manifest,
+        output_source_list=tmp_path / "sources.txt",
+    )
+
+    reader = CacheReader(
+        path=str(path), keys=["edges", "target"], entry_filter=str(manifest)
+    )
+    np.testing.assert_array_equal(reader.entry_index, [0, 2])
+    assert [reader[index]["target"] for index in range(len(reader))] == [10, 12]
+    reader.close()
+
+
+def test_cache_product_filter_projects_reordered_sources(tmp_path):
+    """Repository eligibility should translate onto a reordered source subset."""
+    path = tmp_path / "train.spine-cache"
+    graph_batch = cache_batch([0, 0], source="unused.root", entries=[0, 0])
+    graph_batch.pop("value")
+    graph_batch["source_file_name"] = np.asarray(["a.root", "b.root"])
+    graph_batch["edges"] = [np.zeros((2, 2)), np.zeros((4, 2))]
+    graph_writer = CacheWriter(path=str(path), stage="graph", keys=["edges"])
+    graph_writer(graph_batch, {})
+    graph_writer.finalize()
+    graph_writer.close()
+
+    target_batch = cache_batch([10, 20], source="unused.root", entries=[0, 0])
+    target_batch["source_file_name"] = np.asarray(["a.root", "b.root"])
+    target_writer = CacheWriter(path=str(path), stage="target", keys=["value"])
+    target_writer(target_batch, {})
+    target_writer.finalize()
+    target_writer.close()
+
+    config = {
+        "input": {"name": "cache"},
+        "measurements": {"edges": {"kind": "product_size"}},
+        "filters": {"edges": {"max_count": 4}},
+    }
+    scan_dir = tmp_path / "scan"
+    scan_sources(config, sources=str(path), cache_dir=scan_dir)
+    filter_path = tmp_path / "accepted.yaml"
+    build_manifest(
+        config,
+        sources=str(path),
+        cache_dir=scan_dir,
+        output=filter_path,
+        output_source_list=tmp_path / "sources.txt",
+    )
+
+    repository_manifest = CacheRepository(str(path)).load()
+    source_ids = {source.file_name: source.id for source in repository_manifest.sources}
+    reader = CacheReader(
+        path=str(path),
+        keys=["edges", "value"],
+        source_ids=[source_ids["b.root"], source_ids["a.root"]],
+        entry_filter=str(filter_path),
+    )
+
+    # Source B occupies projected position zero but is rejected; source A is
+    # retained at projected position one and remains aligned across both stages.
+    np.testing.assert_array_equal(reader.entry_index, [1])
+    assert reader[0]["value"] == 10
+    reader.close()
+
+
+def test_cache_readers_validate_filter_domains(tmp_path):
+    """Cache readers should reject conflicting or foreign filter domains."""
+    with pytest.raises(ValueError, match="either `entry_filter`"):
+        HDF5ShardReader(entry_filter="filter.yaml", eligible_entries=[])
+
+    path = tmp_path / "train.spine-cache"
+    write_stage(path, "stage", "value", [1])
+    manifest = tmp_path / "hdf5-filter.yaml"
+    manifest.write_text(
+        json.dumps(
+            {
+                "format": "spine-entry-filter",
+                "schema_version": 1,
+                "input": {"name": "hdf5"},
+                "sources": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot apply"):
+        CacheReader(path=str(path), entry_filter=str(manifest))
+
+
+def test_cache_product_inspector_rejects_stage_length_mismatch(tmp_path):
+    """Published source counts must agree with the selected physical shard."""
+    path = tmp_path / "train.spine-cache"
+    writer = CacheWriter(path=str(path), stage="graph", keys=["edges"])
+    batch = cache_batch([0, 0], key="unused")
+    batch.pop("unused")
+    batch["edges"] = [np.zeros((1, 2)), np.zeros((2, 2))]
+    writer(batch, {})
+    writer.finalize()
+    writer.close()
+
+    manifest_path = path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["sources"][0]["num_entries"] += 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected 3"):
+        CacheEntryInspector().inspect(str(path), {"edges": {"kind": "product_size"}})
 
 
 def test_cache_reader_projects_source_ids(tmp_path):

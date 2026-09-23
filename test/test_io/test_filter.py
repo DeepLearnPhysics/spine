@@ -5,14 +5,21 @@ import stat
 from pathlib import Path
 from types import SimpleNamespace
 
+import h5py
+import numpy as np
 import pytest
 import yaml
 
+import spine.io.filter.hdf5 as hdf5_filter_module
 import spine.io.filter.larcv as larcv_filter_module
 import spine.io.filter.manager as filter_manager
 from spine.config import ConfigCycleError
+from spine.data import EdgeIndexBatch
+from spine.io.cache import CacheManifest, CacheStage
 from spine.io.filter import (
+    CacheEntryInspector,
     EntryInspector,
+    HDF5EntryInspector,
     LArCVEntryInspector,
     build_manifest,
     eligible_entries_from_manifest,
@@ -20,6 +27,8 @@ from spine.io.filter import (
     scan_sources,
 )
 from spine.io.filter.base import canonical_source, resolve_sources
+from spine.io.read import HDF5Reader
+from spine.io.write import HDF5Writer
 from spine.utils.conditional import LARCV_AVAILABLE, ROOT, ROOT_AVAILABLE, larcv
 
 
@@ -213,17 +222,305 @@ def test_filter_config_rejects_additional_schema_errors(fake_backend):
             load_filter_config(config)
 
 
+def test_filter_config_normalizes_hdf5_product_routing():
+    """Cached-product requests should retain validated product and stage names."""
+    config = load_filter_config(
+        {
+            "input": {"name": "cache"},
+            "measurements": {
+                "edges": {
+                    "kind": "product_size",
+                    "product": "fragment_graph_edge_index",
+                    "stage": "fragment_graph",
+                }
+            },
+            "filters": {"edges": {"max_count": 10}},
+        }
+    )
+
+    assert config["measurements"]["edges"] == {
+        "kind": "product_size",
+        "product": "fragment_graph_edge_index",
+        "stage": "fragment_graph",
+    }
+    for field, value in (("product", ""), ("stage", 1), ("unknown", "value")):
+        request = {"kind": "product_size", field: value}
+        with pytest.raises((TypeError, ValueError)):
+            load_filter_config(
+                {
+                    "input": {"name": "cache"},
+                    "measurements": {"edges": request},
+                    "filters": {"edges": {"max_count": 10}},
+                }
+            )
+
+
 def test_auto_backend_resolution(tmp_path):
     """Auto mode should infer only a uniformly supported source collection."""
     root_source = tmp_path / "input.root"
     data_source = tmp_path / "input.dat"
     root_source.touch()
     data_source.touch()
+    hdf5_source = tmp_path / "input.h5"
+    hdf5_source.touch()
+    cache_source = tmp_path / "input.spine-cache"
+    cache_source.mkdir()
+    (cache_source / "manifest.json").write_text("{}", encoding="utf-8")
 
     assert filter_manager._resolve_backend("auto", [str(root_source)]) == "larcv"
+    assert filter_manager._resolve_backend("auto", [str(hdf5_source)]) == "hdf5"
+    assert filter_manager._resolve_backend("auto", [str(cache_source)]) == "cache"
     assert filter_manager._resolve_backend("larcv", [str(data_source)]) == "larcv"
     with pytest.raises(ValueError, match="Could not infer"):
         filter_manager._resolve_backend("auto", [str(data_source)])
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_product_filter_uses_event_row_counts(tmp_path, format_version):
+    """HDF5 filtering should count product rows in both physical layouts."""
+    source = tmp_path / f"cache-v{format_version}.h5"
+    with HDF5Writer(
+        str(source), overwrite=True, format_version=format_version
+    ) as writer:
+        writer(
+            {
+                "index": np.arange(3),
+                "edges": [
+                    np.zeros((2, 2)),
+                    np.zeros((4, 2)),
+                    np.zeros((1, 2)),
+                ],
+            },
+            {},
+        )
+
+    config = {
+        "input": {"name": "hdf5"},
+        "measurements": {"shower_edges": {"kind": "product_size", "product": "edges"}},
+        "filters": {"shower_edges": {"max_count": 4}},
+    }
+    cache_dir = tmp_path / "scan"
+    scan_sources(config, sources=str(source), cache_dir=cache_dir)
+    manifest = tmp_path / "accepted.yaml"
+    build_manifest(
+        config,
+        sources=str(source),
+        cache_dir=cache_dir,
+        output=manifest,
+        output_source_list=tmp_path / "sources.txt",
+    )
+
+    assert HDF5EntryInspector().inspect(str(source), config["measurements"]) == (
+        3,
+        {"shower_edges": [2, 4, 1]},
+    )
+    reader = HDF5Reader(str(source), entry_filter=str(manifest))
+    np.testing.assert_array_equal(reader.entry_index, [0, 2])
+    reader.close()
+
+
+def test_hdf5_product_filter_counts_typed_edge_index_rows(tmp_path):
+    """Typed edge indexes should be measured on their serialized edge axis."""
+    source = tmp_path / "edge-index.h5"
+    edge_index = EdgeIndexBatch(
+        np.asarray(
+            [
+                [0, 0, 1, 1, 1, 1, 2],
+                [0, 0, 1, 1, 1, 1, 2],
+            ],
+            dtype=np.int64,
+        ),
+        counts=[2, 4, 1],
+        spans=[1, 1, 1],
+        directed=True,
+    )
+    with HDF5Writer(str(source), overwrite=True, format_version=2) as writer:
+        writer({"index": np.arange(3), "edges": edge_index}, {})
+
+    # EdgeIndexBatch is canonicalized from in-memory (2, E) form to stored
+    # (E, 2) rows. Event offsets must therefore advance by edge count, not 2.
+    with h5py.File(source, "r") as in_file:
+        offsets = in_file["products"]["edges"]["event_offsets"][:]
+    np.testing.assert_array_equal(offsets, [0, 2, 6, 7])
+
+    assert HDF5EntryInspector().inspect(
+        str(source), {"edges": {"kind": "product_size"}}
+    ) == (3, {"edges": [2, 4, 1]})
+
+
+def test_hdf5_product_inspector_rejects_invalid_layouts(tmp_path):
+    """Native inspection should fail clearly on missing or malformed metadata."""
+    source = tmp_path / "cache.h5"
+    with HDF5Writer(str(source), overwrite=True, format_version=2) as writer:
+        writer(
+            {"index": np.arange(2), "edges": [np.zeros((1, 2))] * 2},
+            {},
+        )
+    inspector = HDF5EntryInspector()
+    request = {"count": {"kind": "product_size", "product": "missing"}}
+    with pytest.raises(KeyError, match="Missing requested"):
+        inspector.inspect(str(source), request)
+
+    with h5py.File(source, "r+") as out_file:
+        offsets = out_file["products"]["edges"]["event_offsets"]
+        offsets.resize((2,))
+    request["count"]["product"] = "edges"
+    with pytest.raises(ValueError, match="expected 2"):
+        inspector.inspect(str(source), request)
+
+
+@pytest.mark.parametrize(
+    ("layout", "error", "message"),
+    [
+        ("missing_events", KeyError, "no event axis"),
+        ("invalid_events", TypeError, "invalid event axis"),
+        ("invalid_info", TypeError, "invalid info node"),
+        ("missing_products", KeyError, "no product root"),
+        ("invalid_products", TypeError, "invalid product root"),
+        ("unsupported_version", ValueError, "Unsupported HDF5 format version"),
+    ],
+)
+def test_hdf5_product_inspector_validates_file_roots(tmp_path, layout, error, message):
+    """Native inspection should validate every required HDF5 root object."""
+    source = tmp_path / f"{layout}.h5"
+    with h5py.File(source, "w") as out_file:
+        if layout != "missing_events":
+            if layout == "invalid_events":
+                out_file.create_group("events")
+            else:
+                out_file.create_dataset("events", data=np.arange(2))
+        if layout == "invalid_info":
+            out_file.create_dataset("info", data=np.arange(1))
+        elif layout not in ("missing_events", "invalid_events"):
+            info = out_file.create_group("info")
+            info.attrs["format_version"] = 3 if layout == "unsupported_version" else 2
+        if layout == "invalid_products":
+            out_file.create_dataset("products", data=np.arange(1))
+        elif layout not in (
+            "missing_events",
+            "invalid_events",
+            "invalid_info",
+            "missing_products",
+            "unsupported_version",
+        ):
+            out_file.create_group("products")
+
+    request = {"edges": {"kind": "product_size"}}
+    with pytest.raises(error, match=message):
+        HDF5EntryInspector().inspect(str(source), request)
+
+
+@pytest.mark.parametrize(
+    ("layout", "error", "message"),
+    [
+        ("product_dataset", TypeError, "does not expose"),
+        ("offset_group", TypeError, "invalid `event_offsets`"),
+        ("nonmonotonic", ValueError, "non-monotonic"),
+    ],
+)
+def test_hdf5_product_inspector_validates_v2_offsets(tmp_path, layout, error, message):
+    """V2 inspection should reject malformed product-offset metadata."""
+    source = tmp_path / f"{layout}.h5"
+    with h5py.File(source, "w") as out_file:
+        out_file.create_dataset("events", data=np.arange(2))
+        info = out_file.create_group("info")
+        info.attrs["format_version"] = 2
+        products = out_file.create_group("products")
+        if layout == "product_dataset":
+            products.create_dataset("edges", data=np.arange(1))
+        else:
+            edges = products.create_group("edges")
+            if layout == "offset_group":
+                edges.create_group("event_offsets")
+            else:
+                edges.create_dataset("event_offsets", data=[0, 2, 1])
+
+    request = {"edges": {"kind": "product_size"}}
+    with pytest.raises(error, match=message):
+        HDF5EntryInspector().inspect(str(source), request)
+
+
+def test_hdf5_product_inspector_validates_legacy_products(tmp_path):
+    """Legacy inspection should require a referenced product dataset."""
+    source = tmp_path / "legacy.h5"
+    with HDF5Writer(str(source), overwrite=True, format_version=1) as writer:
+        writer({"index": np.arange(1), "edges": [np.zeros((1, 2))]}, {})
+
+    inspector = HDF5EntryInspector()
+    with pytest.raises(KeyError, match="Missing requested"):
+        inspector.inspect(str(source), {"missing": {"kind": "product_size"}})
+
+    with h5py.File(source, "r+") as out_file:
+        del out_file["edges"]
+        out_file.create_group("edges")
+    with pytest.raises(TypeError, match="not a dataset"):
+        inspector.inspect(str(source), {"edges": {"kind": "product_size"}})
+
+
+def test_hdf5_product_inspector_validates_direct_requests(tmp_path):
+    """Inspector boundaries should defensively reject invalid product names."""
+    source = tmp_path / "cache.h5"
+    with HDF5Writer(str(source), overwrite=True, format_version=2) as writer:
+        writer({"index": np.arange(1), "edges": [np.zeros((1, 2))]}, {})
+
+    with pytest.raises(TypeError, match="nonempty string"):
+        HDF5EntryInspector().inspect(
+            str(source), {"edges": {"kind": "product_size", "product": ""}}
+        )
+
+
+def test_hdf5_filter_helpers_validate_physical_types(tmp_path):
+    """Nested cache traversal should reject groups and datasets interchangeably."""
+    source = tmp_path / "objects.h5"
+    with h5py.File(source, "w") as out_file:
+        out_file.create_dataset("dataset", data=np.arange(1))
+        group = out_file.create_group("group")
+        group.create_group("nested_group")
+        with pytest.raises(TypeError, match="HDF5 group"):
+            hdf5_filter_module._require_group(out_file, "dataset")
+        with pytest.raises(TypeError, match="HDF5 dataset"):
+            hdf5_filter_module._require_dataset(group, "nested_group")
+
+
+def test_cache_product_inspector_validates_manifest_routing(tmp_path):
+    """Cache product ownership should be explicit, valid, and unambiguous."""
+    inspector = CacheEntryInspector()
+    with pytest.raises(FileNotFoundError, match="manifest.json"):
+        inspector.fingerprint(str(tmp_path / "missing.spine-cache"))
+
+    manifest = CacheManifest(
+        stages={
+            "first": CacheStage("one", ("edges",), {}),
+            "second": CacheStage("two", ("edges",), {}),
+        }
+    )
+    cases = [
+        ({"product": "edges", "stage": 1}, TypeError, "nonempty string"),
+        ({"product": "edges"}, ValueError, "exactly one"),
+        ({"product": "edges", "stage": "missing"}, KeyError, "no stage"),
+        ({"product": "other", "stage": "first"}, KeyError, "no product"),
+    ]
+    for request, error, message in cases:
+        with pytest.raises(error, match=message):
+            inspector._resolve_owners(
+                manifest, {"measurement": {"kind": "product_size", **request}}
+            )
+
+
+def test_hdf5_reader_rejects_cache_filter_manifest(tmp_path):
+    """A flat HDF5 reader should reject manifests for another backend."""
+    source = tmp_path / "cache.h5"
+    with HDF5Writer(str(source), overwrite=True, format_version=2) as writer:
+        writer({"index": np.arange(1), "value": np.arange(1)}, {})
+    manifest = tmp_path / "cache-filter.yaml"
+    manifest.write_text(
+        "format: spine-entry-filter\nschema_version: 1\n"
+        "input: {name: cache}\nsources: []\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cannot apply"):
+        HDF5Reader(str(source), entry_filter=str(manifest))
 
 
 def test_scan_reuses_and_invalidates_records(tmp_path, fake_backend):

@@ -52,12 +52,16 @@ Entry Filtering
 
 File-aware filtering is performed before ordinary reader selection. The
 generic scan and manifest APIs delegate physical inspection to a backend such
-as :class:`filter.LArCVEntryInspector`.
+as :class:`filter.LArCVEntryInspector`,
+:class:`filter.HDF5EntryInspector` or
+:class:`filter.CacheEntryInspector`.
 
 .. autosummary::
    :toctree: generated
 
    filter.EntryInspector
+   filter.hdf5.HDF5EntryInspector
+   filter.hdf5.CacheEntryInspector
    filter.LArCVEntryInspector
    filter.scan_sources
    filter.build_manifest

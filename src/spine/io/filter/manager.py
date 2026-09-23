@@ -19,6 +19,7 @@ from spine.utils.file import make_shared_directory, set_shared_file_permissions
 from spine.version import __version__
 
 from .base import EntryInspector, SourceFingerprint, resolve_sources
+from .hdf5 import CacheEntryInspector, HDF5EntryInspector
 from .larcv import LArCVEntryInspector
 
 SCAN_FORMAT = "spine-entry-filter-scan"
@@ -26,7 +27,11 @@ SCAN_SCHEMA_VERSION = 1
 MANIFEST_FORMAT = "spine-entry-filter"
 MANIFEST_SCHEMA_VERSION = 1
 
-INSPECTORS: dict[str, type[EntryInspector]] = {"larcv": LArCVEntryInspector}
+INSPECTORS: dict[str, type[EntryInspector]] = {
+    "cache": CacheEntryInspector,
+    "hdf5": HDF5EntryInspector,
+    "larcv": LArCVEntryInspector,
+}
 
 __all__ = [
     "build_manifest",
@@ -81,7 +86,27 @@ def _atomic_text_dump(lines: Sequence[str], output: str | Path) -> None:
 def _normalized_measurements(
     measurements: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    """Validate and normalize the deliberately narrow measurement schema."""
+    """Validate and normalize the deliberately narrow measurement schema.
+
+    Parameters
+    ----------
+    measurements : mapping
+        Named measurement requests. All backends support ``product_size``.
+        HDF5-backed requests may override the physical ``product`` name, and
+        cache-repository requests may additionally select an owning ``stage``.
+
+    Returns
+    -------
+    dict[str, dict[str, Any]]
+        Plain normalized requests suitable for stable scan-record comparison.
+
+    Raises
+    ------
+    TypeError
+        If names, requests, products or stages have invalid types.
+    ValueError
+        If the mapping is empty or contains unsupported kinds or options.
+    """
     if not isinstance(measurements, Mapping) or len(measurements) == 0:
         raise ValueError("Filter configuration requires non-empty `measurements`.")
 
@@ -95,7 +120,30 @@ def _normalized_measurements(
                 f"Measurement `{name}` has unsupported kind `{kind}`; expected "
                 "`product_size`."
             )
+
+        # Preserve only backend-independent optional routing fields. Keeping
+        # the normalized form narrow makes scan-cache invalidation predictable.
+        product = request.get("product")
+        stage = request.get("stage")
+        unknown = set(request).difference(("kind", "product", "stage"))
+        if unknown:
+            raise ValueError(
+                f"Measurement `{name}` has unknown options {sorted(unknown)}."
+            )
         normalized[name] = {"kind": "product_size"}
+        if product is not None:
+            if not isinstance(product, str) or not product:
+                raise TypeError(
+                    f"Measurement `{name}` `product` must be a nonempty string."
+                )
+            normalized[name]["product"] = product
+        if stage is not None:
+            if not isinstance(stage, str) or not stage:
+                raise TypeError(
+                    f"Measurement `{name}` `stage` must be a nonempty string."
+                )
+            normalized[name]["stage"] = stage
+
     return normalized
 
 
@@ -118,6 +166,7 @@ def _normalized_filters(
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f"Filter `{name}` `max_count` must be a positive integer.")
         normalized[name] = {"max_count": value}
+
     return normalized
 
 
@@ -156,6 +205,7 @@ def load_filter_config(config: str | Path | Mapping[str, Any]) -> dict[str, Any]
 
     measurements = _normalized_measurements(loaded.get("measurements", {}))
     filters = _normalized_filters(loaded.get("filters", {}), measurements)
+
     return {
         "input": {"name": backend},
         "measurements": measurements,
@@ -164,11 +214,41 @@ def load_filter_config(config: str | Path | Mapping[str, Any]) -> dict[str, Any]
 
 
 def _resolve_backend(name: str, sources: Sequence[str]) -> str:
-    """Resolve explicit or conservative extension-based backend selection."""
+    """Resolve explicit or conservative source-based backend selection.
+
+    Parameters
+    ----------
+    name : str
+        Explicit backend name or ``"auto"``.
+    sources : sequence[str]
+        Canonical source files or cache-repository directories.
+
+    Returns
+    -------
+    str
+        Registered inspector backend name.
+
+    Raises
+    ------
+    ValueError
+        If automatic selection cannot classify the complete source set.
+    """
+    # Explicit backend selection takes precedence over source inspection.
     if name != "auto":
         return name
     if all(source.lower().endswith(".root") for source in sources):
         return "larcv"
+
+    # A repository is identified by its published manifest rather than only
+    # its conventional suffix, so renamed repositories remain inspectable.
+    if all(
+        Path(source).is_dir() and (Path(source) / "manifest.json").is_file()
+        for source in sources
+    ):
+        return "cache"
+    if all(source.lower().endswith((".h5", ".hdf5")) for source in sources):
+        return "hdf5"
+
     raise ValueError("Could not infer an entry-filter backend from all sources.")
 
 
