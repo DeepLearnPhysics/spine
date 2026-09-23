@@ -195,13 +195,97 @@ def test_manager_optimizes_trainable_loss_state_without_weight_decay(monkeypatch
         modules={},
         network_input={"data": "data"},
         loss_input={"target": "target"},
-        train={"optimizer": {"name": "SGD", "lr": 0.1, "weight_decay": 0.2}},
+        train={
+            "optimizer": {"name": "SGD", "lr": 0.1, "weight_decay": 0.2},
+            "gradient_tracking": {},
+        },
     )
 
     assert len(manager.optimizer.param_groups) == 2
     assert manager.optimizer.param_groups[0]["weight_decay"] == pytest.approx(0.2)
     assert manager.optimizer.param_groups[1]["weight_decay"] == 0.0
     assert manager.optimizer.param_groups[1]["params"] == [manager.loss_fn.log_variance]
+    assert set(manager.gradient_tracker.groups) == {"global"}
+
+
+@pytest.mark.model
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is required.")
+def test_manager_tracks_gradients_after_freezing_and_before_updates(monkeypatch):
+    """Training should publish canonical metrics for active parameter groups."""
+
+    class Network(torch.nn.Module):
+        def __init__(self, encoder, head):
+            super().__init__()
+            self.encoder = torch.nn.Linear(1, 1)
+            self.head = torch.nn.Linear(1, 1)
+
+        def forward(self, data):
+            return {"prediction": self.head(self.encoder(data))}
+
+    class Loss(torch.nn.Module):
+        def __init__(self, **_modules):
+            super().__init__()
+            self.scale = torch.nn.Parameter(torch.tensor(1.0))
+
+        def forward(self, prediction, target):
+            return {"loss": self.scale * (prediction - target).square().mean()}
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, Loss)
+    )
+    manager = ModelManager(
+        name="test",
+        modules={
+            "encoder": {"freeze_weights": True},
+            "head": {},
+        },
+        network_input={"data": "data"},
+        loss_input={"target": "target"},
+        train={
+            "optimizer": {"name": "SGD", "lr": 0.1},
+            "gradient_tracking": {
+                "groups": {
+                    "head": "network.head.*",
+                    "objective": "loss.*",
+                }
+            },
+        },
+    )
+
+    tracked_names = list(manager.gradient_tracker.named_parameters)
+    assert not any(name.startswith("network.encoder.") for name in tracked_names)
+    assert any(name.startswith("network.head.") for name in tracked_names)
+    result = manager(
+        {"data": torch.ones((1, 1)), "target": torch.zeros((1, 1))},
+        iteration=0,
+    )
+
+    assert result["gradient_sampled"] == 1
+    assert result["gradient_global_norm"] > 0.0
+    assert result["gradient_head_missing_fraction"] == 0.0
+    assert result["gradient_objective_missing_fraction"] == 0.0
+
+
+def test_manager_disables_gradient_tracking_by_default():
+    """Legacy training should not construct or emit gradient diagnostics."""
+    network = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        net=network,
+        optimizer=torch.optim.SGD(network.parameters(), lr=0.1),
+    )
+    parameter = next(manager.net.parameters())
+    metrics = manager.backward(parameter.sum())
+    assert metrics == {}
+
+
+def test_initialize_train_validates_gradient_tracking_type():
+    """Manager-level gradient configuration should reject non-mappings."""
+    manager = make_bare_manager(net=torch.nn.Linear(1, 1))
+    with pytest.raises(TypeError, match="gradient_tracking.*boolean or mapping"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            gradient_tracking=[],
+        )
 
 
 def make_bare_manager(**attributes):
@@ -607,6 +691,11 @@ def test_backward_rejects_detached_loss():
     with pytest.raises(RuntimeError, match="loss does not require gradients"):
         manager.backward(torch.tensor(1.0))
 
+    parameter = torch.nn.Parameter(torch.tensor(1.0))
+    manager.gradient_tracker = SimpleNamespace(collect=lambda _iteration: {})
+    with pytest.raises(ValueError, match="requires the current training iteration"):
+        manager.backward(parameter.square())
+
 
 def test_call_validates_training_outputs_and_iteration():
     """Train calls require a loss and iteration before checkpoint scheduling."""
@@ -625,7 +714,7 @@ def test_call_validates_training_outputs_and_iteration():
         manager({}, iteration=0)
 
     manager.forward = lambda *_args: {"loss": torch.tensor(0.0)}
-    manager.backward = lambda _loss: None
+    manager.backward = lambda _loss, _iteration=None: {}
     with pytest.raises(ValueError, match="provide iteration"):
         manager({})
 
@@ -1195,7 +1284,7 @@ def test_manager_exposes_configured_checkpoint_boundaries():
     for key in ("forward", "backward", "save"):
         manager.watch.initialize(key)
     manager.forward = lambda *_args: {"loss": torch.tensor(0.0)}
-    manager.backward = lambda _loss: None
+    manager.backward = lambda _loss, _iteration=None: {}
     manager({}, iteration=2, epoch=0.5)
 
     assert manager.should_save(2)

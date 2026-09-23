@@ -121,6 +121,41 @@ objectives. Chain-wide and nested fixed priorities may be composed, but two
 levels of learned uncertainty balancing are rejected because their scales are
 not independently identifiable.
 
+Gradient monitoring
+-------------------
+
+Training can collect post-backward gradient diagnostics without changing the
+optimizer update. Tracking is disabled by default. When enabled, the global
+group covers every trainable network and loss-module parameter. Optional named
+groups select canonical parameter names with shell-style glob patterns::
+
+   train:
+     optimizer:
+       name: Adam
+       lr: 0.001
+     gradient_tracking:
+       interval: 100
+       groups:
+         backbone:
+           - "network.uresnet.*"
+         proposal:
+           - "network.ppn.*"
+         loss_balancer:
+           - "loss.*log_variances.*"
+
+Names begin with ``network.`` or ``loss.`` and are resolved after configured
+parameter freezing but before distributed wrappers are installed. Each sampled
+group reports its L2 norm, RMS value, maximum absolute value, missing-gradient
+fraction and non-finite element count through the normal CSV and TensorBoard
+backends. ``interval`` follows completed optimizer updates: an interval of 100
+samples at zero-based iterations 99, 199 and so on. Rows between samples retain
+the fixed CSV schema with ``gradient_sampled=0`` and ``NaN`` statistics.
+
+Set ``include_global: false`` when only explicit groups are desired. Group names
+must contain letters, numbers and underscores and must match at least one
+trainable parameter, allowing misspelled or stale selections to fail during
+model construction rather than silently producing empty diagnostics.
+
 Sparse CNN lattice phase
 ------------------------
 

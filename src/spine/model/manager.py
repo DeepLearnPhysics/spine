@@ -30,6 +30,7 @@ from .checkpoint import (
     promote_checkpoint,
     save_checkpoint,
 )
+from .common.gradient import GradientTracker
 from .factories import model_factory
 
 
@@ -136,6 +137,7 @@ class ModelManager:
         self.load_training_progress = True
         self.configured_weight_path = weight_path
         self.start_epoch: float | None = 0.0
+        self.gradient_tracker: GradientTracker | None = None
 
         # Determine device: use current_device() which setup_ddp() already configured
         if self.rank is None:
@@ -193,6 +195,17 @@ class ModelManager:
         # If requested, freeze some/all the model weights
         self.freeze_weights()
         self._validate_trainable_parameters()
+        if (
+            self.train
+            and self.gradient_tracking_config is not None
+            and self.gradient_tracking_config is not False
+        ):
+            # Resolve names after configured freezes, but before DDP adds its
+            # implementation-specific ``module`` namespace.
+            self.gradient_tracker = GradientTracker.from_modules(
+                {"network": self.net, "loss": self.loss_fn},
+                self.gradient_tracking_config,
+            )
 
         # Parse the list of weight files to consider for loading
         self.weight_path = weight_path
@@ -251,6 +264,7 @@ class ModelManager:
         lr_scheduler: Mapping[str, Any] | None = None,
         iter_per_epoch: int | None = None,
         scheduler_resume: str = "restore",
+        gradient_tracking: bool | Mapping[str, Any] | None = None,
     ) -> None:
         """Initialize the training regimen.
 
@@ -286,6 +300,11 @@ class ModelManager:
             scheduler checkpoint state. ``restart`` preserves optimizer tensor
             state but reapplies the configured optimizer parameter-group values
             and starts the configured scheduler from its initial state.
+        gradient_tracking : bool or mapping, optional
+            Enable post-backward gradient diagnostics. A mapping accepts a
+            positive ``interval``, an ``include_global`` flag and named
+            ``groups`` of parameter-name glob patterns. Canonical parameter
+            names begin with ``network.`` or ``loss.``.
         """
         # Turn train on
         self.train = True
@@ -324,6 +343,13 @@ class ModelManager:
         self.restore_optimizer = self.resume_training
         self.load_training_progress = resume is not False
         self.scheduler_resume = scheduler_resume
+        if gradient_tracking is not None and not isinstance(
+            gradient_tracking, (bool, Mapping)
+        ):
+            raise TypeError(
+                "Training `gradient_tracking` must be a boolean or mapping."
+            )
+        self.gradient_tracking_config = gradient_tracking
         if scheduler_resume == "restart" and lr_scheduler is None:
             raise ValueError("`scheduler_resume: restart` requires `lr_scheduler`.")
 
@@ -468,7 +494,8 @@ class ModelManager:
             if "loss" not in result:
                 raise RuntimeError("Every trainable model must return a `loss` value.")
             self.watch.start("backward")
-            self.backward(result["loss"])
+            gradient_metrics = self.backward(result["loss"], iteration)
+            result.update(gradient_metrics)
             self.watch.stop("backward")
 
         # The driver owns checkpoint boundaries so it can validate these
@@ -1218,13 +1245,23 @@ class ModelManager:
 
         return result
 
-    def backward(self, loss: Any) -> None:
+    def backward(
+        self, loss: Any, iteration: int | None = None
+    ) -> dict[str, float | int]:
         """Run the backward step on the model.
 
         Parameters
         ----------
         loss : torch.tensor
             Scalar loss value to step the model weights
+        iteration : int, optional
+            Zero-based optimizer iteration used by gradient-tracking cadence.
+
+        Returns
+        -------
+        dict
+            Gradient diagnostics collected before the optimizer update. Empty
+            when tracking is disabled or the iteration is off cadence.
         """
         # Fail with model-level context instead of PyTorch's opaque message
         # when a configured objective is detached from the trainable graph.
@@ -1237,6 +1274,16 @@ class ModelManager:
         # Run the model backward
         loss.backward()
 
+        # Read synchronized gradients before the optimizer can modify them.
+        gradient_metrics: dict[str, float | int] = {}
+        tracker = getattr(self, "gradient_tracker", None)
+        if tracker is not None:
+            if iteration is None:
+                raise ValueError(
+                    "Gradient tracking requires the current training iteration."
+                )
+            gradient_metrics = tracker.collect(iteration)
+
         # Step the optimizer
         self.optimizer.step()
 
@@ -1248,6 +1295,8 @@ class ModelManager:
         if hasattr(self.net, "update_buffers"):
             logger.info("Updating buffers")
             self.net.update_buffers()
+
+        return gradient_metrics
 
     def cast_to_numpy(self, result: dict[str, Any]) -> None:
         """Casts the model output data products to numpy object in place.
