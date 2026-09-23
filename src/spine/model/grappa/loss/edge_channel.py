@@ -178,9 +178,11 @@ class EdgeChannelLoss(torch.nn.Module):
         valid_mask : TensorBatch, optional
             Cached one-dimensional static edge validity mask.
         edge_keep : TensorBatch, optional
-            Training-time selection aligned with the original cached graph.
-            Edge-aligned cached products are filtered before validation; the
-            node-aligned target used in ``forest`` mode is preserved.
+            Model-time selection aligned with the original cached graph. This
+            may come from the deterministic edge-count ceiling or training
+            augmentation. Edge-aligned cached products are filtered before
+            validation; the node-aligned target used in ``forest`` mode is
+            preserved.
         node_keep : TensorBatch, optional
             Training-time node selection aligned with a cached ``forest``
             target. It is ignored by edge-aligned target modes.
@@ -213,7 +215,8 @@ class EdgeChannelLoss(torch.nn.Module):
         count_rejected = 0
         if labels is not None:
             assert valid_mask is not None
-            # Cached supervision describes the graph before augmentation.
+            # Cached supervision describes the graph before model-side edge
+            # limiting and augmentation.
             # Forest targets are node-aligned, while every validity mask and
             # all other target modes are edge-aligned.
             if edge_keep is not None:

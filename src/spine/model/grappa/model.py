@@ -11,7 +11,9 @@ segmentation and identification.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from numbers import Integral
 from typing import Any, cast
+from warnings import warn
 
 import numpy as np
 import torch
@@ -139,6 +141,7 @@ class GrapPA(torch.nn.Module):
         self.node_pred_keys: list[str] = []
         self.edge_pred_keys: list[str] = []
         self.global_pred_keys: list[str] = []
+        self.max_edge_count: int | None = None
 
         # Process the model configuration
         self.process_model_config(**grappa)
@@ -153,6 +156,7 @@ class GrapPA(torch.nn.Module):
         global_encoder: dict[str, Any] | None = None,
         dbscan: dict[str, Any] | None = None,
         augment: dict[str, Any] | None = None,
+        max_edge_count: int | None = None,
         return_features: bool = False,
     ) -> None:
         """Process the top-level configuration block.
@@ -178,6 +182,12 @@ class GrapPA(torch.nn.Module):
         augment : dict, optional
             Training-only graph augmentation configuration. Accepts
             ``edge_dropout`` and ``node_dropout`` blocks.
+        max_edge_count : int, optional
+            Maximum number of edges retained for any batch entry. Entries
+            above the limit keep their nodes but contribute no graph edges.
+            This applies to both constructed and materialized graphs. The
+            legacy ``graph.max_count`` option is routed here with a deprecation
+            warning.
         return_features : bool, default False
             If `True`, the model will return the node/edge/global features
         """
@@ -189,6 +199,33 @@ class GrapPA(torch.nn.Module):
 
         # Construct the underlying graph neural network
         self.process_gnn_config(**gnn_model)
+
+        # Preserve existing GrapPA configurations while moving the safety
+        # policy out of the optional constructor-specific graph block.
+        if graph is not None and graph.get("max_count") is not None:
+            legacy_max_count = graph["max_count"]
+            if max_edge_count is not None and max_edge_count != legacy_max_count:
+                raise ValueError(
+                    "Conflicting GrapPA `max_edge_count` and graph `max_count` "
+                    "values."
+                )
+            warn(
+                "GrapPA `graph.max_count` is deprecated; configure "
+                "`max_edge_count` at the GrapPA level instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+            max_edge_count = legacy_max_count
+            graph = dict(graph)
+            del graph["max_count"]
+
+        if max_edge_count is not None and (
+            isinstance(max_edge_count, bool)
+            or not isinstance(max_edge_count, Integral)
+            or max_edge_count < 0
+        ):
+            raise ValueError("`max_edge_count` must be a nonnegative integer.")
+        self.max_edge_count = None if max_edge_count is None else int(max_edge_count)
 
         # Process the node configuration
         self.process_node_config(**(nodes or {}))
@@ -622,6 +659,15 @@ class GrapPA(torch.nn.Module):
             # their categorical representation before grouping uses them.
             shapes = self._get_shapes(data, clusts, shapes)
 
+        # Enforce the model-level safety ceiling at the first common boundary
+        # shared by live and cached graphs. Applying it before edge encoding
+        # avoids allocating feature rows for pathological entries.
+        edge_selection = self._edge_count_selection(edge_index)
+        if edge_selection is not None:
+            edge_index = edge_selection.filter_edge_index(edge_index)
+            if edge_features is not None:
+                edge_features = edge_selection.filter_tensor(edge_features)
+
         # Fetch the node features
         if node_features is None:
             if data is None or clusts is None:
@@ -715,6 +761,8 @@ class GrapPA(torch.nn.Module):
 
         result["edge_index"] = edge_index
         result["node_features"] = node_features
+        if edge_selection is not None:
+            result["edge_keep"] = edge_selection.keep
         if edge_features is not None:
             result["edge_features"] = edge_features
         if global_features is not None:
@@ -738,6 +786,41 @@ class GrapPA(torch.nn.Module):
 
         return result
 
+    def _edge_count_selection(self, edge_index: EdgeIndexBatch) -> EdgeSelection | None:
+        """Build a selection which removes every edge from oversized entries.
+
+        Parameters
+        ----------
+        edge_index : EdgeIndexBatch
+            Materialized graph before applying the model-level edge ceiling.
+
+        Returns
+        -------
+        EdgeSelection or None
+            Original-axis selection for an oversized batch, or ``None`` when
+            no ceiling is configured or all entries satisfy it.
+        """
+        if self.max_edge_count is None:
+            return None
+
+        counts = self._counts_numpy(edge_index.counts)
+        oversized = counts > self.max_edge_count
+        if not np.any(oversized):
+            return None
+
+        # Repeat the per-entry decision over the flat edge axis. This removes
+        # whole pathological graphs and preserves all node-aligned objectives.
+        keep = np.repeat(~oversized, counts)
+        selection = EdgeSelection(TensorBatch(keep, counts))
+        warn(
+            f"Found {np.count_nonzero(oversized)} graph entry(ies) above "
+            f"max_edge_count={self.max_edge_count}; all edges for those "
+            "entries were removed.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return selection
+
     def _augment_materialized_graph(self, graph: dict[str, Any]) -> dict[str, Any]:
         """Apply training-only augmentation to one materialized graph.
 
@@ -757,13 +840,24 @@ class GrapPA(torch.nn.Module):
         node_features = cast(TensorBatch, result["node_features"])
         edge_features = cast(TensorBatch | None, result.get("edge_features"))
 
-        # Edge dropout retains an original-axis mask for cached supervision.
-        edge_selection: EdgeSelection | None = None
+        # A deterministic edge ceiling may already define an original-axis
+        # selection. Compose subsequent training draws onto that same axis so
+        # cached supervision is filtered exactly once.
+        edge_selection = (
+            EdgeSelection(cast(TensorBatch, result["edge_keep"]))
+            if "edge_keep" in result
+            else None
+        )
         if self.edge_dropout is not None:
-            edge_selection = self.edge_dropout(edge_index)
-            edge_index = edge_selection.filter_edge_index(edge_index)
+            dropout_selection = self.edge_dropout(edge_index)
+            edge_index = dropout_selection.filter_edge_index(edge_index)
             if edge_features is not None:
-                edge_features = edge_selection.filter_tensor(edge_features)
+                edge_features = dropout_selection.filter_tensor(edge_features)
+            edge_selection = (
+                dropout_selection
+                if edge_selection is None
+                else edge_selection.compose(dropout_selection)
+            )
 
         # Every node-aligned product and every incident edge follows one draw.
         if self.node_dropout is not None:
