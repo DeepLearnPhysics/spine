@@ -7,6 +7,7 @@ from spine.constants import GHOST_SHP
 from spine.data import ClusterLabelBatch, TensorBatch, TensorSchema
 from spine.model import sparse
 from spine.model.cnn.uresnet_layers import UResNet
+from spine.model.common.loss_balancing import LossTerm
 from spine.model.uresnet.ppn import (
     PointProposalDecoder,
     ProposalTask,
@@ -907,6 +908,66 @@ def test_combined_loss_routes_configured_proposal_tasks(cnn_config):
     assert result["uresnet_loss"] == 1.0
     assert result["ppn_loss"] == 2.0
     assert result["vertex_loss"] == 3.0
+
+
+def test_combined_loss_applies_fixed_component_balancing(cnn_config):
+    """Users set policy priorities while producers declare task families."""
+    loss = UResNetPPNLoss(
+        {**cnn_config, "num_classes": 5},
+        uresnet_loss={},
+        ppn={},
+        ppn_loss={},
+        loss_balancing={
+            "name": "fixed",
+            "weights": {"segmentation": 0.5, "ppn_regression": 2.0},
+        },
+    )
+
+    class SegmentationLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            return {"loss": torch.tensor(2.0), "accuracy": 1.0}
+
+    class ParticlePointLoss(torch.nn.Module):
+        def forward(self, *_args, **_kwargs):
+            terms = {
+                "ppn_mask": LossTerm(torch.tensor(3.0), "categorical"),
+                "ppn_type": LossTerm(torch.tensor(5.0), "categorical"),
+                "ppn_regression": LossTerm(torch.tensor(7.0), "gaussian"),
+            }
+            return {
+                "loss": torch.tensor(15.0),
+                "accuracy": 1.0,
+                "_loss_terms": terms,
+            }
+
+    loss.seg_loss = SegmentationLoss()
+    loss.ppn_loss = ParticlePointLoss()
+    label = TensorBatch(torch.zeros(1), counts=[1])
+
+    result = loss(seg_label=label, ppn_label=label)
+
+    assert result["loss"].item() == pytest.approx(23.0)
+    assert result["segmentation_weight"].item() == pytest.approx(0.5)
+    assert result["ppn_regression_weight"].item() == pytest.approx(2.0)
+
+
+def test_combined_loss_only_registers_adaptive_parameters_when_requested(
+    cnn_config,
+):
+    """Legacy and fixed policies should not alter objective state dictionaries."""
+    common = {
+        "uresnet": {**cnn_config, "num_classes": 5},
+        "uresnet_loss": {},
+        "ppn": {},
+        "ppn_loss": {},
+    }
+    summed = UResNetPPNLoss(**common)
+    fixed = UResNetPPNLoss(**common, loss_balancing={"name": "fixed"})
+    adaptive = UResNetPPNLoss(**common, loss_balancing={"name": "uncertainty"})
+
+    assert not list(summed.parameters())
+    assert not list(fixed.parameters())
+    assert len(list(adaptive.parameters())) == 4
 
 
 def test_combined_loss_routes_raw_particle_associations(cnn_config):

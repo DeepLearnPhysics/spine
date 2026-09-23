@@ -26,7 +26,7 @@ Network
 Loss
 ----
 
-.. py:class:: spine.model.uresnet.ppn.UResNetPPNLoss(uresnet, uresnet_loss, ppn=None, ppn_loss=None, vertex=None, vertex_loss=None, proposal_decoder=None)
+.. py:class:: spine.model.uresnet.ppn.UResNetPPNLoss(uresnet, uresnet_loss, ppn=None, ppn_loss=None, vertex=None, vertex_loss=None, proposal_decoder=None, loss_balancing=None)
 
    Supervise segmentation and each configured proposal task.
 
@@ -38,3 +38,41 @@ Loss
    :param dict vertex_loss: Required loss configuration when ``vertex`` is enabled.
    :param dict proposal_decoder: Decoder-sharing configuration forwarded by
       the model manager.
+   :param dict loss_balancing: Optional ``sum``, ``fixed`` or ``uncertainty``
+      policy. The default ``sum`` policy preserves the historical objective.
+
+The loss implementation, rather than the user configuration, declares the
+likelihood family of every objective. Uncertainty balancing distinguishes the
+categorical segmentation, mask, type and endpoint objectives from the Gaussian
+PPN and vertex regressions. Objectives without valid supervision in a batch do
+not contribute either a data term or an uncertainty regularizer.
+
+For a standalone UResNet-PPN model, enable adaptive balancing alongside the
+other module blocks:
+
+.. code-block:: yaml
+
+   model:
+     name: uresnet_ppn
+     modules:
+       uresnet: ...
+       ppn: ...
+       uresnet_loss: ...
+       ppn_loss: ...
+       loss_balancing:
+         name: uncertainty
+
+Optional weights express scientific priorities without restating task types:
+
+.. code-block:: yaml
+
+   loss_balancing:
+     name: fixed
+     weights:
+       segmentation: 2.0
+       ppn_regression: 0.5
+
+Valid objective names are ``segmentation``, ``ppn_mask``, ``ppn_type``,
+``ppn_regression``, optional ``ppn_endpoint``, ``vertex_mask`` and
+``vertex_regression``. Full-chain configurations place the same
+``loss_balancing`` block inside ``uresnet_ppn_loss``.

@@ -224,6 +224,17 @@ class ModelManager:
                 output_device=self.device_id,
                 find_unused_parameters=find_unused_parameters,
             )
+            if self.loss_fn is not None and any(
+                parameter.requires_grad for parameter in self.loss_fn.parameters()
+            ):
+                # Adaptive objectives participate in gradient synchronization
+                # just like network parameters, but remain a separate module.
+                self.loss_fn = torch.nn.parallel.DistributedDataParallel(
+                    self.loss_fn,
+                    device_ids=[self.device_id],
+                    output_device=self.device_id,
+                    find_unused_parameters=find_unused_parameters,
+                )
 
         # Store independent copies of the input mappings.
         self.input_dict = dict(network_input)
@@ -334,8 +345,24 @@ class ModelManager:
         if save_dir and not os.path.isdir(save_dir):
             make_shared_directory(save_dir, parents=True, exist_ok=True)
 
-        # Initiliaze the optimizer
-        self.optimizer = optim_factory(optimizer, self.net.parameters())
+        # Initialize the optimizer. Trainable objective parameters use a
+        # separate no-decay group: regularizing uncertainty variables through
+        # optimizer weight decay would change the intended likelihood.
+        loss_parameters = []
+        loss_fn = getattr(self, "loss_fn", None)
+        if loss_fn is not None:
+            loss_parameters = [
+                parameter
+                for parameter in loss_fn.parameters()
+                if parameter.requires_grad
+            ]
+        parameters: Any = self.net.parameters()
+        if loss_parameters:
+            parameters = [
+                {"params": list(self.net.parameters())},
+                {"params": loss_parameters, "weight_decay": 0.0},
+            ]
+        self.optimizer = optim_factory(optimizer, parameters)
 
         # Initialize the learning-rate scheduler and its trigger policy.
         self.lr_scheduler = None
@@ -561,12 +588,13 @@ class ModelManager:
         Loss constructors receive the complete module configuration because
         they may depend on both model structure and loss-specific settings.
         Network constructors receive only blocks that do not end in
-        ``"_loss"``.
+        ``"_loss"``. The shared ``loss_balancing`` policy is likewise owned
+        exclusively by objective constructors.
         """
         return {
             module_name: module_cfg
             for module_name, module_cfg in config.items()
-            if not module_name.endswith("_loss")
+            if not module_name.endswith("_loss") and module_name != "loss_balancing"
         }
 
     def freeze_weights(self) -> None:
@@ -634,6 +662,24 @@ class ModelManager:
                 "`requires_grad=True`, but all model weights are frozen. "
                 "Use inference mode or unfreeze at least one model component."
             )
+
+    def _unwrapped_loss(self) -> torch.nn.Module | None:
+        """Return the objective module underneath an optional DDP wrapper.
+
+        Checkpoint state belongs to the underlying loss module. Keeping this
+        detail in one helper prevents DDP's ``module.`` namespace from leaking
+        into saved loss-state keys.
+
+        Returns
+        -------
+        torch.nn.Module or None
+            Configured loss module without its distributed wrapper, or
+            ``None`` when the manager has no loss.
+        """
+        loss_fn = getattr(self, "loss_fn", None)
+        if loss_fn is None:
+            return None
+        return getattr(loss_fn, "module", loss_fn)
 
     def load_weights(self, full_weight_path: str | None) -> None:
         """Load the weights of certain model components.
@@ -834,6 +880,83 @@ class ModelManager:
                         f"{value.dtype}, expected {target.dtype}."
                     )
 
+            # Resolve trainable objective state before mutating either module.
+            # Like network state, exact resumes require a complete structural
+            # match; weights-only initialization may start a new balancer.
+            loss_state_dict = None
+            if is_full_model:
+                loss_fn = self._unwrapped_loss()
+                expected_loss_state = {} if loss_fn is None else loss_fn.state_dict()
+                checkpoint_loss_state = checkpoint.get("loss_state_dict")
+                strict_resume = getattr(
+                    self,
+                    "strict_resume",
+                    getattr(self, "restore_optimizer", False),
+                )
+                if expected_loss_state and checkpoint_loss_state is None:
+                    if self.train and strict_resume:
+                        raise KeyError(
+                            "Cannot resume training: checkpoint has no trainable "
+                            "loss state."
+                        )
+                    if self.train and getattr(self, "resume_training", False):
+                        warnings.warn(
+                            "Checkpoint has no trainable loss state; adaptive "
+                            "loss balancing will restart from its configured "
+                            "initialization.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                elif checkpoint_loss_state is not None:
+                    if loss_fn is None or not expected_loss_state:
+                        if self.train and strict_resume:
+                            raise ValueError(
+                                "Checkpoint contains trainable loss state but "
+                                "the configured objective does not."
+                            )
+                    else:
+                        if not isinstance(checkpoint_loss_state, Mapping):
+                            raise TypeError(
+                                "Checkpoint trainable loss state must be a mapping."
+                            )
+                        expected_keys = set(expected_loss_state)
+                        checkpoint_keys = set(checkpoint_loss_state)
+                        if checkpoint_keys != expected_keys:
+                            missing = sorted(expected_keys - checkpoint_keys)
+                            extra = sorted(checkpoint_keys - expected_keys)
+                            raise ValueError(
+                                "Checkpoint loss state does not match the "
+                                f"configured objective; missing={missing}, "
+                                f"extra={extra}."
+                            )
+                        for name, value in checkpoint_loss_state.items():
+                            target = expected_loss_state[name]
+                            if not isinstance(value, torch.Tensor):
+                                raise TypeError(
+                                    f"Checkpoint loss parameter `{name}` is not "
+                                    f"a tensor (got {type(value).__name__})."
+                                )
+                            if value.shape != target.shape:
+                                raise ValueError(
+                                    f"Checkpoint loss parameter `{name}` has "
+                                    f"shape {tuple(value.shape)}, expected "
+                                    f"{tuple(target.shape)}."
+                                )
+                            compatible_dtype = (
+                                value.is_floating_point() == target.is_floating_point()
+                                and value.is_complex() == target.is_complex()
+                                and (
+                                    value.is_floating_point()
+                                    or value.dtype == target.dtype
+                                )
+                            )
+                            if not compatible_dtype:
+                                raise ValueError(
+                                    f"Checkpoint loss parameter `{name}` has "
+                                    f"dtype {value.dtype}, expected {target.dtype}."
+                                )
+                        loss_state_dict = checkpoint_loss_state
+
             resolved_weights.append(
                 {
                     "module": module,
@@ -842,6 +965,7 @@ class ModelManager:
                     "is_full_model": is_full_model,
                     "checkpoint": checkpoint,
                     "state_dict": state_dict,
+                    "loss_state_dict": loss_state_dict,
                     "destination_name": destination_name,
                     "unexpected_keys": (
                         tuple(sorted(set(checkpoint_state) - set(state_dict)))
@@ -875,6 +999,14 @@ class ModelManager:
                     "could not be loaded. This may be acceptable."
                 )
                 logger.warning("Unexpected keys: %s", resolved["unexpected_keys"])
+
+            # Apply objective state only after every requested checkpoint has
+            # passed the validation phase above.
+            loss_state_dict = resolved["loss_state_dict"]
+            if loss_state_dict is not None:
+                loss_fn = self._unwrapped_loss()
+                assert loss_fn is not None
+                loss_fn.load_state_dict(loss_state_dict, strict=True)
 
             # Record destination coverage after a successful load. Weight
             # export uses this to reject constructor-initialized leftovers.
@@ -1234,6 +1366,7 @@ class ModelManager:
         - global_step (iteration)
         - global_epoch (epoch progress)
         - state_dict (model parameter values)
+        - loss_state_dict (optional trainable objective parameters)
         - optimizer (optimizer parameter values)
         - lr_scheduler (optional scheduler parameter values)
         - runtime_state (per-rank RNG and loader continuation state)
@@ -1282,6 +1415,15 @@ class ModelManager:
             "state_dict": model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
         }
+
+        # Parameter-free objectives deliberately add no checkpoint field,
+        # retaining compatibility with existing sum/fixed checkpoints.
+        loss_fn = self._unwrapped_loss()
+        if loss_fn is not None:
+            loss_state = loss_fn.state_dict()
+            if loss_state:
+                checkpoint["loss_state_dict"] = loss_state
+
         scheduler = getattr(self, "lr_scheduler", None)
         if scheduler is not None:
             checkpoint["lr_scheduler"] = scheduler.state_dict()

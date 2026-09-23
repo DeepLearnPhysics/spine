@@ -8,6 +8,7 @@ from typing import Any
 import torch
 
 from spine.data import ClusterLabelBatch, TensorBatch
+from spine.model.common.loss_balancing import LossBalancer, LossTerm
 
 from ...registry import ModelSpec
 from ..model import SegmentationLoss, UResNetSegmentation
@@ -147,7 +148,14 @@ class UResNetPPN(torch.nn.Module):
 class UResNetPPNLoss(torch.nn.Module):
     """Supervise UResNet and its configured point-proposal tasks.
 
-    It includes a segmentation loss and a PPN loss.
+    The objective always includes semantic segmentation and may include the
+    particle-point and interaction-vertex proposal tasks. Each proposal loss
+    publishes its component objectives and likelihood families internally;
+    users choose a balancing policy without restating those semantics.
+
+    By default, task-level losses are summed exactly as in the historical
+    implementation. Fixed or uncertainty balancing instead combines the leaf
+    objectives and reports the effective weight and contribution of each one.
 
     Typical configuration:
 
@@ -162,6 +170,12 @@ class UResNetPPNLoss(torch.nn.Module):
               # Your ppn config goes here
             ppn_loss:
               # Your ppn loss config goes here
+            loss_balancing:
+              name: uncertainty
+              # Optional scientific priorities; task families are inferred.
+              weights:
+                segmentation: 1.0
+                ppn_regression: 1.0
 
     See Also
     --------
@@ -178,6 +192,7 @@ class UResNetPPNLoss(torch.nn.Module):
         vertex: dict[str, Any] | None = None,
         vertex_loss: dict[str, Any] | None = None,
         proposal_decoder: dict[str, Any] | None = None,
+        loss_balancing: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the UResNet+PPN model loss.
 
@@ -199,6 +214,12 @@ class UResNetPPNLoss(torch.nn.Module):
             Vertex loss configuration.
         proposal_decoder : dict, optional
             Decoder-sharing configuration supplied by the model contract.
+        loss_balancing : dict, optional
+            Policy used to combine producer-declared objective terms. The
+            ``name`` may be ``sum``, ``fixed`` or ``uncertainty``. An optional
+            ``weights`` mapping assigns explicit priorities by objective name.
+            The default ``sum`` policy preserves historical behavior and does
+            not register trainable parameters.
         """
         # Initialize the parent class
         super().__init__()
@@ -217,6 +238,27 @@ class UResNetPPNLoss(torch.nn.Module):
         self.vertex_loss = (
             VertexPPNLoss(uresnet, vertex_loss) if vertex_loss is not None else None
         )
+
+        # Declare task semantics here so configuration only selects a policy.
+        families = {"segmentation": "categorical"}
+        if self.ppn_loss is not None:
+            families.update(
+                {
+                    "ppn_mask": "categorical",
+                    "ppn_type": "categorical",
+                    "ppn_regression": "gaussian",
+                }
+            )
+            if bool((ppn or {}).get("classify_endpoints", False)):
+                families["ppn_endpoint"] = "categorical"
+        if self.vertex_loss is not None:
+            families.update(
+                {
+                    "vertex_mask": "categorical",
+                    "vertex_regression": "gaussian",
+                }
+            )
+        self.loss_balancer = LossBalancer(families, loss_balancing)
 
     def forward(
         self,
@@ -253,33 +295,58 @@ class UResNetPPNLoss(torch.nn.Module):
         """
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
+        loss_terms = {
+            "segmentation": LossTerm(
+                result_seg["loss"], "categorical", active=len(seg_label) > 0
+            )
+        }
 
         task_results = [("uresnet", result_seg)]
         if self.ppn_loss is not None:
             if ppn_label is None:
                 raise ValueError("PPN supervision requires `ppn_label`.")
-            task_results.append(
-                (
-                    "ppn",
-                    self.ppn_loss(
-                        ppn_label,
-                        clust_label=clust_label,
-                        **result,
-                    ),
-                )
+            result_ppn = self.ppn_loss(
+                ppn_label,
+                clust_label=clust_label,
+                **result,
             )
+            # Consume private leaf metadata before publishing task metrics.
+            ppn_terms = result_ppn.pop("_loss_terms", None)
+            if ppn_terms is not None:
+                loss_terms.update(ppn_terms)
+            elif self.loss_balancer.mode != "sum":
+                raise RuntimeError(
+                    "PPN did not provide component objectives required for "
+                    "configured loss balancing."
+                )
+            task_results.append(("ppn", result_ppn))
         if self.vertex_loss is not None:
             if vertex_label is None:
                 raise ValueError("Vertex supervision requires `vertex_label`.")
-            task_results.append(("vertex", self.vertex_loss(vertex_label, **result)))
+            result_vertex = self.vertex_loss(vertex_label, **result)
+            vertex_terms = result_vertex.pop("_loss_terms", None)
+            if vertex_terms is not None:
+                loss_terms.update(vertex_terms)
+            elif self.loss_balancer.mode != "sum":
+                raise RuntimeError(
+                    "Vertex loss did not provide component objectives required "
+                    "for configured loss balancing."
+                )
+            task_results.append(("vertex", result_vertex))
 
-        # Every task contributes its native loss; reported accuracy is the
-        # unweighted mean of the independently interpretable task metrics.
+        # Preserve the exact historical task-level sum when balancing is off.
+        # Other policies operate on the component terms collected above.
+        if self.loss_balancer.mode == "sum":
+            combined_loss = sum(task["loss"] for _, task in task_results)
+            balance_metrics = {}
+        else:
+            combined_loss, balance_metrics = self.loss_balancer(loss_terms)
         output: dict[str, Any] = {
-            "loss": sum(task["loss"] for _, task in task_results),
+            "loss": combined_loss,
             "accuracy": sum(task["accuracy"] for _, task in task_results)
             / len(task_results),
         }
+        output.update(balance_metrics)
         for prefix, task_result in task_results:
             output.update(
                 {f"{prefix}_{key}": value for key, value in task_result.items()}

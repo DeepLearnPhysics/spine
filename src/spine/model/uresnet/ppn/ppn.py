@@ -18,15 +18,13 @@ from spine.model import sparse
 from spine.model.cnn.act_norm import act_factory, norm_factory
 from spine.model.cnn.blocks import ResNetBlock
 from spine.model.cnn.configuration import setup_cnn_configuration
+from spine.model.common.loss_balancing import LossTerm
 from spine.model.common.weighting import get_class_weights
 from spine.utils.ppn import ppn_raw_schema
 from spine.utils.torch.runtime import cdist_fast
 
 PPNOutput: TypeAlias = dict[str, TensorBatch | list[TensorBatch]]
-PPNLossOutput: TypeAlias = dict[
-    str,
-    torch.Tensor | float | list[TensorBatch],
-]
+PPNLossOutput: TypeAlias = dict[str, Any]
 ProposalOutputT = TypeVar("ProposalOutputT")
 
 __all__ = [
@@ -1147,7 +1145,9 @@ class PPNLoss(torch.nn.Module):
         -------
         PPNLossOutput
             Combined loss, component losses, accuracies, per-layer foreground
-            metrics and optionally generated mask labels.
+            metrics and optionally generated mask labels. The private
+            ``_loss_terms`` entry carries differentiable leaf objectives and
+            their likelihood metadata to the parent loss combiner.
         """
         # Initialize the basics
         num_layers = len(ppn_layers)
@@ -1293,6 +1293,7 @@ class PPNLoss(torch.nn.Module):
             device=device,
         )
         mask_label_list = []
+        mask_active = False
         for reverse_index in range(num_layers):
             # Narrow down outputs to this specific layer
             layer_index = num_layers - 1 - reverse_index
@@ -1323,6 +1324,7 @@ class PPNLoss(torch.nn.Module):
 
             # Compute the mask weights over the whole batch, if requested
             num_points = len(scores_layer_tensor)
+            mask_active = mask_active or num_points > 0
             if num_points == 0:
                 mask_losses[layer_index] = scores_layer_tensor.sum() * 0.0
             else:
@@ -1377,12 +1379,15 @@ class PPNLoss(torch.nn.Module):
             else type_logits.sum() * 0.0
         )
         type_acc, end_acc = one, one
+        point_active = False
+        endpoint_active = False
         pos_mask = torch.where(positives)[0]
         if len(pos_mask) > 0:
             # Supervise the regression and classification heads at
             # ground-truth-positive sites. Using thresholded predictions here
             # would make their supervision depend on a non-differentiable mask
             # decision and could starve these heads early in training.
+            point_active = True
 
             # Closest ppn point label (index) to given positive point
             closest_indices = closest_indices[pos_mask]
@@ -1430,6 +1435,7 @@ class PPNLoss(torch.nn.Module):
             # Narrow the problem down to predictions closest to track points
             track_index = torch.where(closest_type_labels == TRACK_SHP)[0]
             if endpoint_logits is not None and len(track_index) > 0:
+                endpoint_active = True
                 # Get the end point predictions
                 end_logits = endpoint_logits[pos_mask]
                 end_logits = end_logits[track_index]
@@ -1467,7 +1473,8 @@ class PPNLoss(torch.nn.Module):
             loss += self.endpoint_loss_weight * end_loss
             accuracy = (mask_acc + type_acc + end_acc) / 3
 
-        # Prepare the result dictionary
+        # Publish metrics alongside private metadata for the parent combiner.
+        # The private entry is removed before results leave the composite loss.
         result: PPNLossOutput = {
             "loss": loss,
             "accuracy": accuracy.item(),
@@ -1476,12 +1483,38 @@ class PPNLoss(torch.nn.Module):
             "type_loss": type_loss.item(),
             "type_accuracy": type_acc.item(),
             "reg_loss": reg_loss.item(),
+            "_loss_terms": {
+                "ppn_mask": LossTerm(
+                    mask_loss,
+                    "categorical",
+                    active=mask_active,
+                    scale=self.mask_loss_weight,
+                ),
+                "ppn_type": LossTerm(
+                    type_loss,
+                    "categorical",
+                    active=point_active,
+                    scale=self.type_loss_weight,
+                ),
+                "ppn_regression": LossTerm(
+                    reg_loss,
+                    "gaussian",
+                    active=point_active,
+                    scale=self.reg_loss_weight,
+                ),
+            },
         }
 
         # Add the endpoint metrics if present
         if loss_endpoints is not None:
             result["classify_endpoints_loss"] = end_loss.item()
             result["classify_endpoints_accuracy"] = end_acc.item()
+            result["_loss_terms"]["ppn_endpoint"] = LossTerm(
+                end_loss,
+                "categorical",
+                active=endpoint_active,
+                scale=self.endpoint_loss_weight,
+            )
 
         # Add the mask loss at each layer
         for layer in range(num_layers):

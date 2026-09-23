@@ -252,6 +252,7 @@ Model modules
    spine.model.common.evidential
    spine.model.common.factories
    spine.model.common.final
+   spine.model.common.loss_balancing
    spine.model.common.losses
    spine.model.common.metric
    spine.model.common.mlp
