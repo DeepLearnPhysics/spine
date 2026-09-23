@@ -45,6 +45,48 @@ def test_grappa_constructs_global_encoder() -> None:
     assert model.global_encoder.feature_size == 0
 
 
+@pytest.mark.parametrize("value", [-1, 1.5, True])
+def test_grappa_validates_max_edge_count(value):
+    """The graph safety ceiling must be a nonnegative integer."""
+    config = shower_model_config()
+    config["max_edge_count"] = value
+
+    with pytest.raises(ValueError, match="nonnegative integer"):
+        GrapPA(config)
+
+
+def test_grappa_edge_limit_accepts_exact_boundary():
+    """An entry at the configured edge count should remain untouched."""
+    config = shower_model_config()
+    config["max_edge_count"] = 2
+    model = GrapPA(config)
+    edge_index = EdgeIndexBatch(
+        np.array([[0, 1], [1, 0]]),
+        counts=[2],
+        spans=[2],
+        directed=False,
+    )
+
+    assert model._edge_count_selection(edge_index) is None
+
+
+def test_grappa_routes_legacy_graph_edge_limit():
+    """The constructor-level option should use the common GrapPA limit."""
+    config = shower_model_config()
+    config["graph"]["max_count"] = 2
+
+    with pytest.warns(FutureWarning, match="graph.max_count"):
+        model = GrapPA(config)
+
+    assert model.max_edge_count == 2
+    assert model.graph_constructor is not None
+    assert model.graph_constructor.max_count is None
+
+    config["max_edge_count"] = 3
+    with pytest.raises(ValueError, match="Conflicting"):
+        GrapPA(config)
+
+
 def test_grappa_materializes_graph_without_running_gnn(
     graph_labels,
     graph_clusters,
@@ -737,6 +779,148 @@ def test_grappa_edge_dropout_filters_materialized_graph(monkeypatch):
     assert result["edge_index"] is edge_index
     assert result["edge_features"] is edge_features
     assert "edge_keep" not in result
+
+
+def test_grappa_edge_limit_filters_materialized_graph_in_evaluation():
+    """The edge ceiling should filter cached graphs outside training mode."""
+    config = shower_model_config()
+    config["max_edge_count"] = 2
+    model = GrapPA(config)
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert index.tolist() == [[0, 1], [1, 0]]
+            assert edges is not None and edges.counts.tolist() == [2, 0]
+            return {}
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    model.return_features = True
+    model.eval()
+
+    node_features = TensorBatch(torch.ones((5, 2)), counts=[2, 3])
+    edge_features = TensorBatch(torch.arange(6).reshape(6, 1), counts=[2, 4])
+    edge_index = EdgeIndexBatch(
+        torch.tensor(
+            [[0, 1, 2, 3, 2, 4], [1, 0, 3, 2, 4, 2]],
+            dtype=torch.long,
+        ),
+        counts=[2, 4],
+        spans=[2, 3],
+        directed=False,
+    )
+
+    with pytest.warns(RuntimeWarning, match="max_edge_count=2"):
+        result = model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+    assert result["edge_index"].counts.tolist() == [2, 0]
+    assert result["edge_features"].data.tolist() == [[0], [1]]
+    assert result["edge_keep"].data.tolist() == [True, True, False, False, False, False]
+    assert "node_keep" not in result
+
+
+def test_grappa_edge_limit_composes_with_training_dropout(monkeypatch):
+    """The ceiling and edge dropout should emit one original-axis mask."""
+    config = shower_model_config()
+    config["max_edge_count"] = 4
+    config["augment"] = {"edge_dropout": {"probability": 0.5}}
+    model = GrapPA(config)
+
+    class MaterializedGNN(torch.nn.Module):
+        node_feats = 2
+        edge_feats = 1
+        global_feats = 0
+
+        def forward(self, nodes, index, edges, globals_, batch_ids):
+            assert edges is not None and edges.data.tolist() == [[2], [3]]
+            return {}
+
+    model.gnn = MaterializedGNN()
+    model.node_pred_keys = []
+    model.edge_pred_keys = []
+    model.global_pred_keys = []
+    model.make_groups = False
+    model.return_features = True
+
+    node_features = TensorBatch(torch.ones((7, 2)), counts=[3, 4])
+    edge_features = TensorBatch(torch.arange(10).reshape(10, 1), counts=[4, 6])
+    edge_index = EdgeIndexBatch(
+        torch.tensor(
+            [
+                [0, 1, 0, 2, 3, 4, 3, 5, 3, 6],
+                [1, 0, 2, 0, 4, 3, 5, 3, 6, 3],
+            ],
+            dtype=torch.long,
+        ),
+        counts=[4, 6],
+        spans=[3, 4],
+        directed=False,
+    )
+    monkeypatch.setattr(np.random, "random", lambda size: np.array([0.1, 0.8])[:size])
+
+    with pytest.warns(RuntimeWarning, match="max_edge_count=4"):
+        result = model(
+            node_features=node_features,
+            edge_features=edge_features,
+            edge_index=edge_index,
+        )
+
+    assert result["edge_index"].counts.tolist() == [2, 0]
+    assert result["edge_keep"].counts.tolist() == [4, 6]
+    assert result["edge_keep"].data.tolist() == [
+        False,
+        False,
+        True,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_grappa_edge_limit_precedes_live_edge_encoding(graph_data, graph_clusters):
+    """Live edge features should be encoded only after oversized graphs drop."""
+    config = shower_model_config()
+    config["graph"]["max_length"] = None
+    config["max_edge_count"] = 1
+    model = GrapPA(config)
+
+    class EdgeEncoder(torch.nn.Module):
+        feature_size = model.gnn.edge_feats
+
+        def forward(self, data, clusts, edge_index, **kwargs):
+            assert edge_index.counts.tolist() == [0, 0]
+            return TensorBatch(torch.empty((0, self.feature_size)), edge_index.counts)
+
+    model.edge_encoder = EdgeEncoder()
+    node_features = TensorBatch(
+        torch.ones((3, model.gnn.node_feats)), graph_clusters.counts
+    )
+
+    with pytest.warns(RuntimeWarning, match="max_edge_count=1"):
+        graph = model.materialize_graph(
+            data=graph_data,
+            clusts=graph_clusters,
+            node_features=node_features,
+        )
+
+    assert graph["edge_index"].counts.tolist() == [0, 0]
+    assert graph["edge_features"].shape[0] == 0
+    assert graph["edge_keep"].data.tolist() == [False, False]
 
 
 def test_grappa_edge_dropout_follows_static_edge_encoding(

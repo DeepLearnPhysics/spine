@@ -99,6 +99,29 @@ The automatic period follows the encoder depth and covers every alignment of
 its deepest convolution lattice. An explicit integer or per-axis sequence may
 be supplied instead when a study requires a fixed phase range.
 
+GrapPA edge safety ceiling
+--------------------------
+
+GrapPA can remove the complete edge set of any graph entry which exceeds a
+configured safety ceiling. The limit is applied after graph construction or
+cache loading and before edge encoding, so it protects both live and
+materialized execution:
+
+.. code-block:: yaml
+
+   model:
+     modules:
+       grappa:
+         max_edge_count: 1600000
+
+The boundary is inclusive: an entry with exactly ``max_edge_count`` edges is
+retained, while an entry above it keeps its nodes and node objectives but has
+all edges removed. GrapPA emits an original-axis ``edge_keep`` mask so cached
+edge targets and validity masks remain aligned. The mask is composed with any
+later training-only edge or node dropout. The former ``graph.max_count``
+setting remains accepted for compatibility but is deprecated and routed
+through this common path.
+
 GrapPA graph augmentation
 -------------------------
 
