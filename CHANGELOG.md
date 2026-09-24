@@ -3,6 +3,7 @@
 ## [1.2.4] - 2026-09-16
 
 ### Added
+- **Gradient monitoring**: Track global and glob-selected trainable parameter groups after backpropagation with configurable cadence, stable network/loss names and CSV/TensorBoard diagnostics for gradient norms, scale, missing paths and non-finite values.
 - **Framework-neutral direct datasets**: Configure `io.dataset` to parse LArCV or HDF5 events directly for construction, post-processing, analysis and writing without importing PyTorch or passing through loader batching, collation and unwrapping.
 - **Direct joint-dataset traversal**: Traverse the primary source once with deterministic sequential secondary pairing and modulo cycling, while retaining loader-controlled random, probabilistic and sequential pairing for model workflows.
 - **Native cached-product entry filtering**: Measure per-entry product sizes directly from flat SPINE HDF5 metadata or published cache-repository stage offsets, then apply one manifest-backed eligibility axis across every selected cache stage before sampling.
