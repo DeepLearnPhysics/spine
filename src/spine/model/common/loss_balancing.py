@@ -154,6 +154,33 @@ class LossBalancer(torch.nn.Module):
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Combine objective terms and return scalar diagnostics.
 
+        This preserves the ordinary two-value module interface. Training
+        systems which also need the differentiable per-objective contributions
+        should call :meth:`combine`.
+
+        Parameters
+        ----------
+        terms : mapping of str to LossTerm
+            Current scalar value, activity and producer scale for every
+            objective declared at construction.
+
+        Returns
+        -------
+        torch.Tensor
+            Combined differentiable objective.
+        dict
+            Detached effective weights and contribution diagnostics.
+        """
+        total, diagnostics, _ = self.combine(terms)
+        return total, diagnostics
+
+    def combine(self, terms: Mapping[str, LossTerm]) -> tuple[
+        torch.Tensor,
+        dict[str, torch.Tensor],
+        dict[str, LossTerm],
+    ]:
+        """Combine objectives and retain their weighted contributions.
+
         Parameters
         ----------
         terms : mapping of str to LossTerm
@@ -169,6 +196,11 @@ class LossBalancer(torch.nn.Module):
             and, for uncertainty balancing, learned log variances. Diagnostic
             keys use the forms ``<name>_weight``, ``<name>_weighted_loss``,
             ``<name>_active`` and ``<name>_log_variance``.
+        dict
+            Differentiable contribution of every objective after producer
+            scales, user priorities, uncertainty coefficients and activity
+            masking. These terms sum exactly to the combined objective and are
+            suitable for task-gradient methods such as PCGrad.
 
         Raises
         ------
@@ -188,6 +220,7 @@ class LossBalancer(torch.nn.Module):
 
         total: torch.Tensor | None = None
         diagnostics: dict[str, torch.Tensor] = {}
+        balanced_terms: dict[str, LossTerm] = {}
         for name, family in self.families.items():
             term = terms[name]
             if term.family != family:
@@ -245,9 +278,14 @@ class LossBalancer(torch.nn.Module):
                 coefficient = coefficient * 0.0
 
             total = contribution if total is None else total + contribution
+            balanced_terms[name] = LossTerm(
+                contribution,
+                family,
+                active=active,
+            )
             diagnostics[f"{name}_weight"] = coefficient.detach()
             diagnostics[f"{name}_weighted_loss"] = contribution.detach()
             diagnostics[f"{name}_active"] = term.value.new_tensor(float(active))
 
         assert total is not None
-        return total, diagnostics
+        return total, diagnostics, balanced_terms

@@ -339,12 +339,18 @@ class UResNetPPNLoss(torch.nn.Module):
         if self.loss_balancer.mode == "sum":
             combined_loss = sum(task["loss"] for _, task in task_results)
             balance_metrics = {}
+            balanced_terms = loss_terms
         else:
-            combined_loss, balance_metrics = self.loss_balancer(loss_terms)
+            (
+                combined_loss,
+                balance_metrics,
+                balanced_terms,
+            ) = self.loss_balancer.combine(loss_terms)
         output: dict[str, Any] = {
             "loss": combined_loss,
             "accuracy": sum(task["accuracy"] for _, task in task_results)
             / len(task_results),
+            "_loss_terms": balanced_terms,
         }
         output.update(balance_metrics)
         for prefix, task_result in task_results:

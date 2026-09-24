@@ -1857,6 +1857,20 @@ class GrapPALoss(torch.nn.Module):
         if self.loss_balancer.mode == "sum":
             combined_loss = total_loss / num_losses
             balance_metrics = {}
+            balanced_terms = {
+                name: LossTerm(
+                    value,
+                    family,
+                    active=active,
+                    scale=component_scale / num_losses,
+                )
+                for name, (
+                    value,
+                    family,
+                    active,
+                    component_scale,
+                ) in pending_terms.items()
+            }
         else:
             # GrapPA historically averages configured objectives. Retain that
             # normalization as a producer scale for every leaf contribution.
@@ -1874,9 +1888,14 @@ class GrapPALoss(torch.nn.Module):
                     component_scale,
                 ) in pending_terms.items()
             }
-            combined_loss, balance_metrics = self.loss_balancer(terms)
+            (
+                combined_loss,
+                balance_metrics,
+                balanced_terms,
+            ) = self.loss_balancer.combine(terms)
         result["loss"] = combined_loss
         result["accuracy"] = total_accuracy / num_losses
+        result["_loss_terms"] = balanced_terms
         result.update(balance_metrics)
 
         return result

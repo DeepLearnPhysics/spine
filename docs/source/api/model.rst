@@ -156,6 +156,44 @@ must contain letters, numbers and underscores and must match at least one
 trainable parameter, allowing misspelled or stale selections to fail during
 model construction rather than silently producing empty diagnostics.
 
+Gradient balancing with PCGrad
+------------------------------
+
+Training may apply `PCGrad <https://papers.neurips.cc/paper_files/paper/2020/file/3fe78a8acf5fda99de95303940a2420c-Paper.pdf>`_
+after the model's scalar loss-balancing policy has been evaluated. PCGrad
+computes one gradient per active objective and removes pairwise components with
+a negative inner product before summing the task gradients. It therefore
+addresses gradient direction conflicts rather than replacing ``sum``,
+``fixed`` or ``uncertainty`` loss weighting. UResNet+PPN, standalone GrapPA
+and ``full_chain`` currently publish the required objective metadata through a
+shared internal interface::
+
+   train:
+     optimizer:
+       name: Adam
+       lr: 0.001
+     gradient_balancing:
+       name: pcgrad
+       parameters: "network.*"
+       seed: 0
+
+The ``parameters`` option accepts one shell-style glob or a sequence of globs
+using the same canonical ``network.`` names as gradient monitoring. It defaults
+to all trainable network parameters. At each iteration, surgery is restricted
+further to parameter tensors reached by at least two active objectives;
+task-specific parameters and trainable loss-balancer variables retain their
+ordinary combined-loss gradients. ``seed`` makes the paper's randomized task
+order reproducible from the global iteration without adding checkpoint state.
+
+PCGrad reports the active-task and shared-parameter-tensor counts, each task's
+pre-projection norm within that shared subspace, mean pairwise cosine, conflict
+fraction and projection count through the normal logging path. Passive gradient
+monitoring may be enabled at the same time and observes the final gradients
+after surgery. The additional per-task autograd traversals increase training
+cost with the number of active objectives. Distributed training is rejected
+explicitly for now because correct task-wise cross-rank reduction is not yet
+implemented.
+
 Sparse CNN lattice phase
 ------------------------
 

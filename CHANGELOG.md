@@ -3,6 +3,7 @@
 ## [1.2.4] - 2026-09-16
 
 ### Added
+- **PCGrad gradient balancing**: Project conflicting gradients between active objectives on dynamically shared network parameters, composing with existing sum, fixed and uncertainty loss policies while reporting task-gradient diagnostics.
 - **Gradient monitoring**: Track global and glob-selected trainable parameter groups after backpropagation with configurable cadence, stable network/loss names and CSV/TensorBoard diagnostics for gradient norms, scale, missing paths and non-finite values.
 - **Framework-neutral direct datasets**: Configure `io.dataset` to parse LArCV or HDF5 events directly for construction, post-processing, analysis and writing without importing PyTorch or passing through loader batching, collation and unwrapping.
 - **Direct joint-dataset traversal**: Traverse the primary source once with deterministic sequential secondary pairing and modulo cycling, while retaining loader-controlled random, probabilistic and sequential pairing for model workflows.

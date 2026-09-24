@@ -715,7 +715,7 @@ class CompositeLossStage(ChainLossStage):
                 {
                     f"{stage.name}_{key}": value
                     for key, value in child.items()
-                    if key not in {"loss", "accuracy"}
+                    if key not in {"loss", "accuracy"} and not key.startswith("_")
                 }
             )
         result["accuracy"] /= result["num_losses"]
