@@ -1,13 +1,31 @@
 # Changelog
 
+## [1.3.0] - 2026-09-24
+
+### Added
+- **Multi-task loss balancing**: Add reusable raw-sum, fixed-weight and Kendall uncertainty policies across UResNet+PPN, standalone GrapPA and full-chain provider objectives, with task-owned likelihood metadata, inactive-task handling, checkpoint/DDP support and detailed weight diagnostics.
+- **Gradient monitoring**: Track global and glob-selected trainable parameter groups after backpropagation with configurable cadence, stable network/loss names and CSV/TensorBoard diagnostics for gradient norms, scale, missing paths and non-finite values.
+- **GrapPA graph materialization**: Materialize fragment and particle graphs, features and static supervision targets as full-chain cache stages for shower, track and interaction GrapPA workflows.
+- **Native cached-product entry filtering**: Measure per-entry product sizes directly from flat SPINE HDF5 metadata or published cache-repository stage offsets, then apply one manifest-backed eligibility axis across every selected cache stage before sampling.
+- **GrapPA edge safety ceiling**: Apply one per-entry edge limit to constructed and materialized graphs before edge encoding, retain node objectives for oversized entries and propagate an aligned edge-selection mask through cached supervision and training augmentation.
+- **Explicit spatial augmentation contracts**: Transform every declared coordinate-bearing tensor, cluster-label and object product while preserving discrete voxel and continuous point semantics, and reject unsupported or ambiguous spatial products before mutation.
+- **Deghost charge diagnostics**: Optionally expose per-plane post-deghost charge and hit multiplicity for NumPy and Torch full-chain workflows.
+- **GPU memory diagnostics**: Report stable allocated, reserved and peak CUDA memory measurements in logs and stdout during training and validation.
+- **Shortest joint-dataset epochs**: Allow sequential joint sampling to stop when the shortest source is exhausted instead of always cycling secondary inputs.
+
+### Fixed
+- **LArCV sentinel compatibility**: Interpret legacy and current particle parent-ID sentinels independently from field-specific neutrino sentinels, prevent invalid legacy parents from becoming graph edges and inspect all available neutrino interaction IDs.
+- **Scoped checkpoint loading**: Robustly resolve scoped network and loss states, validate checkpoint key mappings and preserve adaptive loss state across supported resume and transfer-loading paths.
+- **Geometric augmentation precision**: Preserve continuous point coordinates through flips and rotations instead of quantizing them with voxel coordinates.
+- **Conditional loss gradients**: Keep inactive SPICE, PPN and vertex loss heads connected to the autograd graph so conditional batches remain safe under distributed training.
+- **Joint-overlay particle offsets**: Apply particle index shifts consistently when overlaying multiple sources.
+- **Legacy TensorData serialization**: Restore serialization behavior required by legacy HDF5 output paths.
+
 ## [1.2.4] - 2026-09-16
 
 ### Added
-- **Gradient monitoring**: Track global and glob-selected trainable parameter groups after backpropagation with configurable cadence, stable network/loss names and CSV/TensorBoard diagnostics for gradient norms, scale, missing paths and non-finite values.
 - **Framework-neutral direct datasets**: Configure `io.dataset` to parse LArCV or HDF5 events directly for construction, post-processing, analysis and writing without importing PyTorch or passing through loader batching, collation and unwrapping.
 - **Direct joint-dataset traversal**: Traverse the primary source once with deterministic sequential secondary pairing and modulo cycling, while retaining loader-controlled random, probabilistic and sequential pairing for model workflows.
-- **Native cached-product entry filtering**: Measure per-entry product sizes directly from flat SPINE HDF5 metadata or published cache-repository stage offsets, then apply one manifest-backed eligibility axis across every selected cache stage before sampling.
-- **GrapPA edge safety ceiling**: Apply one per-entry edge limit to constructed and materialized graphs before edge encoding, retain node objectives for oversized entries and propagate an aligned edge-selection mask through cached supervision and training augmentation.
 
 ### Changed
 - **Dataset interface contract**: Keep SPINE datasets compatible with PyTorch data loaders while declaring their map-style and overlay metadata interfaces independently of PyTorch.
