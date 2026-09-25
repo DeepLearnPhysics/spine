@@ -536,7 +536,8 @@ def test_vertex_point_parser_process_and_call(
     assert np.array_equal(result.coords, labels[:, :3])
 
 
-def test_particle_graph_skips_invalid_and_fragment_edges():
+@pytest.mark.parametrize("invalid_parent_id", [INVAL_IDX, INVAL_ID])
+def test_particle_graph_skips_invalid_and_fragment_edges(invalid_parent_id):
     """Particle graph parsing should skip invalid parents and fragment-only edges when requested."""
 
     class DummyVector(list):
@@ -556,7 +557,9 @@ def test_particle_graph_skips_invalid_and_fragment_edges():
 
     class DummyEvent:
         def as_vector(self):
-            return DummyVector([DummyParticle(INVAL_ID, 0), DummyParticle(0, 0)])
+            return DummyVector(
+                [DummyParticle(invalid_parent_id, 0), DummyParticle(0, 0)]
+            )
 
     parser = LArCVParticleGraphParser(dtype="float32", particle_event="particle")
     result = parser.process(particle_event=DummyEvent())

@@ -40,6 +40,7 @@ from ..base import ParserBase
 from .utils.particle import (
     get_interaction_ids,
     get_invalid_index,
+    get_invalid_parent_id,
     process_particles,
 )
 from .utils.point import get_ppn_labels, get_vertex_labels
@@ -351,7 +352,10 @@ class LArCVNeutrinoParser(ParserBase):
             for n in neutrino_list
         ]
 
-        # Register the interaction IDs of invalid neutrinos to -1
+        # Neutrino.interaction_id still defaults to the legacy INVAL_IDX in
+        # current LArCV, independently of the particle interaction-ID sentinel.
+        # Accept INVAL_ID as well for files whose producer used InstanceID_t's
+        # sentinel explicitly.
         for neutrino in neutrinos:
             if neutrino.interaction_id in (INVAL_ID, INVAL_IDX):
                 neutrino.interaction_id = -1
@@ -818,11 +822,16 @@ class LArCVParticleGraphParser(ParserBase):
                     "There can me one more catch-all cluster at the end."
                 )
 
+        # Infer the parent sentinel once for the complete event. LArCV widened
+        # particle parent IDs after legacy files had already used INVAL_IDX.
+        parent_ids = np.array([part.parent_id() for part in particles_v], dtype=int)
+        invalid_parent_id = get_invalid_parent_id(parent_ids, num_particles)
+
         # Build a list of edges
         edges, zero_nodes = [], []
         for cluster_id, part in enumerate(particles_v):
             # If the parent ID is invalid (broken parentage), skip
-            if part.parent_id() == INVAL_ID:
+            if invalid_parent_id is not None and part.parent_id() == invalid_parent_id:
                 continue
 
             # Only include edges within particle groups if explicitely requested
