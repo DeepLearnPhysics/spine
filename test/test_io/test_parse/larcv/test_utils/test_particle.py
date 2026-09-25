@@ -11,6 +11,7 @@ from spine.io.parse.larcv.utils.particle import (
     get_inter_primary_ids,
     get_interaction_ids,
     get_invalid_index,
+    get_invalid_parent_id,
     get_nu_ids,
     get_particle_ids,
     get_valid_mask,
@@ -248,6 +249,22 @@ def test_neutrino_ids_from_ids_and_positions():
         get_nu_ids(particles, groups, interactions, neutrinos=neutrinos), [0]
     )
 
+    # The first neutrino may have LArCV's field-specific legacy sentinel even
+    # when a later neutrino provides a usable interaction ID.
+    mixed_neutrinos = [
+        SimpleNamespace(
+            interaction_id=lambda: INVAL_IDX,
+            position=lambda: particles[0].ancestor_position(),
+        ),
+        SimpleNamespace(
+            interaction_id=lambda: 4,
+            position=lambda: particles[0].ancestor_position(),
+        ),
+    ]
+    np.testing.assert_array_equal(
+        get_nu_ids(particles, groups, interactions, neutrinos=mixed_neutrinos), [1]
+    )
+
     position_only = [SimpleNamespace(position=lambda: particles[0].ancestor_position())]
     with pytest.warns(UserWarning, match="floating point"):
         ids = get_nu_ids(particles, groups, interactions, neutrinos=position_only)
@@ -255,6 +272,13 @@ def test_neutrino_ids_from_ids_and_positions():
     with pytest.raises(AssertionError, match="both"):
         get_nu_ids(particles, groups, interactions, particles, neutrinos)
     assert get_nu_ids([], np.empty(0), np.empty(0)).shape == (0,)
+
+
+def test_invalid_parent_id_inference():
+    """Parent sentinels should follow particle field and event-size semantics."""
+    assert get_invalid_parent_id([INVAL_ID, INVAL_IDX], 2) == INVAL_ID
+    assert get_invalid_parent_id([INVAL_IDX], 2) == INVAL_IDX
+    assert get_invalid_parent_id([INVAL_IDX], INVAL_IDX + 1) is None
 
 
 def test_primary_and_particle_id_error_branches():

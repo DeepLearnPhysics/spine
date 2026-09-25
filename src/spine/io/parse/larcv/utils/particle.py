@@ -148,14 +148,13 @@ def process_particle_event(
     if neutrino_event is not None:
         neutrinos = list(neutrino_event.as_vector())
 
-    # Check on the parent ID of each particle
+    # Parent IDs use the shared LArCV InstanceID_t sentinel. Infer its version
+    # separately from other fields: neutrino IDs intentionally follow a
+    # different sentinel convention in current LArCV releases.
     parent_ids = np.array([p.parent_id() for p in particles], dtype=int)
-    if np.any(parent_ids == INVAL_ID):
-        # This takes care of ICARUS/SBND file issues
-        parent_ids[parent_ids == INVAL_ID] = -1
-    elif len(particles) <= INVAL_IDX:
-        # This takes care of generic file issues
-        parent_ids[parent_ids == INVAL_IDX] = -1
+    invalid_parent_id = get_invalid_parent_id(parent_ids, len(particles))
+    if invalid_parent_id is not None:
+        parent_ids[parent_ids == invalid_parent_id] = -1
 
     # Check on the group ID of each particle
     # This takes care of DUNE-ND/2x2 file issues
@@ -211,6 +210,36 @@ def get_invalid_index(indexes):
         Index values from one LArCV event.
     """
     return INVAL_ID if np.max(indexes, initial=-1) > INVAL_IDX else INVAL_IDX
+
+
+def get_invalid_parent_id(parent_ids, num_particles):
+    """Infer the invalid parent-ID sentinel used by one LArCV event.
+
+    Current LArCV files use :data:`INVAL_ID` for particle parent IDs, while
+    legacy files use :data:`INVAL_IDX`. Seeing :data:`INVAL_ID` identifies the
+    current convention. Otherwise, :data:`INVAL_IDX` can only be treated as a
+    sentinel when the particle collection is too small for it to be a valid
+    parent ID.
+
+    Parameters
+    ----------
+    parent_ids : array-like
+        Parent IDs from one particle event.
+    num_particles : int
+        Number of particles in the event.
+
+    Returns
+    -------
+    int, optional
+        Invalid parent-ID sentinel, or ``None`` when the convention is
+        ambiguous and neither value can be safely discarded.
+    """
+    parent_ids = np.asarray(parent_ids)
+    if np.any(parent_ids == INVAL_ID):
+        return INVAL_ID
+    if num_particles <= INVAL_IDX:
+        return INVAL_IDX
+    return None
 
 
 def get_valid_mask(particles):
@@ -376,12 +405,19 @@ def get_nu_ids(
             ref_pos = np.unique(ref_pos, axis=0)
 
         elif neutrinos and len(neutrinos) > 0:
-            if (
-                hasattr(neutrinos[0], "interaction_id")
-                and neutrinos[0].interaction_id() != INVAL_IDX
-            ):
-                ref_ids = np.array([n.interaction_id() for n in neutrinos])
-            else:
+            if hasattr(neutrinos[0], "interaction_id"):
+                # LArCV Neutrino still initializes this field with INVAL_IDX,
+                # despite storing it as the widened InstanceID_t. Accept the
+                # wider sentinel defensively, but do not infer its convention
+                # from particle interaction IDs.
+                candidate_ids = np.array(
+                    [n.interaction_id() for n in neutrinos], dtype=int
+                )
+                invalid_mask = np.isin(candidate_ids, (INVAL_IDX, INVAL_ID))
+                if np.any(~invalid_mask):
+                    ref_ids = candidate_ids
+
+            if ref_ids is None:
                 ref_pos = np.vstack([get_coords(n.position()) for n in neutrinos])
 
         # If an interaction ID is provided for neutrinos, the matching is trivial
