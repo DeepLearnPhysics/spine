@@ -2103,6 +2103,8 @@ def test_particle_aggregation_loss_uses_one_stage_namespace(monkeypatch) -> None
                 "num_losses": 1,
                 "node_target": marker,
                 "node_valid": marker,
+                "_loss_active": True,
+                "_loss_terms": {"node": marker},
             }
 
     monkeypatch.setattr(
@@ -2132,6 +2134,8 @@ def test_particle_aggregation_loss_uses_one_stage_namespace(monkeypatch) -> None
     assert "particle_aggregation_shower_node_valid" in result
     assert "particle_aggregation_track_node_target" in result
     assert "particle_aggregation_track_node_valid" in result
+    assert set(result["_loss_terms"]) == {"particle_aggregation"}
+    assert not any("__loss_" in key for key in result)
     assert not any(
         key.startswith("particle_aggregation_particle_aggregation_") for key in result
     )
@@ -2200,6 +2204,11 @@ def test_full_chain_loss_balances_provider_stages() -> None:
     torch.testing.assert_close(result["loss"], torch.tensor(6.0))
     torch.testing.assert_close(result["segmentation_weight"], torch.tensor(2.0))
     torch.testing.assert_close(result["particle_weight"], torch.tensor(0.5))
+    assert set(result["_loss_terms"]) == {"segmentation", "particle"}
+    torch.testing.assert_close(
+        sum(term.value for term in result["_loss_terms"].values()),
+        result["loss"],
+    )
 
 
 def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:

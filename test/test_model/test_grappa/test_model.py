@@ -1329,6 +1329,11 @@ def test_grappa_loss_balances_producer_declared_objectives():
     torch.testing.assert_close(result["loss"], torch.tensor(5.5))
     torch.testing.assert_close(result["node_weight"], torch.tensor(1.0))
     torch.testing.assert_close(result["edge_weight"], torch.tensor(0.25))
+    assert set(result["_loss_terms"]) == {"node", "edge"}
+    torch.testing.assert_close(
+        sum(term.value for term in result["_loss_terms"].values()),
+        result["loss"],
+    )
 
     adaptive = GrapPALoss(config, loss_balancing={"name": "uncertainty"})
     adaptive.node_loss = ConstantLoss(4.0, "gaussian", 2)
@@ -1338,6 +1343,7 @@ def test_grappa_loss_balances_producer_declared_objectives():
     # Likelihood-specific initialization preserves GrapPA's historical mean.
     torch.testing.assert_close(result["loss"], torch.tensor(5.0))
     assert set(adaptive.loss_balancer.log_variances) == {"node", "edge"}
+    assert set(result["_loss_terms"]) == {"node", "edge"}
     result["loss"].backward()
     assert all(
         parameter.grad is not None for parameter in adaptive.loss_balancer.parameters()

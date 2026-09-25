@@ -1,11 +1,13 @@
 """Unit tests for model discovery and manager configuration handling."""
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
+from spine.model.common.loss_balancing import LossTerm
 from spine.model.manager import ModelManager
 from spine.utils.conditional import TORCH_AVAILABLE, torch
 
@@ -266,6 +268,104 @@ def test_manager_tracks_gradients_after_freezing_and_before_updates(monkeypatch)
     assert result["gradient_objective_missing_fraction"] == 0.0
 
 
+@pytest.mark.model
+@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is required.")
+def test_manager_applies_pcgrad_and_tracks_projected_gradients(monkeypatch):
+    """PCGrad metadata should stay private while projected metrics are logged."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor([1.0, 1.0]))
+
+        def forward(self, data):
+            return {"prediction": self.weight + 0.0 * data.sum()}
+
+    class Loss(torch.nn.Module):
+        def __init__(self, **_modules):
+            super().__init__()
+
+        def forward(self, prediction, target):
+            first = prediction[0] + 0.0 * target.sum()
+            second = -prediction[0] + prediction[1]
+            return {
+                "loss": first + second,
+                "_loss_terms": {
+                    "first": LossTerm(first, "composite"),
+                    "second": LossTerm(second, "composite"),
+                },
+            }
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, Loss)
+    )
+    manager = ModelManager(
+        name="test",
+        modules={},
+        network_input={"data": "data"},
+        loss_input={"target": "target"},
+        train={
+            "optimizer": {"name": "SGD", "lr": 0.1},
+            "gradient_balancing": {"name": "pcgrad"},
+            "gradient_tracking": True,
+        },
+    )
+
+    result = manager(
+        {"data": torch.ones(1), "target": torch.zeros(1)},
+        iteration=0,
+    )
+
+    assert "_loss_terms" not in result
+    assert result["pcgrad_projection_count"] == 2
+    assert result["gradient_global_norm"] == pytest.approx(math.sqrt(2.5))
+    torch.testing.assert_close(manager.net.weight, torch.tensor([0.95, 0.85]))
+
+    evaluated = manager.evaluate(
+        {"data": torch.ones(1), "target": torch.zeros(1)},
+        iteration=1,
+    )
+    assert "_loss_terms" not in evaluated
+
+
+def test_manager_rejects_distributed_pcgrad(monkeypatch):
+    """Task gradients must not silently use rank-local projection under DDP."""
+
+    class Network(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(1.0))
+
+        def to(self, **_kwargs):
+            return self
+
+    class Loss(torch.nn.Module):
+        def __init__(self, **_modules):
+            super().__init__()
+
+        def to(self, **_kwargs):
+            return self
+
+    monkeypatch.setattr(
+        "spine.model.manager.model_factory", lambda _name: (Network, Loss)
+    )
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+
+    with pytest.raises(ValueError, match="does not yet support distributed"):
+        ModelManager(
+            name="test",
+            modules={},
+            network_input={"data": "data"},
+            loss_input={"target": "target"},
+            train={
+                "optimizer": {"name": "SGD", "lr": 0.1},
+                "gradient_balancing": {"name": "pcgrad"},
+            },
+            distributed=True,
+            rank=0,
+        )
+
+
 def test_manager_disables_gradient_tracking_by_default():
     """Legacy training should not construct or emit gradient diagnostics."""
     network = torch.nn.Linear(1, 1)
@@ -285,6 +385,11 @@ def test_initialize_train_validates_gradient_tracking_type():
         manager.initialize_train(
             optimizer={"name": "Adam"},
             gradient_tracking=[],
+        )
+    with pytest.raises(TypeError, match="gradient_balancing.*mapping"):
+        manager.initialize_train(
+            optimizer={"name": "Adam"},
+            gradient_balancing=True,
         )
 
 
@@ -695,6 +800,13 @@ def test_backward_rejects_detached_loss():
     manager.gradient_tracker = SimpleNamespace(collect=lambda _iteration: {})
     with pytest.raises(ValueError, match="requires the current training iteration"):
         manager.backward(parameter.square())
+
+    manager.gradient_tracker = None
+    manager.gradient_balancer = SimpleNamespace(backward=lambda *_args: {})
+    with pytest.raises(ValueError, match="balancing requires.*iteration"):
+        manager.backward(parameter.square())
+    with pytest.raises(RuntimeError, match="per-objective loss metadata"):
+        manager.backward(parameter.square(), iteration=0)
 
 
 def test_call_validates_training_outputs_and_iteration():

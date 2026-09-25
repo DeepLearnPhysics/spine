@@ -268,13 +268,21 @@ class FullChainLoss(torch.nn.Module):
             # Keep component diagnostics unambiguous across interchangeable
             # providers while retaining the chain-wide summary keys above.
             for key, value in stage_result.items():
-                if key not in {"loss", "accuracy", "num_losses", "_loss_active"}:
+                if key not in {
+                    "loss",
+                    "accuracy",
+                    "num_losses",
+                    "_loss_active",
+                    "_loss_terms",
+                }:
                     result[f"{stage.name}_{key}"] = value
 
         loss_balancer = getattr(self, "loss_balancer", None)
         if loss_balancer is not None and loss_balancer.mode != "sum":
-            result["loss"], diagnostics = loss_balancer(loss_terms)
+            result["loss"], diagnostics, loss_terms = loss_balancer.combine(loss_terms)
             result.update(diagnostics)
+        if loss_terms:
+            result["_loss_terms"] = loss_terms
         return result
 
 

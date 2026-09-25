@@ -253,6 +253,7 @@ Model modules
    spine.model.common.factories
    spine.model.common.final
    spine.model.common.gradient
+   spine.model.common.gradient_surgery
    spine.model.common.loss_balancing
    spine.model.common.losses
    spine.model.common.metric

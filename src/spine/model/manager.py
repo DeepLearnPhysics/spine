@@ -31,6 +31,7 @@ from .checkpoint import (
     save_checkpoint,
 )
 from .common.gradient import GradientTracker
+from .common.gradient_surgery import PCGrad
 from .factories import model_factory
 
 
@@ -138,6 +139,7 @@ class ModelManager:
         self.configured_weight_path = weight_path
         self.start_epoch: float | None = 0.0
         self.gradient_tracker: GradientTracker | None = None
+        self.gradient_balancer: PCGrad | None = None
 
         # Determine device: use current_device() which setup_ddp() already configured
         if self.rank is None:
@@ -206,6 +208,16 @@ class ModelManager:
                 {"network": self.net, "loss": self.loss_fn},
                 self.gradient_tracking_config,
             )
+        if self.train and self.gradient_balancing_config is not None:
+            if self.distributed:
+                raise ValueError(
+                    "PCGrad does not yet support distributed training because "
+                    "task gradients require an explicit cross-rank reduction."
+                )
+            self.gradient_balancer = PCGrad.from_module(
+                self.net,
+                self.gradient_balancing_config,
+            )
 
         # Parse the list of weight files to consider for loading
         self.weight_path = weight_path
@@ -265,6 +277,7 @@ class ModelManager:
         iter_per_epoch: int | None = None,
         scheduler_resume: str = "restore",
         gradient_tracking: bool | Mapping[str, Any] | None = None,
+        gradient_balancing: Mapping[str, Any] | None = None,
     ) -> None:
         """Initialize the training regimen.
 
@@ -305,6 +318,10 @@ class ModelManager:
             positive ``interval``, an ``include_global`` flag and named
             ``groups`` of parameter-name glob patterns. Canonical parameter
             names begin with ``network.`` or ``loss.``.
+        gradient_balancing : mapping, optional
+            Apply a task-gradient strategy after loss combination. ``pcgrad``
+            accepts optional network-parameter glob patterns under
+            ``parameters`` and a deterministic ``seed``.
         """
         # Turn train on
         self.train = True
@@ -350,6 +367,11 @@ class ModelManager:
                 "Training `gradient_tracking` must be a boolean or mapping."
             )
         self.gradient_tracking_config = gradient_tracking
+        if gradient_balancing is not None and not isinstance(
+            gradient_balancing, Mapping
+        ):
+            raise TypeError("Training `gradient_balancing` must be a mapping.")
+        self.gradient_balancing_config = gradient_balancing
         if scheduler_resume == "restart" and lr_scheduler is None:
             raise ValueError("`scheduler_resume: restart` requires `lr_scheduler`.")
 
@@ -488,13 +510,17 @@ class ModelManager:
         self.watch.start("forward")
         result = self.forward(data, iteration)
         self.watch.stop("forward")
+        loss_terms = result.pop("_loss_terms", None)
 
         # If training, run the backward pass and update the weights
         if self.train:
             if "loss" not in result:
                 raise RuntimeError("Every trainable model must return a `loss` value.")
             self.watch.start("backward")
-            gradient_metrics = self.backward(result["loss"], iteration)
+            if getattr(self, "gradient_balancer", None) is None:
+                gradient_metrics = self.backward(result["loss"], iteration)
+            else:
+                gradient_metrics = self.backward(result["loss"], iteration, loss_terms)
             result.update(gradient_metrics)
             self.watch.stop("backward")
 
@@ -546,6 +572,7 @@ class ModelManager:
         try:
             with torch.no_grad():
                 result = self.forward(data, iteration)
+                result.pop("_loss_terms", None)
         finally:
             self.train = was_training
             self.net.train(net_training)
@@ -1246,7 +1273,10 @@ class ModelManager:
         return result
 
     def backward(
-        self, loss: Any, iteration: int | None = None
+        self,
+        loss: Any,
+        iteration: int | None = None,
+        loss_terms: Mapping[str, Any] | None = None,
     ) -> dict[str, float | int]:
         """Run the backward step on the model.
 
@@ -1256,6 +1286,9 @@ class ModelManager:
             Scalar loss value to step the model weights
         iteration : int, optional
             Zero-based optimizer iteration used by gradient-tracking cadence.
+        loss_terms : mapping, optional
+            Private per-objective contributions used by configured gradient
+            balancing strategies.
 
         Returns
         -------
@@ -1271,18 +1304,31 @@ class ModelManager:
                 "Ensure it depends on at least one trainable model parameter."
             )
 
-        # Run the model backward
-        loss.backward()
+        # Run ordinary backpropagation or let the configured task-gradient
+        # strategy replace gradients on its dynamically shared parameters.
+        gradient_metrics: dict[str, float | int] = {}
+        balancer = getattr(self, "gradient_balancer", None)
+        if balancer is None:
+            loss.backward()
+        else:
+            if iteration is None:
+                raise ValueError(
+                    "Gradient balancing requires the current training iteration."
+                )
+            if loss_terms is None:
+                raise RuntimeError(
+                    "Gradient balancing requires per-objective loss metadata."
+                )
+            gradient_metrics.update(balancer.backward(loss, loss_terms, iteration))
 
         # Read synchronized gradients before the optimizer can modify them.
-        gradient_metrics: dict[str, float | int] = {}
         tracker = getattr(self, "gradient_tracker", None)
         if tracker is not None:
             if iteration is None:
                 raise ValueError(
                     "Gradient tracking requires the current training iteration."
                 )
-            gradient_metrics = tracker.collect(iteration)
+            gradient_metrics.update(tracker.collect(iteration))
 
         # Step the optimizer
         self.optimizer.step()

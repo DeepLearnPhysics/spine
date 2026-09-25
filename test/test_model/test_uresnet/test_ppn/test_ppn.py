@@ -949,6 +949,16 @@ def test_combined_loss_applies_fixed_component_balancing(cnn_config):
     assert result["loss"].item() == pytest.approx(23.0)
     assert result["segmentation_weight"].item() == pytest.approx(0.5)
     assert result["ppn_regression_weight"].item() == pytest.approx(2.0)
+    assert set(result["_loss_terms"]) == {
+        "segmentation",
+        "ppn_mask",
+        "ppn_type",
+        "ppn_regression",
+    }
+    torch.testing.assert_close(
+        sum(term.value for term in result["_loss_terms"].values()),
+        result["loss"],
+    )
 
 
 def test_combined_loss_balances_vertex_components(cnn_config):
@@ -988,6 +998,11 @@ def test_combined_loss_balances_vertex_components(cnn_config):
     torch.testing.assert_close(result["loss"], torch.tensor(6.0))
     assert result["vertex_mask_weight"].item() == pytest.approx(1.0)
     assert result["vertex_regression_weight"].item() == pytest.approx(1.0)
+    assert set(result["_loss_terms"]) == {
+        "segmentation",
+        "vertex_mask",
+        "vertex_regression",
+    }
 
 
 @pytest.mark.parametrize("proposal", ["ppn", "vertex"])

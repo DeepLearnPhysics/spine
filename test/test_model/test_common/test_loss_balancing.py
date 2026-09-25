@@ -37,9 +37,15 @@ def test_fixed_balancing_applies_user_priorities():
         "second": LossTerm(torch.tensor(3.0), "gaussian", scale=2.0),
     }
 
-    loss, diagnostics = balancer(terms)
+    loss, diagnostics, balanced_terms = balancer.combine(terms)
 
     assert loss.item() == pytest.approx(14.0)
+    assert sum(term.value for term in balanced_terms.values()).item() == pytest.approx(
+        loss.item()
+    )
+    assert balanced_terms["first"].value.item() == pytest.approx(2.0)
+    assert balanced_terms["second"].value.item() == pytest.approx(12.0)
+    assert all(term.scale == 1.0 for term in balanced_terms.values())
     assert diagnostics["first_weight"].item() == pytest.approx(0.25)
     assert diagnostics["second_weight"].item() == pytest.approx(4.0)
 
