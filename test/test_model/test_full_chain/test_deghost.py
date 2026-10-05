@@ -7,6 +7,7 @@ import torch
 from spine.constants import GHOST_SHP
 from spine.data import ClusterLabelBatch, TensorBatch
 from spine.model.full_chain.providers import deghost as deghost_module
+from spine.model.full_chain.providers.calibration import CalibrationStage
 from spine.model.full_chain.providers.deghost import (
     DeghostLossStage,
     DeghostStage,
@@ -155,6 +156,102 @@ def test_charge_rescaling_optionally_publishes_plane_information() -> None:
         [2, 1, 0],
     ]
     assert result.outputs["charge_per_plane"].counts.tolist() == [2]
+
+
+@pytest.mark.parametrize(
+    ("charge_rescaling", "store_charge_info"),
+    [
+        (None, False),
+        ("label", False),
+        ("collection", False),
+        ("collection", True),
+        ("average", False),
+        ("average", True),
+    ],
+)
+def test_deghosting_between_calibrations(charge_rescaling, store_charge_info) -> None:
+    """Model scaling does not carry into hit charge or a later calibration."""
+
+    class Gain:
+        update_points = False
+
+        def __init__(self, factor):
+            self.factor = factor
+
+        def __call__(self, points, values, *args, **kwargs):
+            return points, values * self.factor
+
+    class Model:
+        def __call__(self, data):
+            torch.testing.assert_close(
+                data.values.torch_tensor(), torch.tensor([1.1, 2.2, 3.3, 4.4])
+            )
+            return {
+                "segmentation": TensorBatch(
+                    torch.tensor([[2.0, 0.0], [0.0, 2.0], [2.0, 0.0], [0.0, 2.0]]),
+                    counts=[4],
+                )
+            }
+
+    # Both surviving points share the collection hit: its charge is divided
+    # between them after ghost removal, independently of the model input gain.
+    hits = torch.tensor([[6.0, 12.0, 18.0, 0.0, 1.0, 2.0]]).repeat(4, 1)
+    data = TensorBatch(
+        torch.cat((make_data().torch_tensor(), hits), dim=1),
+        counts=[4],
+        has_batch_col=True,
+        coord_cols=np.arange(1, 4),
+    )
+    original = data.torch_tensor().clone()
+    state = ChainState(
+        data=data,
+        meta=[object()],
+        seg_label=make_seg_label(),
+        clust_label=make_cluster_label(),
+        sources=TensorBatch(torch.arange(8).reshape(4, 2), counts=[4]),
+    )
+    first = CalibrationStage("predeghost", "apply", Gain(1.1))
+    state.publish(first.name, first(state), first.replaces)
+    stage = DeghostStage(
+        "deghost",
+        "label" if charge_rescaling == "label" else "uresnet",
+        None if charge_rescaling == "label" else Model(),
+        charge_rescaling,
+        store_charge_info,
+    )
+    state.publish(stage.name, stage(state), stage.replaces)
+    adapted = state.require("point_data")
+    expected_charge = {
+        None: [1.0, 3.0],
+        "collection": [9.0, 9.0],
+        "average": [6.0, 6.0],
+        "label": [10.0, 30.0],
+    }[charge_rescaling]
+    assert adapted.data_q.values.torch_tensor().tolist() == expected_charge
+    assert adapted.orig_index.index.tolist() == [0, 2]
+    assert adapted.sources.torch_tensor().tolist() == [[0, 1], [4, 5]]
+    if charge_rescaling is None:
+        assert adapted.data is adapted.data_calib
+    else:
+        assert adapted.data_calib is None
+        assert adapted.data is adapted.data_q
+    if store_charge_info:
+        assert (
+            state.outputs["charge_per_plane"].torch_tensor().tolist()
+            == [[6.0, 12.0, 18.0]] * 2
+        )
+        assert (
+            state.outputs["charge_multiplicity"].torch_tensor().tolist()
+            == [[2, 2, 2]] * 2
+        )
+
+    second = CalibrationStage("presegmentation", "apply", Gain(2.0))
+    state.publish(second.name, second(state), second.replaces)
+    final = state.require("point_data")
+    assert final.data.values.torch_tensor().tolist() == [2 * q for q in expected_charge]
+    assert final.data_q.values.torch_tensor().tolist() == expected_charge
+    assert final.data.counts.tolist() == [2]
+    torch.testing.assert_close(data.torch_tensor(), original)
 
 
 def test_deghost_stage_validates_modes_and_inputs() -> None:

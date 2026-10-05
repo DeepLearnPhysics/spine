@@ -190,13 +190,18 @@ class PointBatch:
             meta=data.meta,
         )
 
-    def with_charge(self, values: Any) -> "PointBatch":
+    def with_charge(
+        self, values: Any, *, invalidate_calibration: bool = False
+    ) -> "PointBatch":
         """Replace charge values without changing the aligned row domain.
 
         Parameters
         ----------
         values : array-like
             New charge values, one per current point row.
+        invalidate_calibration : bool, default False
+            Explicitly discard any calibrated values and coordinates, making
+            the updated charge representation active.
 
         Returns
         -------
@@ -206,15 +211,15 @@ class PointBatch:
         Raises
         ------
         ValueError
-            If calibrated data are already attached. Changing their source
-            charge would make the existing calibration stale.
+            If calibrated data are attached and invalidation was not requested.
+            Changing their source charge would make the calibration stale.
         """
-        if self.data_calib is not None:
+        if self.data_calib is not None and not invalidate_calibration:
             raise ValueError(
                 "Charge cannot be changed after calibration without recalibrating."
             )
         data_q = self._copy_with_values(self.data_q, values)
-        result = replace(self, data=data_q, data_q=data_q)
+        result = replace(self, data=data_q, data_q=data_q, data_calib=None)
         result._validate()
         return result
 
