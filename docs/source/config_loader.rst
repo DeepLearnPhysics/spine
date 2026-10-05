@@ -339,3 +339,19 @@ Those keys do not imply a provider:
 Metadata names and geometry detector names are not implementation selectors.
 These conventions concern component construction, not arbitrary fields called
 ``name``.
+
+
+Override and removal ordering
+-----------------------------
+
+All loading entry points, including ordinary ``include:`` and inline
+``!include``, apply ``override:`` entries in declaration order followed by
+``remove:`` paths. The placement of these directive blocks in YAML does not
+change their execution order. Includes are processed in listed order, followed
+by the including file's own content and directives. A later include may restore
+a key removed by an earlier modifier.
+
+This is a behavior change for included files that previously removed keys
+before applying overrides. Delete redundant removals of keys being replaced,
+or of children already omitted by a replacement mapping. Keep removals of
+unrelated paths. Missing-target and deferred-override policies are unchanged.

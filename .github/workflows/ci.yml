@@ -89,7 +89,7 @@ jobs:
         pytest test/test_conditional_imports.py -v --cov=spine --cov-report=xml
 
     - name: Test configuration composition and ordered edits
-      run: pytest test/test_config test/test_bin -v
+      run: pytest test/test_config test/test_bin/test_cli.py test/test_bin/test_source.py -v
 
     - name: Test ordered module managers
       run: pytest test/test_calib/test_manager.py test/test_post/test_manager.py test/test_ana/test_manager.py test/test_io/test_manager.py -v

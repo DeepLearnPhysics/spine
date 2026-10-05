@@ -650,7 +650,7 @@ def build_interaction_aggregation_loss(
     image_tasks = {task for task, mode in task_modes.items() if mode == "image"}
     node_loss = loss_config.get("node_loss")
     if image_tasks and isinstance(node_loss, dict):
-        if "name" in node_loss:
+        if "provider" in node_loss or "name" in node_loss:
             raise ValueError(
                 "A single interaction GrapPA node loss is ambiguous when particle "
                 "tasks are delegated to the image provider. Configure named node "

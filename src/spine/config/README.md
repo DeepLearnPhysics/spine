@@ -430,10 +430,17 @@ remove:
 A single path may also be supplied as `remove: base.debug_mode`.
 The same null-as-value rule applies to CLI assignments and named-list updates.
 
-The existing directive order is currently context-dependent: included-file
-processing applies `remove:` before `override:`, while top-level and inline
-`!include` finalization apply `override:` before `remove:`. Avoid targeting the
-same path with both directives until that ordering policy is unified.
+All loading boundaries use the same directive order: resolve includes in their
+listed order, merge the file's own content, apply `override:` entries in
+declaration order, then apply `remove:` paths. Placing the `remove:` block earlier
+in the YAML does not change this order. Each included modifier finishes before
+the next include is merged, so later files can restore an earlier removed key.
+The existing handling of missing targets and deferred overrides is unchanged.
+
+This changes included files that previously relied on removals running first.
+Remove redundant deletions of keys that an override replaces or already omits.
+For example, overriding a batch size needs no preceding removal of that same
+key; replacing an input mapping needs no removal of its former children.
 
 ### Command Line
 
@@ -1099,7 +1106,7 @@ from spine.config import load_config
 **What's new in v0.9.0:**
 - File composition with `include:`
 - Parameter overrides with `override:`
-- Key removal with `remove:` and `null`
+- Key removal with `remove:`; `null` remains a value
 - Metadata system with `__meta__`
 - Version compatibility checking
 - Typed exception hierarchy

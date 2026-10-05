@@ -15,7 +15,7 @@ import yaml
 from .api import META_KEY, META_LIST_APPEND, META_STRICT
 from .download import download_from_url
 from .errors import ConfigIncludeError
-from .operations import apply_collection_operation, parse_value, set_nested_value
+from .operations import apply_overrides_and_removals
 
 __all__ = ["ConfigLoader", "DownloadTag", "resolve_config_path"]
 
@@ -201,28 +201,10 @@ class ConfigLoader(yaml.SafeLoader):
         strict = metadata.get(META_STRICT, "warn")
         list_append_mode = metadata.get(META_LIST_APPEND, "append")
 
-        # Apply any remaining overrides
-        for key_path, value in overrides.items():
-            parsed_value = parse_value(value)
-
-            if key_path.endswith(("+", "-", "~")):
-                # Collection operations
-                base_key = key_path[:-1]
-                operation = key_path[-1]
-                config = apply_collection_operation(
-                    config, base_key, parsed_value, operation, strict, list_append_mode
-                )
-            else:
-                # Regular override
-                config, _ = set_nested_value(
-                    config, key_path, parsed_value, only_if_exists=True
-                )
-
-        # Apply any remaining removals
-        for key_path in removals:
-            config, _ = set_nested_value(
-                config, key_path, None, delete=True, strict=strict
-            )
+        # Finalize directives with the same ordering as ordinary includes.
+        config, _ = apply_overrides_and_removals(
+            config, overrides, removals, strict, list_append_mode, defer_missing=False
+        )
 
         # Strip __meta__ block (should already be removed but be defensive)
         if isinstance(config, dict) and META_KEY in config:

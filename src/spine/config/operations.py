@@ -568,8 +568,10 @@ def apply_overrides_and_removals(
     removals: List[str],
     strict: str,
     list_append_mode: str,
+    *,
+    defer_missing: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Apply overrides and removals to config.
+    """Apply overrides in declaration order, then explicit removals.
 
     Parameters
     ----------
@@ -584,6 +586,10 @@ def apply_overrides_and_removals(
     list_append_mode : str
         "append" or "unique" for list operations
 
+    defer_missing : bool, default True
+        Retain missing override paths for the including configuration. At a
+        final loading boundary, use existing strict collection handling instead.
+
     Returns
     -------
     Tuple[Dict[str, Any], Dict[str, Any]]
@@ -591,15 +597,20 @@ def apply_overrides_and_removals(
     """
     unapplied_overrides = {}
 
-    # Apply removals first
-    for key_path in removals:
-        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
-
     # Apply overrides
     for key_path, value in overrides.items():
         parsed_value = parse_value(value)
 
-        if key_path.endswith("~"):
+        if not defer_missing and key_path.endswith(("+", "-", "~")):
+            config = apply_collection_operation(
+                config,
+                key_path[:-1],
+                parsed_value,
+                key_path[-1],
+                strict,
+                list_append_mode,
+            )
+        elif key_path.endswith("~"):
             # Named edits must resolve here; propagating them could reorder or
             # overwrite operations from separate modifiers on the same path.
             config = apply_named_list_edits(config, key_path[:-1], parsed_value)
@@ -626,7 +637,11 @@ def apply_overrides_and_removals(
             config, applied = set_nested_value(
                 config, key_path, parsed_value, only_if_exists=True
             )
-            if not applied:
+            if not applied and defer_missing:
                 unapplied_overrides[key_path] = value
+
+    # Apply removals last, regardless of directive placement in YAML
+    for key_path in removals:
+        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
 
     return config, unapplied_overrides

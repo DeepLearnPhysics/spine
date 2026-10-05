@@ -29,13 +29,10 @@ from .meta import (
     extract_modifier,
 )
 from .operations import (
-    apply_collection_operation,
     apply_overrides_and_removals,
     deep_merge,
     expand_env_vars,
     extract_includes_and_overrides,
-    parse_value,
-    set_nested_value,
 )
 
 __all__ = ["load_config", "load_config_file"]
@@ -344,28 +341,10 @@ def load_config(
     strict = metadata[META_STRICT]
     list_append_mode = metadata[META_LIST_APPEND]
 
-    # Apply top-level overrides
-    # Note: these include both explicit top-level overrides and propagated ones from nested files
-    # Use strict mode from top-level metadata
-    for key_path, value in overrides.items():
-        parsed_value = parse_value(value)
-
-        if key_path.endswith(("+", "-", "~")):
-            # Collection operations - use strict mode from metadata
-            base_key = key_path[:-1]
-            operation = key_path[-1]
-            config = apply_collection_operation(
-                config, base_key, parsed_value, operation, strict, list_append_mode
-            )
-        else:
-            # Regular override - silently skip if parent doesn't exist
-            config, _ = set_nested_value(
-                config, key_path, parsed_value, only_if_exists=True
-            )
-
-    # Apply top-level removals
-    for key_path in removals:
-        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
+    # Finalize directives with the same ordering used for included files.
+    config, _ = apply_overrides_and_removals(
+        config, overrides, removals, strict, list_append_mode, defer_missing=False
+    )
 
     # Remove __meta__ from final config
     if META_KEY in config:
@@ -437,28 +416,10 @@ def load_config_file(cfg_path: str, download: bool = True) -> Dict[str, Any]:
     strict = metadata[META_STRICT]
     list_append_mode = metadata[META_LIST_APPEND]
 
-    # Apply top-level overrides
-    # Note: these include both explicit top-level overrides and propagated ones from nested files
-    # Use strict mode from top-level metadata
-    for key_path, value in overrides.items():
-        parsed_value = parse_value(value)
-
-        if key_path.endswith(("+", "-", "~")):
-            # Collection operations - use strict mode from metadata
-            base_key = key_path[:-1]
-            operation = key_path[-1]
-            config = apply_collection_operation(
-                config, base_key, parsed_value, operation, strict, list_append_mode
-            )
-        else:
-            # Regular override - silently skip if parent doesn't exist
-            config, _ = set_nested_value(
-                config, key_path, parsed_value, only_if_exists=True
-            )
-
-    # Apply top-level removals
-    for key_path in removals:
-        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
+    # Finalize directives with the same ordering used for included files.
+    config, _ = apply_overrides_and_removals(
+        config, overrides, removals, strict, list_append_mode, defer_missing=False
+    )
 
     # Remove __meta__ from final config
     if META_KEY in config:

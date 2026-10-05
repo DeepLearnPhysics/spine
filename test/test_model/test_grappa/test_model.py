@@ -1707,3 +1707,30 @@ def test_grappa_loss_validates_configuration_outputs_and_return_type(
             graph_labels,
             node_pred=TensorBatch(torch.zeros((3, 2)), [2, 1]),
         )
+
+
+@pytest.mark.parametrize(
+    "head, expected",
+    [
+        (2, ["node_pred"]),
+        ({"provider": "linear", "out_channels": 2}, ["node_pred"]),
+        ({"name": "linear", "out_channels": 2}, ["node_pred"]),
+        ({"type": {"provider": "linear", "out_channels": 2}}, ["node_type_pred"]),
+    ],
+)
+def test_grappa_dispatches_integer_and_provider_output_heads(head, expected):
+    """Single descriptors and named head mappings must remain distinct."""
+    config = shower_model_config()
+    config["gnn_model"]["node_pred"] = head
+    model = GrapPA(config)
+    assert model.node_pred_keys == expected
+    for key in expected:
+        assert isinstance(getattr(model, key), torch.nn.Module)
+
+
+@pytest.mark.parametrize("selector", ["provider", "name"])
+def test_grappa_dispatches_single_provider_loss(selector):
+    """The provider field selects one loss rather than a named-loss mapping."""
+    objective = GrapPALoss({"node_loss": {selector: "class", "target": "pid"}})
+    assert objective.node_loss_keys == ["node_loss"]
+    assert isinstance(objective.node_loss, torch.nn.Module)

@@ -12,6 +12,7 @@ import torch
 from torch_cluster import knn_graph, radius_graph
 
 from spine.cluster.formation import form_clusters
+from spine.config.factory import extract_module_parameters, resolve_module_provider
 from spine.constants.factory import enum_factory
 from spine.data import IndexBatch, ObjectList, TensorBatch
 from spine.math.metrics import ari, eff, pur
@@ -83,9 +84,17 @@ class ClusterGraphConstructor:
         self.target_col = target_col
 
         # Partially instantiate the graph constructor functions
-        assert "name" in graph, "Must provide the graph constructor function name."
-
-        name = graph.pop("name")
+        name = resolve_module_provider(graph)
+        if name is None:
+            raise ValueError("Must provide the graph constructor `provider`.")
+        graph = extract_module_parameters(
+            {
+                key: value
+                for key, value in graph.items()
+                if key not in {"provider", "name"}
+            },
+            context="Graph constructor",
+        )
         self.graph_fn: Callable[[torch.Tensor], torch.Tensor]
         if name == "knn":
             self.graph_fn = partial(knn_graph, **graph)

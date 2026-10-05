@@ -35,17 +35,28 @@ def graph_inputs():
     return coords, features, shapes, labels
 
 
-def test_constructor_validates_and_builds_labeled_graphs():
+@pytest.mark.parametrize("selector", ["name", "provider"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_constructor_validates_and_builds_labeled_graphs(selector, nested):
     """Supported graph modes should build edges and preserve empty shapes."""
     for name in ("knn", "radius"):
-        constructor = ClusterGraphConstructor(**deepcopy(constructor_config(name)))
+        config = constructor_config(name)
+        parameters = config["graph"]
+        parameters.pop("name")
+        config["graph"] = {
+            selector: name,
+            **({"config": parameters} if nested else parameters),
+        }
+        original = deepcopy(config["graph"])
+        constructor = ClusterGraphConstructor(**config)
+        assert config["graph"] == original
         graph = constructor(*graph_inputs())
         assert graph["edge_index"].shape[1] == 2
         assert graph["edge_label"].shape == graph["edge_prob"].shape
         assert graph["node_clusts"].counts.tolist() == [2]
         assert graph["node_clusts"].single_counts[-1] == 0
 
-    with pytest.raises(AssertionError, match="graph constructor"):
+    with pytest.raises(ValueError, match="graph constructor"):
         ClusterGraphConstructor({}, ["shower"], 0.5)
     with pytest.raises(ValueError, match="not recognized"):
         ClusterGraphConstructor({"name": "bad"}, ["shower"], 0.5)
