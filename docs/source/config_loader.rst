@@ -135,18 +135,19 @@ Remove keys from included files using either the ``remove:`` directive or by set
      - model.dropout_rate
      - base.debug_mode
 
-**Using null in override:**
+**Assigning a null value:**
 
 .. code-block:: yaml
 
    include: base_config.yaml
 
-   # Set to null to remove the key
+   # Keep the key with a null value
    override:
      io.loader.shuffle: null
      model.dropout_rate: null
 
-Both methods achieve the same result: the specified keys are completely removed from the final configuration dictionary.
+Only ``remove:`` deletes keys. An explicit null remains in the resolved
+configuration and is passed to the consuming component.
 
 Complete Example
 ----------------
@@ -275,7 +276,7 @@ Notes
 - Both ``.yaml`` and ``.yml`` extensions are supported
 - The ``include:`` key uses standard YAML syntax (similar to GitLab CI, Docker Compose)
 - You can use either ``include: file.yaml`` or ``include: [file1.yaml, file2.yaml]`` syntax
-- Keys set to ``null`` in the ``override:`` block are removed from the final config
+- Keys set to ``null`` retain a null value; use ``remove:`` to delete them
 - The ``remove:`` directive accepts single keys or lists of keys to delete
 
 Component configuration conventions
@@ -283,6 +284,9 @@ Component configuration conventions
 
 Use ``provider`` to select a component implementation, including readers,
 writers, datasets, samplers, parsers, model utilities, and the top-level model.
+Image encoders, image task losses, and GraphSPICE backbones use the same
+selector and parameter rules. Image task ``weight`` is orchestrator metadata:
+it stays alongside ``provider``, outside a nested ``config``.
 For example:
 
 .. code-block:: yaml

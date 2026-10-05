@@ -9,7 +9,8 @@ This package provides a sophisticated configuration loading system with:
 
 Main Entry Point
 ----------------
-load_config : Load a SPINE configuration file
+load_config : Load a SPINE configuration YAML string
+load_config_file : Load a SPINE configuration file
 
 See loader module docstring for full configuration language specification.
 """

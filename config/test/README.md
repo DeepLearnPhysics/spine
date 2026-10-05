@@ -2,7 +2,11 @@
 
 `analyzers.yaml` configures the full-chain analyzers to emit segmentation,
 PPN, clustering, and matched node-prediction records. Include it in the
-inference configuration. It enables fragment construction because fragment
+inference configuration **after** a full-chain base with an ordered `post.stages`
+list containing `match` (for example `config/full_chain/full_chain_regression.yaml`).
+It updates `match` by name and inserts `ppn` after it, preserving the other
+processors and their execution order. Its `ana.stages` list also executes in
+written order. It enables fragment construction because fragment
 primary classification depends on constructed fragment objects.
 
 `report.yaml` reduces those CSV files after every inference shard has

@@ -11,17 +11,17 @@ io:
     collate_fn: all
     sampler: sequential
     dataset:
-      name: larcv
+      provider: larcv
       file_keys: null
       schema:
         input_data:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster
         seg_label:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster_semantics
         clust_label:
-          parser: cluster3d
+          provider: cluster3d
           cluster_event: cluster3d_pcluster
           sparse_value_event: sparse3d_pcluster
           sparse_semantics_event: sparse3d_pcluster_semantics
@@ -29,30 +29,30 @@ io:
           particle_info:
             particle_event: particle_pcluster
         ppn_label:
-          parser: particle_points
+          provider: particle_points
           particle_event: particle_pcluster
           sparse_event: sparse3d_pcluster
           include_point_tagging: true
         coord_label:
-          parser: particle_coords
+          provider: particle_coords
           particle_event: particle_pcluster
           sparse_event: sparse3d_pcluster
         graph_label:
-          parser: particle_graph
+          provider: particle_graph
           particle_event: particle_pcluster
           cluster_event: cluster3d_pcluster
         particles:
-          parser: particle
+          provider: particle
           particle_event: particle_pcluster
           cluster_event: cluster3d_pcluster
         meta:
-          parser: meta
+          provider: meta
           sparse_event: sparse3d_pcluster
         run_info:
-          parser: run_info
+          provider: run_info
           sparse_event: sparse3d_pcluster
   writer:
-    name: hdf5
+    provider: hdf5
     file_name: null
     overwrite: true
     append: false

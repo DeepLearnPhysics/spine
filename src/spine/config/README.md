@@ -20,13 +20,10 @@ The SPINE configuration system provides advanced YAML configuration management w
 ## Quick Start
 
 ```python
-from spine.config import load_config
+from spine.config import apply_overrides, load_config_file
 
-# Load a simple config
-config = load_config('config.yaml')
-
-# Load with command-line overrides
-config = load_config('config.yaml', overrides=['io.batch_size=16', 'model.debug=true'])
+config = load_config_file('config.yaml')
+config = apply_overrides(config, ['io.loader.batch_size=16', 'model.debug=true'])
 ```
 
 ```yaml
@@ -917,7 +914,7 @@ override:
   io.loader.num_workers: 16
   base.log_level: warning
   
-  # Remove optional features
+  # Set optional features to null
   model.profiler: null
   model.visualizer: null
 ```
@@ -926,86 +923,49 @@ override:
 
 ### Functions
 
-#### `load_config(path, overrides=None, strict=None)`
+#### `load_config_file(cfg_path, download=True)`
 
-Load and process a YAML configuration file.
+Load a YAML file, resolve includes and directives, and validate metadata.
+Returns the processed configuration dictionary. Set `download=False` to retain
+`!download` placeholders without fetching files.
 
-**Parameters:**
-- `path` (str): Path to YAML config file
-- `overrides` (list[str], optional): Command-line style overrides (`["key.path=value"]`)
-- `strict` (str, optional): Override strict mode (`"error"` or `"warn"`)
+#### `load_config(config_str, root_dir=None, download=True)`
 
-**Returns:**
-- `dict`: Processed configuration
-
-**Raises:**
-- `ConfigError`: Base exception for all config errors
-- `ConfigIncludeError`: Include file not found or invalid
-- `ConfigCycleError`: Circular include detected
-- `ConfigPathError`: Invalid path in override/remove
-- `ConfigTypeError`: Type mismatch in operation
-- `ConfigOperationError`: Invalid operation (e.g., append to non-list)
-- `ConfigValidationError`: Compatibility validation failed
-
-**Example:**
+Load a YAML **string** with the same processing. `root_dir` supplies the base
+for relative include paths; file loading uses the file's own directory.
 
 ```python
-from spine.config import load_config
+from spine.config import apply_overrides, load_config, load_config_file
 
-# Basic usage
-config = load_config('config.yaml')
-
-# With overrides
-config = load_config('config.yaml', overrides=[
-    'io.batch_size=16',
-    'model.debug=true'
-])
-
-# With strict mode
-config = load_config('config.yaml', strict='warn')
+config = load_config_file('config.yaml', download=False)
+config = apply_overrides(config, ['io.loader.batch_size=16'])
+config = load_config('include: base.yaml', root_dir='/path/to/configs')
 ```
 
-#### `extract_metadata(config, warn_missing=True)`
+Strictness belongs in each source file's `__meta__.strict` metadata. Loading
+raises the typed exceptions below for invalid includes, operations, or metadata.
 
-Extract metadata from configuration.
+#### `apply_overrides(config, overrides)`
 
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `warn_missing` (bool): Warn if `__meta__` block missing
+Apply a list of CLI-style `path=value` strings to a resolved dictionary and
+return it. The `+`, `-`, and `~` path suffixes support the same collection and
+named-list operations as YAML directives.
 
-**Returns:**
-- `dict`: Metadata dictionary (empty if no metadata)
+#### `extract_metadata(config_dict, cfg_path=None)`
 
-#### `get_nested_value(config, key_path)`
+Import from `spine.config.meta`. Extract and validate metadata, filling in
+defaults even when `__meta__` is absent. `cfg_path` identifies the source file.
 
-Get value at nested key path.
+#### `set_nested_value(config, key_path, value, delete=False, strict="error", only_if_exists=False)`
 
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `key_path` (str): Dot-notation path (`"io.loader.batch_size"`)
-
-**Returns:**
-- Value at path
-
-**Raises:**
-- `KeyError`: Path not found
-
-#### `set_nested_value(config, key_path, value)`
-
-Set value at nested key path.
-
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `key_path` (str): Dot-notation path
-- `value`: Value to set (or `None` to delete)
-
-**Returns:**
-- `(dict, bool)`: Updated config and success flag
+Import from `spine.config.operations`. Set a dot-separated path, returning
+`(config, success)`. `None` is a literal value; use `delete=True` to remove a
+key. `only_if_exists=True` defers assignments whose target does not yet exist.
 
 ### Constants
 
 ```python
-from spine.config import API_VERSION, META_KEY
+from spine.config.api import API_VERSION, META_KEY
 
 API_VERSION  # Current config API version
 META_KEY     # Metadata key name ("__meta__")
@@ -1111,16 +1071,14 @@ ConfigValidationError: io: parent version 240719 does not satisfy >=260107
 
 **Fix:** Update parent component or adjust compatibility constraint
 
-### Strict Mode Error
+### Missing Operation Target
 
-```
-ConfigPathError: Cannot override 'model.new_feature': path does not exist (strict=error)
-```
-
-**Fix:** Either:
-- Add the key to base config, or
-- Set `strict: "warn"` in metadata, or
-- Use `--set` with lenient mode
+Collection operations and removals retain their source file's `__meta__.strict`
+policy when deferred until final resolution. Add the missing target to the
+base config, or declare its exact path in that source's `optional_paths` when
+absence is intentional. Optional paths do not suppress invalid container types.
+Unresolved ordinary assignments currently emit a `FutureWarning`; named-list
+edits require their target immediately.
 
 ### Circular Include
 
@@ -1155,4 +1113,6 @@ from spine.config import load_config
 - Typed exception hierarchy
 - Command-line `--set` support
 
-Existing configs without `include:`/`override:` blocks continue to work unchanged.
+Legacy implementation selectors remain supported with deprecation warnings; use
+`provider` for new descriptors. Replace YAML `args`/`kwargs` with keyword
+parameters under `config` (or inline), and do not mix the two parameter forms.

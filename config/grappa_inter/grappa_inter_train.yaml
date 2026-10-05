@@ -15,7 +15,7 @@ train:
   weight_prefix: weights/grappa_inter/snapshot
   save_epoch: 1.0
   optimizer:
-    name: Adam
+    provider: Adam
     lr: 0.001
 
 io:
@@ -25,14 +25,14 @@ io:
     num_workers: 8
     collate_fn: all
     sampler:
-      name: random_sequence
+      provider: random_sequence
       seed: 0
     dataset:
-      name: larcv
+      provider: larcv
       file_keys: null
       schema:
         data:
-          parser: cluster3d
+          provider: cluster3d
           cluster_event: cluster3d_pcluster
           sparse_semantics_event: sparse3d_pcluster_semantics
           clean_data: true
@@ -42,12 +42,12 @@ io:
             type_include_mpr: false
             primary_include_mpr: false
         coord_label:
-          parser: particle_coords
+          provider: particle_coords
           particle_event: particle_corrected
           cluster_event: cluster3d_pcluster
 
 model:
-  name: grappa
+  provider: grappa
   weight_path: null
 
   network_input:
@@ -65,11 +65,11 @@ model:
         min_size: -1
         make_groups: true
       graph:
-        name: complete
+        provider: complete
         max_length: [500, 500, 0, 0, 25, 25, 25, 0, 0, 0]
         dist_algorithm: recursive
       node_encoder:
-        name: geo
+        provider: geo
         use_numpy: true
         add_value: true
         add_shape: true
@@ -79,10 +79,10 @@ model:
         add_local_dedxs: true
         dedx_max_dist: 5
       edge_encoder:
-        name: geo
+        provider: geo
         use_numpy: true
       gnn_model:
-        name: meta
+        provider: meta
         node_feats: 33 # 16 (geo) + 3 (extra) + 6 (points) + 6 (directions) + 2 (local dedxs)
         edge_feats: 19
         node_pred:
@@ -93,49 +93,49 @@ model:
           # vertex: 5
         edge_pred: 2
         edge_layer:
-          name: mlp
+          provider: mlp
           mlp:
             depth: 3
             width: 128
             activation:
-              name: lrelu
+              provider: lrelu
               negative_slope: 0.1
             normalization: batch_norm
         node_layer:
-          name: mlp
+          provider: mlp
           reduction: max
           attention: false
           message_mlp:
             depth: 3
             width: 128
             activation:
-              name: lrelu
+              provider: lrelu
               negative_slope: 0.1
             normalization: batch_norm
           aggr_mlp:
             depth: 3
             width: 128
             activation:
-              name: lrelu
+              provider: lrelu
               negative_slope: 0.1
             normalization: batch_norm
 
     grappa_loss:
       node_loss:
         type:
-          name: class
+          provider: class
           target: pid
           loss: ce
           balance_loss: true
         primary:
-          name: class
+          provider: class
           target: inter_primary
           loss: ce
           balance_loss: true
           use_closest: true
           secondary_label: 0
         orient:
-          name: orient
+          provider: orient
           loss: ce
         # momentum:
         #   name: reg
@@ -152,5 +152,5 @@ model:
         #   return_vertex_labels: true
         #   detector: icarus
       edge_loss:
-        name: channel
+        provider: channel
         target: interaction

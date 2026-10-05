@@ -13,7 +13,7 @@ train:
   weight_prefix: weights/uresnet_ppn_vertex/snapshot
   save_epoch: 1.0
   optimizer:
-    name: Adam
+    provider: Adam
     lr: 0.001
 
 io:
@@ -23,28 +23,28 @@ io:
     num_workers: 8
     collate_fn: all
     sampler:
-      name: random_sequence
+      provider: random_sequence
       seed: 0
     dataset:
-      name: larcv
+      provider: larcv
       file_keys: null
       schema:
         data:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster
         seg_label:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster_semantics
         ppn_label:
-          parser: particle_points
+          provider: particle_points
           sparse_event: sparse3d_pcluster
           particle_event: particle_corrected
         vertex_label:
-          parser: vertex_points
+          provider: vertex_points
           sparse_event: sparse3d_pcluster
           particle_event: particle_corrected
         clust_label:
-          parser: cluster3d
+          provider: cluster3d
           cluster_event: cluster3d_pcluster
           sparse_semantics_event: sparse3d_pcluster_semantics
           clean_data: true
@@ -52,7 +52,7 @@ io:
             particle_event: particle_corrected
 
 model:
-  name: uresnet_ppn
+  provider: uresnet_ppn
   weight_path: null
   network_input:
     data: data
@@ -70,10 +70,10 @@ model:
       reps: 2
       allow_bias: false
       activation:
-        name: lrelu
+        provider: lrelu
         negative_slope: 0.33
       norm_layer:
-        name: batch_norm
+        provider: batch_norm
         eps: 0.0001
         momentum: 0.01
     proposal_decoder:

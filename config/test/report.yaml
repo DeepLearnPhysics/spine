@@ -8,20 +8,20 @@ metadata:
 
 metrics:
   segmentation:
-    name: segment_confusion
+    provider: segment_confusion
     source: "**/*segment_eval_summary.csv"
     classes: [shower, track, michel, delta, low_energy]
 
   # Example of reducing canonical semantic classes to a task-specific view.
   segmentation_shower_track:
-    name: segment_confusion
+    provider: segment_confusion
     source: "**/*segment_eval_summary.csv"
     class_mapping:
       Shower: [shower, michel, delta, low_energy]
       Track: [track]
 
   ppn:
-    name: point_proposal
+    provider: point_proposal
     truth_to_reco: "**/*point_eval_truth_to_reco.csv"
     reco_to_truth: "**/*point_eval_reco_to_truth.csv"
     classes: [shower, track, michel, delta]
@@ -31,14 +31,14 @@ metrics:
     distance_unit: cm
 
   clustering:
-    name: cluster_summary
+    provider: cluster_summary
     sources:
       fragment: "**/*cluster_eval_fragment.csv"
       particle: "**/*cluster_eval_particle.csv"
       interaction: "**/*cluster_eval_interaction.csv"
 
   nodes:
-    name: node_summary
+    provider: node_summary
     sources:
       fragment: "**/*save_truth_fragments.csv"
       particle: "**/*save_truth_particles.csv"

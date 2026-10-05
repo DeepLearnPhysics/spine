@@ -2202,7 +2202,8 @@ def test_full_chain_loss_balances_provider_stages() -> None:
     torch.testing.assert_close(result["particle_weight"], torch.tensor(0.5))
 
 
-def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:
+@pytest.mark.parametrize("selector", ["name", "provider"])
+def test_full_chain_constructs_and_rejects_nested_adaptive_balancers(selector) -> None:
     """Global stage balancing should be manager-ready and non-redundant."""
 
     class LossStage:
@@ -2223,7 +2224,7 @@ def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:
             )
         return LossStage(name)
 
-    provider = "test_balanced_loss_provider"
+    provider = f"test_balanced_loss_provider_{selector}"
     register_provider(ProviderSpec(provider, _build_external, build_loss))
     chain = {
         "stages": [
@@ -2237,7 +2238,7 @@ def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:
     loss = FullChainLoss(
         chain,
         semantic_loss={},
-        loss_balancing={"name": "uncertainty"},
+        loss_balancing={selector: "uncertainty"},
     )
     assert set(loss.loss_balancer.log_variances) == {"semantic"}
     torch.testing.assert_close(loss()["loss"], torch.tensor(2.0))
@@ -2246,7 +2247,7 @@ def test_full_chain_constructs_and_rejects_nested_adaptive_balancers() -> None:
         FullChainLoss(
             chain,
             semantic_loss={"nested": True},
-            loss_balancing={"name": "uncertainty"},
+            loss_balancing={selector: "uncertainty"},
         )
 
 

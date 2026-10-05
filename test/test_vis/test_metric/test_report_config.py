@@ -6,7 +6,22 @@ from pathlib import Path
 
 import yaml
 
+from spine.config import load_config
+
 CONFIG_DIR = Path(__file__).parents[3] / "config/test"
+
+
+def _analyzer_config():
+    """Resolve the analyzer fragment against its maintained full-chain base."""
+    config = load_config(
+        "include:\n  - config/full_chain/full_chain_regression.yaml\n"
+        "  - config/test/analyzers.yaml\n",
+        root_dir=str(CONFIG_DIR.parents[1]),
+        download=False,
+    )
+    for key in ("ana", "post"):
+        config[key] = {stage["name"]: stage for stage in config[key]["stages"]}
+    return config
 
 
 def test_generic_metric_configs_are_flat():
@@ -25,7 +40,7 @@ def test_generic_metric_configs_are_undated_and_ghost_free():
     analyzer = yaml.safe_load(analyzer_path.read_text(encoding="utf-8"))
     report = yaml.safe_load(report_path.read_text(encoding="utf-8"))
 
-    assert analyzer["ana"]["segment_eval"]["ghost"] is False
+    assert _analyzer_config()["ana"]["segment_eval"]["ghost"] is False
     assert "__meta__" not in analyzer
     assert "full_chain_version" not in report["metadata"]
     assert not (CONFIG_DIR / "analyzers_240805.yaml").exists()
@@ -34,9 +49,7 @@ def test_generic_metric_configs_are_undated_and_ghost_free():
 
 def test_generic_save_records_expose_node_truth_selections():
     """SaveAna defaults should include fragment and neutrino truth fields."""
-    analyzer = yaml.safe_load(
-        (CONFIG_DIR / "analyzers.yaml").read_text(encoding="utf-8")
-    )
+    analyzer = _analyzer_config()
     save = analyzer["ana"]["save"]
 
     assert "group_primary" in save["fragment"]
@@ -45,9 +58,7 @@ def test_generic_save_records_expose_node_truth_selections():
 
 def test_generic_fragment_metrics_use_adapted_truth_indexes():
     """Full-chain fragment metrics should use populated adapted indexes."""
-    analyzer = yaml.safe_load(
-        (CONFIG_DIR / "analyzers.yaml").read_text(encoding="utf-8")
-    )
+    analyzer = _analyzer_config()
     report = yaml.safe_load((CONFIG_DIR / "report.yaml").read_text(encoding="utf-8"))
 
     assert analyzer["post"]["match"]["truth_point_mode"] == "points_adapt"

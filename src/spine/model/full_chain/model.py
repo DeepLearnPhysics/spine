@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import resolve_module_provider
 from spine.data import ClusterLabelBatch, IndexBatch, RunInfo, TensorBatch
 from spine.model.common.loss_balancing import LossBalancer, LossTerm
 
@@ -198,7 +199,12 @@ class FullChainLoss(torch.nn.Module):
         if self.stages:
             if (
                 isinstance(loss_balancing, dict)
-                and str(loss_balancing.get("name", "sum")).lower() == "uncertainty"
+                and str(
+                    resolve_module_provider(
+                        loss_balancing, default="sum", warn_deprecated=False
+                    )
+                ).lower()
+                == "uncertainty"
             ):
                 nested = [
                     name

@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import torch
 
+from spine.config.factory import instantiate
 from spine.constants import PID_MASSES
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 
@@ -614,7 +615,10 @@ class ImageLoss(torch.nn.Module):
         image : dict
             Upstream image-model configuration supplying named head widths.
         image_loss : dict
-            One classification or regression loss configuration per head.
+            One classification or regression loss descriptor per head, using
+            ``provider`` with inline parameters or a nested ``config``.
+            Optional task ``weight`` is metadata alongside ``provider``,
+            outside ``config`` (default: 1.0).
         """
         # Initialize the parent class
         super().__init__()
@@ -643,21 +647,13 @@ class ImageLoss(torch.nn.Module):
         }
         for label, task_config in image_loss.items():
             config = dict(task_config)
-            try:
-                name = config.pop("name")
-            except KeyError as err:
-                raise ValueError(f"Image loss `{label}` requires `name`.") from err
             weight = float(config.pop("weight", 1.0))
             if weight <= 0.0:
                 raise ValueError("Image task weights must be positive.")
-            try:
-                task_class = task_types[name]
-            except KeyError as err:
-                valid = ", ".join(sorted(task_types))
-                raise ValueError(
-                    f"Unknown image task `{name}`. Choose from {valid}."
-                ) from err
-            self.tasks[label] = task_class(out_channels=sizes[label], **config)
+            # Weight is task metadata; provider parameters use the shared factory.
+            self.tasks[label] = instantiate(
+                task_types, config, out_channels=sizes[label]
+            )
             self.task_weights[label] = weight
 
     def forward(self, objects: IndexBatch, **data: Any) -> dict[str, Any]:

@@ -83,7 +83,7 @@ class ImageModel(torch.nn.Module):
                     raise ValueError("Image head widths must be positive.")
                 output_size = head_config
                 head_cfg: dict[str, Any] = {
-                    "name": "linear",
+                    "provider": "linear",
                     "out_channels": output_size,
                 }
             elif isinstance(head_config, Mapping):

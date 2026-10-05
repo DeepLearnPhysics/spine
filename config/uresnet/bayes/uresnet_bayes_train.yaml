@@ -16,7 +16,7 @@ train:
   weight_prefix: weights/uresnet_bayes/snapshot
   save_epoch: 1.0
   optimizer:
-    name: Adam
+    provider: Adam
     lr: 0.001
 
 io:
@@ -26,21 +26,21 @@ io:
     num_workers: 8
     collate_fn: all
     sampler:
-      name: random_sequence
+      provider: random_sequence
       seed: 0
     dataset:
-      name: larcv
+      provider: larcv
       file_keys: null
       schema:
         data:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster
         seg_label:
-          parser: sparse3d
+          provider: sparse3d
           sparse_event: sparse3d_pcluster_semantics
 
 model:
-  name: uresnet_bayes
+  provider: uresnet_bayes
   weight_path: null
   network_input:
     data: data
@@ -58,10 +58,10 @@ model:
       reps: 2
       allow_bias: false
       activation:
-        name: lrelu
+        provider: lrelu
         negative_slope: 0.33
       norm_layer:
-        name: batch_norm
+        provider: batch_norm
         eps: 0.0001
         momentum: 0.01
     uresnet_bayes_loss:
