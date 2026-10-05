@@ -727,3 +727,25 @@ def test_loader(larcv_data, quiet=True, csv=False):
                 (tsum - t0) / (MAX_BATCH_ID - 1),
                 "[s]",
             )
+
+
+@pytest.mark.parametrize("selector", ["name", "provider"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_dataset_provider_preserves_parameters_with_entry_override(
+    monkeypatch, selector, nested
+):
+    class DummyDataset:
+        def __init__(self, dtype, entry_list, option):
+            self.values = dtype, entry_list, option
+
+    monkeypatch.setattr(
+        factories_module, "module_dict", lambda _: {"dummy": DummyDataset}
+    )
+    parameters = {"option": 5, "entry_list": [0]}
+    config = {selector: "dummy", **({"config": parameters} if nested else parameters)}
+    with pytest.warns(UserWarning, match="overwriting"):
+        dataset = factories_module.dataset_factory(
+            config, entry_list=[2], dtype="float32"
+        )
+    assert dataset.values == ("float32", [2], 5)
+    assert parameters["entry_list"] == [0]

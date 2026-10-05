@@ -477,7 +477,7 @@ class GrapPA(torch.nn.Module):
 
         # If the final layer is specified as a number, use linear layer
         if isinstance(final, int):
-            final = {"name": "linear", "out_channels": final}
+            final = {"provider": "linear", "out_channels": final}
 
         # Process the configuration dictionary otherwise
         out_keys = []
@@ -495,7 +495,7 @@ class GrapPA(torch.nn.Module):
                 out_key = f"{prefix}_{key}_pred"
                 out_keys.append(out_key)
                 if isinstance(cfg, int):
-                    cfg = {"name": "linear", "out_channels": cfg}
+                    cfg = {"provider": "linear", "out_channels": cfg}
                 setattr(self, out_key, final_factory(in_channels, **cfg))
 
         setattr(self, f"{prefix}_pred_keys", out_keys)

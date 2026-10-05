@@ -39,5 +39,5 @@ def calibrator_factory(name: str, cfg: dict[str, Any]) -> object:
     """
     # Instantiate the calibration module
     cfg = dict(cfg)
-    cfg["name"] = name
+    cfg["provider"] = name
     return instantiate(CALIB_DICT, cfg)

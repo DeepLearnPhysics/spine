@@ -96,7 +96,7 @@ SPINE. The example below expects reconstructed particles together with their
 
    io:
      reader:
-       name: hdf5
+       provider: hdf5
        file_keys: /path/to/spine_output.h5
        keep_open: false
 

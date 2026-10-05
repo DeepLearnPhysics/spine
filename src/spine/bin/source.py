@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 
+from spine.config.factory import resolve_module_provider
+
 __all__ = [
     "apply_source_overrides",
     "apply_validation_source_overrides",
@@ -88,7 +90,9 @@ def _apply_source_override(
     ValueError
         If a cache receives a file list or more than one repository path.
     """
-    is_cache = cache_role or config.get("name") == "cache"
+    is_cache = (
+        cache_role or resolve_module_provider(config, warn_deprecated=False) == "cache"
+    )
     if is_cache:
         if override.get("file_list") is not None:
             raise ValueError(
@@ -344,7 +348,7 @@ def apply_source_overrides(
 
     # Identify the ordinary input block or composite dataset definition.
     input_cfg, _ = get_input_config(io_cfg)
-    name_value = input_cfg.get("name")
+    name_value = resolve_module_provider(input_cfg, warn_deprecated=False)
     dataset_name = name_value if isinstance(name_value, str) else None
     slots = _source_slots(dataset_name)
 
@@ -443,7 +447,7 @@ def apply_validation_source_overrides(
         return
 
     input_cfg, _ = get_input_config(io_cfg)
-    name_value = input_cfg.get("name")
+    name_value = resolve_module_provider(input_cfg, warn_deprecated=False)
     dataset_name = name_value if isinstance(name_value, str) else None
     slots = _source_slots(dataset_name)
 
@@ -462,8 +466,9 @@ def apply_validation_source_overrides(
         # Validation inherits the main dataset name only later, so route its
         # selector using the main input's backend contract now.
         target = dict(validation_cfg)
-        if input_cfg.get("name") == "cache":
-            target["name"] = "cache"
+        if resolve_module_provider(input_cfg, warn_deprecated=False) == "cache":
+            target.pop("name", None)
+            target["provider"] = "cache"
         _apply_source_override(
             target,
             overrides[None],
@@ -472,6 +477,7 @@ def apply_validation_source_overrides(
             mask_alternate=False,
         )
         target.pop("name", None)
+        target.pop("provider", None)
         validation_cfg.update(target)
         return
 
@@ -506,7 +512,10 @@ def apply_validation_source_overrides(
             raise TypeError(
                 f"CLI validation overrides require an inline `{config_key}` block."
             )
-        routed = {"name": child_cfg.get("name")}
+        routed = {}
+        child_provider = resolve_module_provider(child_cfg, warn_deprecated=False)
+        if child_provider is not None:
+            routed["provider"] = child_provider
         _apply_source_override(
             routed,
             override,
@@ -515,7 +524,7 @@ def apply_validation_source_overrides(
             mask_alternate=False,
             cache_role=config_key == "cache",
         )
-        routed.pop("name", None)
+        routed.pop("provider", None)
         merged_sources[config_key] = routed
 
     configured_keys = {target_map[key] for key in public_keys}

@@ -32,7 +32,7 @@ Include entire configuration files using the ``include:`` key (similar to GitLab
 
    # You can still add or override settings
    model:
-     name: uresnet
+     provider: uresnet
 
 **Multiple includes are supported:**
 
@@ -66,7 +66,7 @@ Include files within specific configuration blocks using ``!include``:
    filters: 32
    num_classes: 5
    activation:
-     name: lrelu
+     provider: lrelu
      negative_slope: 0.1
 
 **main_config.yaml:**
@@ -74,7 +74,7 @@ Include files within specific configuration blocks using ``!include``:
 .. code-block:: yaml
 
    model:
-     name: full_chain
+     provider: full_chain
      modules:
        uresnet: !include network_config.yaml
        ppn: !include ppn_config.yaml
@@ -171,7 +171,7 @@ Complete Example
        shuffle: false
        num_workers: 8
        dataset:
-         name: larcv
+         provider: larcv
          file_keys: null
 
 **uresnet_config.yaml:**
@@ -183,7 +183,7 @@ Complete Example
    filters: 32
    depth: 5
    activation:
-     name: lrelu
+     provider: lrelu
      negative_slope: 0.1
 
 **icarus_full_chain.yaml:**
@@ -194,7 +194,7 @@ Complete Example
 
    # Include network configuration inline
    model:
-     name: full_chain
+     provider: full_chain
      modules:
        uresnet: !include uresnet_config.yaml
 
@@ -277,3 +277,65 @@ Notes
 - You can use either ``include: file.yaml`` or ``include: [file1.yaml, file2.yaml]`` syntax
 - Keys set to ``null`` in the ``override:`` block are removed from the final config
 - The ``remove:`` directive accepts single keys or lists of keys to delete
+
+Component configuration conventions
+-----------------------------------
+
+Use ``provider`` to select a component implementation, including readers,
+writers, datasets, samplers, parsers, model utilities, and the top-level model.
+For example:
+
+.. code-block:: yaml
+
+   io:
+     reader:
+       provider: hdf5
+       file_keys: input.h5
+     writer:
+       provider: hdf5
+       config:
+         file_name: output.h5
+
+Factory constructor parameters may be inline or nested under ``config``, but the two forms cannot
+be mixed. The old ``args`` and ``kwargs`` wrappers are no longer accepted:
+convert positional arguments to named parameters and move keyword arguments
+into ``config``. Configured parameters cannot collide with runtime-injected
+arguments.
+
+Legacy ``name`` implementation selectors and context-specific ``parser`` and
+``collate_fn`` selectors remain supported with ``DeprecationWarning`` warnings.
+Replace them with ``provider``. Multiple implementation selectors are rejected,
+even when their values agree. Generic factories also retain scalar provider
+shorthand.
+
+Managers accepting ordered modules use a ``stages`` list:
+
+.. code-block:: yaml
+
+   stages:
+     - name: first
+       provider: implementation
+       config:
+         option: value
+     - name: implementation
+
+Here ``name`` is a required, unique instance identity. It is not deprecated.
+An omitted ``provider`` defaults to ``name``. List order is execution order;
+stage-level ``priority`` is rejected. Legacy module mappings retain their
+existing priority behavior and default the provider to the mapping key.
+A manager cannot mix ``stages`` with legacy module entries.
+
+I/O schemas remain mappings from output-product names to parser descriptors.
+Those keys do not imply a provider:
+
+.. code-block:: yaml
+
+   schema:
+     data:
+       provider: sparse3d
+       config:
+         sparse_event: sparse3d_data
+
+Metadata names and geometry detector names are not implementation selectors.
+These conventions concern component construction, not arbitrary fields called
+``name``.

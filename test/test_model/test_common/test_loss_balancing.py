@@ -139,7 +139,7 @@ def test_inactive_uncertainty_term_has_zero_parameter_gradient():
     ("config", "error", "message"),
     [
         ([], TypeError, "configuration must be a mapping"),
-        ({"name": "unknown"}, ValueError, "name"),
+        ({"name": "unknown"}, ValueError, "provider"),
         ({"weights": {"missing": 1.0}}, ValueError, "Unknown"),
         ({"weights": {"task": -1.0}}, ValueError, "nonnegative"),
         ({"extra": True}, TypeError, "Unexpected"),
@@ -191,3 +191,15 @@ def test_loss_balancing_rejects_invalid_runtime_terms(term, error, message):
     balancer = LossBalancer({"task": "categorical"})
     with pytest.raises(error, match=message):
         balancer({"task": term})
+
+
+def test_provider_selects_balancing_policy_and_rejects_conflicts():
+    canonical = LossBalancer(
+        {"x": "gaussian"}, {"provider": "fixed", "config": {"weights": {"x": 2}}}
+    )
+    with pytest.deprecated_call(match="use `provider`"):
+        legacy = LossBalancer({"x": "gaussian"}, {"name": "fixed", "weights": {"x": 2}})
+    assert canonical.mode == legacy.mode == "fixed"
+    assert canonical.priorities == legacy.priorities == {"x": 2}
+    with pytest.raises(ValueError, match="only one"):
+        LossBalancer({"x": "gaussian"}, {"name": "fixed", "provider": "fixed"})

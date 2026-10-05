@@ -66,7 +66,7 @@ sizes and exclusive upper bounds. This example accepts an event exactly when
 ``sparse3d_reco_count < 500000`` while retaining two diagnostic counts::
 
    input:
-     name: larcv
+     provider: larcv
 
    measurements:
      sparse3d_reco: {kind: product_size}
@@ -117,7 +117,7 @@ the ``cache`` backend and name the cached product explicitly:
 .. code-block:: yaml
 
    input:
-     name: cache
+     provider: cache
 
    measurements:
      shower_edges:
@@ -164,7 +164,7 @@ Then configure the generated manifest on the cache dataset:
    io:
      loader:
        dataset:
-         name: cache
+         provider: cache
          path: /path/to/train.spine-cache
          entry_filter: accepted-cache.yaml
 
@@ -175,7 +175,7 @@ entry selection and applies it identically to every requested stage, including
 stages which do not own the measured product. This keeps graph inputs and
 cached targets aligned before the sampler is constructed.
 
-For an ordinary flat SPINE HDF5 cache, use ``input.name: hdf5`` and pass its
+For an ordinary flat SPINE HDF5 cache, use ``input.provider: hdf5`` and pass its
 files to the same scan and build commands. Version 2 files are measured from
 ``event_offsets``; legacy version 1 files are measured from region-reference
 selection extents without reading their payloads. A native HDF5 manifest is

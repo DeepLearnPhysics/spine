@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from spine.config.factory import resolve_module_provider
 from spine.data import (
     ClusterLabelBatch,
     EdgeIndexBatch,
@@ -39,9 +40,9 @@ class ModelManager:
 
     def __init__(
         self,
-        name: str,
-        modules: Mapping[str, Any],
-        network_input: Mapping[str, str],
+        name: str | None = None,
+        modules: Mapping[str, Any] | None = None,
+        network_input: Mapping[str, str] | None = None,
         loss_input: Mapping[str, str] | None = None,
         weight_path: str | None = None,
         weight_list: str | None = None,
@@ -54,13 +55,16 @@ class ModelManager:
         detect_anomaly: bool = False,
         find_unused_parameters: bool = False,
         iter_per_epoch: int | None = None,
+        provider: str | None = None,
     ) -> None:
         """Process the model configuration.
 
         Parameters
         ----------
-        name : str
-            Name of the model as specified under spine.model.factories
+        name : str, optional
+            Deprecated alias for `provider`.
+        provider : str, optional
+            Model implementation registered in spine.model.factories.
         modules : dict
             Dictionary of modules that make up the model. Top-level blocks
             ending in ``_loss`` are passed only to the loss constructor.
@@ -91,6 +95,15 @@ class ModelManager:
         iter_per_epoch : int, optional
             Number of iterations per epoch (relevant for training)
         """
+        selectors = {}
+        if name is not None:
+            selectors["name"] = name
+        if provider is not None:
+            selectors["provider"] = provider
+        name = resolve_module_provider(selectors)
+        if name is None:
+            raise ValueError("Model configuration requires `provider`.")
+
         # Check that torch is available for model operations
         if not TORCH_AVAILABLE:
             raise ImportError(

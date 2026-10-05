@@ -9,6 +9,8 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import extract_module_parameters, resolve_module_provider
+
 __all__ = ["LossBalancer", "LossTerm"]
 
 
@@ -79,10 +81,10 @@ class LossBalancer(torch.nn.Module):
             Stable objective names and their producer-declared likelihood
             families.
         config : mapping, optional
-            Policy configuration. ``name`` selects ``sum``, ``fixed`` or
+            Policy configuration. ``provider`` selects ``sum``, ``fixed`` or
             ``uncertainty``; optional ``weights`` specify user priorities by
             objective name. Omitted configuration is equivalent to
-            ``{"name": "sum"}``.
+            ``{"provider": "sum"}``.
 
         Raises
         ------
@@ -99,10 +101,15 @@ class LossBalancer(torch.nn.Module):
         if config is not None and not isinstance(config, Mapping):
             raise TypeError("Loss-balancing configuration must be a mapping.")
         settings = {} if config is None else dict(config)
-        self.mode = str(settings.pop("name", "sum")).lower()
+        provider = resolve_module_provider(settings, default="sum")
+        assert provider is not None
+        self.mode = provider.lower()
+        for selector in ("provider", "name"):
+            settings.pop(selector, None)
+        settings = extract_module_parameters(settings, context="Loss balancing")
         if self.mode not in {"sum", "fixed", "uncertainty"}:
             raise ValueError(
-                "Loss balancing `name` must be 'sum', 'fixed' or 'uncertainty'."
+                "Loss balancing `provider` must be 'sum', 'fixed' or 'uncertainty'."
             )
 
         priorities = settings.pop("weights", {})

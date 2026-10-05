@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from spine.config import load_config_file
+from spine.config.factory import resolve_module_provider
 from spine.config.loader import resolve_config_path
 from spine.utils.file import make_shared_directory, set_shared_file_permissions
 from spine.version import __version__
@@ -196,7 +197,7 @@ def load_filter_config(config: str | Path | Mapping[str, Any]) -> dict[str, Any]
     input_cfg = loaded.get("input")
     if not isinstance(input_cfg, Mapping):
         raise TypeError("Filter configuration requires an `input` mapping.")
-    backend = input_cfg.get("name")
+    backend = resolve_module_provider(input_cfg)
     if backend not in (*INSPECTORS, "auto"):
         raise ValueError(
             f"Unknown entry-filter input backend `{backend}`; expected one of "

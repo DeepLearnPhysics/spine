@@ -329,7 +329,7 @@ class Driver:
         if loader_cfg is not None and "sampler" in loader_cfg:
             sampler_cfg = loader_cfg["sampler"]
             if isinstance(sampler_cfg, str):
-                sampler_cfg: dict[str, Any] = {"name": sampler_cfg}
+                sampler_cfg: dict[str, Any] = {"provider": sampler_cfg}
                 loader_cfg["sampler"] = sampler_cfg
             elif not isinstance(sampler_cfg, dict):
                 raise TypeError(

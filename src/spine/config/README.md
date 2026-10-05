@@ -42,7 +42,7 @@ override:
   model.learning_rate: 0.001
 
 model:
-  name: full_chain
+  provider: full_chain
   num_layers: 5
 ```
 
@@ -332,6 +332,39 @@ Its structural `uses` and `loss` fields may accompany either parameter form.
 All ordered stage lists reject stage-level `priority`; legacy mapping-based
 scheduling retains each manager's existing priority behavior.
 
+### Implementation selectors
+
+Use `provider` to select an implementation for factory components (readers,
+writers, datasets, samplers, parsers, model utilities) and the top-level model:
+
+```yaml
+io:
+  reader:
+    provider: hdf5
+    file_keys: input.h5
+  writer:
+    provider: hdf5
+    config:
+      file_name: output.h5
+```
+
+Legacy implementation selectors `name`, `parser`, and `collate_fn` remain
+accepted in their existing contexts with a `DeprecationWarning`. Migrate them
+to `provider`; specifying multiple selectors is an error, even if their values
+agree. Scalar provider shorthand remains supported by generic factories.
+
+In ordered lists, `name` is the **instance identity**, not a deprecated selector;
+omitting `provider` defaults it to `name`. In legacy module mappings, the mapping
+key identifies the instance and supplies the default provider. An I/O schema key
+instead identifies an **output product**, so each parser descriptor must select
+its implementation explicitly. Metadata names and geometry detector names are
+not implementation selectors and are unchanged.
+
+Factories share `resolve_module_provider` for selector validation and
+`extract_module_parameters` for parameter extraction. Code that inspects a
+provider before construction uses the same resolver, without repeating the
+deprecation warning emitted at construction.
+
 Generic factory consumers, including I/O parsers, accept inline parameters or
 `config` with the same no-mixing rule. The old YAML `args` and `kwargs` wrappers
 are no longer supported and raise an error directing users to `config`.
@@ -342,7 +375,7 @@ I/O schemas remain output-product mappings, not ordered stage lists.
 ```yaml
 schema:
   data:
-    parser: sparse3d
+    provider: sparse3d
     config:
       sparse_event: sparse3d_data
 ```
@@ -742,7 +775,7 @@ override:
   model.learning_rate: 0.001
 
 model:
-  name: uresnet
+  provider: uresnet
   depth: 5
   filters: 16
 ```

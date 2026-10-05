@@ -18,6 +18,7 @@ from spine.bin.dataset import (
 from spine.bin.info import get_version, show_info
 from spine.bin.weight import apply_module_weight_overrides
 from spine.config import apply_overrides, load_config_file, to_inference_config
+from spine.config.factory import resolve_module_provider
 from spine.config.loader import resolve_config_path
 
 
@@ -314,7 +315,7 @@ def main(
     # Override the output configuration if provided
     writer = cfg["io"].get("writer")
     if writer is not None:
-        cache_output = writer.get("name") == "cache"
+        cache_output = resolve_module_provider(writer, warn_deprecated=False) == "cache"
         if cache_output and (output_dir is not None or output_suffix is not None):
             raise ValueError(
                 "--output-dir and --output-suffix do not apply to a cache "

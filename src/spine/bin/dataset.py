@@ -10,6 +10,8 @@ import argparse
 from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 
+from spine.config.factory import resolve_module_provider
+
 from .source import (
     SourceValues,
     apply_source_overrides,
@@ -274,7 +276,11 @@ def _apply_entry_overrides(
         return
 
     input_cfg, is_dataset = get_input_config(io_cfg)
-    dataset_name = input_cfg.get("name") if is_dataset else None
+    dataset_name = (
+        resolve_module_provider(input_cfg, warn_deprecated=False)
+        if is_dataset
+        else None
+    )
 
     # Mixed inputs forward root options to both aligned children. Joint input
     # traversal is instead defined solely by the primary source.

@@ -37,7 +37,7 @@ Suppose ``spine_output.h5`` contains reconstructed particles and the supporting
 
    io:
      reader:
-       name: hdf5
+       provider: hdf5
        file_keys: /path/to/spine_output.h5
        keep_open: false
 

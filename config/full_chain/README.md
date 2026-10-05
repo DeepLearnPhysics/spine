@@ -34,7 +34,7 @@ change downstream reconstruction.
 
 ```yaml
 model:
-  name: full_chain
+  provider: full_chain
   modules:
     chain:
       stages:
@@ -188,7 +188,7 @@ individual GrapPA node heads while leaving interaction aggregation enabled.
       objects:
         source: explicit
       encoder:
-        name: cnn
+        provider: cnn
         num_input: 1
         spatial_size: 768
         filters: 32
@@ -200,12 +200,12 @@ individual GrapPA node heads while leaving interaction aggregation enabled.
 
     image_particle_loss:
       pid:
-        name: class
+        provider: class
         label: clust_label
         target: pid
         loss: ce
       primary:
-        name: class
+        provider: class
         label: clust_label
         target: interaction_primary
         loss: ce
@@ -280,7 +280,7 @@ with the largest primary probability in each predicted interaction.
     grappa_inter_loss:
       node_loss:
         vertex:
-          name: vertex
+          provider: vertex
           normalize_positions: false
           use_anchor_points: false
 ```

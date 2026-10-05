@@ -8,6 +8,8 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from spine.config.factory import resolve_module_provider
+
 from ..cache import CacheRepository
 from ..factories import dataset_factory
 from .base import BaseDataset, DataDict
@@ -101,10 +103,13 @@ class MixedDataset(BaseDataset):
 
         if dtype is None:
             raise ValueError("MixedDataset requires an explicit `dtype`.")
-        if "name" not in primary:
-            raise ValueError("MixedDataset `primary` must select a dataset `name`.")
-        if cache.get("name", "cache") != "cache":
-            raise ValueError("MixedDataset `cache.name` must be `cache`.")
+        if resolve_module_provider(primary, warn_deprecated=False) is None:
+            raise ValueError("MixedDataset `primary` must select a dataset `provider`.")
+        if (
+            resolve_module_provider(cache, default="cache", warn_deprecated=False)
+            != "cache"
+        ):
+            raise ValueError("MixedDataset `cache.provider` must be `cache`.")
 
         # Store the alignment and merge configuration for use when samples are
         # fetched.
@@ -134,7 +139,8 @@ class MixedDataset(BaseDataset):
         # case its physical indexes no longer match raw-source indexes.
         cache_kwargs = dict(kwargs)
         nested_cache = dict(cache)
-        nested_cache.setdefault("name", "cache")
+        if resolve_module_provider(nested_cache, warn_deprecated=False) is None:
+            nested_cache["provider"] = "cache"
         source_ids = self._resolve_cache_sources(nested_cache)
         if source_ids is not None:
             nested_cache["source_ids"] = source_ids

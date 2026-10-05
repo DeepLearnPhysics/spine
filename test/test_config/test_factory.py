@@ -118,7 +118,7 @@ def test_instantiate_validates_name_keys_and_duplicate_kwargs():
     )
     assert instance.value == 4
 
-    with pytest.raises(ValueError, match="under `name`"):
+    with pytest.raises(ValueError, match="requires `provider`"):
         instantiate(registry, {"value": 1})
 
     with pytest.raises(ValueError, match="Available names.*alpha"):
@@ -367,3 +367,37 @@ def test_generic_factory_rejects_mixed_forms(nested):
     """Inline and config cannot coexist, even with disjoint keys."""
     with pytest.raises(ValueError, match="cannot mix"):
         instantiate({"alpha": Alpha}, {"name": "alpha", "config": nested, "value": 2})
+
+
+@pytest.mark.parametrize("alias", ["name", "parser", "collate_fn"])
+def test_provider_aliases_warn_and_conflicts_fail(alias):
+    registry = {"alpha": Alpha}
+    with pytest.deprecated_call(match="use `provider`"):
+        legacy = instantiate(registry, {alias: "alpha", "value": 7}, alt_name=alias)
+    canonical = instantiate(registry, {"provider": "alpha", "config": {"value": 7}})
+    assert canonical.value == legacy.value == 7
+    with pytest.raises(ValueError, match="only one"):
+        instantiate(registry, {"provider": "alpha", alias: "alpha"}, alt_name=alias)
+
+
+@pytest.mark.parametrize("provider", [None, "", " ", 1, []])
+def test_explicit_invalid_provider_cannot_fall_back(provider):
+    with pytest.raises(ValueError, match="nonempty string"):
+        instantiate({"alpha": Alpha}, {"provider": provider})
+    with pytest.raises(ValueError, match="nonempty string"):
+        parse_module_config({"alpha": {"provider": provider}})
+
+
+def test_instance_identity_does_not_emit_selector_deprecation():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        mapped = instantiate_modules(
+            {"alpha": Alpha}, {"custom": {"provider": "alpha"}}
+        )
+        staged = instantiate_modules(
+            {"alpha": Alpha}, {"stages": [{"name": "alpha"}]}, stages_key="stages"
+        )
+    assert isinstance(mapped["custom"], Alpha)
+    assert isinstance(staged["alpha"], Alpha)

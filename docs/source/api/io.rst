@@ -99,7 +99,7 @@ automatically. Select version 2 for new output explicitly during its rollout:
 .. code-block:: yaml
 
    writer:
-     name: hdf5
+     provider: hdf5
      format_version: 2
 
 Version 2 keeps derived scalar and fixed-width properties directly available
@@ -117,7 +117,7 @@ attributes, the V2 reader can skip all variable-value pools:
 .. code-block:: yaml
 
    dataset:
-     name: hdf5
+     provider: hdf5
      fixed_only: true
 
 Full loading remains the default. ``fixed_only`` is intentionally restricted
@@ -133,7 +133,7 @@ Analysis-only workflows may instead request projected multi-event chunks:
 
    io:
      reader:
-       name: hdf5
+       provider: hdf5
        file_keys: output.h5
        columnar: true
        chunk_size: 1024
@@ -158,7 +158,7 @@ interaction schemes to LArSoft as follows:
 
    io:
      reader:
-       name: hdf5
+       provider: hdf5
        file_keys: legacy_output.h5
        object_defaults:
          Neutrino:
@@ -197,18 +197,18 @@ same parser schema as a loader-backed configuration:
 
    io:
      dataset:
-       name: larcv
+       provider: larcv
        file_keys: /path/to/input.root
        schema:
          particles:
-           parser: particle
+           provider: particle
            particle_event: particle_pcluster
            cluster_event: cluster3d_pcluster
          meta:
-           parser: meta
+           provider: meta
            sparse_event: sparse3d_pcluster
      writer:
-       name: hdf5
+       provider: hdf5
        file_name: /path/to/output.h5
 
    build:
@@ -258,7 +258,7 @@ Create the first stage with an explicit repository path:
 
    io:
      writer:
-       name: cache
+       provider: cache
        path: /path/to/train.spine-cache
        stage: deghosting
        keys: [data_adapt, seg_pred, orig_index]
@@ -276,11 +276,11 @@ the input repository and publishes the new stage back to it:
        minibatch_size: 64
        num_workers: 4
        dataset:
-         name: cache
+         provider: cache
          path: /path/to/train.spine-cache
          stage: deghosting
      writer:
-       name: cache
+       provider: cache
        stage: fragmentation
 
 Mixed raw/cache training remains a normal mixed dataset. The child roles are
@@ -292,9 +292,9 @@ contract:
 .. code-block:: yaml
 
    dataset:
-     name: mixed
+     provider: mixed
      primary:
-       name: larcv
+       provider: larcv
        file_keys: /path/to/raw/*.root
        schema: {...}
      cache:
@@ -334,7 +334,7 @@ for the complete established source roster have arrived::
 
    io:
      writer:
-       name: cache
+       provider: cache
        path: /path/to/train.spine-cache
        stage: deghosting
        parallel: true
