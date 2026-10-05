@@ -104,11 +104,7 @@ def instantiate(
 
         function:
           name: function_name
-          args:
-            value_1
-            value_2
-            ...
-          kwargs:
+          config:
             kwarg_1: value_1
             kwarg_2: value_2
             ...
@@ -159,54 +155,29 @@ def instantiate(
             f"{valid_keys}"
         )
 
-    # Gather the arguments and keyword arguments to pass to the function
-    args = config.pop("args", [])
-    kwargs = dict(config.pop("kwargs", {}), **kwargs)
-
-    # If args is specified as a dictionary, append it to kwargs (deprecated)
-    if isinstance(args, dict):
-        warn(
-            "If specifying keyword arguments, should use `kwargs` instead "
-            f"of `args` in {class_name}",
-            category=DeprecationWarning,
+    # YAML parameters and runtime-injected dependencies share no precedence:
+    # a duplicate is an error regardless of where it was supplied.
+    parameters = extract_module_parameters(config, context=f"Module `{class_name}`")
+    overlap = parameters.keys() & kwargs.keys()
+    if overlap:
+        raise ValueError(
+            f"Module `{class_name}` parameters {sorted(overlap)} are provided "
+            "both in configuration and runtime arguments. Ambiguous."
         )
-        for key in args.keys():
-            if key in kwargs:
-                raise ValueError(
-                    f"The keyword argument {key} is provided under "
-                    "`args` and `kwargs`. Ambiguous."
-                )
-        kwargs.update(args)
-        args = []
+    parameters.update(kwargs)
 
-    # If some arguments were specified at the top level, append them
-    for key in config:
-        if key in kwargs:
-            raise ValueError(
-                f"The keyword argument {key} is provided "
-                "at the top level and under `kwargs`. Ambiguous."
-            )
-    kwargs.update(config)
-
-    # Intialize
     cls = mod_dict[class_name]
     try:
-        return cls(*args, **kwargs)
-
-    except Exception as err:
+        return cls(**parameters)
+    except Exception:
         logger.error(
-            "Failed to instantiate %s with these arguments:\n"
-            "  - args: %s\n  - kwargs: %s",
-            cls.__name__,
-            args,
-            kwargs,
+            "Failed to instantiate %s with parameters: %s", cls.__name__, parameters
         )
-
-        raise err
+        raise
 
 
 def extract_module_parameters(
-    descriptor: Mapping[str, Any], *, context: str, allow_mixed: bool = False
+    descriptor: Mapping[str, Any], *, context: str
 ) -> dict[str, Any]:
     """Extract inline or nested parameters after removing structural fields.
 
@@ -217,9 +188,6 @@ def extract_module_parameters(
         first remove its structural fields, such as ``name`` and ``provider``.
     context : str
         Stage description included in validation errors.
-    allow_mixed : bool, default False
-        Preserve legacy consumers that allow inline parameters to override
-        nested values. New consumers reject mixed forms, even without overlap.
 
     Returns
     -------
@@ -231,9 +199,16 @@ def extract_module_parameters(
     TypeError
         If an explicit ``config`` value is not a mapping.
     ValueError
-        If nested and inline forms are mixed without permission.
+        If parameter forms are mixed or removed ``args``/``kwargs`` wrappers
+        are supplied.
     """
     parameters = dict(descriptor)
+    removed = parameters.keys() & {"args", "kwargs"}
+    if removed:
+        raise ValueError(
+            f"{context}: {sorted(removed)} syntax is no longer supported; "
+            "use inline parameters or `config`."
+        )
     if "config" not in parameters:
         return deepcopy(parameters)
 
@@ -241,7 +216,7 @@ def extract_module_parameters(
     nested = parameters.pop("config")
     if not isinstance(nested, Mapping):
         raise TypeError(f"{context} `config` must be a mapping.")
-    if parameters and not allow_mixed:
+    if parameters:
         raise ValueError(f"{context} cannot mix inline parameters with `config`.")
     return deepcopy({**nested, **parameters})
 

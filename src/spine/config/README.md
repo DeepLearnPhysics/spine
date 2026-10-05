@@ -327,10 +327,30 @@ stages:
       option: value
 ```
 
-FullChain preserves its legacy support for mixed nested and inline parameters,
-with inline values taking precedence. The other ordered module managers reject
-mixed entries to avoid implicit precedence. I/O parser mappings retain their
-existing inline-parameter syntax; they do not become ordered stage lists.
+FullChain follows the same rule: inline parameters and `config` cannot be mixed.
+Its structural `uses` and `loss` fields may accompany either parameter form.
+All ordered stage lists reject stage-level `priority`; legacy mapping-based
+scheduling retains each manager's existing priority behavior.
+
+Generic factory consumers, including I/O parsers, accept inline parameters or
+`config` with the same no-mixing rule. The old YAML `args` and `kwargs` wrappers
+are no longer supported and raise an error directing users to `config`.
+Constructor invocation is keyword-only. Runtime-injected Python keyword
+arguments remain supported, but collisions with configured parameters fail.
+I/O schemas remain output-product mappings, not ordered stage lists.
+
+```yaml
+schema:
+  data:
+    parser: sparse3d
+    config:
+      sparse_event: sparse3d_data
+```
+
+When migrating, move keyword entries from `kwargs` or mapping-valued `args` to
+`config`. Convert positional `args` to named parameters. If an entry mixes inline
+and nested parameters, consolidate all provider parameters into one form;
+there is no implicit precedence.
 
 For example, analysis settings can accompany its module list:
 
@@ -358,57 +378,39 @@ legacy mappings only; `priority_key=None` leaves legacy provider fields untouche
 for managers that do not interpret priority. Opt-in preserves compatibility with
 mapping-only callers, including modules literally named `stages`.
 
-### Removing Keys
+### Null Values and Removing Keys
 
-Three ways to remove unwanted keys from included configurations:
-
-#### Method 1: `null` in `override:`
+`null` is a value, not a deletion operation. Use `remove:` to delete paths:
 
 ```yaml
 include: base_config.yaml
 
 override:
-  io.loader.shuffle: null        # Remove entirely
-  base.debug_mode: null          # Remove entirely
-  io.loader.batch_size: 16       # Override normally
-```
-
-#### Method 2: `remove:` directive
-
-```yaml
-include: base_config.yaml
-
-# Remove single key
-remove: io.loader.shuffle
-
-# Remove multiple keys
-remove:
-  - io.loader.shuffle
-  - base.debug_mode
-  - io.loader.num_workers
-```
-
-#### Method 3: Combine both
-
-```yaml
-include: base_config.yaml
+  io.loader.num_workers: null   # Keep the key with a null value
+  io.loader.batch_size: 16
 
 remove:
-  - io.loader.shuffle
+  - io.loader.shuffle          # Delete the key
   - base.debug_mode
-
-override:
-  io.loader.num_workers: null    # Delete
-  io.loader.batch_size: 16       # Override
 ```
 
-**Order of operations:**
-1. Load included files (with recursive includes)
-2. Merge main config
-3. Apply `remove:` deletions
-4. Apply `override:` (including null deletions and regular overrides)
+A single path may also be supplied as `remove: base.debug_mode`.
+The same null-as-value rule applies to CLI assignments and named-list updates.
+
+The existing directive order is currently context-dependent: included-file
+processing applies `remove:` before `override:`, while top-level and inline
+`!include` finalization apply `override:` before `remove:`. Avoid targeting the
+same path with both directives until that ordering policy is unified.
 
 ### Command Line
+
+CLI overrides support the same `+`, `-`, and `~` collection operators as YAML
+`override:` directives, in addition to ordinary assignments. Quote expressions
+so the shell does not interpret their syntax:
+
+```bash
+spine --config config.yaml --set 'parsers+=[meta, run_info]' --set 'parsers-=[obsolete]'
+```
 
 Override any parameter from command line:
 

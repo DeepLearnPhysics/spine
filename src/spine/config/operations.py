@@ -120,8 +120,10 @@ def apply_overrides(
         # Parse basic scalars and collections before updating the nested key.
         value = parse_value(value_str.strip())
         key_path = key_path.strip()
-        if key_path.endswith("~"):
-            config = apply_named_list_edits(config, key_path[:-1], value)
+        if key_path.endswith(("+", "-", "~")):
+            config = apply_collection_operation(
+                config, key_path[:-1], value, key_path[-1]
+            )
         else:
             config, _ = set_nested_value(config, key_path, value)
 

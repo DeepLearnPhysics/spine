@@ -111,6 +111,10 @@ def _new_chain_plan(
         if not isinstance(stage, dict):
             raise TypeError("Each full-chain stage must be a mapping.")
         descriptor = dict(stage)
+        if "priority" in descriptor:
+            raise ValueError(
+                "Full-chain stages cannot specify `priority`; use list order."
+            )
         try:
             name = descriptor.pop("name")
         except KeyError as err:
@@ -145,12 +149,7 @@ def _new_chain_plan(
             if key not in modules:
                 raise ValueError(f"Stage `{name}` references missing block `{key}`.")
             config[key] = modules[key]
-        # Retain FullChain's historical inline-over-nested precedence.
-        config.update(
-            extract_module_parameters(
-                descriptor, context=f"Stage `{name}`", allow_mixed=True
-            )
-        )
+        config.update(extract_module_parameters(descriptor, context=f"Stage `{name}`"))
 
         # Loss may name one block or map several provider-owned objectives to
         # independent blocks, as with shower and track GrapPA paths.

@@ -124,15 +124,13 @@ def test_instantiate_validates_name_keys_and_duplicate_kwargs():
     with pytest.raises(ValueError, match="Available names.*alpha"):
         instantiate(registry, "missing")
 
-    with pytest.warns(DeprecationWarning, match="keyword arguments"):
-        with pytest.raises(ValueError, match="under `args` and `kwargs`"):
-            instantiate(registry, {"name": "alpha", "args": {"value": 1}}, value=2)
+    with pytest.raises(ValueError, match="no longer supported"):
+        instantiate(registry, {"name": "alpha", "args": {"value": 1}}, value=2)
 
-    with pytest.raises(ValueError, match="top level and under `kwargs`"):
+    with pytest.raises(ValueError, match="both in configuration and runtime"):
         instantiate(registry, {"name": "alpha", "value": 1}, value=2)
 
-    with pytest.deprecated_call(match="keyword arguments"):
-        instance = instantiate(registry, {"name": "alpha", "args": {"value": 3}})
+    instance = instantiate(registry, {"name": "alpha", "config": {"value": 3}})
     assert instance.value == 3
 
 
@@ -336,3 +334,36 @@ def test_inline_unknown_parameters_are_validated_by_provider():
             {"stages": [{"name": "alpha", "typo": 1}]},
             stages_key="stages",
         )
+
+
+@pytest.mark.parametrize("wrapper", ["args", "kwargs"])
+@pytest.mark.parametrize("value", [None, [], {}, {"value": 1}])
+def test_removed_argument_wrappers_fail_explicitly(wrapper, value):
+    """Removed syntax cannot be silently interpreted or ignored."""
+    with pytest.raises(ValueError, match="no longer supported.*config"):
+        instantiate({"alpha": Alpha}, {"name": "alpha", wrapper: value})
+    with pytest.raises(ValueError, match="no longer supported"):
+        parse_module_config(
+            {"stages": [{"name": "alpha", wrapper: value}]}, stages_key="stages"
+        )
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_generic_factory_parameter_forms_and_runtime_injection(inline):
+    """Both YAML forms accept disjoint injected parameters and reject collisions."""
+    parameters = {"value": 4}
+    cfg = {"parser": "alpha", **(parameters if inline else {"config": parameters})}
+    assert instantiate({"alpha": Alpha}, cfg, alt_name="parser").value == 4
+    with pytest.raises(ValueError, match="both in configuration and runtime"):
+        instantiate({"alpha": Alpha}, cfg, alt_name="parser", value=5)
+    assert (
+        instantiate({"alpha": Alpha}, {"name": "alpha", "config": {}}, value=5).value
+        == 5
+    )
+
+
+@pytest.mark.parametrize("nested", [{}, {"value": 1}, {"other": 2}])
+def test_generic_factory_rejects_mixed_forms(nested):
+    """Inline and config cannot coexist, even with disjoint keys."""
+    with pytest.raises(ValueError, match="cannot mix"):
+        instantiate({"alpha": Alpha}, {"name": "alpha", "config": nested, "value": 2})
