@@ -23,3 +23,10 @@ def test_loss_factory_constructs_modules_and_validates_functionals():
         loss_fn_factory({"name": "ce", "reduction": "sum"}, functional=True)
     with pytest.raises(KeyError, match="Could not find"):
         loss_fn_factory("not_a_loss", functional=True)
+
+
+def test_functional_loss_accepts_provider_and_warns_for_name():
+    canonical = loss_fn_factory({"provider": "ce"}, functional=True)
+    with pytest.deprecated_call(match="use `provider`"):
+        legacy = loss_fn_factory({"name": "ce"}, functional=True)
+    assert canonical is legacy

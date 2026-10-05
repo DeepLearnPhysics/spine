@@ -1762,7 +1762,7 @@ def test_io_manager_extends_input_cache_repository(tmp_path):
         ),
         (
             {"primary": {}, "cache": {"name": "cache"}, "dtype": "float32"},
-            "primary.*dataset `name`",
+            "primary.*dataset `provider`",
         ),
         (
             {
@@ -1770,7 +1770,7 @@ def test_io_manager_extends_input_cache_repository(tmp_path):
                 "cache": {"name": "hdf5"},
                 "dtype": "float32",
             },
-            "cache.name.*must be `cache`",
+            "cache.provider.*must be `cache`",
         ),
     ],
 )

@@ -33,11 +33,17 @@ def test_loss_factory_builds_supported_loss():
     ("name", "model_type"),
     [("uresnet", UResNet), ("fpn", FPN)],
 )
-def test_backbone_factory_uses_shared_cnn_modules(name, model_type, cnn_config):
+@pytest.mark.parametrize("selector", ["provider", "name"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_backbone_factory_uses_shared_cnn_modules(
+    name, model_type, cnn_config, selector, nested
+):
     """The GraphSPICE backbone factory resolves shared CNN implementations."""
     from spine.model.graph_spice import backbone_factory
 
-    model = backbone_factory({"name": name, **cnn_config})
+    config = {selector: name, **({"config": cnn_config} if nested else cnn_config)}
+    model = backbone_factory(config)
+    assert config[selector] == name
 
     assert isinstance(model, model_type)
 
@@ -60,7 +66,7 @@ def test_cluster_factories_reject_unsupported_components(factory, name):
     ("config", "message"),
     [
         ("uresnet", "configuration block"),
-        ({}, "requires a `name`"),
+        ({}, "requires a `provider`"),
         ({"name": "transformer"}, "Unknown backbone"),
     ],
 )
@@ -69,4 +75,21 @@ def test_backbone_factory_validates_named_configuration(config, message):
     from spine.model.graph_spice import backbone_factory
 
     with pytest.raises(ValueError, match=message):
+        backbone_factory(config)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"provider": "uresnet", "name": "uresnet"},
+        {"provider": "uresnet", "config": {}, "depth": 2},
+        {"provider": "uresnet", "kwargs": {}},
+        {"provider": "uresnet", "args": []},
+    ],
+)
+def test_backbone_rejects_ambiguous_descriptors(config):
+    """Custom backbone construction must share generic descriptor validation."""
+    from spine.model.graph_spice import backbone_factory
+
+    with pytest.raises(ValueError):
         backbone_factory(config)

@@ -27,7 +27,7 @@ train:
   weight_prefix: weights/full_chain/snapshot
   save_epoch: 1.0
   optimizer:
-    name: Adam
+    provider: Adam
     lr: 0.001
 
 io:
@@ -36,7 +36,7 @@ io:
     shuffle: false
     num_workers: 8
     sampler:
-      name: random_sequence
+      provider: random_sequence
       seed: 0
     dataset:
       file_keys: null

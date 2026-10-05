@@ -5,29 +5,33 @@
 build:
   fragments: true
 
-# Materialize PPN candidates for PointProposalAna and match fragments for the
-# fragment-node record. These entries merge with the other postprocessors in
-# the full-chain configuration.
-post:
-  ppn: {}
-  match:
-    # Full-chain truth objects live in the point cloud adapted to the semantic
-    # prediction. Match in that same space; original fragment indexes are not
-    # populated when adapted fragment labels are available.
-    truth_point_mode: points_adapt
-    fragment: true
+# Edit the ordered post-processing list from the full-chain base. Keep the
+# previous execution order: existing processors, then PPN candidate extraction.
+override:
+  post.stages~:
+    - update:
+        name: match
+        changes:
+          # Full-chain truth objects use the semantic-adapted point cloud.
+          truth_point_mode: points_adapt
+          fragment: true
+    - insert:
+        after: match
+        value:
+          name: ppn
 
 ana:
   prefix_output: true
   overwrite: true
 
-  segment_eval:
+  stages:
+  - name: segment_eval
     summary: true
     ghost: false
 
-  point_eval: {}
+  - name: point_eval
 
-  cluster_eval:
+  - name: cluster_eval
     obj_type: [fragment, particle, interaction]
     # Build both assignments from objects so inference does not need to retain
     # the adapted training label tensor.
@@ -35,7 +39,7 @@ ana:
     truth_index_mode: index_adapt
     metrics: [pur, eff, ari]
 
-  save:
+  - name: save
     obj_type: [fragment, particle]
     run_mode: both
     match_mode: both

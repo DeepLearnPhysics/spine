@@ -214,6 +214,11 @@ def test_io_manager_merges_cumulative_post_provenance(monkeypatch):
     [
         ({"custom_alias": {"name": "canonical"}}, ("canonical",)),
         ({"plain": None}, ("plain",)),
+        (
+            {"stages": [{"name": "custom_alias", "provider": "canonical"}]},
+            ("canonical",),
+        ),
+        ({"stages": []}, ()),
         (["first", "second"], ("first", "second")),
     ],
 )

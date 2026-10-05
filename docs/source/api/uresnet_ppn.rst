@@ -1,7 +1,7 @@
 UResNet Point-Proposal Model
 ============================
 
-``model.name: uresnet_ppn`` combines a UResNet segmentation backbone with a
+``model.provider: uresnet_ppn`` combines a UResNet segmentation backbone with a
 particle-point proposal head, a vertex proposal head, or both.  This page is
 written explicitly because the point-proposal package uses runtime PyTorch
 types which cannot be imported in Read the Docs' mocked-dependency process.
@@ -53,21 +53,21 @@ other module blocks:
 .. code-block:: yaml
 
    model:
-     name: uresnet_ppn
+     provider: uresnet_ppn
      modules:
        uresnet: ...
        ppn: ...
        uresnet_loss: ...
        ppn_loss: ...
        loss_balancing:
-         name: uncertainty
+         provider: uncertainty
 
 Optional weights express scientific priorities without restating task types:
 
 .. code-block:: yaml
 
    loss_balancing:
-     name: fixed
+     provider: fixed
      weights:
        segmentation: 2.0
        ppn_regression: 0.5

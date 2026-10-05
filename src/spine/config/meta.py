@@ -17,6 +17,7 @@ from .api import (
     META_KIND,
     META_LIST_APPEND,
     META_NAME,
+    META_OPTIONAL_PATHS,
     META_STRICT,
     META_VERSION,
     VALID_KINDS,
@@ -74,6 +75,17 @@ def extract_metadata(
             f"{VALID_LIST_APPEND_MODES}. Using '{DEFAULT_LIST_APPEND}'"
         )
         list_append = DEFAULT_LIST_APPEND
+
+    optional_paths = meta.get(META_OPTIONAL_PATHS, [])
+    if not isinstance(optional_paths, list) or any(
+        not isinstance(path, str)
+        or not path
+        or any(not part for part in path.split("."))
+        for path in optional_paths
+    ):
+        raise ConfigValidationError(
+            f"{cfg_path}: __meta__.optional_paths must be a list of nonempty dotted paths."
+        )
 
     result = {
         **meta,  # Preserve custom metadata fields as-is

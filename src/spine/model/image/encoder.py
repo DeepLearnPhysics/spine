@@ -7,6 +7,7 @@ from typing import Any
 
 import torch
 
+from spine.config.factory import instantiate
 from spine.data import TensorBatch
 
 from ..cnn.encoder import SparseResidualEncoder
@@ -114,30 +115,16 @@ def image_encoder_factory(cfg: dict[str, Any]) -> ImageEncoder:
     Parameters
     ----------
     cfg : dict
-        Encoder configuration containing ``name``.
+        Encoder descriptor with ``provider`` and inline or nested parameters.
 
     Returns
     -------
     ImageEncoder
         Encoder normalized to the objectized image interface.
     """
-    # Extract the encoder name without mutating the caller's configuration
-    config = dict(cfg)
-    try:
-        name = config.pop("name")
-    except KeyError as err:
-        raise ValueError("Image encoder configuration requires `name`.") from err
-
-    # Resolve and instantiate the requested adapter
+    # Share selector validation and parameter extraction with other factories.
     encoders: dict[str, type[ImageEncoder]] = {
         "cnn": ImageCNNEncoder,
         "pointnet": ImagePointNetEncoder,
     }
-    try:
-        encoder_class = encoders[name]
-    except KeyError as err:
-        valid = ", ".join(sorted(encoders))
-        raise ValueError(
-            f"Unknown image encoder `{name}`. Choose from {valid}."
-        ) from err
-    return encoder_class(**config)
+    return instantiate(encoders, cfg)

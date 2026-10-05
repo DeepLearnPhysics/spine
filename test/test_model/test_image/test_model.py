@@ -98,7 +98,9 @@ def test_pointnet_adapter_consumes_objectized_tensor_batches():
     assert encoder.feature_size == 4
 
 
-def test_image_encoder_factory_validates_and_constructs_adapters():
+@pytest.mark.parametrize("selector", ["provider", "name"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_image_encoder_factory_validates_and_constructs_adapters(selector, nested):
     """The image factory requires a known named adapter without mutation."""
     pointnet = {
         "name": "pointnet",
@@ -110,8 +112,17 @@ def test_image_encoder_factory_validates_and_constructs_adapters():
         "mlp_specs_final": [8, 4],
         "dropout": 0.0,
     }
-    assert isinstance(image_encoder_factory(pointnet), ImagePointNetEncoder)
-    assert pointnet["name"] == "pointnet"
+    pointnet[selector] = pointnet.pop("name")
+    descriptor = (
+        {
+            selector: "pointnet",
+            "config": {k: v for k, v in pointnet.items() if k != selector},
+        }
+        if nested
+        else pointnet
+    )
+    assert isinstance(image_encoder_factory(descriptor), ImagePointNetEncoder)
+    assert pointnet[selector] == "pointnet"
 
     cnn = {
         "name": "cnn",
@@ -127,9 +138,9 @@ def test_image_encoder_factory_validates_and_constructs_adapters():
     }
     assert isinstance(image_encoder_factory(cnn), ImageCNNEncoder)
 
-    with pytest.raises(ValueError, match="requires `name`"):
+    with pytest.raises(ValueError, match="requires `provider`"):
         image_encoder_factory({})
-    with pytest.raises(ValueError, match="Unknown image encoder"):
+    with pytest.raises(ValueError, match="Could not find"):
         image_encoder_factory({"name": "transformer"})
 
 

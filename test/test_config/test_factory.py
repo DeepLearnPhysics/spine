@@ -118,21 +118,19 @@ def test_instantiate_validates_name_keys_and_duplicate_kwargs():
     )
     assert instance.value == 4
 
-    with pytest.raises(ValueError, match="under `name`"):
+    with pytest.raises(ValueError, match="requires `provider`"):
         instantiate(registry, {"value": 1})
 
     with pytest.raises(ValueError, match="Available names.*alpha"):
         instantiate(registry, "missing")
 
-    with pytest.warns(DeprecationWarning, match="keyword arguments"):
-        with pytest.raises(ValueError, match="under `args` and `kwargs`"):
-            instantiate(registry, {"name": "alpha", "args": {"value": 1}}, value=2)
+    with pytest.raises(ValueError, match="no longer supported"):
+        instantiate(registry, {"name": "alpha", "args": {"value": 1}}, value=2)
 
-    with pytest.raises(ValueError, match="top level and under `kwargs`"):
+    with pytest.raises(ValueError, match="both in configuration and runtime"):
         instantiate(registry, {"name": "alpha", "value": 1}, value=2)
 
-    with pytest.deprecated_call(match="keyword arguments"):
-        instance = instantiate(registry, {"name": "alpha", "args": {"value": 3}})
+    instance = instantiate(registry, {"name": "alpha", "config": {"value": 3}})
     assert instance.value == 3
 
 
@@ -166,3 +164,240 @@ def test_parse_module_config_skips_none_by_default():
     assert parse_module_config({"disabled": None, "alpha": {}}) == {
         "alpha": {"name": "alpha", "cfg": {}, "priority": None}
     }
+
+
+def test_ordered_module_stages_preserve_identity_order_and_inputs():
+    """Explicit stages normalize like mappings without priority sorting."""
+    stages = [
+        {"name": "second", "provider": "alpha", "config": {"nested": [2]}},
+        {"name": "first", "provider": "alpha"},
+    ]
+    parsed = parse_module_config(
+        {"stages": stages},
+        stages_key="stages",
+        sort_by_priority=True,
+        priority_descending=True,
+    )
+    assert list(parsed) == ["second", "first"]
+    assert parsed["second"] == {
+        "name": "alpha",
+        "cfg": {"nested": [2]},
+        "priority": None,
+    }
+    assert parsed["first"] == {"name": "alpha", "cfg": {}, "priority": None}
+    parsed["second"]["cfg"]["nested"].append(3)
+    assert stages[0]["config"] == {"nested": [2]}
+    assert parse_module_config({"stages": []}, stages_key="stages") == {}
+    # Opt-in avoids reinterpreting a legacy module literally named 'stages'.
+    assert (
+        parse_module_config({"stages": {"name": "alpha"}})["stages"]["name"] == "alpha"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stages", "error", "match"),
+    [
+        (None, TypeError, "must be a list"),
+        ({}, TypeError, "must be a list"),
+        ([None], TypeError, "must be a mapping"),
+        ([{}], ValueError, "nonempty `name`"),
+        ([{"provider": "alpha"}], ValueError, "nonempty `name`"),
+        ([{"name": "a", "provider": None}], ValueError, "nonempty `provider`"),
+        ([{"name": "a", "provider": ""}], ValueError, "nonempty `provider`"),
+        ([{"name": "a", "provider": " "}], ValueError, "nonempty `provider`"),
+        ([{"name": " ", "provider": "alpha"}], ValueError, "nonempty `name`"),
+        ([{"name": "a", "provider": 1}], ValueError, "nonempty `provider`"),
+        (
+            [{"name": "a", "provider": "alpha", "priority": None}],
+            ValueError,
+            "priority",
+        ),
+        (
+            [{"name": "a", "provider": "alpha", "config": {}, "value": 1}],
+            ValueError,
+            "cannot mix",
+        ),
+        (
+            [{"name": "a", "provider": "alpha", "config": None}],
+            TypeError,
+            "must be a mapping",
+        ),
+        ([{"name": "a", "provider": "alpha"}] * 2, ValueError, "Duplicate"),
+    ],
+)
+def test_ordered_module_stages_validate_structure(stages, error, match):
+    """Both managers share strict ordered-entry validation."""
+    with pytest.raises(error, match=match):
+        parse_module_config({"stages": stages}, stages_key="stages")
+
+
+def test_ordered_module_stages_reject_mixed_formats():
+    """Even disabled legacy entries cannot accompany an explicit stage list."""
+    with pytest.raises(ValueError, match="Cannot mix"):
+        parse_module_config({"stages": [], "alpha": None}, stages_key="stages")
+
+
+def test_instantiate_modules_accepts_shared_ordered_schema():
+    """Generic consumers can instantiate lists without manager-specific parsing."""
+    instances = instantiate_modules(
+        {"alpha": Alpha},
+        {
+            "stages": [
+                {"name": "second", "provider": "alpha", "config": {"value": 2}},
+                {"name": "first", "provider": "alpha", "config": {"value": 1}},
+            ]
+        },
+        stages_key="stages",
+        sort_by_priority=True,
+    )
+    assert list(instances) == ["second", "first"]
+    assert [instance.value for instance in instances.values()] == [2, 1]
+
+
+def test_priority_parsing_can_be_disabled_for_legacy_consumers():
+    """Managers without scheduling metadata leave provider parameters intact."""
+    parsed = parse_module_config({"alpha": {"priority": 7}}, priority_key=None)
+    assert parsed["alpha"] == {
+        "name": "alpha",
+        "cfg": {"priority": 7},
+        "priority": None,
+    }
+
+
+def test_ordered_module_provider_defaults_to_required_instance_name():
+    """Shorthand and explicit providers share identity and duplicate rules."""
+    stages = [
+        {"name": "alpha", "config": {"value": 1}},
+        {"name": "another_alpha", "provider": "alpha", "config": {"value": 2}},
+    ]
+    instances = instantiate_modules(
+        {"alpha": Alpha}, {"stages": stages}, stages_key="stages"
+    )
+    assert list(instances) == ["alpha", "another_alpha"]
+    assert [instance.value for instance in instances.values()] == [1, 2]
+    assert "provider" not in stages[0]
+    with pytest.raises(ValueError, match="Duplicate"):
+        parse_module_config(
+            {"stages": [{"name": "alpha"}, {"name": "alpha", "provider": "beta"}]},
+            stages_key="stages",
+        )
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_stage_parameters_accept_inline_or_nested_forms(inline):
+    """Both representations produce identical provider constructor arguments."""
+    parameters = {"value": 4}
+    stage = {"name": "alpha", **(parameters if inline else {"config": parameters})}
+    instances = instantiate_modules(
+        {"alpha": Alpha}, {"stages": [stage]}, stages_key="stages"
+    )
+    assert instances["alpha"].value == 4
+    assert parameters == {"value": 4}
+
+
+@pytest.mark.parametrize("nested", [{}, {"value": 1}, {"other": 2}])
+def test_stage_parameters_reject_mixing_even_without_overlap(nested):
+    """No precedence is inferred for new ordered module consumers."""
+    with pytest.raises(ValueError, match="cannot mix"):
+        parse_module_config(
+            {"stages": [{"name": "alpha", "value": 4, "config": nested}]},
+            stages_key="stages",
+        )
+
+
+def test_parameter_extraction_copies_inputs_and_preserves_nested_reserved_fields():
+    """Extraction does not mutate payloads or consume nested provider options."""
+    from spine.config.factory import extract_module_parameters
+
+    for descriptor in ({"values": [1]}, {"config": {"values": [1]}}):
+        parsed = extract_module_parameters(descriptor, context="Test stage")
+        parsed["values"].append(2)
+        original = descriptor.get("config", descriptor)
+        assert original["values"] == [1]
+    reserved = {
+        "name": "parameter_name",
+        "provider": "parameter_provider",
+        "priority": 3,
+        "config": {"option": True},
+    }
+    parsed = parse_module_config(
+        {"stages": [{"name": "alpha", "config": reserved}]}, stages_key="stages"
+    )
+    assert parsed["alpha"]["cfg"] == reserved
+
+
+def test_inline_unknown_parameters_are_validated_by_provider():
+    """Unknown inline keys reach constructor validation instead of being dropped."""
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        instantiate_modules(
+            {"alpha": Alpha},
+            {"stages": [{"name": "alpha", "typo": 1}]},
+            stages_key="stages",
+        )
+
+
+@pytest.mark.parametrize("wrapper", ["args", "kwargs"])
+@pytest.mark.parametrize("value", [None, [], {}, {"value": 1}])
+def test_removed_argument_wrappers_fail_explicitly(wrapper, value):
+    """Removed syntax cannot be silently interpreted or ignored."""
+    with pytest.raises(ValueError, match="no longer supported.*config"):
+        instantiate({"alpha": Alpha}, {"name": "alpha", wrapper: value})
+    with pytest.raises(ValueError, match="no longer supported"):
+        parse_module_config(
+            {"stages": [{"name": "alpha", wrapper: value}]}, stages_key="stages"
+        )
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_generic_factory_parameter_forms_and_runtime_injection(inline):
+    """Both YAML forms accept disjoint injected parameters and reject collisions."""
+    parameters = {"value": 4}
+    cfg = {"parser": "alpha", **(parameters if inline else {"config": parameters})}
+    assert instantiate({"alpha": Alpha}, cfg, alt_name="parser").value == 4
+    with pytest.raises(ValueError, match="both in configuration and runtime"):
+        instantiate({"alpha": Alpha}, cfg, alt_name="parser", value=5)
+    assert (
+        instantiate({"alpha": Alpha}, {"name": "alpha", "config": {}}, value=5).value
+        == 5
+    )
+
+
+@pytest.mark.parametrize("nested", [{}, {"value": 1}, {"other": 2}])
+def test_generic_factory_rejects_mixed_forms(nested):
+    """Inline and config cannot coexist, even with disjoint keys."""
+    with pytest.raises(ValueError, match="cannot mix"):
+        instantiate({"alpha": Alpha}, {"name": "alpha", "config": nested, "value": 2})
+
+
+@pytest.mark.parametrize("alias", ["name", "parser", "collate_fn"])
+def test_provider_aliases_warn_and_conflicts_fail(alias):
+    registry = {"alpha": Alpha}
+    with pytest.deprecated_call(match="use `provider`"):
+        legacy = instantiate(registry, {alias: "alpha", "value": 7}, alt_name=alias)
+    canonical = instantiate(registry, {"provider": "alpha", "config": {"value": 7}})
+    assert canonical.value == legacy.value == 7
+    with pytest.raises(ValueError, match="only one"):
+        instantiate(registry, {"provider": "alpha", alias: "alpha"}, alt_name=alias)
+
+
+@pytest.mark.parametrize("provider", [None, "", " ", 1, []])
+def test_explicit_invalid_provider_cannot_fall_back(provider):
+    with pytest.raises(ValueError, match="nonempty string"):
+        instantiate({"alpha": Alpha}, {"provider": provider})
+    with pytest.raises(ValueError, match="nonempty string"):
+        parse_module_config({"alpha": {"provider": provider}})
+
+
+def test_instance_identity_does_not_emit_selector_deprecation():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        mapped = instantiate_modules(
+            {"alpha": Alpha}, {"custom": {"provider": "alpha"}}
+        )
+        staged = instantiate_modules(
+            {"alpha": Alpha}, {"stages": [{"name": "alpha"}]}, stages_key="stages"
+        )
+    assert isinstance(mapped["custom"], Alpha)
+    assert isinstance(staged["alpha"], Alpha)

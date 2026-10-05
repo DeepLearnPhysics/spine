@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from spine.config.factory import resolve_module_provider
 from spine.io import IOManager
 from spine.logging import LogManager
 from spine.utils.conditional import torch
@@ -517,7 +518,7 @@ class ValidationManager:
 
         dataset = deepcopy(dict(dataset))
         cls.strip_runtime_options(dataset)
-        dataset_name = dataset.get("name")
+        dataset_name = resolve_module_provider(dataset, warn_deprecated=False)
 
         # Entry filters are independent of source replacement and validation
         # scheduling, so consume them before validating the remaining schema.
@@ -537,7 +538,7 @@ class ValidationManager:
                 pair_probability = train_sampler.get("pair_probability", 1.0)
                 length_policy = train_sampler.get("length_policy")
             loader_cfg["sampler"] = {
-                "name": "joint_sequential",
+                "provider": "joint_sequential",
                 "seed": seed,
                 "pair_probability": pair_probability,
             }
@@ -756,7 +757,7 @@ class ValidationManager:
             return
 
         target = dataset
-        if dataset.get("name") == "joint":
+        if resolve_module_provider(dataset, warn_deprecated=False) == "joint":
             primary = dataset.get("primary")
             if not isinstance(primary, Mapping):
                 raise TypeError(

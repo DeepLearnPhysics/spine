@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import torch
 
-from spine.config.factory import Config, Registry, instantiate
+from spine.config.factory import (
+    Config,
+    Registry,
+    extract_module_parameters,
+    instantiate,
+    resolve_module_provider,
+)
 
 from .kernel import BilinearKernel, DefaultKernel, MLPKernel
 from .loss import EdgeLoss
@@ -35,7 +41,7 @@ def backbone_factory(cfg: Config) -> torch.nn.Module:
     ----------
     cfg : mapping
         Backbone configuration. Unlike parameter-free factories, a backbone
-        must be configured with a mapping containing a ``name``.
+        must be configured with a mapping containing a ``provider`` (legacy ``name`` is deprecated).
 
     Returns
     -------
@@ -47,11 +53,13 @@ def backbone_factory(cfg: Config) -> torch.nn.Module:
             "CNN backbones require a configuration block, not only a name."
         )
 
-    config = dict(cfg)
-    try:
-        name = config.pop("name")
-    except KeyError as err:
-        raise ValueError("Backbone configuration requires a `name`.") from err
+    name = resolve_module_provider(cfg)
+    if name is None:
+        raise ValueError("Backbone configuration requires a `provider`.")
+    config = extract_module_parameters(
+        {key: value for key, value in cfg.items() if key not in {"name", "provider"}},
+        context=f"Backbone {name}",
+    )
 
     backbones = backbone_dict()
     try:

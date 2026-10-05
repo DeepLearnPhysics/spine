@@ -20,13 +20,10 @@ The SPINE configuration system provides advanced YAML configuration management w
 ## Quick Start
 
 ```python
-from spine.config import load_config
+from spine.config import apply_overrides, load_config_file
 
-# Load a simple config
-config = load_config('config.yaml')
-
-# Load with command-line overrides
-config = load_config('config.yaml', overrides=['io.batch_size=16', 'model.debug=true'])
+config = load_config_file('config.yaml')
+config = apply_overrides(config, ['io.loader.batch_size=16', 'model.debug=true'])
 ```
 
 ```yaml
@@ -42,7 +39,7 @@ override:
   model.learning_rate: 0.001
 
 model:
-  name: full_chain
+  provider: full_chain
   num_layers: 5
 ```
 
@@ -277,57 +274,180 @@ configuration loading:
 spine -c config.yaml --set 'model.modules.chain.stages~=[{remove: {name: obsolete_stage}}]'
 ```
 
-### Removing Keys
+### Ordered Module Configurations
 
-Three ways to remove unwanted keys from included configurations:
+Managers that execute a configurable sequence of modules share the same
+`stages:` structure:
 
-#### Method 1: `null` in `override:`
+```yaml
+stages:
+  - name: implementation
+    option: value
+  - name: second_instance
+    provider: implementation
+    option: another_value
+```
+
+`name` is required and identifies the instance; `provider` selects its
+implementation and defaults to `name` when omitted. An explicitly null, empty,
+or whitespace-only provider is invalid. Provider-only entries are not accepted.
+The shared parser normalizes this structure and legacy module mappings into
+one representation, separating instance identity from provider identity.
+
+- List order is execution order; stage-level `priority` is rejected.
+- Instance names must be unique, nonempty strings. Providers may repeat.
+- Provider parameters may be inline (as above) or nested in an explicit
+  `config:` mapping. Mixing both forms within an entry is rejected, even when
+  the keys do not overlap or `config` is empty. Null `config` is invalid.
+- Structural fields (`name`, `provider`, `config`, and stage-level `priority`)
+  are reserved. Other inline fields are forwarded to the provider, which
+  validates its parameter names. Nested keys remain provider configuration;
+  individual provider factories may reserve additional keys of their own.
+- Legacy module mappings remain supported with each manager's existing ordering
+  policy. They cannot be mixed with `stages:` in the same manager configuration.
+- Manager-level settings remain outside the list. The manager removes these
+  settings before passing the module configuration to the shared parser.
+- Dependency rules, whether an empty sequence is meaningful, and execution
+  details belong to the consuming manager; the parser never rearranges stages.
+
+The shared format is supported by analysis (`ana.stages`), post-processing
+(`post.stages`), calibration, and data augmentation. Calibration and augmentation
+paths depend on their owning component. FullChain already uses an ordered
+`chain.stages` schema with additional model-specific fields.
+
+The nested alternative is equivalent:
+
+```yaml
+stages:
+  - name: implementation
+    config:
+      option: value
+```
+
+FullChain follows the same rule: inline parameters and `config` cannot be mixed.
+Its structural `uses` and `loss` fields may accompany either parameter form.
+All ordered stage lists reject stage-level `priority`; legacy mapping-based
+scheduling retains each manager's existing priority behavior.
+
+### Implementation selectors
+
+Use `provider` to select an implementation for factory components (readers,
+writers, datasets, samplers, parsers, model utilities) and the top-level model:
+
+```yaml
+io:
+  reader:
+    provider: hdf5
+    file_keys: input.h5
+  writer:
+    provider: hdf5
+    config:
+      file_name: output.h5
+```
+
+Legacy implementation selectors `name`, `parser`, and `collate_fn` remain
+accepted in their existing contexts with a `DeprecationWarning`. Migrate them
+to `provider`; specifying multiple selectors is an error, even if their values
+agree. Scalar provider shorthand remains supported by generic factories.
+
+In ordered lists, `name` is the **instance identity**, not a deprecated selector;
+omitting `provider` defaults it to `name`. In legacy module mappings, the mapping
+key identifies the instance and supplies the default provider. An I/O schema key
+instead identifies an **output product**, so each parser descriptor must select
+its implementation explicitly. Metadata names and geometry detector names are
+not implementation selectors and are unchanged.
+
+Factories share `resolve_module_provider` for selector validation and
+`extract_module_parameters` for parameter extraction. Code that inspects a
+provider before construction uses the same resolver, without repeating the
+deprecation warning emitted at construction.
+
+Generic factory consumers, including I/O parsers, accept inline parameters or
+`config` with the same no-mixing rule. The old YAML `args` and `kwargs` wrappers
+are no longer supported and raise an error directing users to `config`.
+Constructor invocation is keyword-only. Runtime-injected Python keyword
+arguments remain supported, but collisions with configured parameters fail.
+I/O schemas remain output-product mappings, not ordered stage lists.
+
+```yaml
+schema:
+  data:
+    provider: sparse3d
+    config:
+      sparse_event: sparse3d_data
+```
+
+When migrating, move keyword entries from `kwargs` or mapping-valued `args` to
+`config`. Convert positional `args` to named parameters. If an entry mixes inline
+and nested parameters, consolidate all provider parameters into one form;
+there is no implicit precedence.
+
+For example, analysis settings can accompany its module list:
+
+```yaml
+ana:
+  overwrite: true
+  prefix_output: true
+  stages:
+    - name: my_analysis
+      provider: analysis_provider
+      config: {}
+```
+
+The provider in this schematic example must be replaced with a registered
+implementation. Any supported stage list can be edited with `path~:` modifiers.
+When migrating a legacy mapping, retain its resolved execution order (including
+priority ties where applicable), move each mapping key to instance `name`, move
+its implementation `name` to `provider` (defaulting to the mapping key), and put
+provider parameters inline or in `config` without scheduling metadata.
+
+For new consumers, use `parse_module_config(..., stages_key="stages")` or
+`instantiate_modules(..., stages_key="stages")` from `spine.config.factory`.
+Ordered stages always retain list order. The existing priority options govern
+legacy mappings only; `priority_key=None` leaves legacy provider fields untouched
+for managers that do not interpret priority. Opt-in preserves compatibility with
+mapping-only callers, including modules literally named `stages`.
+
+### Null Values and Removing Keys
+
+`null` is a value, not a deletion operation. Use `remove:` to delete paths:
 
 ```yaml
 include: base_config.yaml
 
 override:
-  io.loader.shuffle: null        # Remove entirely
-  base.debug_mode: null          # Remove entirely
-  io.loader.batch_size: 16       # Override normally
-```
-
-#### Method 2: `remove:` directive
-
-```yaml
-include: base_config.yaml
-
-# Remove single key
-remove: io.loader.shuffle
-
-# Remove multiple keys
-remove:
-  - io.loader.shuffle
-  - base.debug_mode
-  - io.loader.num_workers
-```
-
-#### Method 3: Combine both
-
-```yaml
-include: base_config.yaml
+  io.loader.num_workers: null   # Keep the key with a null value
+  io.loader.batch_size: 16
 
 remove:
-  - io.loader.shuffle
+  - io.loader.shuffle          # Delete the key
   - base.debug_mode
-
-override:
-  io.loader.num_workers: null    # Delete
-  io.loader.batch_size: 16       # Override
 ```
 
-**Order of operations:**
-1. Load included files (with recursive includes)
-2. Merge main config
-3. Apply `remove:` deletions
-4. Apply `override:` (including null deletions and regular overrides)
+A single path may also be supplied as `remove: base.debug_mode`.
+The same null-as-value rule applies to CLI assignments and named-list updates.
+
+All loading boundaries use the same directive order: resolve includes in their
+listed order, merge the file's own content, apply `override:` entries in
+declaration order, then apply `remove:` paths. Placing the `remove:` block earlier
+in the YAML does not change this order. Each included modifier finishes before
+the next include is merged, so later files can restore an earlier removed key.
+Missing targets follow the deferred-resolution and optional-path rules below.
+
+This changes included files that previously relied on removals running first.
+Remove redundant deletions of keys that an override replaces or already omits.
+For example, overriding a batch size needs no preceding removal of that same
+key; replacing an input mapping needs no removal of its former children.
 
 ### Command Line
+
+CLI overrides support the same `+`, `-`, and `~` collection operators as YAML
+`override:` directives, in addition to ordinary assignments. Quote expressions
+so the shell does not interpret their syntax:
+
+```bash
+spine --config config.yaml --set 'parsers+=[meta, run_info]' --set 'parsers-=[obsolete]'
+```
 
 Override any parameter from command line:
 
@@ -398,6 +518,7 @@ Versions must be **exactly 6 digits** in `YYMMDD` format:
 | `tags` | list[str] | Categorization tags |
 | `kind` | string | `"bundle"`, `"mod"`, or `"fragment"` |
 | `strict` | string | `"error"` or `"warn"` |
+| `optional_paths` | list[str] | Exact local directive paths allowed to be absent |
 | `list_append` | string | `"append"` or `"unique"` |
 | `compatible_with` | dict | Version requirements |
 | `extends` | string | Modifier category |
@@ -490,22 +611,64 @@ io:
 
 ### Strict Mode
 
-Controls behavior when overriding non-existent paths:
+For missing collection targets and explicit path removals, the declaring
+file's `strict` setting controls the outcome:
 
-- **`strict: "error"`** (bundles): Raise exception on missing path
-- **`strict: "warn"`** (modifiers): Issue warning, continue processing
+- `strict: error`: raise an exception.
+- `strict: warn`: warn with the declaring file and target path, then skip.
+
+These settings remain attached to deferred operations. An enclosing modifier
+with `strict: warn` no longer weakens a fragment's `strict: error`.
+Incomplete modifiers that previously loaded alone with warnings may now fail;
+load them with their required base configuration.
+
+For ordinary assignments with unresolved parent paths, compatibility is
+temporarily preserved: skip with a `FutureWarning`, even under `strict: error`.
+Silent skipping is deprecated; a future release will apply the declaring
+strictness to these assignments too. A new leaf key is allowed when its parent
+exists. Named-list edits always fail on missing paths or names.
+
+### Deferred and optional operations
+
+Reusable fragments may declare assignments or collection operations before
+their enclosing configuration supplies the target. Pending operations retain
+declaration order, repeated paths, source filenames, strictness, and append
+settings. They are retried after subsequent include content is merged.
+A later operation on the same path, a parent, or a child cannot overtake a
+pending operation; unrelated paths can proceed. Parent directives remain last.
+Named-list edits cannot be deferred or marked optional: an edit blocked by an
+unresolved overlapping operation is an error.
+
+An explicitly optional target is skipped if it is still absent when the
+operation is finalized:
 
 ```yaml
 __meta__:
-  kind: "bundle"
-  strict: "error"    # Catch configuration errors early
+  kind: fragment
+  optional_paths:
+    - post.time_containment.run_mode
 
-# vs.
-
-__meta__:
-  kind: "mod"
-  strict: "warn"     # Allow optional modifications
+override:
+  post.time_containment.run_mode: reco
 ```
+
+`optional_paths` contains exact dotted paths without operator suffixes. Each
+path must match an `override:` or `remove:` directive in the same file; it is
+not inherited by included files. Optionality permits missing targets, never
+wrong types, malformed operations, or missing named stages. Deferred optional
+assignments still apply if their targets become available.
+
+Removing an absent list value or dictionary member with `-` is idempotent.
+The containing collection must exist unless its path is explicitly optional
+(or the operation's strictness allows a warning). Explicit `remove:` deletes
+a configuration path and follows the same strict/optional policy for both
+missing parents and missing leaf keys.
+
+**Migration:** declare deliberately optional paths in the file containing the
+operation. Resolve typos and unintentionally missing parents instead of marking
+them optional. Configurations relying on an earlier deferred operation
+overwriting a later one now obey declaration order; repeated deferred appends
+are no longer collapsed into one operation.
 
 ### List Append Mode
 
@@ -659,7 +822,7 @@ override:
   model.learning_rate: 0.001
 
 model:
-  name: uresnet
+  provider: uresnet
   depth: 5
   filters: 16
 ```
@@ -751,7 +914,7 @@ override:
   io.loader.num_workers: 16
   base.log_level: warning
   
-  # Remove optional features
+  # Set optional features to null
   model.profiler: null
   model.visualizer: null
 ```
@@ -760,86 +923,49 @@ override:
 
 ### Functions
 
-#### `load_config(path, overrides=None, strict=None)`
+#### `load_config_file(cfg_path, download=True)`
 
-Load and process a YAML configuration file.
+Load a YAML file, resolve includes and directives, and validate metadata.
+Returns the processed configuration dictionary. Set `download=False` to retain
+`!download` placeholders without fetching files.
 
-**Parameters:**
-- `path` (str): Path to YAML config file
-- `overrides` (list[str], optional): Command-line style overrides (`["key.path=value"]`)
-- `strict` (str, optional): Override strict mode (`"error"` or `"warn"`)
+#### `load_config(config_str, root_dir=None, download=True)`
 
-**Returns:**
-- `dict`: Processed configuration
-
-**Raises:**
-- `ConfigError`: Base exception for all config errors
-- `ConfigIncludeError`: Include file not found or invalid
-- `ConfigCycleError`: Circular include detected
-- `ConfigPathError`: Invalid path in override/remove
-- `ConfigTypeError`: Type mismatch in operation
-- `ConfigOperationError`: Invalid operation (e.g., append to non-list)
-- `ConfigValidationError`: Compatibility validation failed
-
-**Example:**
+Load a YAML **string** with the same processing. `root_dir` supplies the base
+for relative include paths; file loading uses the file's own directory.
 
 ```python
-from spine.config import load_config
+from spine.config import apply_overrides, load_config, load_config_file
 
-# Basic usage
-config = load_config('config.yaml')
-
-# With overrides
-config = load_config('config.yaml', overrides=[
-    'io.batch_size=16',
-    'model.debug=true'
-])
-
-# With strict mode
-config = load_config('config.yaml', strict='warn')
+config = load_config_file('config.yaml', download=False)
+config = apply_overrides(config, ['io.loader.batch_size=16'])
+config = load_config('include: base.yaml', root_dir='/path/to/configs')
 ```
 
-#### `extract_metadata(config, warn_missing=True)`
+Strictness belongs in each source file's `__meta__.strict` metadata. Loading
+raises the typed exceptions below for invalid includes, operations, or metadata.
 
-Extract metadata from configuration.
+#### `apply_overrides(config, overrides)`
 
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `warn_missing` (bool): Warn if `__meta__` block missing
+Apply a list of CLI-style `path=value` strings to a resolved dictionary and
+return it. The `+`, `-`, and `~` path suffixes support the same collection and
+named-list operations as YAML directives.
 
-**Returns:**
-- `dict`: Metadata dictionary (empty if no metadata)
+#### `extract_metadata(config_dict, cfg_path=None)`
 
-#### `get_nested_value(config, key_path)`
+Import from `spine.config.meta`. Extract and validate metadata, filling in
+defaults even when `__meta__` is absent. `cfg_path` identifies the source file.
 
-Get value at nested key path.
+#### `set_nested_value(config, key_path, value, delete=False, strict="error", only_if_exists=False)`
 
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `key_path` (str): Dot-notation path (`"io.loader.batch_size"`)
-
-**Returns:**
-- Value at path
-
-**Raises:**
-- `KeyError`: Path not found
-
-#### `set_nested_value(config, key_path, value)`
-
-Set value at nested key path.
-
-**Parameters:**
-- `config` (dict): Configuration dictionary
-- `key_path` (str): Dot-notation path
-- `value`: Value to set (or `None` to delete)
-
-**Returns:**
-- `(dict, bool)`: Updated config and success flag
+Import from `spine.config.operations`. Set a dot-separated path, returning
+`(config, success)`. `None` is a literal value; use `delete=True` to remove a
+key. `only_if_exists=True` defers assignments whose target does not yet exist.
 
 ### Constants
 
 ```python
-from spine.config import API_VERSION, META_KEY
+from spine.config.api import API_VERSION, META_KEY
 
 API_VERSION  # Current config API version
 META_KEY     # Metadata key name ("__meta__")
@@ -945,16 +1071,14 @@ ConfigValidationError: io: parent version 240719 does not satisfy >=260107
 
 **Fix:** Update parent component or adjust compatibility constraint
 
-### Strict Mode Error
+### Missing Operation Target
 
-```
-ConfigPathError: Cannot override 'model.new_feature': path does not exist (strict=error)
-```
-
-**Fix:** Either:
-- Add the key to base config, or
-- Set `strict: "warn"` in metadata, or
-- Use `--set` with lenient mode
+Collection operations and removals retain their source file's `__meta__.strict`
+policy when deferred until final resolution. Add the missing target to the
+base config, or declare its exact path in that source's `optional_paths` when
+absence is intentional. Optional paths do not suppress invalid container types.
+Unresolved ordinary assignments currently emit a `FutureWarning`; named-list
+edits require their target immediately.
 
 ### Circular Include
 
@@ -983,10 +1107,12 @@ from spine.config import load_config
 **What's new in v0.9.0:**
 - File composition with `include:`
 - Parameter overrides with `override:`
-- Key removal with `remove:` and `null`
+- Key removal with `remove:`; `null` remains a value
 - Metadata system with `__meta__`
 - Version compatibility checking
 - Typed exception hierarchy
 - Command-line `--set` support
 
-Existing configs without `include:`/`override:` blocks continue to work unchanged.
+Legacy implementation selectors remain supported with deprecation warnings; use
+`provider` for new descriptors. Replace YAML `args`/`kwargs` with keyword
+parameters under `config` (or inline), and do not mix the two parameter forms.

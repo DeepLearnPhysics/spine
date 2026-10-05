@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from spine.config.factory import extract_module_parameters
+
 __all__ = ["StageConfig", "build_chain_plan", "get_chain_inputs"]
 
 
@@ -18,6 +20,7 @@ class StageConfig:
         Unique name of the stage within the execution plan.
     provider : str
         Registered provider name or import path used to build the stage.
+        Defaults to the instance name when omitted from configuration.
     config : dict
         Provider-specific network configuration.
     loss_config : dict, optional
@@ -108,25 +111,24 @@ def _new_chain_plan(
         if not isinstance(stage, dict):
             raise TypeError("Each full-chain stage must be a mapping.")
         descriptor = dict(stage)
+        if "priority" in descriptor:
+            raise ValueError(
+                "Full-chain stages cannot specify `priority`; use list order."
+            )
         try:
             name = descriptor.pop("name")
-            provider = descriptor.pop("provider")
         except KeyError as err:
-            raise ValueError(
-                "Each full-chain stage requires `name` and `provider`."
-            ) from err
-        if not isinstance(name, str) or not name:
+            raise ValueError("Each full-chain stage requires `name`.") from err
+        provider = descriptor.pop("provider", name)
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("Full-chain stage names must be nonempty strings.")
-        if not isinstance(provider, str) or not provider:
+        if not isinstance(provider, str) or not provider.strip():
             raise ValueError("Full-chain provider names must be nonempty strings.")
         if name in names:
             raise ValueError(f"Duplicate full-chain stage name `{name}`.")
         names.add(name)
 
         # Normalize references to sibling model and loss blocks.
-        inline_config = descriptor.pop("config", {})
-        if not isinstance(inline_config, dict):
-            raise TypeError(f"Stage `{name}` `config` must be a mapping.")
         uses = descriptor.pop("uses", ())
         if isinstance(uses, str):
             uses = (uses,)
@@ -147,8 +149,7 @@ def _new_chain_plan(
             if key not in modules:
                 raise ValueError(f"Stage `{name}` references missing block `{key}`.")
             config[key] = modules[key]
-        config.update(inline_config)
-        config.update(descriptor)
+        config.update(extract_module_parameters(descriptor, context=f"Stage `{name}`"))
 
         # Loss may name one block or map several provider-owned objectives to
         # independent blocks, as with shower and track GrapPA paths.

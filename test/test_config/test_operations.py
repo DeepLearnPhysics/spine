@@ -184,11 +184,14 @@ class TestApplyCollectionOperation:
                 {"io": {"file_keys": []}}, "io.file_keys", "a", "*"
             )
 
-    def test_dict_removal_warns_for_missing_key(self):
-        """Test missing dict removals warn in warn mode."""
+    def test_dict_removal_is_idempotent_for_missing_key(self):
+        """Absent members have the same idempotent semantics as list values."""
         config = {"io": {"options": {"keep": 1}}}
 
-        with pytest.warns(UserWarning, match="not found in 'io.options'"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             result = apply_collection_operation(
                 config, "io.options", ["missing"], "-", strict="warn"
             )
@@ -409,3 +412,56 @@ class TestApplyOverridesAndRemovals:
                 strict="error",
                 list_append_mode="append",
             )
+
+
+def test_cli_collection_operators_match_file_overrides():
+    """CLI and file directives use the same append, removal, and edit operators."""
+    from copy import deepcopy
+
+    import yaml
+
+    from spine.config import load_config
+
+    base = {
+        "items": ["a"],
+        "options": {"keep": 1, "drop": 2},
+        "stages": [{"name": "last"}],
+    }
+    edits = {
+        "items+": ["b", "c"],
+        "items-": ["a", "c"],
+        "options-": ["drop"],
+        "stages~": {"insert": {"before": "last", "value": {"name": "first"}}},
+    }
+    expected = load_config(yaml.safe_dump({**base, "override": edits}, sort_keys=False))
+    cli = apply_overrides(
+        deepcopy(base),
+        [
+            f"{key}={yaml.safe_dump(value, default_flow_style=True)}"
+            for key, value in edits.items()
+        ],
+    )
+    assert (
+        cli
+        == expected
+        == {
+            "items": ["b"],
+            "options": {"keep": 1},
+            "stages": [{"name": "first"}, {"name": "last"}],
+        }
+    )
+    assert not any(key.endswith(("+", "-", "~")) for key in cli)
+
+
+def test_null_is_a_value_and_remove_deletes_paths():
+    """A null override preserves the key; explicit removal deletes it."""
+    from spine.config import load_config
+
+    loaded = load_config("""
+options: {nullable: 1, removed: 2}
+override:
+  options.nullable: null
+remove: options.removed
+""")
+    assert loaded == {"options": {"nullable": None}}
+    assert apply_overrides({"nullable": 1}, ["nullable=null"]) == {"nullable": None}

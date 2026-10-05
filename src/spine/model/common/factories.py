@@ -7,7 +7,12 @@ from typing import Any
 
 import torch
 
-from spine.config.factory import Config, instantiate, module_dict
+from spine.config.factory import (
+    Config,
+    instantiate,
+    module_dict,
+    resolve_module_provider,
+)
 from spine.model.common.evidential import EDLRegressionLoss, EVDLoss
 
 from . import final, losses, metric
@@ -64,10 +69,12 @@ def loss_fn_factory(
     if not functional:
         return instantiate(loss_dict, cfg, **kwargs)
 
-    if not isinstance(cfg, str) and ("name" not in cfg or len(cfg) != 1):
+    if not isinstance(cfg, str) and len(cfg) != 1:
         raise ValueError("For a functional, only provide the function name.")
 
-    name = cfg if isinstance(cfg, str) else cfg["name"]
+    name = resolve_module_provider(cfg)
+    if name is None:
+        raise ValueError("For a functional, provide its `provider`.")
     try:
         return loss_dict_func[name]
     except KeyError as err:

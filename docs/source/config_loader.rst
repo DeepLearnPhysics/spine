@@ -32,7 +32,7 @@ Include entire configuration files using the ``include:`` key (similar to GitLab
 
    # You can still add or override settings
    model:
-     name: uresnet
+     provider: uresnet
 
 **Multiple includes are supported:**
 
@@ -66,7 +66,7 @@ Include files within specific configuration blocks using ``!include``:
    filters: 32
    num_classes: 5
    activation:
-     name: lrelu
+     provider: lrelu
      negative_slope: 0.1
 
 **main_config.yaml:**
@@ -74,7 +74,7 @@ Include files within specific configuration blocks using ``!include``:
 .. code-block:: yaml
 
    model:
-     name: full_chain
+     provider: full_chain
      modules:
        uresnet: !include network_config.yaml
        ppn: !include ppn_config.yaml
@@ -135,18 +135,19 @@ Remove keys from included files using either the ``remove:`` directive or by set
      - model.dropout_rate
      - base.debug_mode
 
-**Using null in override:**
+**Assigning a null value:**
 
 .. code-block:: yaml
 
    include: base_config.yaml
 
-   # Set to null to remove the key
+   # Keep the key with a null value
    override:
      io.loader.shuffle: null
      model.dropout_rate: null
 
-Both methods achieve the same result: the specified keys are completely removed from the final configuration dictionary.
+Only ``remove:`` deletes keys. An explicit null remains in the resolved
+configuration and is passed to the consuming component.
 
 Complete Example
 ----------------
@@ -171,7 +172,7 @@ Complete Example
        shuffle: false
        num_workers: 8
        dataset:
-         name: larcv
+         provider: larcv
          file_keys: null
 
 **uresnet_config.yaml:**
@@ -183,7 +184,7 @@ Complete Example
    filters: 32
    depth: 5
    activation:
-     name: lrelu
+     provider: lrelu
      negative_slope: 0.1
 
 **icarus_full_chain.yaml:**
@@ -194,7 +195,7 @@ Complete Example
 
    # Include network configuration inline
    model:
-     name: full_chain
+     provider: full_chain
      modules:
        uresnet: !include uresnet_config.yaml
 
@@ -275,5 +276,130 @@ Notes
 - Both ``.yaml`` and ``.yml`` extensions are supported
 - The ``include:`` key uses standard YAML syntax (similar to GitLab CI, Docker Compose)
 - You can use either ``include: file.yaml`` or ``include: [file1.yaml, file2.yaml]`` syntax
-- Keys set to ``null`` in the ``override:`` block are removed from the final config
+- Keys set to ``null`` retain a null value; use ``remove:`` to delete them
 - The ``remove:`` directive accepts single keys or lists of keys to delete
+
+Component configuration conventions
+-----------------------------------
+
+Use ``provider`` to select a component implementation, including readers,
+writers, datasets, samplers, parsers, model utilities, and the top-level model.
+Image encoders, image task losses, and GraphSPICE backbones use the same
+selector and parameter rules. Image task ``weight`` is orchestrator metadata:
+it stays alongside ``provider``, outside a nested ``config``.
+For example:
+
+.. code-block:: yaml
+
+   io:
+     reader:
+       provider: hdf5
+       file_keys: input.h5
+     writer:
+       provider: hdf5
+       config:
+         file_name: output.h5
+
+Factory constructor parameters may be inline or nested under ``config``, but the two forms cannot
+be mixed. The old ``args`` and ``kwargs`` wrappers are no longer accepted:
+convert positional arguments to named parameters and move keyword arguments
+into ``config``. Configured parameters cannot collide with runtime-injected
+arguments.
+
+Legacy ``name`` implementation selectors and context-specific ``parser`` and
+``collate_fn`` selectors remain supported with ``DeprecationWarning`` warnings.
+Replace them with ``provider``. Multiple implementation selectors are rejected,
+even when their values agree. Generic factories also retain scalar provider
+shorthand.
+
+Managers accepting ordered modules use a ``stages`` list:
+
+.. code-block:: yaml
+
+   stages:
+     - name: first
+       provider: implementation
+       config:
+         option: value
+     - name: implementation
+
+Here ``name`` is a required, unique instance identity. It is not deprecated.
+An omitted ``provider`` defaults to ``name``. List order is execution order;
+stage-level ``priority`` is rejected. Legacy module mappings retain their
+existing priority behavior and default the provider to the mapping key.
+A manager cannot mix ``stages`` with legacy module entries.
+
+I/O schemas remain mappings from output-product names to parser descriptors.
+Those keys do not imply a provider:
+
+.. code-block:: yaml
+
+   schema:
+     data:
+       provider: sparse3d
+       config:
+         sparse_event: sparse3d_data
+
+Metadata names and geometry detector names are not implementation selectors.
+These conventions concern component construction, not arbitrary fields called
+``name``.
+
+
+Override and removal ordering
+-----------------------------
+
+All loading entry points, including ordinary ``include:`` and inline
+``!include``, apply ``override:`` entries in declaration order followed by
+``remove:`` paths. The placement of these directive blocks in YAML does not
+change their execution order. Includes are processed in listed order, followed
+by the including file's own content and directives. A later include may restore
+a key removed by an earlier modifier.
+
+This is a behavior change for included files that previously removed keys
+before applying overrides. Delete redundant removals of keys being replaced,
+or of children already omitted by a replacement mapping. Keep removals of
+unrelated paths. Missing-target and deferred-override policies are described below.
+
+
+Deferred operations and optional targets
+----------------------------------------
+
+Assignments and collection operations in reusable fragments may wait for an
+enclosing configuration to supply their targets. Pending operations retain
+their order, repeated paths, source files, strictness, and append settings.
+They are retried after subsequent include content is merged. A later operation
+on the same path or an overlapping parent/child path cannot overtake them.
+Named-list edits remain strict: missing names, missing lists, and edits blocked
+by unresolved overlapping operations are errors.
+
+Declare deliberately optional operations in the file that contains them:
+
+.. code-block:: yaml
+
+   __meta__:
+     kind: fragment
+     optional_paths:
+       - post.time_containment.run_mode
+
+   override:
+     post.time_containment.run_mode: reco
+
+Each optional path must exactly match a local override or removal target,
+without an operator suffix. Optionality is not inherited, does not hide type
+errors, and cannot apply to named-list edits. Optional deferred assignments
+still apply when an enclosing configuration supplies their parent.
+
+At final resolution, an unresolved ordinary assignment currently skips with a
+``FutureWarning`` for compatibility. Silent skipping is deprecated; a future
+release will apply the declaring file's ``strict`` setting. Missing collection
+targets and explicit removals already honor the declaring file's strictness:
+``error`` raises and ``warn`` warns and skips. An enclosing file cannot weaken
+that policy. Incomplete modifiers should therefore be loaded with their bases.
+
+Removing an absent value or dictionary member from an existing collection is
+idempotent. Missing containers follow the strict/optional policy instead.
+Ordinary assignments may create a new leaf key when its parent exists.
+
+When migrating, mark intentional optionality, correct accidental missing paths,
+and check configurations that depended on deferred operations running out of
+order or repeated appends being collapsed.

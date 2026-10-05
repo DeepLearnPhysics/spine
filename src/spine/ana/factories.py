@@ -48,7 +48,7 @@ def ana_script_factory(
     """
     # Provide the name to the configuration
     config = dict(cfg)
-    config["name"] = name
+    config["provider"] = name
 
     # Instantiate the analysis script module
     if overwrite is not None:

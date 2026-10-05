@@ -10,12 +10,18 @@ This module contains helper functions for:
 
 import warnings
 from copy import deepcopy
+from dataclasses import dataclass
 from os.path import expandvars
 from typing import Any, Dict, List, Tuple
 
 import yaml
 
-from .errors import ConfigOperationError, ConfigPathError, ConfigTypeError
+from .errors import (
+    ConfigOperationError,
+    ConfigPathError,
+    ConfigTypeError,
+    ConfigValidationError,
+)
 
 __all__ = [
     "deep_merge",
@@ -120,8 +126,10 @@ def apply_overrides(
         # Parse basic scalars and collections before updating the nested key.
         value = parse_value(value_str.strip())
         key_path = key_path.strip()
-        if key_path.endswith("~"):
-            config = apply_named_list_edits(config, key_path[:-1], value)
+        if key_path.endswith(("+", "-", "~")):
+            config = apply_collection_operation(
+                config, key_path[:-1], value, key_path[-1]
+            )
         else:
             config, _ = set_nested_value(config, key_path, value)
 
@@ -406,10 +414,6 @@ def apply_collection_operation(
             for key_to_remove in values_to_process:
                 if key_to_remove in target:
                     del target[key_to_remove]
-                elif strict == "warn":
-                    warnings.warn(
-                        f"Key '{key_to_remove}' not found in '{key_path}', skipping removal"
-                    )
         elif operation == "+":
             raise ConfigOperationError(
                 f"Cannot append to dict '{key_path}': '+' operation not supported for dicts"
@@ -475,6 +479,7 @@ def set_nested_value(
                     raise ConfigPathError(
                         f"Cannot delete '{key_path}': path '{partial_path}' does not exist"
                     )
+                warnings.warn(f"Cannot delete '{key_path}': parent path does not exist")
                 return config, False
             if only_if_exists:
                 return config, False
@@ -560,71 +565,219 @@ def extract_includes_and_overrides(
     return includes, overrides, removals, cleaned_config
 
 
-def apply_overrides_and_removals(
-    config: Dict[str, Any],
+@dataclass(frozen=True)
+class ConfigDirective:
+    """One ordered configuration operation, with its declaring file's policy.
+
+    Attributes
+    ----------
+    path : str
+        Dotted target path, without an operator suffix.
+    value : Any
+        Operation payload.
+    operation : str
+        Assignment (=), collection operator, or explicit path removal (remove).
+    source : str
+        File that declared the operation.
+    strict : str
+        Missing-target policy for collections and explicit removals.
+    list_append_mode : str
+        Append or unique-list behavior from the declaring file.
+    optional : bool
+        Whether an absent target may be skipped at final resolution.
+    """
+
+    path: str
+    value: Any
+    operation: str
+    source: str
+    strict: str
+    list_append_mode: str
+    optional: bool = False
+
+
+def make_config_directives(
     overrides: Dict[str, Any],
     removals: List[str],
     strict: str,
     list_append_mode: str,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Apply overrides and removals to config.
+    *,
+    source: str = "<config>",
+    optional_paths: List[str] | None = None,
+) -> List[ConfigDirective]:
+    """Capture declaration order and policy before entering an include context.
 
     Parameters
     ----------
-    config : Dict[str, Any]
-        Configuration dictionary
-    overrides : Dict[str, Any]
-        Override directives (may include +, -, or ~ suffixes)
-    removals : List[str]
-        Removal directives
+    overrides : dict
+        Override entries in declaration order.
+    removals : list of str
+        Explicit path deletions, applied after overrides.
     strict : str
-        "error" or "warn" for missing paths
+        Missing-target policy.
     list_append_mode : str
-        "append" or "unique" for list operations
+        Collection append policy.
+    source : str, optional
+        Declaring file used in diagnostics.
+    optional_paths : list of str, optional
+        Exact target paths allowed to be absent in this file's directives.
+    """
+    optional = set(optional_paths or [])
+    directives = []
+    for key, value in overrides.items():
+        operation = key[-1] if key.endswith(("+", "-", "~")) else "="
+        path = key[:-1] if operation != "=" else key
+        if operation == "~" and path in optional:
+            raise ConfigValidationError(
+                f"{source}: named-list edits at '{path}' cannot be optional."
+            )
+        directives.append(
+            ConfigDirective(
+                path,
+                value,
+                operation,
+                source,
+                strict,
+                list_append_mode,
+                path in optional,
+            )
+        )
+    directives.extend(
+        ConfigDirective(
+            path, None, "remove", source, strict, list_append_mode, path in optional
+        )
+        for path in removals
+    )
+    unused = optional - {directive.path for directive in directives}
+    if unused:
+        raise ConfigValidationError(
+            f"{source}: optional_paths do not match local directives: {sorted(unused)}."
+        )
+    return directives
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    """Whether either operation can affect the other operation's target."""
+    return left == right or left.startswith(right + ".") or right.startswith(left + ".")
+
+
+def _apply_config_directives(
+    config: Dict[str, Any], directives: List[ConfigDirective], defer_missing: bool
+) -> Tuple[Dict[str, Any], List[ConfigDirective]]:
+    """Apply available operations without letting overlapping ones overtake."""
+    pending: List[ConfigDirective] = []
+    for directive in directives:
+        path = directive.path
+        operation = directive.operation
+        # Preserve dependencies while letting unrelated configuration proceed.
+        if any(_paths_overlap(path, previous.path) for previous in pending):
+            if operation == "~":
+                raise ConfigPathError(
+                    f"{directive.source}: named-list edit '{path}' is blocked by "
+                    "an unresolved earlier operation."
+                )
+            pending.append(directive)
+            continue
+
+        try:
+            if operation == "=":
+                config, applied = set_nested_value(
+                    config, path, parse_value(directive.value), only_if_exists=True
+                )
+                if not applied:
+                    raise ConfigPathError(
+                        f"Cannot assign '{path}': parent path does not exist"
+                    )
+            elif operation == "remove":
+                config, _ = set_nested_value(
+                    config, path, None, delete=True, strict="error"
+                )
+            else:
+                config = apply_collection_operation(
+                    config,
+                    path,
+                    parse_value(directive.value),
+                    operation,
+                    "error",
+                    directive.list_append_mode,
+                )
+        except ConfigPathError as exc:
+            message = f"{directive.source}: {exc}"
+            # Named edits and malformed paths are never optional or deferred.
+            if (
+                operation == "~"
+                or "not a dictionary" in str(exc)
+                or "not a list" in str(exc)
+            ):
+                raise ConfigPathError(message) from exc
+            if defer_missing and operation != "remove":
+                pending.append(directive)
+            elif directive.optional:
+                continue
+            elif operation == "=":
+                warnings.warn(
+                    message
+                    + ". Silently skipping unresolved assignments is deprecated; "
+                    "declare this path in __meta__.optional_paths if it is optional. "
+                    f"A future release will honor strict: {directive.strict}.",
+                    FutureWarning,
+                    stacklevel=3,
+                )
+            elif directive.strict == "warn":
+                warnings.warn(message, stacklevel=3)
+            else:
+                raise ConfigPathError(message) from exc
+        except (ConfigTypeError, ConfigOperationError) as exc:
+            raise type(exc)(f"{directive.source}: {exc}") from exc
+    return config, pending
+
+
+def apply_overrides_and_removals(
+    config: Dict[str, Any],
+    overrides: Dict[str, Any] | List[ConfigDirective],
+    removals: List[str],
+    strict: str,
+    list_append_mode: str,
+    *,
+    defer_missing: bool = True,
+) -> Tuple[Dict[str, Any], Dict[str, Any] | List[ConfigDirective]]:
+    """Apply ordered directives, preserving deferred operations and provenance.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration to modify.
+    overrides : dict or list of ConfigDirective
+        Public mapping input or the loader's ordered, source-aware operations.
+    removals : list of str
+        Explicit deletions after overrides. Internal sequences include these.
+    strict : str
+        Missing-target policy for mapping input.
+    list_append_mode : str
+        Append policy for mapping input.
+    defer_missing : bool, default True
+        Retain unresolved operations until an enclosing configuration supplies
+        their targets. Final loading boundaries warn or fail instead.
 
     Returns
     -------
-    Tuple[Dict[str, Any], Dict[str, Any]]
-        (modified config, unapplied overrides)
+    tuple
+        Updated config and pending operations. Mapping inputs retain mapping
+        output unless a deferred removal requires the ordered representation.
     """
-    unapplied_overrides = {}
-
-    # Apply removals first
-    for key_path in removals:
-        config, _ = set_nested_value(config, key_path, None, delete=True, strict=strict)
-
-    # Apply overrides
-    for key_path, value in overrides.items():
-        parsed_value = parse_value(value)
-
-        if key_path.endswith("~"):
-            # Named edits must resolve here; propagating them could reorder or
-            # overwrite operations from separate modifiers on the same path.
-            config = apply_named_list_edits(config, key_path[:-1], parsed_value)
-        elif key_path.endswith("+") or key_path.endswith("-"):
-            # Collection operation
-            base_key = key_path[:-1]
-            operation = key_path[-1]
-            try:
-                config = apply_collection_operation(
-                    config, base_key, parsed_value, operation, "error", list_append_mode
-                )
-            except (ConfigPathError, ConfigTypeError, ConfigOperationError) as e:
-                # Check if it's a type/operation error (should be raised)
-                if isinstance(e, (ConfigTypeError, ConfigOperationError)):
-                    raise
-                if isinstance(e, ConfigPathError) and (
-                    "not a dictionary" in str(e) or "not a list" in str(e)
-                ):
-                    raise
-                # Path doesn't exist, save for propagation
-                unapplied_overrides[key_path] = value
-        else:
-            # Regular override
-            config, applied = set_nested_value(
-                config, key_path, parsed_value, only_if_exists=True
-            )
-            if not applied:
-                unapplied_overrides[key_path] = value
-
-    return config, unapplied_overrides
+    is_mapping = isinstance(overrides, dict)
+    directives = (
+        make_config_directives(overrides, removals, strict, list_append_mode)
+        if is_mapping
+        else overrides
+    )
+    config, pending = _apply_config_directives(config, directives, defer_missing)
+    if is_mapping and all(item.operation != "remove" for item in pending):
+        return config, {
+            directive.path
+            + (
+                directive.operation if directive.operation in {"+", "-", "~"} else ""
+            ): directive.value
+            for directive in pending
+        }
+    return config, pending

@@ -22,7 +22,7 @@ The model package is built around configuration-driven instantiation through :cl
 Top-level model configurations
 ------------------------------
 
-The ``model.name`` setting selects one of the registered network/loss pairs
+The ``model.provider`` setting selects one of the registered network/loss pairs
 below.  Their class pages expose the model-specific configuration dictionaries
 and output contracts.
 
@@ -94,12 +94,12 @@ For standalone GrapPA, weight names match its prediction heads, such as
 ``node_vertex_primary`` and ``node_vertex_reg`` objectives::
 
    model:
-     name: grappa
+     provider: grappa
      modules:
        grappa: ...
        grappa_loss: ...
        loss_balancing:
-         name: uncertainty
+         provider: uncertainty
 
 For ``full_chain``, a top-level policy balances complete provider stages. The
 weight names are the stage names from the normalized chain plan. These stage
@@ -107,11 +107,11 @@ objectives are marked as composite in code, so users do not assign a fictitious
 classification or regression family to a mixed reconstruction stage::
 
    model:
-     name: full_chain
+     provider: full_chain
      modules:
        chain: ...
        loss_balancing:
-         name: fixed
+         provider: fixed
          weights:
            segmentation: 1.0
            particle_aggregation: 0.5
@@ -131,7 +131,7 @@ groups select canonical parameter names with shell-style glob patterns::
 
    train:
      optimizer:
-       name: Adam
+       provider: Adam
        lr: 0.001
      gradient_tracking:
        interval: 100

@@ -93,7 +93,8 @@ def test_clean_config_returns_sanitized_copy():
 
 @pytest.mark.model
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is required.")
-def test_inference_manager_does_not_construct_loss(monkeypatch):
+@pytest.mark.parametrize("selector", ["name", "provider"])
+def test_inference_manager_does_not_construct_loss(monkeypatch, selector):
     """Pure inference should not require loss configuration or construction."""
 
     loss_calls = []
@@ -121,7 +122,7 @@ def test_inference_manager_does_not_construct_loss(monkeypatch):
         "network_loss": {"reduction": "mean"},
     }
     manager = ModelManager(
-        name="test",
+        **{selector: "test"},
         modules=modules,
         network_input={"data": "data"},
     )
@@ -1988,3 +1989,8 @@ def test_load_weights_reports_missing_main_and_nested_parameters(tmp_path) -> No
     manager.model_cfg = {"0": {"weight_path": str(path), "model_name": "old"}}
     with pytest.raises(ValueError, match="all necessary parameters"):
         manager.load_weights(None)
+
+
+def test_manager_rejects_conflicting_implementation_selectors():
+    with pytest.raises(ValueError, match="only one"):
+        ModelManager(name="test", provider="test", modules={}, network_input={})

@@ -39,7 +39,7 @@ def test_model_config_contract(case_name):
     cfg = load_config_file(str(MODEL_CONFIGS[case_name]), download=False)
     model_cfg = cfg["model"]
 
-    assert model_cfg["name"] in model_names()
+    assert model_cfg["provider"] in model_names()
     assert isinstance(model_cfg["modules"], dict)
     assert isinstance(model_cfg["network_input"], dict)
     assert isinstance(model_cfg["loss_input"], dict)
@@ -55,7 +55,7 @@ def test_inference_model_config_contract(case_name):
     )
     model_cfg = cfg["model"]
 
-    assert model_cfg["name"] in model_names()
+    assert model_cfg["provider"] in model_names()
     assert isinstance(model_cfg["modules"], dict)
     assert isinstance(model_cfg["network_input"], dict)
     assert isinstance(model_cfg["loss_input"], dict)
@@ -65,7 +65,7 @@ def test_supported_models_have_maintained_configs():
     """Every registered model must have at least one maintained configuration."""
 
     configured_models = {
-        load_config_file(str(path), download=False)["model"]["name"]
+        load_config_file(str(path), download=False)["model"]["provider"]
         for path in MODEL_CONFIGS.values()
     }
 
@@ -240,7 +240,7 @@ def test_model_config_constructs_network_and_loss(case_name):
     model_cfg = cfg["model"]
     modules = model_cfg["modules"]
     original_modules = deepcopy(modules)
-    spec = model_spec(model_cfg["name"])
+    spec = model_spec(model_cfg["provider"])
 
     network_modules = ModelManager.select_network_modules(deepcopy(modules))
     network = spec.network(**network_modules)

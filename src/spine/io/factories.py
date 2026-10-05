@@ -7,7 +7,7 @@ from functools import partial
 from typing import Any
 from warnings import warn
 
-from spine.config.factory import instantiate, module_dict
+from spine.config.factory import instantiate, module_dict, resolve_module_provider
 from spine.geo import GeoManager
 from spine.utils.conditional import TORCH_AVAILABLE
 
@@ -40,7 +40,7 @@ def _initialize_loader_worker(
 def reader_factory(reader_cfg: Mapping[str, Any] | str) -> Any:
     """Instantiate a reader from a configuration block.
 
-    The configured ``name`` must match a reader class exported from
+    The configured ``provider`` must match a reader class exported from
     :mod:`spine.io.read`.
 
     Parameters
@@ -64,7 +64,7 @@ def writer_factory(
 ) -> Any:
     """Instantiate a writer from a configuration block.
 
-    The configured ``name`` must match a writer class exported from
+    The configured ``provider`` must match a writer class exported from
     :mod:`spine.io.write`.
 
     Parameters
@@ -257,9 +257,7 @@ def dataset_factory(
 
     # Append the entry_list if it is provided independently
     if entry_list is not None:
-        dataset_name = (
-            dataset_cfg if isinstance(dataset_cfg, str) else dataset_cfg.get("name")
-        )
+        dataset_name = resolve_module_provider(dataset_cfg, warn_deprecated=False)
         if dataset_name in ("joint", "JointDataset"):
             raise ValueError(
                 "`entry_list` must be configured inside `base`, `primary`, "
@@ -270,9 +268,14 @@ def dataset_factory(
             "argument provided in the configuration file."
         )
         dataset_cfg = (
-            {"name": dataset_cfg} if isinstance(dataset_cfg, str) else dict(dataset_cfg)
+            {"provider": dataset_cfg}
+            if isinstance(dataset_cfg, str)
+            else dict(dataset_cfg)
         )
-        dataset_cfg["entry_list"] = entry_list
+        if "config" in dataset_cfg:
+            dataset_cfg["config"] = dict(dataset_cfg["config"], entry_list=entry_list)
+        else:
+            dataset_cfg["entry_list"] = entry_list
 
     # Initialize dataset
     extra_kwargs: dict[str, Any] = {"dtype": dtype}

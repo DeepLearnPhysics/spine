@@ -7,6 +7,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from spine.config.factory import parse_module_config, resolve_module_provider
 from spine.geo import GeoManager
 from spine.utils.conditional import TORCH_AVAILABLE
 from spine.utils.stopwatch import StopwatchManager
@@ -345,9 +346,18 @@ class IOManager:
         reader_cfg = getattr(self.reader, "cfg", None)
         if post_list is None and reader_cfg is not None and "post" in reader_cfg:
             post_cfg = reader_cfg["post"]
-            if isinstance(post_cfg, Mapping):
+            if isinstance(post_cfg, Mapping) and "stages" in post_cfg:
+                parsed = parse_module_config(post_cfg, stages_key="stages")
+                post_list = tuple(spec["name"] for spec in parsed.values())
+            elif isinstance(post_cfg, Mapping):
                 post_list = tuple(
-                    spec.get("name", key) if isinstance(spec, Mapping) else key
+                    (
+                        resolve_module_provider(
+                            spec, default=key, warn_deprecated=False
+                        )
+                        if isinstance(spec, Mapping)
+                        else key
+                    )
                     for key, spec in post_cfg.items()
                 )
             else:
@@ -391,7 +401,10 @@ class IOManager:
         # repository by publishing a new immutable stage generation.
         writer_cfg = dict(writer)
         cache_reader = self._get_cache_reader()
-        if writer_cfg.get("name") == "cache" and cache_reader is not None:
+        if (
+            resolve_module_provider(writer_cfg, warn_deprecated=False) == "cache"
+            and cache_reader is not None
+        ):
             if not writer_cfg.get("path"):
                 writer_cfg["path"] = str(cache_reader.repository.path)
             if os.path.realpath(writer_cfg["path"]) == str(
@@ -545,7 +558,7 @@ class IOManager:
         if writer is None or writer.get("file_name"):
             return ""
 
-        writer_name = writer.get("name")
+        writer_name = resolve_module_provider(writer, warn_deprecated=False)
         default_suffixes = {"hdf5": "spine"}
         if writer_name not in default_suffixes:
             return ""

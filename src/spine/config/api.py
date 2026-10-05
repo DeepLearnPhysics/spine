@@ -19,6 +19,7 @@ META_NAME = "name"
 META_TAGS = "tags"
 META_KIND = "kind"  # "bundle", "mod", or "fragment"
 META_STRICT = "strict"  # "warn" or "error"
+META_OPTIONAL_PATHS = "optional_paths"
 META_LIST_APPEND = "list_append"  # "append" or "unique"
 
 # Default values

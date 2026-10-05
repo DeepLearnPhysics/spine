@@ -368,3 +368,13 @@ def test_apply_validation_source_overrides_rejects_incompatible_configs(
             source,
             None,
         )
+
+
+@pytest.mark.parametrize("selector", ["name", "provider"])
+def test_cache_provider_routes_training_and_validation_sources(selector):
+    io_cfg = {"loader": {"dataset": {selector: "cache", "path": "old"}}}
+    source_module.apply_source_overrides(io_cfg, ["new"], None)
+    assert io_cfg["loader"]["dataset"]["path"] == "new"
+    validation = {}
+    source_module.apply_validation_source_overrides(validation, io_cfg, ["val"], None)
+    assert validation == {"path": "val"}

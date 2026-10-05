@@ -170,7 +170,7 @@ def test_process_config_normalizes_and_logs(monkeypatch):
     assert levels == ["DEBUG"]
     assert base["world_size"] == 2
     assert base["seed"] == 123
-    assert io["loader"]["sampler"] == {"name": "random", "seed": 123}
+    assert io["loader"]["sampler"] == {"provider": "random", "seed": 123}
     assert drv.cfg == {
         "base": base,
         "io": io,

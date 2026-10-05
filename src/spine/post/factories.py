@@ -36,7 +36,7 @@ def post_processor_factory(
     """
     # Provide the name to the configuration
     config = dict(cfg)
-    config["name"] = name
+    config["provider"] = name
 
     # Instantiate the post-processor
     if POST_DICT[name].provide_parent_path:

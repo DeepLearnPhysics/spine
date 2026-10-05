@@ -97,3 +97,67 @@ def test_manager_rejects_geo_config():
             geo={"detector": "icarus"},
             mask={"min_dimensions": BOX2, "max_dimensions": BOX2},
         )
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_ordered_augmentation_uses_shared_parser_and_execution_order(
+    monkeypatch, inline
+):
+    """Named edits configure noncommuting augmentations in declared order."""
+    from spine.config import load_config
+
+    class Arithmetic:
+        geometric = False
+
+        def __init__(self, factor=1, offset=0):
+            self.factor, self.offset = factor, offset
+
+        def __call__(self, data, meta, keys, context):
+            data["value"] = data["value"] * self.factor + self.offset
+            return data, meta
+
+    monkeypatch.setitem(AugmentManager._modules, "arithmetic", Arithmetic)
+    cfg = load_config("""
+augment:
+  stages:
+    - name: add
+      provider: arithmetic
+      config: {offset: 1}
+override:
+  augment.stages~:
+    insert:
+      before: add
+      value:
+        name: scale
+        provider: arithmetic
+        config: {factor: 2}
+""")["augment"]
+    if inline:
+        for stage in cfg["stages"]:
+            stage.update(stage.pop("config"))
+    ordered = AugmentManager(**cfg)
+    legacy = AugmentManager(
+        scale={"name": "arithmetic", "factor": 2},
+        add={"name": "arithmetic", "offset": 1},
+    )
+    for manager in (ordered, legacy):
+        result = manager({"meta": make_meta(), "value": 10})
+        assert result["value"] == 21
+    first = cfg["stages"][0]
+    assert (first if inline else first["config"])["factor"] == 2
+
+
+def test_ordered_augmentation_validation_and_real_provider():
+    """Augmentation retains its nonempty requirement and provider registry."""
+    stage = {
+        "name": "custom_crop",
+        "provider": "crop",
+        "config": {"min_dimensions": BOX2, "max_dimensions": BOX2, "keep_meta": True},
+    }
+    assert isinstance(AugmentManager(stages=[stage]).modules[0], CropAugment)
+    with pytest.raises(ValueError, match="at least one"):
+        AugmentManager(stages=[])
+    with pytest.raises(ValueError, match="Cannot mix"):
+        AugmentManager(stages=[stage], crop=None)
+    with pytest.raises(ValueError, match="priority"):
+        AugmentManager(stages=[{**stage, "priority": 1}])

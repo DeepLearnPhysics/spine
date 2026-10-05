@@ -18,6 +18,7 @@ from typing import Any
 
 from spine.config import load_config_file
 from spine.config.errors import ConfigTypeError
+from spine.config.factory import resolve_module_provider
 from spine.config.loader import resolve_config_path
 from spine.utils.file import make_shared_directory, set_shared_file_permissions
 
@@ -375,7 +376,7 @@ def build_report(
         if not isinstance(raw_metric_config, Mapping):
             raise TypeError(f"Metric `{key}` configuration must be a mapping.")
         metric_config = dict(raw_metric_config)
-        recipe_name = metric_config.get("name")
+        recipe_name = resolve_module_provider(metric_config)
         if recipe_name not in RECIPE_REGISTRY:
             raise ValueError(
                 f"Unknown report recipe `{recipe_name}` for metric `{key}`."

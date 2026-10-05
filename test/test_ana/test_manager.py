@@ -206,3 +206,74 @@ def test_ana_manager_merges_columnar_requests(monkeypatch):
         "particles": (("id", "pid"), True),
         "all_fields": (None, True),
     }
+
+
+@pytest.mark.parametrize("inline", [False, True])
+@pytest.mark.parametrize("columnar", [False, True])
+def test_ordered_analysis_settings_execution_and_lifecycle(
+    monkeypatch, columnar, inline
+):
+    """The shared schema preserves analysis settings and both execution modes."""
+    from spine.config import load_config
+
+    calls = []
+    settings = []
+
+    def factory(name, cfg, overwrite, log_dir, prefix, buffer_size):
+        settings.append((overwrite, log_dir, prefix, buffer_size))
+        return FakeAnaModule(name, cfg, calls)
+
+    monkeypatch.setattr(manager_mod, "ana_script_factory", factory)
+    cfg = load_config("""
+ana:
+  overwrite: true
+  prefix_output: true
+  buffer_size: 8
+  stages:
+    - name: last
+      provider: script
+      config: {offset: 20, columnar: true}
+override:
+  ana.stages~:
+    insert:
+      before: last
+      value:
+        name: first
+        provider: script
+        config: {offset: 10, columnar: true}
+""")["ana"]
+    if inline:
+        for stage in cfg["stages"]:
+            stage.update(stage.pop("config"))
+    manager = AnaManager(cfg, log_dir="logs", prefix="input", columnar=columnar)
+    assert list(manager.modules) == ["first", "last"]
+    assert settings == [(True, "logs", "input", 8)] * 2
+    data = {"index": [1, 2]}
+    if columnar:
+        manager.process_columnar(data)
+    else:
+        manager(data)
+    assert data["value"] == [21, 22]
+    manager.flush()
+    manager.close()
+    assert all(module.flushed and module.closed for module in manager.modules.values())
+    first = cfg["stages"][0]
+    parameters = first if inline else first["config"]
+    assert parameters["offset"] == 10
+    assert parameters["columnar"] is True
+
+
+def test_ordered_analysis_validation(monkeypatch):
+    """Ordered analysis uses common validation and columnar preflight."""
+    monkeypatch.setattr(
+        manager_mod,
+        "ana_script_factory",
+        lambda name, cfg, *args: FakeAnaModule(name, cfg, []),
+    )
+    stage = {"name": "event_only", "provider": "script", "config": {"offset": 1}}
+    with pytest.raises(ValueError, match="priority"):
+        AnaManager({"stages": [{**stage, "priority": 1}]})
+    with pytest.raises(ValueError, match="Cannot mix"):
+        AnaManager({"stages": [stage], "legacy": {}})
+    with pytest.raises(ValueError, match="event_only"):
+        AnaManager({"stages": [stage]}, columnar=True)

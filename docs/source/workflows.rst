@@ -141,7 +141,7 @@ attributes to analysis CSV files:
 
    io:
      reader:
-       name: hdf5
+       provider: hdf5
        file_keys: /data/spine-output.h5
        keep_open: false
 

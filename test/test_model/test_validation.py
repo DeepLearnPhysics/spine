@@ -95,7 +95,7 @@ def test_build_loader_config_preserves_joint_overlay_structure():
     assert derived["dataset"]["secondary"] == {"file_list": "secondary_val.txt"}
     assert "augment" not in derived["dataset"]
     assert derived["sampler"] == {
-        "name": "joint_sequential",
+        "provider": "joint_sequential",
         "seed": 11,
         "pair_probability": 0.4,
         "length_policy": "shortest",

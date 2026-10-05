@@ -455,7 +455,7 @@ def test_regression_loss_handles_shape_mismatch_and_empty_supervision(image_data
         ({}, {}, "requires model `heads`"),
         ({"heads": {"pid": []}}, {"pid": {}}, "determine output width"),
         ({"heads": {"pid": 2}}, {}, "exactly match"),
-        ({"heads": {"pid": 2}}, {"pid": {}}, "requires `name`"),
+        ({"heads": {"pid": 2}}, {"pid": {}}, "requires `provider`"),
         (
             {"heads": {"pid": 2}},
             {"pid": {"name": "class", "weight": 0}},
@@ -464,7 +464,7 @@ def test_regression_loss_handles_shape_mismatch_and_empty_supervision(image_data
         (
             {"heads": {"pid": 2}},
             {"pid": {"name": "unknown"}},
-            "Unknown image task",
+            "Could not find",
         ),
     ],
 )
@@ -485,3 +485,38 @@ def test_image_loss_requires_prediction_and_label_inputs(image_data):
         loss(objects, labels=[0, 1])
     with pytest.raises(ValueError, match="missing `labels`"):
         loss(objects, pid_pred=TensorBatch(torch.zeros((2, 2)), counts=[1, 1]))
+
+
+@pytest.mark.parametrize("selector", ["provider", "name"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_image_task_descriptor_preserves_weight_metadata(selector, nested):
+    """Task weights remain outside optional nested constructor parameters."""
+    from copy import deepcopy
+
+    parameters = {"label": "labels"}
+    descriptor = {
+        selector: "class",
+        "weight": 2.0,
+        **({"config": parameters} if nested else parameters),
+    }
+    original = deepcopy(descriptor)
+    loss = ImageLoss({"heads": {"pid": 3}}, {"pid": descriptor})
+    assert isinstance(loss.tasks["pid"], ImageClassificationLoss)
+    assert loss.task_weights["pid"] == 2.0
+    assert descriptor == original
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"name": "class"},
+        {"config": {}, "label": "labels"},
+        {"kwargs": {}},
+        {"args": []},
+        {"out_channels": 3},
+    ],
+)
+def test_image_tasks_reject_ambiguous_descriptors(extra):
+    """Image tasks use the same constructor contract as other factories."""
+    with pytest.raises(ValueError):
+        ImageLoss({"heads": {"pid": 3}}, {"pid": {"provider": "class", **extra}})

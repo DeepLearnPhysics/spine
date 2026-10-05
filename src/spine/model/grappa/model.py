@@ -477,12 +477,12 @@ class GrapPA(torch.nn.Module):
 
         # If the final layer is specified as a number, use linear layer
         if isinstance(final, int):
-            final = {"name": "linear", "out_channels": final}
+            final = {"provider": "linear", "out_channels": final}
 
         # Process the configuration dictionary otherwise
         out_keys = []
         in_channels = getattr(self.gnn, f"{prefix}_feature_size")
-        if "name" in final:
+        if "provider" in final or "name" in final:
             # Initialize a single final layer (single prediction of this type)
             out_key = f"{prefix}_pred"
             out_keys.append(out_key)
@@ -495,7 +495,7 @@ class GrapPA(torch.nn.Module):
                 out_key = f"{prefix}_{key}_pred"
                 out_keys.append(out_key)
                 if isinstance(cfg, int):
-                    cfg = {"name": "linear", "out_channels": cfg}
+                    cfg = {"provider": "linear", "out_channels": cfg}
                 setattr(self, out_key, final_factory(in_channels, **cfg))
 
         setattr(self, f"{prefix}_pred_keys", out_keys)
@@ -1595,7 +1595,7 @@ class GrapPALoss(torch.nn.Module):
 
         # Process the configuration dictionary otherwise
         loss_keys = []
-        if "name" in loss:
+        if "provider" in loss or "name" in loss:
             # Initialize a single loss
             loss_key = f"{prefix}_loss"
             loss_keys.append(loss_key)

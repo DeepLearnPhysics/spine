@@ -1725,3 +1725,58 @@ io:
         assert cfg["io"]["reader"]["settings"]["batch_size"] == 16
         assert cfg["io"]["reader"]["settings"]["shuffle"] is True
         assert cfg["io"]["reader"]["settings"]["num_workers"] == 2
+
+
+@pytest.mark.parametrize("remove_first", [False, True])
+@pytest.mark.parametrize("entrypoint", ["file", "string", "include", "inline"])
+def test_overrides_precede_removals_at_every_loading_boundary(
+    tmp_path, remove_first, entrypoint
+):
+    """Removing a child of an overridden mapping has one meaning everywhere."""
+    base = tmp_path / "base.yaml"
+    base.write_text("settings: {gain: 1, untouched: true}\n")
+    override = "override:\n  settings: {gain: 2, keep: 3}\n"
+    removal = "remove: [settings.gain]\n"
+    text = "include: base.yaml\n" + (
+        removal + override if remove_first else override + removal
+    )
+    modifier = tmp_path / "modifier.yaml"
+    modifier.write_text(text)
+    expected = {"settings": {"keep": 3}}
+    if entrypoint == "file":
+        result = load_config_file(str(modifier))
+    elif entrypoint == "string":
+        result = load_config(text, root_dir=str(tmp_path))
+    elif entrypoint == "include":
+        result = load_config("include: modifier.yaml", root_dir=str(tmp_path))
+    else:
+        result = load_config("wrapped: !include modifier.yaml", root_dir=str(tmp_path))[
+            "wrapped"
+        ]
+    assert result == expected
+
+
+def test_resolved_intermediate_file_preserves_override_removal_order(tmp_path):
+    """Resolving B before including it in C must preserve the A/B/C result."""
+    import yaml
+
+    (tmp_path / "a.yaml").write_text("settings: {gain: 1, keep: 0}\n")
+    (tmp_path / "b.yaml").write_text(
+        "include: a.yaml\noverride:\n  settings: {gain: 2, keep: 3}\nremove: [settings.gain]\n"
+    )
+    resolved_b = load_config_file(str(tmp_path / "b.yaml"))
+    (tmp_path / "resolved_b.yaml").write_text(yaml.safe_dump(resolved_b))
+    suffix = "\noverride:\n  settings.keep: 4\n"
+    direct = load_config("include: b.yaml" + suffix, root_dir=str(tmp_path))
+    flattened = load_config("include: resolved_b.yaml" + suffix, root_dir=str(tmp_path))
+    assert direct == flattened == {"settings": {"keep": 4}}
+
+
+def test_later_include_can_restore_an_earlier_removed_field(tmp_path):
+    """Each included modifier finishes before the next include is merged."""
+    (tmp_path / "first.yaml").write_text(
+        "settings: {gain: 1}\noverride:\n  settings.gain: 2\nremove: [settings.gain]\n"
+    )
+    (tmp_path / "second.yaml").write_text("settings: {gain: 3}\n")
+    result = load_config("include: [first.yaml, second.yaml]", root_dir=str(tmp_path))
+    assert result == {"settings": {"gain": 3}}

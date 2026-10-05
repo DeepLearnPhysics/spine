@@ -29,7 +29,7 @@ def test_report_hashes_string_checkpoint_metadata(tmp_path):
             "formats": ["json"],
             "metadata": {"checkpoint": str(checkpoint)},
             "metrics": {
-                "missing": {"name": "segment_confusion", "source": "missing.csv"}
+                "missing": {"provider": "segment_confusion", "source": "missing.csv"}
             },
         },
     )
