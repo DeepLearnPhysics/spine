@@ -189,6 +189,94 @@ override:
   parsers: [sparse3d, cluster3d]
 ```
 
+### Ordered Named-List Edits with `~`
+
+Use a `~` suffix under `override:` to edit an existing list of mappings by
+their unique `name` fields. This works for reconstruction stages or any other
+named list; no model-specific modifier handling is required.
+
+```yaml
+include: base_config.yaml
+
+override:
+  model.modules.chain.stages~:
+    - insert:
+        before: deghosting
+        value:
+          name: predeghost_scale
+          provider: calibration
+          config:
+            mode: apply
+            calibration:
+              gain:
+                gain: 1.1
+    - update:
+        name: predeghost_scale
+        changes:
+          config:
+            calibration:
+              gain:
+                gain: 1.2
+    - remove:
+        name: obsolete_stage
+```
+
+The base configuration must contain the named anchors/targets used in the
+example. Names match the entry's `name` exactly, not its provider or position.
+A single edit mapping can be supplied instead of a list:
+
+```yaml
+override:
+  model.modules.chain.stages~:
+    insert:
+      after: deghosting
+      value:
+        name: presegmentation_calibration
+        provider: calibration
+        config:
+          mode: label
+```
+
+Supported operations:
+
+- `insert`: Requires `value` and exactly one of `before` or `after`. Inserts
+  immediately next to the named anchor; the new name must be unique.
+- `update`: Requires `name` and `changes`. Recursively merges mapping fields,
+  replacing other values (including lists). Unspecified fields are preserved.
+  `null` is a literal value, not deletion. Changing `name` is prohibited.
+- `remove`: Requires `name`. Removes exactly that named entry.
+
+All entries in the target list must be mappings with unique nonempty string
+names. Unknown operation fields, invalid types, duplicate names, missing paths,
+and missing targets are errors, even with `strict: warn`. An edit sequence is
+applied only if all its operations succeed. Neither its payloads nor the
+previous list are mutated.
+
+**Execution order:** Includes are processed in declared order. Each included
+configuration is merged and its overrides applied before the next include.
+The including file's own configuration is then merged and its overrides applied.
+Within an `override:` mapping, directives execute in declaration order; within a
+`path~:` list, edits execute in list order and can target earlier insertions.
+For a self-contained A → B → C include chain, resolving B first and including
+that result in C gives the same named-list result as loading C directly.
+
+A standalone modifier may edit a list provided by an earlier sibling include.
+Named edits never wait for a later include to provide a missing target, and a
+later include that replaces the list replaces the earlier edit result too.
+Repeated insertion after X puts each new item immediately after X: inserting
+A, then B, produces `X, B, A`. Use A as the second anchor for `X, A, B`.
+
+Existing `+` (append), `-` (remove by value or dictionary key), and top-level
+`remove:` (delete a configuration path) retain their semantics. In particular,
+`path-: [some_name]` does not remove a mapping whose `name` is `some_name`.
+
+The same `~` operation is available to CLI overrides, which run after file
+configuration loading:
+
+```bash
+spine -c config.yaml --set 'model.modules.chain.stages~=[{remove: {name: obsolete_stage}}]'
+```
+
 ### Removing Keys
 
 Three ways to remove unwanted keys from included configurations:

@@ -88,6 +88,9 @@ jobs:
       run: |
         pytest test/test_conditional_imports.py -v --cov=spine --cov-report=xml
 
+    - name: Test configuration composition and ordered edits
+      run: pytest test/test_config -v
+
     - name: Test CLI functionality
       run: |
         python -m spine.bin.cli --version
