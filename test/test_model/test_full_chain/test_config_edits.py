@@ -113,3 +113,31 @@ def test_full_chain_provider_shorthand_stays_strict():
             },
             {},
         )
+
+
+def test_full_chain_keeps_legacy_mixed_parameter_precedence():
+    """Sharing extraction preserves FullChain's inline-over-nested behavior."""
+    from copy import deepcopy
+
+    stage = {
+        "name": "deghost",
+        "uses": ["network"],
+        "loss": "loss_block",
+        "config": {"mode": "label", "network": {"nested": True}, "values": [1]},
+        "mode": "uresnet",
+        "network": {"inline": True},
+    }
+    original = deepcopy(stage)
+    plan = build_chain_plan(
+        {"stages": [stage]},
+        {"network": {"base": True}, "loss_block": {"weight": 1}},
+        require_losses=True,
+    )
+    assert plan[0].config == {
+        "mode": "uresnet",
+        "network": {"inline": True},
+        "values": [1],
+    }
+    assert plan[0].loss_config == {"weight": 1}
+    plan[0].config["values"].append(2)
+    assert stage == original

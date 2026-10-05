@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from spine.config.factory import extract_module_parameters
+
 __all__ = ["StageConfig", "build_chain_plan", "get_chain_inputs"]
 
 
@@ -123,9 +125,6 @@ def _new_chain_plan(
         names.add(name)
 
         # Normalize references to sibling model and loss blocks.
-        inline_config = descriptor.pop("config", {})
-        if not isinstance(inline_config, dict):
-            raise TypeError(f"Stage `{name}` `config` must be a mapping.")
         uses = descriptor.pop("uses", ())
         if isinstance(uses, str):
             uses = (uses,)
@@ -146,8 +145,12 @@ def _new_chain_plan(
             if key not in modules:
                 raise ValueError(f"Stage `{name}` references missing block `{key}`.")
             config[key] = modules[key]
-        config.update(inline_config)
-        config.update(descriptor)
+        # Retain FullChain's historical inline-over-nested precedence.
+        config.update(
+            extract_module_parameters(
+                descriptor, context=f"Stage `{name}`", allow_mixed=True
+            )
+        )
 
         # Loss may name one block or map several provider-owned objectives to
         # independent blocks, as with shower and track GrapPA paths.

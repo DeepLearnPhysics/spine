@@ -181,7 +181,8 @@ def test_ordered_post_dependency_checks(monkeypatch, dependency):
         PostManager({"stages": [{**source, "priority": 1}]})
 
 
-def test_ordered_post_constructs_registered_provider():
+@pytest.mark.parametrize("inline", [False, True])
+def test_ordered_post_constructs_registered_provider(inline):
     """Instance labels are not passed to the real provider factory as names."""
     from spine.post.reco.direction import DirectionProcessor
 
@@ -191,7 +192,7 @@ def test_ordered_post_constructs_registered_provider():
                 {
                     "name": "particle_directions",
                     "provider": "direction",
-                    "config": {"radius": 5.0},
+                    **({"radius": 5.0} if inline else {"config": {"radius": 5.0}}),
                 }
             ]
         },

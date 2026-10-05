@@ -285,12 +285,10 @@ Managers that execute a configurable sequence of modules share the same
 ```yaml
 stages:
   - name: implementation
-    config:
-      option: value
+    option: value
   - name: second_instance
     provider: implementation
-    config:
-      option: another_value
+    option: another_value
 ```
 
 `name` is required and identifies the instance; `provider` selects its
@@ -301,8 +299,13 @@ one representation, separating instance identity from provider identity.
 
 - List order is execution order; stage-level `priority` is rejected.
 - Instance names must be unique, nonempty strings. Providers may repeat.
-- `config` is an optional mapping, defaulting to `{}`. Null entries and unknown
-  stage fields are rejected.
+- Provider parameters may be inline (as above) or nested in an explicit
+  `config:` mapping. Mixing both forms within an entry is rejected, even when
+  the keys do not overlap or `config` is empty. Null `config` is invalid.
+- Structural fields (`name`, `provider`, `config`, and stage-level `priority`)
+  are reserved. Other inline fields are forwarded to the provider, which
+  validates its parameter names. Nested keys remain provider configuration;
+  individual provider factories may reserve additional keys of their own.
 - Legacy module mappings remain supported with each manager's existing ordering
   policy. They cannot be mixed with `stages:` in the same manager configuration.
 - Manager-level settings remain outside the list. The manager removes these
@@ -314,6 +317,20 @@ The shared format is supported by analysis (`ana.stages`), post-processing
 (`post.stages`), calibration, and data augmentation. Calibration and augmentation
 paths depend on their owning component. FullChain already uses an ordered
 `chain.stages` schema with additional model-specific fields.
+
+The nested alternative is equivalent:
+
+```yaml
+stages:
+  - name: implementation
+    config:
+      option: value
+```
+
+FullChain preserves its legacy support for mixed nested and inline parameters,
+with inline values taking precedence. The other ordered module managers reject
+mixed entries to avoid implicit precedence. I/O parser mappings retain their
+existing inline-parameter syntax; they do not become ordered stage lists.
 
 For example, analysis settings can accompany its module list:
 
@@ -332,7 +349,7 @@ implementation. Any supported stage list can be edited with `path~:` modifiers.
 When migrating a legacy mapping, retain its resolved execution order (including
 priority ties where applicable), move each mapping key to instance `name`, move
 its implementation `name` to `provider` (defaulting to the mapping key), and put
-provider parameters in `config` without scheduling metadata.
+provider parameters inline or in `config` without scheduling metadata.
 
 For new consumers, use `parse_module_config(..., stages_key="stages")` or
 `instantiate_modules(..., stages_key="stages")` from `spine.config.factory`.

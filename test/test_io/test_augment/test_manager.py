@@ -99,7 +99,10 @@ def test_manager_rejects_geo_config():
         )
 
 
-def test_ordered_augmentation_uses_shared_parser_and_execution_order(monkeypatch):
+@pytest.mark.parametrize("inline", [False, True])
+def test_ordered_augmentation_uses_shared_parser_and_execution_order(
+    monkeypatch, inline
+):
     """Named edits configure noncommuting augmentations in declared order."""
     from spine.config import load_config
 
@@ -129,6 +132,9 @@ override:
         provider: arithmetic
         config: {factor: 2}
 """)["augment"]
+    if inline:
+        for stage in cfg["stages"]:
+            stage.update(stage.pop("config"))
     ordered = AugmentManager(**cfg)
     legacy = AugmentManager(
         scale={"name": "arithmetic", "factor": 2},
@@ -137,7 +143,8 @@ override:
     for manager in (ordered, legacy):
         result = manager({"meta": make_meta(), "value": 10})
         assert result["value"] == 21
-    assert cfg["stages"][0]["config"] == {"factor": 2}
+    first = cfg["stages"][0]
+    assert (first if inline else first["config"])["factor"] == 2
 
 
 def test_ordered_augmentation_validation_and_real_provider():

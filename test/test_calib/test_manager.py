@@ -407,7 +407,10 @@ def test_manager_returns_field_corrected_points_in_input_units(monkeypatch, fake
     assert np.allclose(values, [1.0])
 
 
-def test_ordered_calibration_matches_legacy_and_reverses_inverse(monkeypatch, fake_geo):
+@pytest.mark.parametrize("inline", [False, True])
+def test_ordered_calibration_matches_legacy_and_reverses_inverse(
+    monkeypatch, fake_geo, inline
+):
     """Noncommuting operations expose reordering and incorrect inverse order."""
     monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
     legacy = CalibrationManager(
@@ -420,17 +423,21 @@ def test_ordered_calibration_matches_legacy_and_reverses_inverse(monkeypatch, fa
         first={"name": "gain", "priority": 3, "gain": 2.0},
         second={"name": "gain", "priority": 2, "gain": 3.0},
     )
-    ordered = CalibrationManager(
-        stages=[
-            {"name": "first", "provider": "gain", "config": {"gain": 2.0}},
-            {
-                "name": "offset",
-                "provider": "response",
-                "config": {"response_func": "x + 1", "inverse_response_func": "x - 1"},
-            },
-            {"name": "second", "provider": "gain", "config": {"gain": 3.0}},
+    stages = [
+        {"name": "first", "provider": "gain", "config": {"gain": 2.0}},
+        {
+            "name": "offset",
+            "provider": "response",
+            "config": {"response_func": "x + 1", "inverse_response_func": "x - 1"},
+        },
+        {"name": "second", "provider": "gain", "config": {"gain": 3.0}},
+    ]
+    if inline:
+        stages = [
+            {"name": stage["name"], "provider": stage["provider"], **stage["config"]}
+            for stage in stages
         ]
-    )
+    ordered = CalibrationManager(stages=stages)
     assert (
         list(ordered.modules) == list(legacy.modules) == ["first", "offset", "second"]
     )

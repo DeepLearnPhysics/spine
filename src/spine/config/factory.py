@@ -205,6 +205,47 @@ def instantiate(
         raise err
 
 
+def extract_module_parameters(
+    descriptor: Mapping[str, Any], *, context: str, allow_mixed: bool = False
+) -> dict[str, Any]:
+    """Extract inline or nested parameters after removing structural fields.
+
+    Parameters
+    ----------
+    descriptor : Mapping
+        Provider parameters and optional ``config`` mapping. The caller must
+        first remove its structural fields, such as ``name`` and ``provider``.
+    context : str
+        Stage description included in validation errors.
+    allow_mixed : bool, default False
+        Preserve legacy consumers that allow inline parameters to override
+        nested values. New consumers reject mixed forms, even without overlap.
+
+    Returns
+    -------
+    dict
+        Independent copy of the extracted provider parameters.
+
+    Raises
+    ------
+    TypeError
+        If an explicit ``config`` value is not a mapping.
+    ValueError
+        If nested and inline forms are mixed without permission.
+    """
+    parameters = dict(descriptor)
+    if "config" not in parameters:
+        return deepcopy(parameters)
+
+    # Presence is significant: even an empty explicit config selects nesting.
+    nested = parameters.pop("config")
+    if not isinstance(nested, Mapping):
+        raise TypeError(f"{context} `config` must be a mapping.")
+    if parameters and not allow_mixed:
+        raise ValueError(f"{context} cannot mix inline parameters with `config`.")
+    return deepcopy({**nested, **parameters})
+
+
 def parse_module_stages(stages: Any) -> ParsedModules:
     """Normalize ordered module entries into the legacy internal representation.
 
@@ -212,8 +253,8 @@ def parse_module_stages(stages: Any) -> ParsedModules:
     ----------
     stages : list of dict
         Entries with unique instance ``name``, optional implementation
-        ``provider`` (defaulting to ``name``), and optional ``config`` mapping.
-        List order defines execution order.
+        ``provider`` (defaulting to ``name``), and parameters either inline or
+        in a ``config`` mapping. List order defines execution order.
 
     Returns
     -------
@@ -225,7 +266,8 @@ def parse_module_stages(stages: Any) -> ParsedModules:
     TypeError
         If stages, entries, or provider configurations have the wrong type.
     ValueError
-        If names are invalid or duplicated, or unknown fields are supplied.
+        If names are invalid or duplicated, priority is supplied, or parameter
+        forms are mixed. Providers validate their own parameter names.
     """
     if not isinstance(stages, list):
         raise TypeError("Module `stages` must be a list.")
@@ -236,9 +278,6 @@ def parse_module_stages(stages: Any) -> ParsedModules:
         # Ordering belongs to the list, never to priority metadata.
         if "priority" in stage:
             raise ValueError("Module stages cannot specify `priority`; use list order.")
-        unknown = set(stage).difference({"name", "provider", "config"})
-        if unknown:
-            raise ValueError(f"Module stage {index} has unknown fields: {unknown}.")
         identities = {
             "name": stage.get("name"),
             "provider": stage.get("provider", stage.get("name")),
@@ -249,15 +288,18 @@ def parse_module_stages(stages: Any) -> ParsedModules:
         label = stage["name"]
         if label in parsed:
             raise ValueError(f"Duplicate module stage name `{label}`.")
-        config = stage.get("config", {})
-        if not isinstance(config, Mapping):
-            raise TypeError(
-                f"Configuration for module stage `{label}` must be a mapping."
-            )
+        descriptor = {
+            key: value
+            for key, value in stage.items()
+            if key not in {"name", "provider"}
+        }
+        config = extract_module_parameters(
+            descriptor, context=f"Module stage `{label}`"
+        )
         # Keep instance identity separate from the implementation name.
         parsed[label] = {
             "name": identities["provider"],
-            "cfg": deepcopy(dict(config)),
+            "cfg": config,
             "priority": None,
         }
     return parsed

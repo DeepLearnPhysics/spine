@@ -208,8 +208,11 @@ def test_ana_manager_merges_columnar_requests(monkeypatch):
     }
 
 
+@pytest.mark.parametrize("inline", [False, True])
 @pytest.mark.parametrize("columnar", [False, True])
-def test_ordered_analysis_settings_execution_and_lifecycle(monkeypatch, columnar):
+def test_ordered_analysis_settings_execution_and_lifecycle(
+    monkeypatch, columnar, inline
+):
     """The shared schema preserves analysis settings and both execution modes."""
     from spine.config import load_config
 
@@ -239,6 +242,9 @@ override:
         provider: script
         config: {offset: 10, columnar: true}
 """)["ana"]
+    if inline:
+        for stage in cfg["stages"]:
+            stage.update(stage.pop("config"))
     manager = AnaManager(cfg, log_dir="logs", prefix="input", columnar=columnar)
     assert list(manager.modules) == ["first", "last"]
     assert settings == [(True, "logs", "input", 8)] * 2
@@ -251,7 +257,10 @@ override:
     manager.flush()
     manager.close()
     assert all(module.flushed and module.closed for module in manager.modules.values())
-    assert cfg["stages"][0]["config"] == {"offset": 10, "columnar": True}
+    first = cfg["stages"][0]
+    parameters = first if inline else first["config"]
+    assert parameters["offset"] == 10
+    assert parameters["columnar"] is True
 
 
 def test_ordered_analysis_validation(monkeypatch):

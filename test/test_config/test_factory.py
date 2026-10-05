@@ -214,7 +214,11 @@ def test_ordered_module_stages_preserve_identity_order_and_inputs():
             ValueError,
             "priority",
         ),
-        ([{"name": "a", "provider": "alpha", "typo": 1}], ValueError, "unknown fields"),
+        (
+            [{"name": "a", "provider": "alpha", "config": {}, "value": 1}],
+            ValueError,
+            "cannot mix",
+        ),
         (
             [{"name": "a", "provider": "alpha", "config": None}],
             TypeError,
@@ -277,5 +281,58 @@ def test_ordered_module_provider_defaults_to_required_instance_name():
     with pytest.raises(ValueError, match="Duplicate"):
         parse_module_config(
             {"stages": [{"name": "alpha"}, {"name": "alpha", "provider": "beta"}]},
+            stages_key="stages",
+        )
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_stage_parameters_accept_inline_or_nested_forms(inline):
+    """Both representations produce identical provider constructor arguments."""
+    parameters = {"value": 4}
+    stage = {"name": "alpha", **(parameters if inline else {"config": parameters})}
+    instances = instantiate_modules(
+        {"alpha": Alpha}, {"stages": [stage]}, stages_key="stages"
+    )
+    assert instances["alpha"].value == 4
+    assert parameters == {"value": 4}
+
+
+@pytest.mark.parametrize("nested", [{}, {"value": 1}, {"other": 2}])
+def test_stage_parameters_reject_mixing_even_without_overlap(nested):
+    """No precedence is inferred for new ordered module consumers."""
+    with pytest.raises(ValueError, match="cannot mix"):
+        parse_module_config(
+            {"stages": [{"name": "alpha", "value": 4, "config": nested}]},
+            stages_key="stages",
+        )
+
+
+def test_parameter_extraction_copies_inputs_and_preserves_nested_reserved_fields():
+    """Extraction does not mutate payloads or consume nested provider options."""
+    from spine.config.factory import extract_module_parameters
+
+    for descriptor in ({"values": [1]}, {"config": {"values": [1]}}):
+        parsed = extract_module_parameters(descriptor, context="Test stage")
+        parsed["values"].append(2)
+        original = descriptor.get("config", descriptor)
+        assert original["values"] == [1]
+    reserved = {
+        "name": "parameter_name",
+        "provider": "parameter_provider",
+        "priority": 3,
+        "config": {"option": True},
+    }
+    parsed = parse_module_config(
+        {"stages": [{"name": "alpha", "config": reserved}]}, stages_key="stages"
+    )
+    assert parsed["alpha"]["cfg"] == reserved
+
+
+def test_inline_unknown_parameters_are_validated_by_provider():
+    """Unknown inline keys reach constructor validation instead of being dropped."""
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        instantiate_modules(
+            {"alpha": Alpha},
+            {"stages": [{"name": "alpha", "typo": 1}]},
             stages_key="stages",
         )
