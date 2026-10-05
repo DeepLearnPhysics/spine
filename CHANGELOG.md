@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.4.0] - 2026-10-05
+
+### Added
+- **Ordered module pipelines**: Support named `stages` lists for calibration, post-processing, analysis and augmentation through shared configuration tools. Each entry requires a unique `name`; `provider` defaults to that name. Execution follows list order, including reverse-order inverse calibration.
+- **Named-list editing**: Insert before or after, update, and remove list entries by name through the `~` override operator, with strict target validation and shared YAML/CLI semantics.
+- **Optional modifier targets**: Allow source-local `__meta__.optional_paths` declarations for intentionally absent override and removal targets without suppressing invalid types.
+
+### Changed
+- **Uniform component descriptors**: Use `provider` to select implementations and accept either inline constructor parameters or a nested `config` mapping across factories. Reject mixed forms, conflicting selectors and collisions with runtime-injected parameters.
+- **Configuration resolution order**: Apply overrides before removals at every loading boundary. Preserve the order, repeated paths and source policies of deferred operations across sequential includes.
+- **Maintained examples**: Migrate shipped configurations to canonical selectors and ordered post-processing/analysis stages, preserving resolved parameters and execution order. Document the analyzer fragment's required full-chain base.
+
+### Fixed
+- **Calibration around deghosting**: Allow calibration before deghosting and again before segmentation. Deghosting can consume calibrated charge while collection charge rescaling continues to use the preserved charge and hit information; stale calibration is cleared before later calibration.
+- **Canonical provider dispatch**: Honor shared descriptor conventions in model selection, GrapPA heads and losses, GraphSPICE backbones, image encoders and image task losses. Preserve FullChain's guard against nested adaptive loss balancing with canonical selectors.
+- **Deferred modifier behavior**: Retain repeated appends and overlapping operation order, and prevent enclosing metadata from weakening a deferred operation's declaring strictness.
+- **Configuration documentation**: Correct loader API examples and clarify that `null` assigns a value while `remove:` deletes a key.
+
+### Deprecated
+- **Legacy implementation selectors**: Standalone `name`, parser-specific `parser`, and collator-specific `collate_fn` implementation selectors remain accepted with deprecation warnings; use `provider`. Ordered-stage instance names and manager field names are unchanged.
+- **Unresolved ordinary assignments**: Missing final assignment targets now emit `FutureWarning` instead of silently skipping. A future release will enforce the declaring source's strictness; mark intentionally absent targets with `optional_paths`.
+
+### Removed
+- **YAML constructor wrappers**: Remove `args` and `kwargs`. Convert positional arguments to named parameters and use either inline fields or `config`.
+
+### Migration notes
+- This release includes configuration compatibility changes. Do not mix inline parameters with `config`, multiple implementation selectors, or legacy module entries with `stages`. Ordered entries reject stage-level `priority`; legacy mapping priority remains supported.
+- Missing collection/removal targets honor their declaring source's strictness immediately. Load incomplete modifiers with their bases, remove redundant removals, and declare genuinely optional targets in the originating file. Ordinary unresolved assignments retain warning-based compatibility for now.
+- The spine-prod audit preserved all 371 tested inference/modifier combinations. Eleven training-fragment cleanup edits and two inference `optional_paths` declarations were prepared separately in spine-prod and are not included in this release. Apply those companion changes before upgrading affected production configurations.
+- See the [configuration migration reference](src/spine/config/README.md) and [default configuration guide](config/README.md) for syntax and examples.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added
