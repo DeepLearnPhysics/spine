@@ -205,7 +205,7 @@ class ConfigLoader(yaml.SafeLoader):
         for key_path, value in overrides.items():
             parsed_value = parse_value(value)
 
-            if key_path.endswith("+") or key_path.endswith("-"):
+            if key_path.endswith(("+", "-", "~")):
                 # Collection operations
                 base_key = key_path[:-1]
                 operation = key_path[-1]

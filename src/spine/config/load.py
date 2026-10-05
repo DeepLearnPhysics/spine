@@ -350,7 +350,7 @@ def load_config(
     for key_path, value in overrides.items():
         parsed_value = parse_value(value)
 
-        if key_path.endswith("+") or key_path.endswith("-"):
+        if key_path.endswith(("+", "-", "~")):
             # Collection operations - use strict mode from metadata
             base_key = key_path[:-1]
             operation = key_path[-1]
@@ -443,7 +443,7 @@ def load_config_file(cfg_path: str, download: bool = True) -> Dict[str, Any]:
     for key_path, value in overrides.items():
         parsed_value = parse_value(value)
 
-        if key_path.endswith("+") or key_path.endswith("-"):
+        if key_path.endswith(("+", "-", "~")):
             # Collection operations - use strict mode from metadata
             base_key = key_path[:-1]
             operation = key_path[-1]

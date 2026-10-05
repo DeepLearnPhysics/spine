@@ -23,6 +23,7 @@ __all__ = [
     "parse_value",
     "apply_overrides",
     "apply_collection_operation",
+    "apply_named_list_edits",
     "apply_overrides_and_removals",
     "set_nested_value",
     "extract_includes_and_overrides",
@@ -118,7 +119,11 @@ def apply_overrides(
 
         # Parse basic scalars and collections before updating the nested key.
         value = parse_value(value_str.strip())
-        config, _ = set_nested_value(config, key_path.strip(), value)
+        key_path = key_path.strip()
+        if key_path.endswith("~"):
+            config = apply_named_list_edits(config, key_path[:-1], value)
+        else:
+            config, _ = set_nested_value(config, key_path, value)
 
     return config
 
@@ -148,6 +153,152 @@ def expand_env_vars(value: Any) -> Any:
     return value
 
 
+def apply_named_list_edits(
+    config: Dict[str, Any], key_path: str, edits: Any
+) -> Dict[str, Any]:
+    """Apply ordered edits to a list of uniquely named mappings.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration to update in place after all edits succeed.
+    key_path : str
+        Dot-separated path to an existing list.
+    edits : dict or list of dict
+        One edit or an ordered sequence of edits. Each edit contains exactly
+        one of ``insert``, ``update``, or ``remove``. Insertion takes ``value``
+        and exactly one named ``before``/``after`` anchor. Update takes ``name``
+        and ``changes``; removal takes ``name``.
+
+    Returns
+    -------
+    dict
+        Configuration with the edited list. Other values are unchanged.
+
+    Raises
+    ------
+    ConfigPathError
+        If the list path or a named target does not exist.
+    ConfigTypeError
+        If the target is not a list or a parent is not a mapping.
+    ConfigOperationError
+        If an edit is malformed or names are missing, invalid, or duplicated.
+
+    Notes
+    -----
+    Updates recursively merge mappings and replace other values, including
+    lists and nulls. Names cannot be updated. Failures never partially apply
+    an edit sequence, and no edits are deferred to a later include.
+    """
+    # Resolve the existing list without creating missing parent mappings.
+    if not key_path or any(not key for key in key_path.split(".")):
+        raise ConfigPathError(f"Invalid named-list path '{key_path}'.")
+    current = config
+    keys = key_path.split(".")
+    for key in keys[:-1]:
+        if key not in current:
+            raise ConfigPathError(f"Named-list path '{key_path}' does not exist.")
+        if not isinstance(current[key], dict):
+            raise ConfigTypeError(
+                f"Named-list path '{key_path}': '{key}' is not a mapping."
+            )
+        current = current[key]
+    if keys[-1] not in current:
+        raise ConfigPathError(f"Named-list path '{key_path}' does not exist.")
+    target = current[keys[-1]]
+    if not isinstance(target, list):
+        raise ConfigTypeError(f"Named-list path '{key_path}' must contain a list.")
+
+    def valid_name(value: Any) -> bool:
+        """Check that an identity is a nonempty string."""
+        return isinstance(value, str) and bool(value.strip())
+
+    # Validate every entry so named targets are always unambiguous.
+    names = set()
+    for entry in target:
+        if not isinstance(entry, dict) or not valid_name(entry.get("name")):
+            raise ConfigOperationError(
+                f"Named-list path '{key_path}' requires mappings with nonempty names."
+            )
+        if entry["name"] in names:
+            raise ConfigOperationError(
+                f"Named-list path '{key_path}' has duplicate name '{entry['name']}'."
+            )
+        names.add(entry["name"])
+
+    # Normalize single-edit shorthand, then work on a copy until all edits pass.
+    if isinstance(edits, dict):
+        edits = [edits]
+    if not isinstance(edits, list) or not edits:
+        raise ConfigOperationError(
+            f"Named-list edits for '{key_path}' must be a mapping or nonempty list."
+        )
+    result = deepcopy(target)
+    for index, edit in enumerate(edits):
+        context = f"Named-list edit {index + 1} for '{key_path}'"
+        if not isinstance(edit, dict) or len(edit) != 1:
+            raise ConfigOperationError(f"{context} requires exactly one operation.")
+        operation, options = next(iter(edit.items()))
+        if operation not in {"insert", "update", "remove"}:
+            raise ConfigOperationError(f"{context}: unknown operation '{operation}'.")
+        if not isinstance(options, dict):
+            raise ConfigOperationError(f"{context}: options must be a mapping.")
+
+        # Validate each operation's fields and identify its anchor or target.
+        if operation == "insert":
+            anchors = set(options) & {"before", "after"}
+            if len(anchors) != 1 or set(options) != anchors | {"value"}:
+                raise ConfigOperationError(
+                    f"{context}: insert requires value and exactly one of before/after."
+                )
+            anchor = next(iter(anchors))
+            name = options[anchor]
+            value = options["value"]
+            if not isinstance(value, dict) or not valid_name(value.get("name")):
+                raise ConfigOperationError(
+                    f"{context}: inserted value requires a nonempty name."
+                )
+            if value["name"] in names:
+                raise ConfigOperationError(
+                    f"{context}: duplicate inserted name '{value['name']}'."
+                )
+        else:
+            expected = {"name", "changes"} if operation == "update" else {"name"}
+            if set(options) != expected:
+                raise ConfigOperationError(
+                    f"{context}: {operation} requires only {sorted(expected)}."
+                )
+            name = options["name"]
+            if operation == "update":
+                changes = options["changes"]
+                if not isinstance(changes, dict) or "name" in changes:
+                    raise ConfigOperationError(
+                        f"{context}: changes must be a mapping without 'name'."
+                    )
+
+        # Resolve against the current result, including all preceding edits.
+        if not valid_name(name):
+            raise ConfigOperationError(f"{context}: target name must be nonempty.")
+        if name not in names:
+            raise ConfigPathError(f"{context}: target '{name}' does not exist.")
+        position = next(i for i, entry in enumerate(result) if entry["name"] == name)
+        if operation == "insert":
+            value = options["value"]
+            result.insert(position + ("after" in options), deepcopy(value))
+            names.add(value["name"])
+        elif operation == "update":
+            result[position] = deep_merge(
+                result[position], deepcopy(options["changes"])
+            )
+        else:
+            result.pop(position)
+            names.remove(name)
+
+    # Publish only the completed sequence; failures leave the original intact.
+    current[keys[-1]] = result
+    return config
+
+
 def apply_collection_operation(
     config: Dict[str, Any],
     key_path: str,
@@ -156,11 +307,12 @@ def apply_collection_operation(
     strict: str = "error",
     list_append_mode: str = "append",
 ) -> Dict[str, Any]:
-    """Apply a collection operation (append/remove) to a nested list or dict.
+    """Apply a collection operation to a nested list or dict.
 
     For lists:
         '+' : append values
         '-' : remove values
+        '~' : edit entries by unique name
 
     For dicts:
         '-' : remove keys
@@ -175,7 +327,7 @@ def apply_collection_operation(
     value : Any
         Value(s) to append/remove (single value or list)
     operation : str
-        '+' (append) or '-' (remove)
+        '+' (append), '-' (remove), or '~' (named-list edits)
     strict : str, optional
         "error" or "warn" for missing paths
     list_append_mode : str, optional
@@ -195,6 +347,9 @@ def apply_collection_operation(
     ConfigOperationError
         If operation is invalid
     """
+    if operation == "~":
+        return apply_named_list_edits(config, key_path, value)
+
     keys = key_path.split(".")
     current = config
 
@@ -419,7 +574,7 @@ def apply_overrides_and_removals(
     config : Dict[str, Any]
         Configuration dictionary
     overrides : Dict[str, Any]
-        Override directives (may include +/- suffixes)
+        Override directives (may include +, -, or ~ suffixes)
     removals : List[str]
         Removal directives
     strict : str
@@ -442,7 +597,11 @@ def apply_overrides_and_removals(
     for key_path, value in overrides.items():
         parsed_value = parse_value(value)
 
-        if key_path.endswith("+") or key_path.endswith("-"):
+        if key_path.endswith("~"):
+            # Named edits must resolve here; propagating them could reorder or
+            # overwrite operations from separate modifiers on the same path.
+            config = apply_named_list_edits(config, key_path[:-1], parsed_value)
+        elif key_path.endswith("+") or key_path.endswith("-"):
             # Collection operation
             base_key = key_path[:-1]
             operation = key_path[-1]
