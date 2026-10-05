@@ -184,11 +184,14 @@ class TestApplyCollectionOperation:
                 {"io": {"file_keys": []}}, "io.file_keys", "a", "*"
             )
 
-    def test_dict_removal_warns_for_missing_key(self):
-        """Test missing dict removals warn in warn mode."""
+    def test_dict_removal_is_idempotent_for_missing_key(self):
+        """Absent members have the same idempotent semantics as list values."""
         config = {"io": {"options": {"keep": 1}}}
 
-        with pytest.warns(UserWarning, match="not found in 'io.options'"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             result = apply_collection_operation(
                 config, "io.options", ["missing"], "-", strict="warn"
             )

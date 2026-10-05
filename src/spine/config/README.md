@@ -435,7 +435,7 @@ listed order, merge the file's own content, apply `override:` entries in
 declaration order, then apply `remove:` paths. Placing the `remove:` block earlier
 in the YAML does not change this order. Each included modifier finishes before
 the next include is merged, so later files can restore an earlier removed key.
-The existing handling of missing targets and deferred overrides is unchanged.
+Missing targets follow the deferred-resolution and optional-path rules below.
 
 This changes included files that previously relied on removals running first.
 Remove redundant deletions of keys that an override replaces or already omits.
@@ -521,6 +521,7 @@ Versions must be **exactly 6 digits** in `YYMMDD` format:
 | `tags` | list[str] | Categorization tags |
 | `kind` | string | `"bundle"`, `"mod"`, or `"fragment"` |
 | `strict` | string | `"error"` or `"warn"` |
+| `optional_paths` | list[str] | Exact local directive paths allowed to be absent |
 | `list_append` | string | `"append"` or `"unique"` |
 | `compatible_with` | dict | Version requirements |
 | `extends` | string | Modifier category |
@@ -613,22 +614,64 @@ io:
 
 ### Strict Mode
 
-Controls behavior when overriding non-existent paths:
+For missing collection targets and explicit path removals, the declaring
+file's `strict` setting controls the outcome:
 
-- **`strict: "error"`** (bundles): Raise exception on missing path
-- **`strict: "warn"`** (modifiers): Issue warning, continue processing
+- `strict: error`: raise an exception.
+- `strict: warn`: warn with the declaring file and target path, then skip.
+
+These settings remain attached to deferred operations. An enclosing modifier
+with `strict: warn` no longer weakens a fragment's `strict: error`.
+Incomplete modifiers that previously loaded alone with warnings may now fail;
+load them with their required base configuration.
+
+For ordinary assignments with unresolved parent paths, compatibility is
+temporarily preserved: skip with a `FutureWarning`, even under `strict: error`.
+Silent skipping is deprecated; a future release will apply the declaring
+strictness to these assignments too. A new leaf key is allowed when its parent
+exists. Named-list edits always fail on missing paths or names.
+
+### Deferred and optional operations
+
+Reusable fragments may declare assignments or collection operations before
+their enclosing configuration supplies the target. Pending operations retain
+declaration order, repeated paths, source filenames, strictness, and append
+settings. They are retried after subsequent include content is merged.
+A later operation on the same path, a parent, or a child cannot overtake a
+pending operation; unrelated paths can proceed. Parent directives remain last.
+Named-list edits cannot be deferred or marked optional: an edit blocked by an
+unresolved overlapping operation is an error.
+
+An explicitly optional target is skipped if it is still absent when the
+operation is finalized:
 
 ```yaml
 __meta__:
-  kind: "bundle"
-  strict: "error"    # Catch configuration errors early
+  kind: fragment
+  optional_paths:
+    - post.time_containment.run_mode
 
-# vs.
-
-__meta__:
-  kind: "mod"
-  strict: "warn"     # Allow optional modifications
+override:
+  post.time_containment.run_mode: reco
 ```
+
+`optional_paths` contains exact dotted paths without operator suffixes. Each
+path must match an `override:` or `remove:` directive in the same file; it is
+not inherited by included files. Optionality permits missing targets, never
+wrong types, malformed operations, or missing named stages. Deferred optional
+assignments still apply if their targets become available.
+
+Removing an absent list value or dictionary member with `-` is idempotent.
+The containing collection must exist unless its path is explicitly optional
+(or the operation's strictness allows a warning). Explicit `remove:` deletes
+a configuration path and follows the same strict/optional policy for both
+missing parents and missing leaf keys.
+
+**Migration:** declare deliberately optional paths in the file containing the
+operation. Resolve typos and unintentionally missing parents instead of marking
+them optional. Configurations relying on an earlier deferred operation
+overwriting a later one now obey declaration order; repeated deferred appends
+are no longer collapsed into one operation.
 
 ### List Append Mode
 

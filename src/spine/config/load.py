@@ -17,6 +17,7 @@ from .api import (
     META_KEY,
     META_KIND,
     META_LIST_APPEND,
+    META_OPTIONAL_PATHS,
     META_STRICT,
     META_VERSION,
 )
@@ -29,10 +30,12 @@ from .meta import (
     extract_modifier,
 )
 from .operations import (
+    ConfigDirective,
     apply_overrides_and_removals,
     deep_merge,
     expand_env_vars,
     extract_includes_and_overrides,
+    make_config_directives,
 )
 
 __all__ = ["load_config", "load_config_file"]
@@ -45,7 +48,7 @@ def load_config_recursive(
     include_stack: Optional[List[str]] = None,
     compatibility_checks: Optional[List[Tuple[Dict, Dict, str]]] = None,
     download: bool = True,
-) -> Tuple[Dict[str, Any], Dict[str, Any], List[str], Dict[str, Any]]:
+) -> Tuple[Dict[str, Any], List[ConfigDirective], List[str], Dict[str, Any]]:
     """Recursively load config with cycle detection.
 
     Parameters
@@ -68,8 +71,8 @@ def load_config_recursive(
 
     Returns
     -------
-    Tuple[Dict[str, Any], Dict[str, Any], List[str], Dict[str, Any]]
-        (config content, override directives, removal directives, metadata)
+    Tuple[Dict[str, Any], List[ConfigDirective], List[str], Dict[str, Any]]
+        (config content, pending ordered directives, empty legacy removals, metadata)
 
     Raises
     ------
@@ -130,7 +133,7 @@ def load_config_recursive(
         raise ConfigIncludeError(f"Error loading {source}: {exc}") from exc
 
     if main_config is None:
-        return {}, {}, [], {}
+        return {}, [], [], {}
     if not isinstance(main_config, dict):
         source = cfg_path if cfg_path else "<string>"
         raise ConfigTypeError(
@@ -154,6 +157,15 @@ def load_config_recursive(
     if META_KEY in cleaned_config:
         del cleaned_config[META_KEY]
 
+    own_directives = make_config_directives(
+        overrides,
+        removals,
+        strict,
+        list_append_mode,
+        source=cfg_path or "<string>",
+        optional_paths=metadata.get(META_OPTIONAL_PATHS),
+    )
+    pending: List[ConfigDirective] = []
     config = {}
 
     # Process includes
@@ -226,21 +238,21 @@ def load_config_recursive(
 
         config, unapplied = apply_overrides_and_removals(
             config,
-            included_overrides,
+            pending + included_overrides,
             included_removals,
             included_strict,
             included_list_append,
         )
 
-        # Propagate unapplied overrides
-        if unapplied:
-            overrides = {**unapplied, **overrides}
+        # Keep repeated operations and their original policies intact.
+        assert isinstance(unapplied, list)
+        pending = unapplied
 
     # Merge main config content
     if cleaned_config:
         config = deep_merge(config, cleaned_config)
 
-    return config, overrides, removals, metadata
+    return config, pending + own_directives, [], metadata
 
 
 def load_config(

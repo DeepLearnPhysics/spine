@@ -46,7 +46,7 @@ class TestLoadHelpers:
 
         result = load_config_recursive(cfg_path=str(empty))
 
-        assert result == ({}, {}, [], {})
+        assert result == ({}, [], [], {})
 
     def test_load_config_file_detects_cycles(self, tmp_path):
         """Test recursive include cycles raise ConfigCycleError."""

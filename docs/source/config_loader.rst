@@ -354,4 +354,48 @@ a key removed by an earlier modifier.
 This is a behavior change for included files that previously removed keys
 before applying overrides. Delete redundant removals of keys being replaced,
 or of children already omitted by a replacement mapping. Keep removals of
-unrelated paths. Missing-target and deferred-override policies are unchanged.
+unrelated paths. Missing-target and deferred-override policies are described below.
+
+
+Deferred operations and optional targets
+----------------------------------------
+
+Assignments and collection operations in reusable fragments may wait for an
+enclosing configuration to supply their targets. Pending operations retain
+their order, repeated paths, source files, strictness, and append settings.
+They are retried after subsequent include content is merged. A later operation
+on the same path or an overlapping parent/child path cannot overtake them.
+Named-list edits remain strict: missing names, missing lists, and edits blocked
+by unresolved overlapping operations are errors.
+
+Declare deliberately optional operations in the file that contains them:
+
+.. code-block:: yaml
+
+   __meta__:
+     kind: fragment
+     optional_paths:
+       - post.time_containment.run_mode
+
+   override:
+     post.time_containment.run_mode: reco
+
+Each optional path must exactly match a local override or removal target,
+without an operator suffix. Optionality is not inherited, does not hide type
+errors, and cannot apply to named-list edits. Optional deferred assignments
+still apply when an enclosing configuration supplies their parent.
+
+At final resolution, an unresolved ordinary assignment currently skips with a
+``FutureWarning`` for compatibility. Silent skipping is deprecated; a future
+release will apply the declaring file's ``strict`` setting. Missing collection
+targets and explicit removals already honor the declaring file's strictness:
+``error`` raises and ``warn`` warns and skips. An enclosing file cannot weaken
+that policy. Incomplete modifiers should therefore be loaded with their bases.
+
+Removing an absent value or dictionary member from an existing collection is
+idempotent. Missing containers follow the strict/optional policy instead.
+Ordinary assignments may create a new leaf key when its parent exists.
+
+When migrating, mark intentional optionality, correct accidental missing paths,
+and check configurations that depended on deferred operations running out of
+order or repeated appends being collapsed.
