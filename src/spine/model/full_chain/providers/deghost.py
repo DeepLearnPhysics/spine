@@ -21,8 +21,9 @@ class DeghostStage(ChainStage):
 
     The stage selects the aligned point family once, applying the same mask to
     active data, input charge, calibrated data, sources, and original indexes.
-    Consequently deghosting may run before or after calibration without losing
-    either representation or changing their row correspondence.
+    Deghosting may run before or after calibration without changing their row
+    correspondence. Charge rescaling uses preserved hit information and clears
+    any earlier calibration so later stages can recalibrate the updated charge.
     """
 
     requires = frozenset({"point_data"})
@@ -124,11 +125,12 @@ class DeghostStage(ChainStage):
         adapted = point_data.select(keep)
         ghost_pred = TensorBatch(ghost_prediction, data.counts)
 
-        # Optionally replace charge with rescaled reconstruction or truth values.
+        # Reconstruct charge from preserved hit information, independently of
+        # the calibrated model input, and invalidate any earlier calibration.
         if self.charge_rescaler is not None:
             if self.store_charge_info:
                 values, plane_charge, multiplicity = self.charge_rescaler(
-                    adapted.data, return_info=True
+                    adapted.data_q, return_info=True
                 )
                 outputs["charge_per_plane"] = TensorBatch(
                     plane_charge, adapted.data.counts
@@ -137,12 +139,14 @@ class DeghostStage(ChainStage):
                     multiplicity, adapted.data.counts
                 )
             else:
-                values = self.charge_rescaler(adapted.data)
-            adapted = adapted.with_charge(values)
+                values = self.charge_rescaler(adapted.data_q)
+            adapted = adapted.with_charge(values, invalidate_calibration=True)
         elif self.charge_rescaling == "label":
             if clust_label is None:
                 raise ValueError("Label charge rescaling requires `clust_label`.")
-            adapted = adapted.with_charge(clust_label.values.torch_tensor()[keep])
+            adapted = adapted.with_charge(
+                clust_label.values.torch_tensor()[keep], invalidate_calibration=True
+            )
 
         products: dict[str, Any] = {"point_data": adapted}
         outputs.update(

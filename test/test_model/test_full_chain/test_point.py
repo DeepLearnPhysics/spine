@@ -150,3 +150,22 @@ def test_charge_cannot_change_after_calibration():
 
     with pytest.raises(ValueError, match="without recalibrating"):
         point_data.with_charge(torch.ones(4))
+
+
+def test_charge_replacement_explicitly_invalidates_calibration():
+    """Invalidation restores charge coordinates without mutating prior views."""
+    charge = make_data([1, 2, 3, 4])
+    calibrated = make_data([10, 20, 30, 40])
+    calibrated.data[:, 1] += 100
+    original = PointBatch.from_input(charge).with_calibration(calibrated)
+
+    updated = original.with_charge([5, 6, 7, 8], invalidate_calibration=True)
+
+    assert updated.data is updated.data_q
+    assert updated.data_calib is None
+    assert "data_calib" not in updated.public_outputs()
+    assert updated.data.values.torch_tensor().tolist() == [5, 6, 7, 8]
+    assert torch.equal(updated.data.coords.torch_tensor(), charge.coords.torch_tensor())
+    assert charge.values.torch_tensor().tolist() == [1, 2, 3, 4]
+    assert original.data is calibrated
+    assert calibrated.values.torch_tensor().tolist() == [10, 20, 30, 40]
