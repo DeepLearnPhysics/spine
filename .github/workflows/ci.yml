@@ -91,6 +91,9 @@ jobs:
     - name: Test configuration composition and ordered edits
       run: pytest test/test_config -v
 
+    - name: Test ordered module managers
+      run: pytest test/test_calib/test_manager.py test/test_post/test_manager.py test/test_ana/test_manager.py test/test_io/test_manager.py -v
+
     - name: Test CLI functionality
       run: |
         python -m spine.bin.cli --version
@@ -133,6 +136,7 @@ jobs:
       run: |
         pytest test/test_conditional_imports.py::TestConditionalUtilities -v
         pytest test/test_io/test_init.py -v
+        pytest test/test_io/test_augment -v
         pytest test/test_utils/ -v -k "torch" || echo "Some torch tests may be skipped"
 
   # The jobs above validate lightweight and PyTorch-only installations. The

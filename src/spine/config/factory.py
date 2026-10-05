@@ -205,13 +205,72 @@ def instantiate(
         raise err
 
 
+def parse_module_stages(stages: Any) -> ParsedModules:
+    """Normalize ordered module entries into the legacy internal representation.
+
+    Parameters
+    ----------
+    stages : list of dict
+        Entries with unique instance ``name``, optional implementation
+        ``provider`` (defaulting to ``name``), and optional ``config`` mapping.
+        List order defines execution order.
+
+    Returns
+    -------
+    OrderedDict
+        Instance names mapped to provider ``name``, ``cfg``, and null ``priority``.
+
+    Raises
+    ------
+    TypeError
+        If stages, entries, or provider configurations have the wrong type.
+    ValueError
+        If names are invalid or duplicated, or unknown fields are supplied.
+    """
+    if not isinstance(stages, list):
+        raise TypeError("Module `stages` must be a list.")
+    parsed: ParsedModules = OrderedDict()
+    for index, stage in enumerate(stages):
+        if not isinstance(stage, Mapping):
+            raise TypeError(f"Module stage {index} must be a mapping.")
+        # Ordering belongs to the list, never to priority metadata.
+        if "priority" in stage:
+            raise ValueError("Module stages cannot specify `priority`; use list order.")
+        unknown = set(stage).difference({"name", "provider", "config"})
+        if unknown:
+            raise ValueError(f"Module stage {index} has unknown fields: {unknown}.")
+        identities = {
+            "name": stage.get("name"),
+            "provider": stage.get("provider", stage.get("name")),
+        }
+        for field, value in identities.items():
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Module stage {index} requires a nonempty `{field}`.")
+        label = stage["name"]
+        if label in parsed:
+            raise ValueError(f"Duplicate module stage name `{label}`.")
+        config = stage.get("config", {})
+        if not isinstance(config, Mapping):
+            raise TypeError(
+                f"Configuration for module stage `{label}` must be a mapping."
+            )
+        # Keep instance identity separate from the implementation name.
+        parsed[label] = {
+            "name": identities["provider"],
+            "cfg": deepcopy(dict(config)),
+            "priority": None,
+        }
+    return parsed
+
+
 def parse_module_config(
-    modules: Mapping[str, Mapping[str, Any] | None],
+    modules: Mapping[str, Any],
     name_key: str = "name",
-    priority_key: str = "priority",
+    priority_key: str | None = "priority",
     sort_by_priority: bool = False,
     priority_descending: bool = False,
     skip_none: bool = True,
+    stages_key: str | None = None,
 ) -> ParsedModules:
     """Parse an ordered mapping of module blocks.
 
@@ -241,8 +300,9 @@ def parse_module_config(
         Ordered mapping of module labels to configuration dictionaries.
     name_key : str, default 'name'
         Configuration key which specifies the class name.
-    priority_key : str, default 'priority'
+    priority_key : str or None, default 'priority'
         Configuration key which specifies optional execution priority.
+        ``None`` leaves legacy priority fields in the provider configuration.
     sort_by_priority : bool, default False
         If ``True``, modules with smaller priority values run first. Modules
         without a priority retain their relative order after prioritized
@@ -252,6 +312,10 @@ def parse_module_config(
         priority values run first instead.
     skip_none : bool, default True
         If ``True``, skip entries explicitly set to ``None``.
+    stages_key : str, optional
+        Opt into an ordered-list wrapper under this key (usually ``stages``).
+        It cannot be mixed with legacy module blocks. Explicit lists are never
+        priority-sorted; other callers retain mapping-only behavior.
 
     Returns
     -------
@@ -262,6 +326,12 @@ def parse_module_config(
     if not isinstance(modules, Mapping):
         raise TypeError("Module configuration must be a mapping.")
 
+    # Managers remove their own settings before sharing this format selection.
+    if stages_key is not None and stages_key in modules:
+        if len(modules) != 1:
+            raise ValueError(f"Cannot mix `{stages_key}` with legacy module blocks.")
+        return parse_module_stages(modules[stages_key])
+
     parsed: list[tuple[int, str, str, int | float | None, dict[str, Any]]] = []
     for index, (label, cfg) in enumerate(modules.items()):
         if cfg is None and skip_none:
@@ -271,7 +341,7 @@ def parse_module_config(
 
         config = deepcopy(dict(cfg))
         name = config.pop(name_key, label)
-        priority = config.pop(priority_key, None)
+        priority = config.pop(priority_key, None) if priority_key is not None else None
         parsed.append((index, label, name, priority, config))
 
     if sort_by_priority:
@@ -300,12 +370,13 @@ def parse_module_config(
 
 def instantiate_modules(
     mod_dict: Registry,
-    modules: Mapping[str, Mapping[str, Any] | None],
+    modules: Mapping[str, Any],
     name_key: str = "name",
-    priority_key: str = "priority",
+    priority_key: str | None = "priority",
     sort_by_priority: bool = False,
     priority_descending: bool = False,
     skip_none: bool = True,
+    stages_key: str | None = None,
     **kwargs: Any,
 ) -> OrderedDict[str, Any]:
     """Instantiate an ordered mapping of module configuration blocks.
@@ -318,8 +389,9 @@ def instantiate_modules(
         Ordered mapping of module labels to configuration dictionaries.
     name_key : str, default 'name'
         Configuration key which specifies the class name.
-    priority_key : str, default 'priority'
+    priority_key : str or None, default 'priority'
         Configuration key which specifies optional execution priority.
+        ``None`` leaves legacy priority fields in the provider configuration.
     sort_by_priority : bool, default False
         If ``True``, modules with smaller priority values run first.
     priority_descending : bool, default False
@@ -327,6 +399,8 @@ def instantiate_modules(
         priority values run first instead.
     skip_none : bool, default True
         If ``True``, skip entries explicitly set to ``None``.
+    stages_key : str, optional
+        Opt into an ordered-list wrapper, as in :func:`parse_module_config`.
     **kwargs : dict
         Extra keyword arguments forwarded to every instantiated class.
 
@@ -342,6 +416,7 @@ def instantiate_modules(
         sort_by_priority=sort_by_priority,
         priority_descending=priority_descending,
         skip_none=skip_none,
+        stages_key=stages_key,
     )
 
     instances: OrderedDict[str, Any] = OrderedDict()

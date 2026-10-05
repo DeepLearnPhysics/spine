@@ -301,7 +301,7 @@ def test_chain_inputs_reject_non_mapping_config() -> None:
     [
         (None, ValueError, "nonempty list"),
         (["bad"], TypeError, "must be a mapping"),
-        ([{"name": "stage"}], ValueError, "requires `name` and `provider`"),
+        ([{"provider": "test"}], ValueError, "requires `name`"),
         ([{"name": "", "provider": "test"}], ValueError, "stage names"),
         ([{"name": "stage", "provider": None}], ValueError, "provider names"),
         (

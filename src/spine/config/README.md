@@ -277,6 +277,70 @@ configuration loading:
 spine -c config.yaml --set 'model.modules.chain.stages~=[{remove: {name: obsolete_stage}}]'
 ```
 
+### Ordered Module Configurations
+
+Managers that execute a configurable sequence of modules share the same
+`stages:` structure:
+
+```yaml
+stages:
+  - name: implementation
+    config:
+      option: value
+  - name: second_instance
+    provider: implementation
+    config:
+      option: another_value
+```
+
+`name` is required and identifies the instance; `provider` selects its
+implementation and defaults to `name` when omitted. An explicitly null, empty,
+or whitespace-only provider is invalid. Provider-only entries are not accepted.
+The shared parser normalizes this structure and legacy module mappings into
+one representation, separating instance identity from provider identity.
+
+- List order is execution order; stage-level `priority` is rejected.
+- Instance names must be unique, nonempty strings. Providers may repeat.
+- `config` is an optional mapping, defaulting to `{}`. Null entries and unknown
+  stage fields are rejected.
+- Legacy module mappings remain supported with each manager's existing ordering
+  policy. They cannot be mixed with `stages:` in the same manager configuration.
+- Manager-level settings remain outside the list. The manager removes these
+  settings before passing the module configuration to the shared parser.
+- Dependency rules, whether an empty sequence is meaningful, and execution
+  details belong to the consuming manager; the parser never rearranges stages.
+
+The shared format is supported by analysis (`ana.stages`), post-processing
+(`post.stages`), calibration, and data augmentation. Calibration and augmentation
+paths depend on their owning component. FullChain already uses an ordered
+`chain.stages` schema with additional model-specific fields.
+
+For example, analysis settings can accompany its module list:
+
+```yaml
+ana:
+  overwrite: true
+  prefix_output: true
+  stages:
+    - name: my_analysis
+      provider: analysis_provider
+      config: {}
+```
+
+The provider in this schematic example must be replaced with a registered
+implementation. Any supported stage list can be edited with `path~:` modifiers.
+When migrating a legacy mapping, retain its resolved execution order (including
+priority ties where applicable), move each mapping key to instance `name`, move
+its implementation `name` to `provider` (defaulting to the mapping key), and put
+provider parameters in `config` without scheduling metadata.
+
+For new consumers, use `parse_module_config(..., stages_key="stages")` or
+`instantiate_modules(..., stages_key="stages")` from `spine.config.factory`.
+Ordered stages always retain list order. The existing priority options govern
+legacy mappings only; `priority_key=None` leaves legacy provider fields untouched
+for managers that do not interpret priority. Opt-in preserves compatibility with
+mapping-only callers, including modules literally named `stages`.
+
 ### Removing Keys
 
 Three ways to remove unwanted keys from included configurations:

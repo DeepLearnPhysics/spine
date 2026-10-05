@@ -18,6 +18,7 @@ class StageConfig:
         Unique name of the stage within the execution plan.
     provider : str
         Registered provider name or import path used to build the stage.
+        Defaults to the instance name when omitted from configuration.
     config : dict
         Provider-specific network configuration.
     loss_config : dict, optional
@@ -110,14 +111,12 @@ def _new_chain_plan(
         descriptor = dict(stage)
         try:
             name = descriptor.pop("name")
-            provider = descriptor.pop("provider")
         except KeyError as err:
-            raise ValueError(
-                "Each full-chain stage requires `name` and `provider`."
-            ) from err
-        if not isinstance(name, str) or not name:
+            raise ValueError("Each full-chain stage requires `name`.") from err
+        provider = descriptor.pop("provider", name)
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("Full-chain stage names must be nonempty strings.")
-        if not isinstance(provider, str) or not provider:
+        if not isinstance(provider, str) or not provider.strip():
             raise ValueError("Full-chain provider names must be nonempty strings.")
         if name in names:
             raise ValueError(f"Duplicate full-chain stage name `{name}`.")

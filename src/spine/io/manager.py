@@ -7,6 +7,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from spine.config.factory import parse_module_config
 from spine.geo import GeoManager
 from spine.utils.conditional import TORCH_AVAILABLE
 from spine.utils.stopwatch import StopwatchManager
@@ -345,7 +346,10 @@ class IOManager:
         reader_cfg = getattr(self.reader, "cfg", None)
         if post_list is None and reader_cfg is not None and "post" in reader_cfg:
             post_cfg = reader_cfg["post"]
-            if isinstance(post_cfg, Mapping):
+            if isinstance(post_cfg, Mapping) and "stages" in post_cfg:
+                parsed = parse_module_config(post_cfg, stages_key="stages")
+                post_list = tuple(spec["name"] for spec in parsed.values())
+            elif isinstance(post_cfg, Mapping):
                 post_list = tuple(
                     spec.get("name", key) if isinstance(spec, Mapping) else key
                     for key, spec in post_cfg.items()

@@ -24,9 +24,7 @@ class CalibrationManager:
     a set of 3D space points and their associated measured charge depositions.
     """
 
-    def __init__(
-        self, gain_applied: bool = False, **cfg: dict[str, Any] | None
-    ) -> None:
+    def __init__(self, gain_applied: bool = False, **cfg: Any) -> None:
         """Initialize the manager.
 
         Parameters
@@ -34,14 +32,15 @@ class CalibrationManager:
         gain_applied : bool, default False
             Whether the gain conversion was applied upstream or not
         **cfg : dict, optional
-            Calibrator configurations
+            Legacy calibrator mappings or a ``stages`` list of named provider
+            entries. List order replaces priority sorting in the latter format.
         """
         # Fetch the geometry instance
         self.geo = GeoManager.get_instance()
 
-        # Add the modules to a processor list in decreasing order of priority
+        # Explicit stages retain list order; legacy blocks use descending priority.
         parsed = parse_module_config(
-            cfg, sort_by_priority=True, priority_descending=True
+            cfg, sort_by_priority=True, priority_descending=True, stages_key="stages"
         )
         names = [spec["name"] for spec in parsed.values()]
         self.update_points = "field" in names

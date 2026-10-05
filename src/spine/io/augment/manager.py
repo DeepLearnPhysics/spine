@@ -1,8 +1,8 @@
 """Augmentation manager."""
 
-from collections.abc import Mapping
 from typing import Any
 
+from spine.config.factory import parse_module_config
 from spine.data import Meta, TensorData
 
 from .calibration import CalibrationAugment
@@ -32,7 +32,7 @@ class AugmentManager:
 
     def __init__(
         self,
-        **augmenters: Mapping[str, Any] | None,
+        **augmenters: Any,
     ) -> None:
         """Initialize the augmentation manager.
 
@@ -44,7 +44,8 @@ class AugmentManager:
             name (e.g. `crop`, `jitter`, `mask`, `rotate`, `translate`), the
             `name` entry can be omitted. If using a custom label to
             instantiate multiple augmenters of the same type, specify
-            the module type explicitly through `name`.
+            the module type explicitly through `name`. Alternatively, provide
+            a ``stages`` list of named provider entries in execution order.
 
         Returns
         -------
@@ -55,24 +56,23 @@ class AugmentManager:
             raise ValueError("Must provide at least one augmentation module.")
 
         # Instantiate enabled modules in the user-provided execution order
+        try:
+            parsed = parse_module_config(
+                augmenters, stages_key="stages", priority_key=None
+            )
+        except TypeError as err:
+            # Preserve the augmentation API's configuration error type.
+            raise ValueError(str(err)) from err
         self.modules = []
-        for key, cfg in augmenters.items():
-            if cfg is None:
-                continue
-            if not isinstance(cfg, Mapping):
-                raise ValueError(
-                    f"Augmentation configuration for `{key}` must be a mapping."
-                )
-
-            config = dict(cfg)
-            name = config.pop("name", key)
+        for spec in parsed.values():
+            name = spec["name"]
             if name not in self._modules:
                 raise ValueError(
                     f"Augmentation module not recognized: {name}. "
                     f"Must be one of {tuple(self._modules)}."
                 )
 
-            self.modules.append(self._modules[name](**config))
+            self.modules.append(self._modules[name](**spec["cfg"]))
 
         if not self.modules:
             raise ValueError("Must enable at least one augmentation module.")

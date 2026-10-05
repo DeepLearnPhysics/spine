@@ -405,3 +405,94 @@ def test_manager_returns_field_corrected_points_in_input_units(monkeypatch, fake
 
     assert np.allclose(points, [[3.0, -1.0, -1.0]])
     assert np.allclose(values, [1.0])
+
+
+def test_ordered_calibration_matches_legacy_and_reverses_inverse(monkeypatch, fake_geo):
+    """Noncommuting operations expose reordering and incorrect inverse order."""
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    legacy = CalibrationManager(
+        offset={
+            "name": "response",
+            "priority": 2,
+            "response_func": "x + 1",
+            "inverse_response_func": "x - 1",
+        },
+        first={"name": "gain", "priority": 3, "gain": 2.0},
+        second={"name": "gain", "priority": 2, "gain": 3.0},
+    )
+    ordered = CalibrationManager(
+        stages=[
+            {"name": "first", "provider": "gain", "config": {"gain": 2.0}},
+            {
+                "name": "offset",
+                "provider": "response",
+                "config": {"response_func": "x + 1", "inverse_response_func": "x - 1"},
+            },
+            {"name": "second", "provider": "gain", "config": {"gain": 3.0}},
+        ]
+    )
+    assert (
+        list(ordered.modules) == list(legacy.modules) == ["first", "offset", "second"]
+    )
+    assert ordered.module_names == legacy.module_names
+    points = np.array([[1.0, 0.0, 0.0]])
+    values = np.array([10.0])
+    sources = np.array([[0, 0]])
+    for manager in (legacy, ordered):
+        _, corrected = manager(points, values, sources=sources)
+        np.testing.assert_allclose(corrected, [63.0])
+        _, restored = manager(points, corrected, sources=sources, inverse=True)
+        np.testing.assert_allclose(restored, values)
+
+
+def test_ordered_calibration_dependencies_and_manager_settings(monkeypatch, fake_geo):
+    """Dependency validation uses providers, not user-chosen instance names."""
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    recomb = {"name": "energy", "provider": "recombination", "config": {"efield": 0.5}}
+    gain = {"name": "electrons", "provider": "gain", "config": {"gain": 2.0}}
+    with pytest.raises(ValueError, match="Must provide gain"):
+        CalibrationManager(stages=[recomb])
+    with pytest.raises(ValueError, match="before recombination"):
+        CalibrationManager(stages=[recomb, gain])
+    assert list(CalibrationManager(stages=[gain, recomb]).modules) == [
+        "electrons",
+        "energy",
+    ]
+    assert list(CalibrationManager(gain_applied=True, stages=[recomb]).modules) == [
+        "energy"
+    ]
+    with pytest.raises(ValueError, match="Cannot mix"):
+        CalibrationManager(stages=[gain], gain={"gain": 2.0})
+    with pytest.raises(ValueError, match="priority"):
+        CalibrationManager(stages=[{**gain, "priority": 1}])
+    manager = CalibrationManager(
+        stages=[{"name": "noise", "provider": "smearing", "config": {"scale": 1.0}}]
+    )
+    with pytest.raises(ValueError, match="does not support inversion"):
+        manager.validate_inverse()
+
+
+def test_named_list_modifier_builds_calibration_manager(monkeypatch, fake_geo):
+    """Generic config edits feed directly into the ordered manager interface."""
+    from spine.config import load_config
+
+    monkeypatch.setattr(manager_mod.GeoManager, "get_instance", lambda: fake_geo)
+    cfg = load_config("""
+calibration:
+  gain_applied: false
+  stages:
+    - name: electrons
+      provider: gain
+      config: {gain: 2.0}
+override:
+  calibration.stages~:
+    - insert:
+        after: electrons
+        value:
+          name: energy
+          provider: recombination
+          config: {efield: 0.5}
+""")
+    manager = CalibrationManager(**cfg["calibration"])
+    assert list(manager.modules) == ["electrons", "energy"]
+    assert manager.module_names == {"electrons": "gain", "energy": "recombination"}

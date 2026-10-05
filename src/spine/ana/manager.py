@@ -94,7 +94,7 @@ class AnaManager(ModuleManager[AnaBase]):
         overwrite: bool | None = None,
         prefix_output: bool = False,
         buffer_size: int = -1,
-        **modules: dict[str, Any] | None,
+        **modules: Any,
     ) -> None:
         """Parse the analysis tool configuration.
 
@@ -113,17 +113,20 @@ class AnaManager(ModuleManager[AnaBase]):
             CSV file buffer size. -1 uses efficient system buffering, 1 is
             line buffered, and values above 1 specify the buffer size in bytes.
         **modules : dict
-            List of analysis script modules
+            Legacy analysis module mappings or an ordered ``stages`` list.
         """
         # Only use the prefix if the output is to be prefixed
         if not prefix_output:
             prefix = None
 
-        # Add the modules to a processor list in decreasing order of priority
+        # Explicit stages retain list order; legacy blocks use descending priority.
         self.watch = StopwatchManager()
         module_map: OrderedDict[str, AnaBase] = OrderedDict()
         parsed = parse_module_config(
-            modules, sort_by_priority=True, priority_descending=True
+            modules,
+            sort_by_priority=True,
+            priority_descending=True,
+            stages_key="stages",
         )
         for key, spec in parsed.items():
             # Profile the module

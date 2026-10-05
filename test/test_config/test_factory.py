@@ -166,3 +166,116 @@ def test_parse_module_config_skips_none_by_default():
     assert parse_module_config({"disabled": None, "alpha": {}}) == {
         "alpha": {"name": "alpha", "cfg": {}, "priority": None}
     }
+
+
+def test_ordered_module_stages_preserve_identity_order_and_inputs():
+    """Explicit stages normalize like mappings without priority sorting."""
+    stages = [
+        {"name": "second", "provider": "alpha", "config": {"nested": [2]}},
+        {"name": "first", "provider": "alpha"},
+    ]
+    parsed = parse_module_config(
+        {"stages": stages},
+        stages_key="stages",
+        sort_by_priority=True,
+        priority_descending=True,
+    )
+    assert list(parsed) == ["second", "first"]
+    assert parsed["second"] == {
+        "name": "alpha",
+        "cfg": {"nested": [2]},
+        "priority": None,
+    }
+    assert parsed["first"] == {"name": "alpha", "cfg": {}, "priority": None}
+    parsed["second"]["cfg"]["nested"].append(3)
+    assert stages[0]["config"] == {"nested": [2]}
+    assert parse_module_config({"stages": []}, stages_key="stages") == {}
+    # Opt-in avoids reinterpreting a legacy module literally named 'stages'.
+    assert (
+        parse_module_config({"stages": {"name": "alpha"}})["stages"]["name"] == "alpha"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stages", "error", "match"),
+    [
+        (None, TypeError, "must be a list"),
+        ({}, TypeError, "must be a list"),
+        ([None], TypeError, "must be a mapping"),
+        ([{}], ValueError, "nonempty `name`"),
+        ([{"provider": "alpha"}], ValueError, "nonempty `name`"),
+        ([{"name": "a", "provider": None}], ValueError, "nonempty `provider`"),
+        ([{"name": "a", "provider": ""}], ValueError, "nonempty `provider`"),
+        ([{"name": "a", "provider": " "}], ValueError, "nonempty `provider`"),
+        ([{"name": " ", "provider": "alpha"}], ValueError, "nonempty `name`"),
+        ([{"name": "a", "provider": 1}], ValueError, "nonempty `provider`"),
+        (
+            [{"name": "a", "provider": "alpha", "priority": None}],
+            ValueError,
+            "priority",
+        ),
+        ([{"name": "a", "provider": "alpha", "typo": 1}], ValueError, "unknown fields"),
+        (
+            [{"name": "a", "provider": "alpha", "config": None}],
+            TypeError,
+            "must be a mapping",
+        ),
+        ([{"name": "a", "provider": "alpha"}] * 2, ValueError, "Duplicate"),
+    ],
+)
+def test_ordered_module_stages_validate_structure(stages, error, match):
+    """Both managers share strict ordered-entry validation."""
+    with pytest.raises(error, match=match):
+        parse_module_config({"stages": stages}, stages_key="stages")
+
+
+def test_ordered_module_stages_reject_mixed_formats():
+    """Even disabled legacy entries cannot accompany an explicit stage list."""
+    with pytest.raises(ValueError, match="Cannot mix"):
+        parse_module_config({"stages": [], "alpha": None}, stages_key="stages")
+
+
+def test_instantiate_modules_accepts_shared_ordered_schema():
+    """Generic consumers can instantiate lists without manager-specific parsing."""
+    instances = instantiate_modules(
+        {"alpha": Alpha},
+        {
+            "stages": [
+                {"name": "second", "provider": "alpha", "config": {"value": 2}},
+                {"name": "first", "provider": "alpha", "config": {"value": 1}},
+            ]
+        },
+        stages_key="stages",
+        sort_by_priority=True,
+    )
+    assert list(instances) == ["second", "first"]
+    assert [instance.value for instance in instances.values()] == [2, 1]
+
+
+def test_priority_parsing_can_be_disabled_for_legacy_consumers():
+    """Managers without scheduling metadata leave provider parameters intact."""
+    parsed = parse_module_config({"alpha": {"priority": 7}}, priority_key=None)
+    assert parsed["alpha"] == {
+        "name": "alpha",
+        "cfg": {"priority": 7},
+        "priority": None,
+    }
+
+
+def test_ordered_module_provider_defaults_to_required_instance_name():
+    """Shorthand and explicit providers share identity and duplicate rules."""
+    stages = [
+        {"name": "alpha", "config": {"value": 1}},
+        {"name": "another_alpha", "provider": "alpha", "config": {"value": 2}},
+    ]
+    instances = instantiate_modules(
+        {"alpha": Alpha}, {"stages": stages}, stages_key="stages"
+    )
+    assert list(instances) == ["alpha", "another_alpha"]
+    assert [instance.value for instance in instances.values()] == [1, 2]
+    assert "provider" not in stages[0]
+    with pytest.raises(ValueError, match="Duplicate"):
+        parse_module_config(
+            {"stages": [{"name": "alpha"}, {"name": "alpha", "provider": "beta"}]},
+            stages_key="stages",
+        )
