@@ -1,7 +1,7 @@
 /* Custom styles for SPINE documentation */
 
 :root {
-    --spine-orange: #f57c00;
+    --spine-orange: #eb7913;
     --spine-orange-dark: #d96b00;
     --spine-orange-soft: #fff3e6;
     --spine-charcoal: #121212;
@@ -35,7 +35,7 @@
 
 .wy-menu-vertical a:hover,
 .wy-menu-vertical a:focus {
-    background: rgba(245, 124, 0, 0.12);
+    background: rgba(235, 121, 19, 0.12);
     color: #ffffff;
 }
 
@@ -109,7 +109,7 @@
 .rst-content .note .admonition-title,
 .rst-content .tip .admonition-title,
 .rst-content .important .admonition-title {
-    background: rgba(245, 124, 0, 0.14);
+    background: rgba(235, 121, 19, 0.14);
     color: var(--spine-charcoal);
 }
 
