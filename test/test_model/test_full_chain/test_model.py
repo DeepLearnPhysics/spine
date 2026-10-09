@@ -1753,6 +1753,31 @@ def test_aggregation_input_derives_truth_points(monkeypatch) -> None:
     assert result["points"] is expected
 
 
+def test_aggregation_input_derives_graph_groups() -> None:
+    """Full-chain voxel data receives node-aligned groups from truth labels."""
+    operations = AggregationOperations()
+    clusts, shapes = make_clusters()
+    model = SimpleNamespace(
+        graph_group_by="group",
+        node_encoder=SimpleNamespace(
+            add_points=False,
+            add_value=False,
+            add_shape=False,
+        ),
+    )
+    result = operations.prepare_grappa_input(
+        model,
+        make_data(),
+        clusts,
+        shapes,
+        clust_label=make_cluster_label(),
+    )
+    assert result["groups"].numpy_tensor().tolist() == [7, 9]
+    assert result["groups"].counts.tolist() == clusts.counts.tolist()
+    with pytest.raises(ValueError, match="graph.group_by.*clust_label"):
+        operations.prepare_grappa_input(model, make_data(), clusts, shapes)
+
+
 def test_aggregation_input_materializes_node_dropout_metadata() -> None:
     """Truth-derived dropout selectors are cached beside point-data features."""
     operations = AggregationOperations()

@@ -171,7 +171,8 @@ class GrapPA(torch.nn.Module):
         nodes : dict, optional
             Input node configuration
         graph : dict, optional
-            Input graph configuration
+            Input graph configuration. ``group_by`` optionally names a cluster
+            label field whose per-node majority IDs restrict edges to groups.
         node_encoder : dict, optional
             Node encoder configuration
         edge_encoder : dict, optional
@@ -232,7 +233,15 @@ class GrapPA(torch.nn.Module):
         self.process_node_config(**(nodes or {}))
 
         # Process the graph configuration
+        self.graph_group_by: str | None = None
         if graph is not None:
+            graph = dict(graph)
+            self.graph_group_by = graph.pop("group_by", None)
+            if self.graph_group_by is not None and (
+                not isinstance(self.graph_group_by, str)
+                or not self.graph_group_by.strip()
+            ):
+                raise ValueError("`graph.group_by` must be a nonempty field name.")
             self.graph_constructor = graph_factory(graph, self.node_type)
 
         # Process the encoder configurations
@@ -576,7 +585,8 @@ class GrapPA(torch.nn.Module):
             (C) List of cluster semantic class used to define the max length
         groups : TensorBatch, optional
             (C) List of node groups, one per cluster. If specified, removes
-            connections between nodes that belong to different groups.
+            connections between nodes that belong to different groups. Overrides
+            ``graph.group_by``. Neither applies to a supplied ``edge_index``.
         node_dropout_group_ids : TensorBatch, optional
             (C) Node-aligned physical group labels used only by grouped node
             dropout. Live labels can be derived from ``data`` and ``clusts``;
@@ -1224,6 +1234,14 @@ class GrapPA(torch.nn.Module):
             raise ValueError(
                 "Must provide graph configuration to build edge index from clusters."
             )
+
+        if groups is None and self.graph_group_by is not None:
+            if not isinstance(data, ClusterLabelBatch):
+                raise TypeError(
+                    "`graph.group_by` requires structured cluster labels or "
+                    "explicit node-aligned `groups`."
+                )
+            groups = get_cluster_label_batch(data, clusts, self.graph_group_by)
 
         # Bring data to numpy for the graph construction
         data_np = data.to_numpy()

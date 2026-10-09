@@ -174,6 +174,40 @@ The automatic period follows the encoder depth and covers every alignment of
 its deepest convolution lattice. An explicit integer or per-axis sequence may
 be supplied instead when a study requires a fixed phase range.
 
+GrapPA group-restricted graphs
+-----------------------------
+
+Use ``graph.group_by`` to restrict message-passing edges to nodes with the
+same ancestor or particle-group label, while preserving the input nodes:
+
+.. code-block:: yaml
+
+   model:
+     modules:
+       grappa:
+         nodes:
+           source: group
+         graph:
+           provider: complete
+           group_by: ancestor
+
+Use ``group_by: group`` for particle groups, or another named cluster-label
+field. The majority voxel label within each node supplies its group ID.
+Structured cluster labels are required; full-chain graph preparation uses
+``clust_label``. Explicit node-aligned ``groups`` passed to GrapPA override
+the configured field, allowing upstream predicted assignments instead.
+
+The restriction applies in both training and evaluation, after graph
+generation and length cuts, and before edge encoding. A complete graph with
+no length cut becomes a disjoint complete graph per group. Sparse graphs are
+filtered, not rebuilt independently within each group. Equal negative IDs
+also count as the same group, so unresolved labels should be handled upstream.
+PID outputs remain per input node; ``nodes.source: ancestor`` would instead
+change the node membership itself.
+
+Supplied or cached ``edge_index`` products are used as-is: materialize the
+cache with this setting enabled, or supply already restricted edges.
+
 GrapPA edge safety ceiling
 --------------------------
 
