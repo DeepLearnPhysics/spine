@@ -45,6 +45,67 @@ def test_grappa_constructs_global_encoder() -> None:
     assert model.global_encoder.feature_size == 0
 
 
+@pytest.mark.parametrize("value", ["", "  ", 1, True, ["ancestor"]])
+def test_grappa_validates_graph_group_by(value):
+    config = shower_model_config()
+    config["graph"]["group_by"] = value
+    with pytest.raises(ValueError, match="graph.group_by"):
+        GrapPA(config)
+
+
+@pytest.mark.parametrize("group_by", [None, "ancestor", "group"])
+@pytest.mark.parametrize("explicit_groups", [False, True])
+def test_grappa_materializes_group_restricted_graph(
+    graph_labels, graph_clusters, group_by, explicit_groups
+):
+    """Group restrictions affect encoded edges while preserving input nodes."""
+    config = shower_model_config()
+    config["graph"] = {"provider": "complete", "group_by": group_by}
+    model = GrapPA(config)
+    assert config["graph"]["group_by"] == group_by
+    labels = ClusterLabelBatch(
+        graph_labels.data,
+        {
+            **graph_labels.particles,
+            "ancestor": TensorBatch(np.array([0, 1, 0]), [2, 1]),
+        },
+    ).to_tensor()
+    groups = TensorBatch(np.array([0, 0, 0]), [2, 1]) if explicit_groups else None
+    graph = model.materialize_graph(
+        data=labels,
+        clusts=graph_clusters,
+        groups=groups,
+        points=TensorBatch(torch.zeros((3, 6)), [2, 1]),
+    )
+    expected_edges = 2 if group_by is None or explicit_groups else 0
+    assert graph["edge_index"].counts.tolist() == [expected_edges, 0]
+    assert graph["edge_features"].counts.tolist() == [expected_edges, 0]
+    assert graph["node_features"].counts.tolist() == [2, 1]
+    assert graph["clusts"] is graph_clusters
+
+
+def test_grappa_graph_group_by_requires_labels_unless_groups_supplied(
+    graph_data, graph_clusters
+):
+    config = shower_model_config()
+    config["graph"] = {"provider": "complete", "group_by": "ancestor"}
+    model = GrapPA(config)
+    with pytest.raises(TypeError, match="structured cluster labels"):
+        model._make_edge_index(graph_data, graph_clusters)
+    edges, _ = model._make_edge_index(
+        graph_data, graph_clusters, groups=TensorBatch(np.array([0, 0, 0]), [2, 1])
+    )
+    assert edges.counts.tolist() == [2, 0]
+
+    # Loading materialized edges requires neither labels nor group IDs.
+    graph = model.materialize_graph(
+        edge_index=edges,
+        node_features=TensorBatch(torch.zeros((3, 33)), [2, 1]),
+        edge_features=TensorBatch(torch.zeros((2, 19)), [2, 0]),
+    )
+    assert graph["edge_index"] is edges
+
+
 @pytest.mark.parametrize("value", [-1, 1.5, True])
 def test_grappa_validates_max_edge_count(value):
     """The graph safety ceiling must be a nonnegative integer."""

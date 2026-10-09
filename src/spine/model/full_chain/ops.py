@@ -35,6 +35,7 @@ class _PreparedGrapPAInput(_RequiredGrapPAInput, total=False):
     coord_label: TensorBatch
     points: TensorBatch
     extra: TensorBatch
+    groups: TensorBatch
     node_dropout_group_ids: TensorBatch
     node_dropout_eligible: TensorBatch
 
@@ -157,6 +158,14 @@ class AggregationOperations:
             "clusts": clusts,
             "shapes": shapes,
         }
+        group_by = getattr(model, "graph_group_by", None)
+        if group_by is not None:
+            if clust_label is None:
+                raise ValueError(
+                    "GrapPA `graph.group_by` requires `clust_label` when "
+                    "preparing full-chain graph inputs."
+                )
+            result["groups"] = get_cluster_label_batch(clust_label, clusts, group_by)
         encoder = model.node_encoder
 
         # Reconstructed chains must explicitly associate predicted PPN points
