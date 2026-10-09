@@ -175,7 +175,7 @@ its deepest convolution lattice. An explicit integer or per-axis sequence may
 be supplied instead when a study requires a fixed phase range.
 
 GrapPA group-restricted graphs
------------------------------
+------------------------------
 
 Use ``graph.group_by`` to restrict message-passing edges to nodes with the
 same ancestor or particle-group label, while preserving the input nodes:
