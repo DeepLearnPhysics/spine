@@ -1994,3 +1994,9 @@ def test_load_weights_reports_missing_main_and_nested_parameters(tmp_path) -> No
 def test_manager_rejects_conflicting_implementation_selectors():
     with pytest.raises(ValueError, match="only one"):
         ModelManager(name="test", provider="test", modules={}, network_input={})
+
+
+def test_manager_requires_implementation_selector():
+    """Model configuration must identify an implementation before initialization."""
+    with pytest.raises(ValueError, match="Model configuration requires `provider`"):
+        ModelManager(modules={}, network_input={})

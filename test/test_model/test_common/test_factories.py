@@ -30,3 +30,9 @@ def test_functional_loss_accepts_provider_and_warns_for_name():
     with pytest.deprecated_call(match="use `provider`"):
         legacy = loss_fn_factory({"name": "ce"}, functional=True)
     assert canonical is legacy
+
+
+def test_functional_loss_requires_provider():
+    """A lone loss option must not be mistaken for an implementation selector."""
+    with pytest.raises(ValueError, match="For a functional, provide its `provider`"):
+        loss_fn_factory({"reduction": "sum"}, functional=True)
