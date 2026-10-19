@@ -168,8 +168,7 @@ def select_confluence_point(
         return candidates[np.argmax(scores)]
 
     raise ValueError(
-        f"Confluence selection method not recognized: {method}. "
-        "Must be `pointing`."
+        f"Confluence selection method not recognized: {method}. " "Must be `pointing`."
     )
 
 

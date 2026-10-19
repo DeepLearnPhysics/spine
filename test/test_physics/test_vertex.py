@@ -171,7 +171,7 @@ def test_vertex_unannotated_returns_and_direction_confluence(monkeypatch):
 
 
 def two_confluence_event():
-    #Two tracks meeting upstream, plus a pair touching further downstream
+    # Two tracks meeting upstream, plus a pair touching further downstream
     starts = arrays([[0, 0, 0], [0.5, 0, 0], [0, 0, 50], [0.5, 0, 50]])
     ends = arrays([[0, 0, 40], [0.5, 10, 0], [0, 10, 50], [0.5, 0, 90]])
     directions = arrays([[0, 0, 1], [0, 1, 0], [0, 1, 0], [0, 0, 1]])
@@ -180,10 +180,17 @@ def two_confluence_event():
 
 
 def test_vertex_confluence_selection():
-    #Several confluence points are resolved by the pointing selection.
+    # Several confluence points are resolved by the pointing selection.
     starts, ends, directions, shapes = two_confluence_event()
-    _, mode = get_vertex(starts, ends, directions, shapes, return_mode=True)
-    assert mode != "confluence_pointing"
+    vertex, mode = get_vertex(starts, ends, directions, shapes, return_mode=True)
+    assert mode == "track_length"
+    np.testing.assert_array_equal(vertex, starts[0])
+
+    explicit_vertex, explicit_mode = get_vertex(
+        starts, ends, directions, shapes, return_mode=True, confluence_selection=None
+    )
+    assert explicit_mode == mode
+    np.testing.assert_array_equal(explicit_vertex, vertex)
 
     vertex, mode = get_vertex(
         starts,
@@ -208,3 +215,65 @@ def test_select_confluence_point_validation():
     starts, _, directions, _ = two_confluence_event()
     with pytest.raises(ValueError, match="not recognized"):
         select_confluence_point(starts[:2], starts, directions, "beam")
+
+
+@pytest.mark.parametrize(
+    "shower_sign, expected_group", [(1, slice(0, 2)), (-1, slice(2, 4))]
+)
+def test_vertex_confluence_selection_uses_shower_direction(shower_sign, expected_group):
+    """A detached shower breaks a tie between two track confluence groups."""
+    starts, ends, _, shapes = two_confluence_event()
+    # All track directions are transverse to the candidate-to-start vectors,
+    # so each candidate receives the same total contribution from the tracks.
+    directions = arrays([[0, 1, 0]] * 4 + [[0, 0, shower_sign]])
+    starts = np.vstack([starts, arrays([[0.25, 0, 25]])])
+    ends = np.vstack([ends, arrays([[100, 100, 100]])])
+    shapes = np.append(shapes, SHOWR_SHP)
+
+    vertex, mode = get_vertex(
+        starts,
+        ends,
+        directions,
+        shapes,
+        confluence_selection="pointing",
+        return_mode=True,
+    )
+
+    assert mode == "confluence_pointing"
+    np.testing.assert_allclose(vertex, np.mean(starts[expected_group], axis=0))
+
+
+@pytest.mark.parametrize("case", ["single_confluence", "no_confluence", "unanchored"])
+def test_vertex_pointing_preserves_other_paths(case):
+    """Opting in only changes anchored events with multiple candidates."""
+    starts, ends, directions, shapes = two_confluence_event()
+    anchor_vertex = True
+    if case == "single_confluence":
+        starts, ends, directions, shapes = (
+            values[:2] for values in (starts, ends, directions, shapes)
+        )
+        expected_mode = "confluence_nodir"
+        expected_vertex = np.mean(starts, axis=0)
+    elif case == "no_confluence":
+        starts, ends, directions, shapes = (
+            values[[0, 2]] for values in (starts, ends, directions, shapes)
+        )
+        expected_mode = "track_length"
+        expected_vertex = starts[0]
+    else:
+        anchor_vertex = False
+        expected_mode = "pseudo_vertex"
+        expected_vertex = get_pseudovertex(starts, directions)
+
+    for selection in (None, "pointing"):
+        vertex, mode = get_vertex(
+            starts,
+            ends,
+            directions,
+            shapes,
+            anchor_vertex=anchor_vertex,
+            confluence_selection=selection,
+            return_mode=True,
+        )
+        assert mode == expected_mode
+        np.testing.assert_allclose(vertex, expected_vertex)
