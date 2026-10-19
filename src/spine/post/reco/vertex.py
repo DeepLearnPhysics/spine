@@ -35,6 +35,7 @@ class VertexProcessor(PostBase):
         anchor_vertex: bool = True,
         touching_threshold: float = 2.0,
         angle_threshold: float = 0.3,
+        confluence_selection: str | None = None,
         run_mode: str = "both",
         truth_point_mode: str = "points",
     ) -> None:
@@ -58,6 +59,11 @@ class VertexProcessor(PostBase):
         angle_threshold : float, default 0.3 radians
             Maximum angle between the vertex-to-start-point vector and a shower
             direction to consider that a shower originated from the vertex
+        confluence_selection : str, optional
+            When several confluence points are found, pick one using this
+            method instead of the direction-based fallbacks. Only
+            ``"pointing"`` (point the other particles point away from) is
+            supported. If `None`, keep the legacy fallbacks.
         run_mode : str, default "both"
             Interaction collection to process: ``"reco"``, ``"truth"``, or both
         truth_point_mode : str, default "points"
@@ -74,6 +80,14 @@ class VertexProcessor(PostBase):
         self.anchor_vertex = anchor_vertex
         self.touching_threshold = touching_threshold
         self.angle_threshold = angle_threshold
+
+        # Validate and store the confluence point selection method
+        if confluence_selection not in (None, "pointing"):
+            raise ValueError(
+                "Confluence selection method not recognized: "
+                f"{confluence_selection}. Must be `pointing`."
+            )
+        self.confluence_selection = confluence_selection
 
     def process(self, data: Mapping[str, Any]) -> None:
         """Reconstruct the vertex position for each interaction in one entry.
@@ -126,6 +140,7 @@ class VertexProcessor(PostBase):
                 self.anchor_vertex,
                 self.touching_threshold,
                 return_mode=True,
+                confluence_selection=self.confluence_selection,
             )
 
             # Assign it to the appropriate interaction attribute

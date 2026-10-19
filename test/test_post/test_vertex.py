@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from spine.constants import SHOWR_SHP, TRACK_SHP
 from spine.post.reco import vertex as vertex_mod
@@ -133,3 +134,30 @@ def test_vertex_processor_updates_shower_primary_by_angle(monkeypatch):
     processor.reconstruct_vertex_single(inter)
 
     assert shower.is_primary is True
+
+
+def test_vertex_processor_forwards_confluence_selection(monkeypatch):
+    calls = {}
+
+    def fake_get_vertex(*args, **kwargs):
+        calls.update(kwargs)
+        return np.zeros(3, dtype=np.float32), "confluence_pointing"
+
+    monkeypatch.setattr(vertex_mod, "get_vertex", fake_get_vertex)
+    inter = SimpleNamespace(
+        is_truth=False,
+        particles=[make_particle(), make_particle()],
+        vertex=np.full(3, -1.0, dtype=np.float32),
+    )
+    processor = vertex_mod.VertexProcessor(
+        run_mode="reco", confluence_selection="pointing"
+    )
+
+    processor.reconstruct_vertex_single(inter)
+
+    assert calls["confluence_selection"] == "pointing"
+
+
+def test_vertex_processor_rejects_invalid_confluence_selection():
+    with pytest.raises(ValueError, match="not recognized"):
+        vertex_mod.VertexProcessor(run_mode="reco", confluence_selection="beam")
