@@ -15,6 +15,7 @@ def get_vertex(
     anchor_vertex=True,
     touching_threshold=2.0,
     return_mode=False,
+    confluence_selection=None,
 ):
     """Reconstruct the vertex of an individual interaction.
 
@@ -35,6 +36,11 @@ def get_vertex(
         Maximum distance for two particle points to be considered touching
     return_mode : bool, default False
         If `True`, return the method used to find the vertex
+    confluence_selection : str, optional
+        Method used to pick one of several confluence points, instead of
+        falling back on direction-based heuristics. Only ``"pointing"`` (point
+        the other particles point away from) is supported. If `None`, keep the
+        legacy fallbacks.
     """
     # If there is no particle: return default values
     if not len(start_points):
@@ -59,6 +65,20 @@ def get_vertex(
             if return_mode:
                 return vertices[0], "confluence_nodir"
             return vertices[0]
+
+        # If there is more than one option and a selection method is
+        # specified, pick the most likely confluence point
+        if len(vertices) > 1 and confluence_selection is not None:
+            vertex = select_confluence_point(
+                np.vstack(list(vertices)),
+                start_points,
+                directions,
+                confluence_selection,
+                touching_threshold,
+            )
+            if return_mode:
+                return vertex, f"confluence_{confluence_selection}"
+            return vertex
 
         # If there is more than one option, restrict track end points to the
         # predicted start points (relies on direction prediction), check again
@@ -104,6 +124,53 @@ def get_vertex(
     if return_mode:
         return get_pseudovertex(start_points, directions), "pseudo_vertex"
     return get_pseudovertex(start_points, directions)
+
+
+def select_confluence_point(
+    candidates,
+    start_points,
+    directions,
+    method,
+    touching_threshold=2.0,
+):
+    """Pick the most likely interaction vertex among confluence points.
+
+    Parameters
+    ----------
+    candidates : np.ndarray
+        (C, 3) Confluence point coordinates
+    start_points : np.ndarray
+        (P, 3) Particle start points
+    directions : np.ndarray
+        (P, 3) Particle directions
+    method : str
+        Selection method. Only ``"pointing"`` is supported: pick the candidate
+        which maximizes the number of particles which either touch it or point
+        away from it.
+    touching_threshold : float, default 2.0
+        Maximum distance for a particle start to be considered touching
+
+    Returns
+    -------
+    np.ndarray
+        (3) Selected vertex
+    """
+    if method == "pointing":
+        # Particles touching the candidate count fully, the others count
+        # according to how well they point away from it (0 to 1)
+        scores = np.empty(len(candidates))
+        for i, c in enumerate(candidates):
+            vecs = start_points - c
+            norms = np.linalg.norm(vecs, axis=1)
+            far = norms >= touching_threshold
+            cos = np.sum(vecs[far] * directions[far], axis=1) / norms[far]
+            scores[i] = np.sum(~far) + np.sum((1.0 + cos) / 2.0)
+        return candidates[np.argmax(scores)]
+
+    raise ValueError(
+        f"Confluence selection method not recognized: {method}. "
+        "Must be `pointing`."
+    )
 
 
 @nb.njit(cache=True)

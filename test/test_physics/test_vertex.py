@@ -11,6 +11,7 @@ from spine.physics.vertex import (
     get_pseudovertex,
     get_vertex,
     get_weighted_pseudovertex,
+    select_confluence_point,
 )
 
 
@@ -167,3 +168,43 @@ def test_vertex_unannotated_returns_and_direction_confluence(monkeypatch):
         np.array([SHOWR_SHP, SHOWR_SHP]),
         anchor_vertex=False,
     )
+
+
+def two_confluence_event():
+    #Two tracks meeting upstream, plus a pair touching further downstream
+    starts = arrays([[0, 0, 0], [0.5, 0, 0], [0, 0, 50], [0.5, 0, 50]])
+    ends = arrays([[0, 0, 40], [0.5, 10, 0], [0, 10, 50], [0.5, 0, 90]])
+    directions = arrays([[0, 0, 1], [0, 1, 0], [0, 1, 0], [0, 0, 1]])
+    shapes = np.full(4, TRACK_SHP)
+    return starts, ends, directions, shapes
+
+
+def test_vertex_confluence_selection():
+    #Several confluence points are resolved by the pointing selection.
+    starts, ends, directions, shapes = two_confluence_event()
+    _, mode = get_vertex(starts, ends, directions, shapes, return_mode=True)
+    assert mode != "confluence_pointing"
+
+    vertex, mode = get_vertex(
+        starts,
+        ends,
+        directions,
+        shapes,
+        return_mode=True,
+        confluence_selection="pointing",
+    )
+    assert mode == "confluence_pointing"
+    np.testing.assert_allclose(vertex, np.mean(starts[:2], axis=0))
+
+    # Flipping all directions makes the downstream point the better candidate
+    vertex = get_vertex(
+        starts, ends, -directions, shapes, confluence_selection="pointing"
+    )
+    np.testing.assert_allclose(vertex, np.mean(starts[2:], axis=0))
+
+
+def test_select_confluence_point_validation():
+    """Unknown selection methods are rejected."""
+    starts, _, directions, _ = two_confluence_event()
+    with pytest.raises(ValueError, match="not recognized"):
+        select_confluence_point(starts[:2], starts, directions, "beam")
