@@ -447,6 +447,12 @@ def test_plotly_backend_validates_and_renders_views():
     )
     dual_figure = backend.render(dual_scene, synchronize=False)
     assert len(dual_figure.data) == 2
+    assert dual_figure.layout.margin.t == 42
+    titled = backend.render(dual_scene, title="Event", margin={"l": 9})
+    assert titled.layout.margin.t == 102
+    assert titled.layout.margin.l == 9
+    assert titled.layout.width is None
+    assert titled.layout.height == 800
 
     invalid_scene = Scene([SceneView(str(i)) for i in range(3)])
     with pytest.raises(ValueError, match="at most two"):

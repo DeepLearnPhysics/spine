@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -298,8 +299,13 @@ class Drawer:
             matched_crthit_only=matched_crthit_only,
         )
 
-    def build_geometry_traces(self) -> list[Any]:
+    def build_geometry_traces(self, dark: bool | None = None) -> list[Any]:
         """Build detector outlines with contrast for the configured theme.
+
+        Parameters
+        ----------
+        dark : bool, optional
+            Per-figure theme override. If omitted, use the constructor theme.
 
         Returns
         -------
@@ -316,7 +322,9 @@ class Drawer:
                 "A geometry drawer is required to build geometry traces."
             )
 
-        dark = self.layout_kwargs.get("dark", False)
+        if dark is None:
+            dark = self.layout_kwargs.get("dark", False)
+
         color = "rgba(255,255,255,0.400)" if dark else "rgba(0,0,0,0.200)"
         traces = self.geo_drawer.tpc_traces(meta=self.meta, color=color)
         for trace in traces:
@@ -464,6 +472,7 @@ class Drawer:
         synchronize: bool = False,
         titles: list[str] | None = None,
         split_traces: bool = False,
+        **kwargs: Any,
     ) -> go.Figure:
         """Draw the requested reconstructed and/or truth object family.
 
@@ -503,16 +512,29 @@ class Drawer:
         synchronize : bool, default False
             If ``True`` and two scenes are drawn, synchronize their cameras.
         titles : List[str], optional
-            Titles for the two scenes when ``split_scene`` is enabled.
+            Panel titles for the two scenes when ``split_scene`` is enabled.
+            Use ``title`` for a title above the entire figure.
         split_traces : bool, default False
             If ``True``, emit one trace per object instead of one shared trace.
+        **kwargs : Any
+            Per-figure options forwarded to :func:`spine.vis.layout.layout3d`.
+            These replace constructor options by keyword without changing
+            subsequent figures. For example, ``title=None`` clears an inherited
+            figure title, and ``width=None`` enables responsive width. Margin
+            edges supplied in this call replace the constructor margin option;
+            unspecified edges use automatic defaults.
 
         Returns
         -------
         go.Figure
             Plotly figure containing all requested object and detector traces.
         """
+        # Validate the requested object type and attributes, and build the traces for
+        # each truth/reconstruction prefix.
         attrs = self.validate_request(obj_type, attr)
+
+        # Isolate nested layout dictionaries from callers and later figures.
+        layout_kwargs = deepcopy({**self.layout_kwargs, **kwargs})
 
         traces: dict[str, list] = {}
         for prefix in self.prefixes:
@@ -687,7 +709,9 @@ class Drawer:
 
         # Draw the geometry overlay if a GeoDrawer is available
         if self.geo_drawer is not None:
-            geo_traces = self.build_geometry_traces()
+            geo_traces = self.build_geometry_traces(
+                dark=layout_kwargs.get("dark", False)
+            )
             if self.prefixes and self.split_scene:
                 for prefix in self.prefixes:
                     traces[prefix] += geo_traces
@@ -695,15 +719,16 @@ class Drawer:
                 traces[self.prefixes[-1]] += geo_traces
 
         # Build the layout and assemble the requested traces and geometry overlay
-        layout = layout3d(
-            geo=self.geo,
-            use_geo=self.geo is not None,
-            meta=self.meta,
-            detector_coords=self.detector_coords,
-            show_optical=show_optical,
-            show_crt=show_crt,
-            **self.layout_kwargs,
-        )
+        layout_kwargs = {
+            "geo": self.geo,
+            "use_geo": self.geo is not None,
+            "meta": self.meta,
+            "detector_coords": self.detector_coords,
+            "show_optical": show_optical,
+            "show_crt": show_crt,
+            **layout_kwargs,
+        }
+        layout = layout3d(**layout_kwargs)
 
         # If both truth and reconstruction are drawn and split_scene is enabled, draw
         # them in separate scenes with linked cameras. Otherwise, draw all traces
@@ -711,6 +736,9 @@ class Drawer:
         if len(self.prefixes) > 1 and self.split_scene:
             if titles is None:
                 titles = [f"Reconstructed {obj_type}", f"Truth {obj_type}"]
+
+            # Let the split helper fill defaults around explicit margin edges.
+            layout.margin = layout_kwargs.get("margin")
             return dual_figure3d(
                 traces["reco"],
                 traces["truth"],

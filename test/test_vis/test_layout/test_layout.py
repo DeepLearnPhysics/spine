@@ -1,5 +1,6 @@
 """Tests for layout visualization helpers."""
 
+from copy import deepcopy
 from importlib import import_module
 from types import SimpleNamespace
 
@@ -48,9 +49,69 @@ def test_layout_and_dual_figure_helpers():
 
     assert layout.scene.xaxis.range == (0, 1)
     assert len(fig.data) == 2
-    assert fig.layout.margin.to_plotly_json() == {"b": 20, "t": 42, "l": 20, "r": 20}
+    assert fig.layout.margin.to_plotly_json() == {"b": 20, "t": 0, "l": 20, "r": 20}
     assert width > height > 0
     assert color_rgba((1, 2, 3), 0.5) == "rgba(1, 2, 3, 0.5)"
+
+
+@pytest.mark.parametrize(
+    "title", [None, "", {}, {"text": ""}, "Event", {"text": "Event"}]
+)
+def test_layout_title_margins_and_responsive_defaults(title):
+    """Only nonempty figure titles reserve space, for either title syntax."""
+    layout = layout3d(title=title)
+    assert layout.width is None
+    assert layout.height == 800
+    assert layout.autosize is True
+    assert layout.margin.t == (60 if layout.title.text else 0)
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_layout_explicit_sizes_and_partial_margins(split):
+    """Explicit dimensions and individual margin edges win over defaults."""
+    margin = {"l": 17, "t": 0}
+    options = dict(title="Event", width=950, height=620, autosize=False, margin=margin)
+    layout = dual_figure3d([], [], **options).layout if split else layout3d(**options)
+    assert (layout.width, layout.height, layout.autosize) == (950, 620, False)
+    assert layout.margin.l == 17
+    assert layout.margin.t == 0
+    assert margin == {"l": 17, "t": 0}
+
+
+def test_dual_layout_preserves_input_and_allows_explicit_overrides():
+    """Split figures copy their base layout and distinguish omitted sizes."""
+    layout = layout3d(width=950, height=620, margin={"t": 12, "l": 17})
+    before = deepcopy(layout.to_plotly_json())
+    preserved = dual_figure3d([], [], layout=layout, titles=["Reco", "Truth"])
+    cleared = dual_figure3d(
+        [], [], layout=layout, width=None, height=None, margin={"r": 8}
+    )
+    assert (preserved.layout.width, preserved.layout.height) == (950, 620)
+    assert preserved.layout.margin.to_plotly_json() == before["margin"]
+    assert cleared.layout.width is None
+    assert cleared.layout.height is None
+    assert cleared.layout.margin.l == 17
+    assert cleared.layout.margin.r == 8
+    assert layout.to_plotly_json() == before
+
+
+def test_dual_layout_reserves_space_for_both_title_levels():
+    """Figure titles and panel titles share the top margin without mutation."""
+    panels = dual_figure3d([], [], titles=["Reco", "Truth"])
+    both = dual_figure3d(
+        [], [], titles=["Reco", "Truth"], title={"text": "Event"}, margin={"l": 5}
+    )
+    assert panels.layout.margin.t == 42
+    assert both.layout.margin.t == 102
+    assert both.layout.margin.l == 5
+    assert both.layout.title.text == "Event"
+    assert [annotation.text for annotation in both.layout.annotations] == [
+        "Reco",
+        "Truth",
+    ]
+    assert both.layout.width is None
+    assert both.layout.height == 800
+    assert both.layout.autosize is True
 
 
 def test_layout3d_uses_point_ranges_meta_and_dark_options(monkeypatch):
