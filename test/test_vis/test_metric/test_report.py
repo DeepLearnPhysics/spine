@@ -15,7 +15,7 @@ from spine.vis.metric.report import (
     SegmentConfusionRecipe,
     build_report,
 )
-from spine.vis.metric.report.base import InputCounts
+from spine.vis.metric.report.base import InputCounts, event_columns
 
 
 def _write_inputs(input_dir):
@@ -187,27 +187,107 @@ def test_non_strict_report_records_missing_metric(tmp_path):
     assert summary["metrics"]["segmentation"]["status"] == "skipped"
 
 
-def test_input_counts_prefers_physical_event_identity(tmp_path):
-    """Complete run coordinates should take precedence over loader indexes."""
-    counts = InputCounts()
+@pytest.mark.parametrize(
+    "columns, expected",
+    [
+        (
+            ["file_index", "file_entry_index", "index", "run", "subrun", "event"],
+            ["file_index", "file_entry_index"],
+        ),
+        (["file_index", "index", "run", "subrun", "event"], ["file_index", "index"]),
+        (["index", "run", "subrun", "event"], ["index"]),
+        (["file_index", "run", "subrun", "event"], ["run", "subrun", "event"]),
+        (["file_entry_index", "index"], ["index"]),
+        (["run", "subrun", "event"], ["run", "subrun", "event"]),
+        (["file_index"], []),
+        (["file_entry_index"], []),
+        (["run", "event"], []),
+        ([], []),
+    ],
+)
+def test_event_columns_priority_and_incomplete_identifiers(columns, expected):
+    """Only complete event identities are selected, in reliability order."""
+    assert event_columns(iter(columns)) == expected
+
+
+@pytest.mark.parametrize("identity", ["entry", "loader", "run"])
+def test_input_counts_deduplicates_entries_across_chunks_and_shards(tmp_path, identity):
+    """Repeated object rows deduplicate; files and CSV shards stay distinct."""
     frame = pd.DataFrame(
         {
-            "run": [1, 1],
-            "subrun": [2, 2],
-            "event": [3, 3],
-            "file_index": [0, 0],
-            "index": [7, 7],
+            "run": [1] * 6,
+            "subrun": [2] * 6,
+            "event": [3] * 6,
+            "file_index": [0, 0, 0, 1, 1, 1],
+            "file_entry_index": [0, 0, 1, 0, 0, 1],
+            # Deliberately disagree with entry IDs to test their precedence.
+            "index": [7, 8, 9, 7, 8, 9],
         }
     )
+    if identity == "loader":
+        frame = frame.drop(columns="file_entry_index")
+        frame["index"] = [0, 0, 1, 0, 0, 1]
+    elif identity == "run":
+        frame = frame.drop(columns=["file_entry_index", "index"])
+        frame["event"] = [0, 0, 1, 2, 2, 3]
 
-    counts.update(tmp_path / "source.csv", frame)
+    counts = InputCounts()
+    paths = [tmp_path / "a.csv", tmp_path / "b.csv"]
+    for path in paths:
+        for start in range(0, len(frame), 2):
+            counts.update(path, frame.iloc[start : start + 2])
 
-    assert counts.as_dict([tmp_path / "source.csv"], len(frame)) == {
-        "csv_shards": 1,
-        "rows": 2,
-        "events": 1,
-        "data_files": 1,
+    assert counts.as_dict(paths, 2 * len(frame)) == {
+        "csv_shards": 2,
+        "rows": 12,
+        "events": 8,
+        "data_files": 4,
     }
+
+
+def test_report_counts_repeated_event_ids_without_changing_metrics(tmp_path):
+    """Report metadata uses entries while confusion counts retain every row."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for shard in ("a", "b"):
+        pd.DataFrame(
+            {
+                "run": [1] * 4,
+                "subrun": [2] * 4,
+                "event": [3] * 4,
+                "file_index": [0, 0, 1, 1],
+                "file_entry_index": [0, 1, 0, 1],
+                "index": [0, 1, 2, 3],
+                "count_00": [1, 2, 3, 4],
+            }
+        ).to_csv(raw / f"{shard}.csv", index=False)
+    config = tmp_path / "report.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "formats": ["json"],
+                "metrics": {
+                    "segmentation": {
+                        "name": "segment_confusion",
+                        "source": "*.csv",
+                        "chunksize": 1,
+                    }
+                },
+            }
+        )
+    )
+
+    summary = build_report(config, raw, tmp_path / "report")
+
+    assert summary["inputs"]["events"] == 8
+    metric = summary["metrics"]["segmentation"]
+    assert metric["inputs"] == {
+        "csv_shards": 2,
+        "rows": 8,
+        "events": 8,
+        "data_files": 4,
+    }
+    assert metric["matrix"] == [[20]]
 
 
 def test_cluster_recipe_reduces_per_class_columns(tmp_path):

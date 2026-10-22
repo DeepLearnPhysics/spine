@@ -96,8 +96,10 @@ def distribution_summary(
 def event_columns(columns: Iterable[str]) -> list[str]:
     """Return the strongest event-identity columns available in a CSV.
 
-    The run/subrun/event triplet is preferred when complete. Otherwise the
-    loader-level ``file_index`` and ``index`` columns are used when present.
+    Prefer ``file_index`` and ``file_entry_index`` because run/subrun/event
+    identifiers can repeat within simulation files. Fall back to the loader
+    ``index`` (with ``file_index`` when available), then to a complete
+    run/subrun/event triplet. A file identifier alone cannot identify an event.
 
     Parameters
     ----------
@@ -111,10 +113,15 @@ def event_columns(columns: Iterable[str]) -> list[str]:
         the CSV does not carry event identity.
     """
     available = set(columns)
-    run_columns = [name for name in ("run", "subrun", "event") if name in available]
-    if len(run_columns) == 3:
+    entry_columns = ["file_index", "file_entry_index"]
+    if available.issuperset(entry_columns):
+        return entry_columns
+    if "index" in available:
+        return [name for name in ("file_index", "index") if name in available]
+    run_columns = ["run", "subrun", "event"]
+    if available.issuperset(run_columns):
         return run_columns
-    return [name for name in ("file_index", "index") if name in available]
+    return []
 
 
 class InputCounts:
