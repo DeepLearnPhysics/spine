@@ -1,5 +1,6 @@
 """Tests for output object visualization."""
 
+from copy import deepcopy
 from importlib import import_module
 from types import SimpleNamespace
 
@@ -30,6 +31,82 @@ def reset_geo_manager():
     GeoManager.reset()
     yield
     GeoManager.reset()
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_drawer_layout_overrides_are_per_figure(split):
+    """Each get call resolves layout options without changing other figures."""
+    data = {
+        "points": np.empty((0, 3)),
+        "points_label": np.empty((0, 3)),
+        "reco_particles": [],
+        "truth_particles": [],
+    }
+    constructor = {
+        "title": {"text": "Default"},
+        "width": 900,
+        "height": 650,
+        "margin": {"l": 11},
+    }
+    original = deepcopy(constructor)
+    drawer = Drawer(data, split_scene=split, **constructor)
+    first = drawer.get("particles")
+    first_layout = deepcopy(first.layout.to_plotly_json())
+    overrides = {
+        "title": {"text": "Override"},
+        "width": None,
+        "height": 550,
+        "margin": {"t": 0},
+        "autosize": False,
+    }
+    override_copy = deepcopy(overrides)
+    second = drawer.get("particles", **overrides)
+    cleared = drawer.get("particles", title=None)
+    repeated = drawer.get("particles")
+
+    assert first.layout.title.text == "Default"
+    assert (first.layout.width, first.layout.height) == (900, 650)
+    assert first.layout.margin.t == (102 if split else 60)
+    assert first.layout.margin.l == 11
+    assert second.layout.title.text == "Override"
+    assert second.layout.width is None
+    assert second.layout.height == 550
+    assert second.layout.autosize is False
+    assert second.layout.margin.t == 0
+    assert cleared.layout.title.text is None
+    assert cleared.layout.margin.t == (42 if split else 0)
+    assert repeated.layout.to_plotly_json() == first_layout
+    assert first.layout.to_plotly_json() == first_layout
+    assert drawer.layout_kwargs == original
+    assert constructor == original
+    assert overrides == override_copy
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_drawer_responsive_defaults_and_panel_titles(split):
+    """Single and split views share dimensions and distinguish title levels."""
+    drawer = Drawer(
+        {
+            "points": np.empty((0, 3)),
+            "points_label": np.empty((0, 3)),
+            "reco_particles": [],
+            "truth_particles": [],
+        },
+        split_scene=split,
+        titles=["X", "Y", "Z"],
+    )
+    kwargs = {"titles": ["Left", "Right"]} if split else {}
+    figure = drawer.get("particles", title="Event", **kwargs)
+    assert figure.layout.width is None
+    assert figure.layout.height == 800
+    assert figure.layout.autosize is True
+    assert figure.layout.title.text == "Event"
+    assert figure.layout.scene.xaxis.title.text == "X"
+    if split:
+        assert [annotation.text for annotation in figure.layout.annotations] == [
+            "Left",
+            "Right",
+        ]
 
 
 def test_drawer_accepts_derived_hover_attr():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import deepcopy
+from types import EllipsisType
 from typing import Any
 
 import numpy as np
@@ -60,7 +61,7 @@ def layout3d(
     up_dir: np.ndarray | None = None,
     backgroundcolor: str = "white",
     gridcolor: str = "lightgray",
-    width: int = 800,
+    width: int | None = None,
     height: int = 800,
     showlegend: bool = True,
     camera: dict[str, Any] | None = None,
@@ -104,8 +105,8 @@ def layout3d(
         Plot background color.
     gridcolor : str, default ``"lightgray"``
         Axis grid color.
-    width : int, default 800
-        Figure width in pixels.
+    width : int, optional
+        Figure width in pixels. If omitted, fit the containing element.
     height : int, default 800
         Figure height in pixels.
     showlegend : bool, default True
@@ -119,11 +120,14 @@ def layout3d(
     dark : bool, default False
         If ``True``, use a dark Plotly theme.
     margin : Dict[str, int], optional
-        Plot margins.
+        Plot margins. Explicit edges override the defaults, including a zero
+        top margin. Otherwise, reserve 60 pixels above a nonempty figure title.
     hoverlabel : Dict[str, Any], optional
         Hoverlabel style dictionary.
     **kwargs : Any
-        Additional keyword arguments forwarded to :class:`plotly.graph_objs.Layout`.
+        Additional keyword arguments forwarded to :class:`plotly.graph_objs.Layout`,
+        including the figure ``title`` (distinct from axis ``titles``).
+        ``autosize`` defaults to ``True``; explicit dimensions are preserved.
 
     Returns
     -------
@@ -227,8 +231,10 @@ def layout3d(
         kwargs["paper_bgcolor"] = "black"
         backgroundcolor = "black"
 
-    if margin is None:
-        margin = {"b": 0, "t": 0, "l": 0, "r": 0}
+    # Normalize titles through Plotly so strings and title dictionaries agree.
+    title = go.Layout(title=kwargs.get("title")).title
+    margin = {"b": 0, "t": 60 if title.text else 0, "l": 0, "r": 0, **(margin or {})}
+    kwargs.setdefault("autosize", True)
 
     if hoverlabel is None:
         hoverlabel = {"font_family": "Droid sans, monospace"}
@@ -268,8 +274,8 @@ def dual_figure3d(
     traces_right: Sequence[object],
     layout: go.Layout | None = None,
     titles: list[str] | None = None,
-    width: int = 1500,
-    height: int = 750,
+    width: int | None | EllipsisType = ...,
+    height: int | None | EllipsisType = ...,
     synchronize: bool = False,
     margin: dict[str, int] | None = None,
     **kwargs: Any,
@@ -283,17 +289,21 @@ def dual_figure3d(
     traces_right : Sequence[object]
         Plotly traces to draw in the right subplot.
     layout : go.Layout, optional
-        Base layout to apply to the figure.
+        Base layout to apply to the figure. It is copied, not modified.
     titles : List[str], optional
         Subplot titles for the left and right scenes.
-    width : int, default 1500
-        Figure width in pixels.
-    height : int, default 750
-        Figure height in pixels.
+    width : int or None, optional
+        Figure width in pixels. Omission preserves the base layout width;
+        explicit ``None`` clears it for responsive sizing. Without a base
+        layout, the default is ``None``.
+    height : int or None, optional
+        Figure height in pixels. Omission preserves the base layout height;
+        explicit ``None`` clears it. Without a base layout, the default is 800.
     synchronize : bool, default False
         If ``True``, keep the two subplot cameras synchronized.
     margin : Dict[str, int], optional
-        Figure margins.
+        Figure margins. Explicit edges override the base layout margins and
+        defaults. Defaults reserve space for panel and figure titles.
     **kwargs : Any
         Additional keyword arguments used only when a default layout must be
         created internally.
@@ -321,14 +331,27 @@ def dual_figure3d(
     fig.add_traces(traces_left, rows=[1] * num_left, cols=[1] * num_left)
     fig.add_traces(traces_right, rows=[1] * num_right, cols=[2] * num_right)
 
-    if margin is None:
-        # Leave enough room between subplot titles and the containing panel.
-        margin = {"b": 20, "t": 42, "l": 20, "r": 20}
-
     if layout is None:
-        layout = layout3d(width=width, height=height, margin=margin, **kwargs)
+        layout = layout3d(**kwargs)
+        base_margin = {}
     else:
-        layout.update({"width": width, "height": height, "margin": margin})
+        layout = go.Layout(layout)
+        base_margin = layout.margin.to_plotly_json()
+
+    # Omitted dimensions preserve the layout; None explicitly clears a size.
+    if width is not ...:
+        layout.width = width
+    if height is not ...:
+        layout.height = height
+    top = (42 if titles and any(titles) else 0) + (60 if layout.title.text else 0)
+    layout.margin = {
+        "b": 20,
+        "t": top,
+        "l": 20,
+        "r": 20,
+        **base_margin,
+        **(margin or {}),
+    }
     fig.layout.update(layout)
 
     if synchronize:

@@ -74,6 +74,9 @@ class PlotlyBackend:
             if metadata.get("up_dir") is not None:
                 layout_kwargs.setdefault("up_dir", np.asarray(metadata["up_dir"]))
             layout = layout3d(**layout_kwargs)
+            if len(scene.views) == 2:
+                # Preserve caller margins while deferring split-title defaults.
+                layout.margin = layout_kwargs.get("margin")
 
         # Return a valid empty figure for scenes without views
         if not scene.views:
