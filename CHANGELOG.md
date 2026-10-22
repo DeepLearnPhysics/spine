@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.1] - 2026-10-21
+
+### Added
+- **GrapPA group-restricted graphs**: Use `graph.group_by` to restrict generated edges to nodes sharing a cluster-label field, such as ancestor or particle group, without changing node membership. Explicit node-aligned groups override the configured field; supplied or cached edges remain unchanged.
+- **Pointing-based vertex selection**: Opt into `confluence_selection: pointing` to choose among multiple confluence points using particle start positions and directions. The default retains the existing vertex-selection fallbacks.
+- **Per-figure layout options**: Override constructor layout settings in `Drawer.get()`, including figure titles, dimensions, and margins, without changing subsequent calls or caller-owned dictionaries.
+
+### Changed
+- **Responsive event displays**: Single and split Plotly views default to automatic width (`width=None`, `autosize=True`) and an 800-pixel height. Explicit dimensions remain supported. Nonempty figure and panel titles receive automatic top spacing unless the corresponding margin edge is explicitly supplied.
+- **Documentation accent**: Align the documentation orange with the SPINE logo.
+
+### Fixed
+- **Split-view layout preservation**: Copy supplied layouts instead of modifying them, preserve their dimensions and margin edges, and distinguish omitted dimensions from explicit `None` overrides. Keep renderer-neutral split views consistent with these defaults.
+- **Per-figure geometry contrast**: Honor the selected figure theme when drawing detector outlines.
+
+### Tests
+- Add regression coverage for missing model and functional-loss implementation selectors, graph restrictions, vertex selection, and independent figure layouts.
+
+### Migration notes
+- Figures without an explicit width now fit their container. Split views default to 800 pixels high instead of 750. Supply `width` and `height` explicitly when fixed display dimensions are required.
+- `title` labels the complete figure; `Drawer.get(titles=...)` labels split panels. A per-call margin dictionary replaces the constructor margin dictionary; unspecified edges use automatic defaults.
+
 ## [1.4.0] - 2026-10-05
 
 ### Added
