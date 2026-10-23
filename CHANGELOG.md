@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] - 2026-10-22
+
+### Fixed
+- **Report event counts**: Prefer file and entry indices over potentially repeated simulation run/subrun/event identifiers. Fall back to loader index, then complete run/subrun/event identifiers, while preserving CSV-shard namespacing across jobs. File identifiers alone no longer count as event identities. This corrects event-count metadata without changing reconstruction metric accumulation (#185).
+
+### Tests
+- Add regression coverage for repeated event IDs, multiple input files and CSV shards, duplicate object rows across chunks, identifier fallbacks, and report-level confusion counts.
+
+### Migration notes
+- Regenerate affected reports from existing raw CSVs using the updated reporter (for spine-prod, rerun only `report_full_chain`). No retraining or inference rerun is needed. The affected ProtoDUNE-VD report now counts 14,240 events instead of 40.
+
 ## [1.4.1] - 2026-10-21
 
 ### Added
