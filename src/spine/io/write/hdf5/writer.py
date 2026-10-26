@@ -57,6 +57,13 @@ class HDF5Writer(
               - input_data
               - segmentation
               - ...
+
+    For joint datasets, enable per-primary-file output with
+    ``base.split_output: true`` and ``io.writer.split_source: primary``.
+    Joint provenance is primary-first; secondary indexes are local to their
+    own source and must not be used to address primary output files. Routing
+    leaves both sources' persisted provenance unchanged. Only primary files
+    with written entries produce outputs.
     """
 
     name = "hdf5"
@@ -89,6 +96,7 @@ class HDF5Writer(
         keep_open: bool = True,
         flush_frequency: int | None = None,
         format_version: int = legacy_format_version,
+        split_source: str = "all",
     ) -> None:
         """Initializes the basics of the output file.
 
@@ -135,7 +143,17 @@ class HDF5Writer(
             boundaries as integer offsets and variable object attributes in
             flat datasets. The choice is persisted in
             ``info.attrs["format_version"]`` and cannot change when appending.
+        split_source : {"all", "primary"}, default "all"
+            Source indexes used to route split output. ``all`` retains the
+            existing behavior of routing to every index in ``file_index``.
+            ``primary`` uses only the first index per event, matching the
+            primary-first provenance of joint datasets. Scalar indexes from
+            events without an overlay are also accepted. Both sources remain
+            available in persisted provenance. Ignored when ``split`` is False.
         """
+        if split_source not in ("all", "primary"):
+            raise ValueError("`split_source` must be 'all' or 'primary'.")
+
         # Build the output file name(s) from the input prefix(es) if not provided
         self.file_names = self.get_file_names(
             file_name, prefix, suffix, split, directory
@@ -154,6 +172,7 @@ class HDF5Writer(
         # Store other persistent attributes
         self.append = append
         self.split = split
+        self.split_source = split_source
         self.lite = lite
         self.keep_open = keep_open
         self.flush_frequency = flush_frequency
@@ -702,6 +721,53 @@ class HDF5Writer(
 
         return expanded
 
+    def get_split_file_ids(self, file_index: Any) -> np.ndarray:
+        """Resolve event routing without modifying source provenance.
+
+        Parameters
+        ----------
+        file_index : sequence
+            One scalar file index or source-index array per event. Joint
+            datasets place the primary source first in each array.
+
+        Returns
+        -------
+        np.ndarray
+            File indexes used for split routing. With ``split_source=primary``,
+            exactly one integer index is returned per event. Otherwise the
+            existing source-index shape is retained.
+
+        Raises
+        ------
+        ValueError
+            If primary routing receives empty, non-integer or multidimensional
+            event indexes, or a primary index has no corresponding output file.
+        """
+        if self.split_source == "all":
+            return np.asarray(file_index, dtype=np.int64)
+
+        file_ids = []
+        for indexes in file_index:
+            indexes = np.asarray(indexes)
+            if (
+                indexes.ndim > 1
+                or indexes.size == 0
+                or not np.issubdtype(indexes.dtype, np.integer)
+            ):
+                raise ValueError(
+                    "Primary split routing requires a scalar integer or a "
+                    "nonempty one-dimensional integer array per event."
+                )
+            file_id = int(indexes.reshape(-1)[0])
+            if file_id < 0 or file_id >= len(self.file_names):
+                raise ValueError(
+                    f"Primary file index {file_id} has no corresponding output "
+                    f"among {len(self.file_names)} files."
+                )
+            file_ids.append(file_id)
+
+        return np.asarray(file_ids, dtype=np.int64)
+
     def __call__(self, data: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
         """Append the HDF5 file with the content of a batch.
 
@@ -726,6 +792,11 @@ class HDF5Writer(
             batch_size = 1
         else:
             batch_size = len(data["index"])
+
+        # Validate routing before creating files, keeping provenance unchanged.
+        file_ids = None
+        if self.split and (len(self.file_names) > 1 or self.split_source == "primary"):
+            file_ids = self.get_split_file_ids(data["file_index"])
 
         # If needed, add empty data for dummy datasets
         if self.dummy_ds is not None:
@@ -754,7 +825,6 @@ class HDF5Writer(
                     out_file.close()
 
         else:
-            file_ids = np.asarray(data["file_index"], dtype=np.int64)
             unique_file_ids = np.unique(file_ids)
             self._finalize_split_predecessors(unique_file_ids)
             for file_id in np.unique(file_ids):
