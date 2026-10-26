@@ -2507,3 +2507,141 @@ def test_hdf5_writer_v2_rejects_multidimensional_variable_fields(
         objects = _make_v2_variable_object_group(out_file, yaml.safe_dump(["field"]))
         with pytest.raises(ValueError, match="must be one-dimensional"):
             HDF5Writer.store_object_batches(objects, [[BadObject()]], lite=False)
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+@pytest.mark.parametrize("keep_open", [False, True])
+@pytest.mark.parametrize("split_batches", [False, True])
+def test_hdf5_writer_primary_split_preserves_joint_provenance(
+    tmp_path, format_version, keep_open, split_batches
+):
+    """Joint events route once to primary outputs and keep both source indexes."""
+    file_indexes = [np.asarray([0, 50]), np.asarray([0, 0]), np.asarray([1, 50])]
+    entry_indexes = [np.asarray([4, 10]), np.asarray([5, 11]), np.asarray([0, 12])]
+    data = {
+        "index": [np.asarray([i, i + 10]) for i in range(3)],
+        "file_index": file_indexes,
+        "file_entry_index": entry_indexes,
+        "value": [np.asarray([i], dtype=np.int32) for i in range(3)],
+    }
+    with HDF5Writer(
+        directory=str(tmp_path),
+        prefix=["primary_a", "primary_b", "unused_primary"],
+        split=True,
+        split_source="primary",
+        format_version=format_version,
+        keep_open=keep_open,
+        keys=["value"],
+    ) as writer:
+        if split_batches:
+            writer({key: values[:2] for key, values in data.items()}, cfg={})
+            writer({key: values[2:] for key, values in data.items()}, cfg={})
+            assert writer._completed_file_ids == {0}
+        else:
+            writer(data, cfg={})
+        assert writer._initialized_file_ids == {0, 1}
+
+    assert not (tmp_path / "unused_primary_spine.h5").exists()
+    for prefix, batch_ids in (("primary_a", [0, 1]), ("primary_b", [2])):
+        reader = HDF5Reader(str(tmp_path / f"{prefix}_spine.h5"))
+        try:
+            assert len(reader) == len(batch_ids)
+            for index, batch_id in enumerate(batch_ids):
+                entry = reader.get(index)
+                np.testing.assert_array_equal(entry["value"], [batch_id])
+                np.testing.assert_array_equal(
+                    entry["source_file_index"], file_indexes[batch_id]
+                )
+                np.testing.assert_array_equal(
+                    entry["source_file_entry_index"], entry_indexes[batch_id]
+                )
+        finally:
+            reader.close()
+    # Routing must not replace the caller's multi-source metadata.
+    assert data["file_index"] is file_indexes
+    np.testing.assert_array_equal(file_indexes[0], [0, 50])
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_writer_primary_split_accepts_scalar_events(tmp_path, format_version):
+    """Unpaired scalar events retain ordinary per-input splitting."""
+    with HDF5Writer(
+        directory=str(tmp_path),
+        prefix=["a", "b"],
+        split=True,
+        split_source="primary",
+        format_version=format_version,
+    ) as writer:
+        writer({"index": 0, "file_index": 0, "file_entry_index": 4}, cfg={})
+        writer({"index": 1, "file_index": 1, "file_entry_index": 0}, cfg={})
+    for prefix in ("a", "b"):
+        reader = HDF5Reader(str(tmp_path / f"{prefix}_spine.h5"))
+        try:
+            assert len(reader) == 1
+        finally:
+            reader.close()
+
+
+def test_hdf5_writer_primary_split_accepts_mixed_source_counts(hdf5_output):
+    """Routing accepts paired arrays and scalar unpaired indexes in one batch."""
+    writer = HDF5Writer(
+        hdf5_output, prefix=["a", "b"], split=True, split_source="primary"
+    )
+    np.testing.assert_array_equal(
+        writer.get_split_file_ids([np.asarray([0, 50]), 1, np.asarray([1])]),
+        [0, 1, 1],
+    )
+
+
+@pytest.mark.parametrize("indexes", [[], [[0]], [0.5], [-1], [2], [True]])
+def test_hdf5_writer_primary_split_rejects_invalid_indexes(tmp_path, indexes):
+    """Invalid routing fails before any output files are created."""
+    with HDF5Writer(
+        directory=str(tmp_path), prefix=["a", "b"], split=True, split_source="primary"
+    ) as writer:
+        with pytest.raises(ValueError, match="Primary"):
+            writer({"index": [0], "file_index": [np.asarray(indexes)]})
+        assert not writer.ready
+    assert not list(tmp_path.glob("*.h5"))
+
+
+def test_hdf5_writer_rejects_unknown_split_source(hdf5_output):
+    """Unknown source policies fail at construction."""
+    with pytest.raises(ValueError, match="split_source"):
+        HDF5Writer(hdf5_output, split_source="secondary")
+
+
+@pytest.mark.parametrize("format_version", [1, 2])
+def test_hdf5_writer_primary_split_single_output(tmp_path, format_version):
+    """Single-primary tasks write overlays once even with foreign secondary IDs."""
+    with HDF5Writer(
+        directory=str(tmp_path),
+        prefix=["primary"],
+        split=True,
+        split_source="primary",
+        format_version=format_version,
+    ) as writer:
+        writer(
+            {
+                "index": [np.asarray([0, 10]), np.asarray([1, 11])],
+                "file_index": [np.asarray([0, 0]), np.asarray([0, 50])],
+            },
+            cfg={},
+        )
+    reader = HDF5Reader(str(tmp_path / "primary_spine.h5"))
+    try:
+        assert len(reader) == 2
+        np.testing.assert_array_equal(reader.get(1)["source_file_index"], [0, 50])
+    finally:
+        reader.close()
+
+
+def test_hdf5_writer_primary_policy_ignored_without_split(hdf5_output):
+    """Configuring a routing policy does not require file metadata for unsplit output."""
+    with HDF5Writer(hdf5_output, split_source="primary") as writer:
+        writer({"index": [0]}, cfg={})
+    reader = HDF5Reader(hdf5_output)
+    try:
+        assert len(reader) == 1
+    finally:
+        reader.close()

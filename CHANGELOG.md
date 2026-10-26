@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Primary-only joint output splitting**: Set `io.writer.split_source: primary`
+  with `base.split_output: true` to write each joint event only to its primary
+  input's output file. Both sources' provenance is retained. The default `all`
+  policy preserves existing split routing.
+
+### Tests
+- Cover primary routing across both HDF5 layouts, shared secondary files,
+  overlapping source indexes, unpaired events, and invalid routing metadata.
+
 ## [1.4.2] - 2026-10-22
 
 ### Fixed
