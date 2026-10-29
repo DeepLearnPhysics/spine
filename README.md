@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/DeepLearnPhysics/spine/actions/workflows/ci.yml/badge.svg)](https://github.com/DeepLearnPhysics/spine/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/DeepLearnPhysics/spine/branch/main/graph/badge.svg)](https://codecov.io/gh/DeepLearnPhysics/spine)
-[![Documentation Status](https://readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/latest/)
+[![Documentation Status](https://app.readthedocs.org/projects/spine/badge/?version=latest)](https://spine.readthedocs.io/latest/)
 [![PyPI version](https://badge.fury.io/py/spine.svg)](https://badge.fury.io/py/spine)
 [![Python version](https://img.shields.io/pypi/pyversions/spine.svg)](https://pypi.org/project/spine/)
 
