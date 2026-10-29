@@ -276,7 +276,8 @@ def test_auto_backend_resolution(tmp_path):
 
 
 @pytest.mark.parametrize("format_version", [1, 2])
-def test_hdf5_product_filter_uses_event_row_counts(tmp_path, format_version):
+@pytest.mark.parametrize("progress", [False, True])
+def test_hdf5_product_filter_uses_event_row_counts(tmp_path, format_version, progress):
     """HDF5 filtering should count product rows in both physical layouts."""
     source = tmp_path / f"cache-v{format_version}.h5"
     with HDF5Writer(
@@ -300,7 +301,7 @@ def test_hdf5_product_filter_uses_event_row_counts(tmp_path, format_version):
         "filters": {"shower_edges": {"max_count": 4}},
     }
     cache_dir = tmp_path / "scan"
-    scan_sources(config, sources=str(source), cache_dir=cache_dir)
+    scan_sources(config, sources=str(source), cache_dir=cache_dir, progress=progress)
     manifest = tmp_path / "accepted.yaml"
     build_manifest(
         config,
@@ -1060,3 +1061,96 @@ def test_larcv_inspector_matches_direct_branch_access(larcv_data):
     assert num_entries == len(expected)
     assert any(count > 0 for count in expected)
     assert values[product_name] == expected
+
+
+def test_scan_progress_reports_completion_order_heartbeat_and_reuse(
+    tmp_path, fake_backend, monkeypatch, capsys
+):
+    """Slow earlier files must not hide completed work or reorder results."""
+    from concurrent.futures import Future
+
+    sources = [tmp_path / "a.dat", tmp_path / "b.dat"]
+    for source in sources:
+        source.write_text("1 2")
+    cache = tmp_path / "cache"
+    scan_sources(fake_backend, sources=str(sources[1]), cache_dir=cache)
+
+    class ImmediatePool:
+        def __init__(self, max_workers):
+            assert max_workers == 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def submit(self, function, args):
+            future = Future()
+            future.set_result(function(args))
+            return future
+
+    waits = []
+
+    def controlled_wait(pending, timeout, return_when):
+        assert timeout == 30.0
+        waits.append(len(pending))
+        if len(waits) == 1:
+            return set(), set(pending)
+        future = list(pending)[-1]
+        return {future}, set(pending) - {future}
+
+    monkeypatch.setattr(filter_manager, "ProcessPoolExecutor", ImmediatePool)
+    monkeypatch.setattr(filter_manager, "wait", controlled_wait)
+    results = scan_sources(
+        fake_backend,
+        sources=[str(p) for p in sources],
+        cache_dir=cache,
+        workers=2,
+        progress=True,
+    )
+    assert [result["source"] for result in results] == [str(p) for p in sources]
+    assert [result["reused"] for result in results] == [False, True]
+    output = capsys.readouterr().err
+    assert "Scanning 2 files with 2 workers" in output
+    assert "0/2 files (0.0%)" in output
+    assert "waiting for workers" in output
+    assert output.index("reused: " + str(sources[1])) < output.index(
+        "scanned: " + str(sources[0])
+    )
+    assert "2/2 files (100.0%) | 1 scanned, 1 reused" in output
+
+
+def test_scan_progress_reports_failure(tmp_path, fake_backend, monkeypatch, capsys):
+    """A failed worker must not be reported as a completed source."""
+    from concurrent.futures import Future
+
+    source = tmp_path / "broken.dat"
+    source.write_text("bad input")
+
+    class FailingPool:
+        def __init__(self, max_workers):
+            assert max_workers == 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def submit(self, function, args):
+            future = Future()
+            future.set_exception(RuntimeError("scan failed"))
+            return future
+
+    monkeypatch.setattr(filter_manager, "ProcessPoolExecutor", FailingPool)
+    with pytest.raises(RuntimeError, match="scan failed"):
+        scan_sources(
+            fake_backend,
+            sources=str(source),
+            cache_dir=tmp_path / "cache",
+            progress=True,
+        )
+    output = capsys.readouterr().err
+    assert "0/1 files (0.0%)" in output
+    assert "FAILED: " + str(source) in output

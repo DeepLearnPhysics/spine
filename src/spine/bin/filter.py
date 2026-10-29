@@ -44,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--config", required=True, help="Filter YAML configuration.")
     _add_source_arguments(scan)
     scan.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress scan progress lines (the final summary is still printed).",
+    )
+    scan.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -97,6 +102,7 @@ def cli(argv: Sequence[str] | None = None) -> int:
             **common,
             workers=args.workers,
             force=args.force,
+            progress=not args.quiet,
         )
         reused = sum(record["reused"] for record in records)
         print(

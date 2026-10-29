@@ -261,3 +261,14 @@ Before adopting a new SPINE release for production:
 
 See :doc:`support` for the supported interface boundary and compatibility
 expectations.
+
+Filter scan progress
+--------------------
+
+``spine-filter scan`` writes flushed progress lines to stderr by default,
+including total files, completed percentage, scanned/reused counts and elapsed
+time. It reports completions as workers finish and writes a status line every
+30 seconds while waiting for workers, including when scanning one large file.
+Progress measures completed files, not events; files can differ in size.
+Use ``--quiet`` to suppress progress while retaining the final summary.
+The Python ``scan_sources`` API remains silent unless ``progress=True``.

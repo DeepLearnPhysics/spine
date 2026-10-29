@@ -104,3 +104,23 @@ def test_filter_cli_dispatches_build(monkeypatch, capsys):
     assert calls[0]["output"] == "out.yaml"
     assert calls[0]["output_source_list"] == "files.txt"
     assert "8 accepted, 2 rejected" in capsys.readouterr().out
+
+
+def test_filter_scan_progress_is_default_and_quiet_can_disable_it(monkeypatch):
+    """Batch scans should emit progress without requiring a pipeline option."""
+    calls = []
+    monkeypatch.setattr(
+        "spine.bin.filter.scan_sources", lambda **kwargs: calls.append(kwargs) or []
+    )
+    argv = [
+        "scan",
+        "--config",
+        "filter.yaml",
+        "--source",
+        "one.root",
+        "--cache-dir",
+        "cache",
+    ]
+    cli(argv)
+    cli([*argv, "--quiet"])
+    assert [call["progress"] for call in calls] == [True, False]

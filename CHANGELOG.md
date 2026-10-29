@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `spine-filter scan` now reports total files, scanned/reused completion counts,
+  percentages and elapsed time as workers finish, with 30-second status lines
+  while waiting. Output is flushed to batch logs; `--quiet` suppresses progress.
+
 ## [1.4.4] - 2026-10-29
 
 ### Fixed

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from numbers import Integral
 from pathlib import Path
 from typing import Any
@@ -355,6 +357,7 @@ def scan_sources(
     cache_dir: str | Path,
     workers: int = 1,
     force: bool = False,
+    progress: bool = False,
 ) -> list[dict[str, Any]]:
     """Scan source files, reusing every compatible persistent record.
 
@@ -376,6 +379,9 @@ def scan_sources(
         Number of source files to inspect concurrently.
     force : bool, default False
         Regenerate records even when their identity and schema are valid.
+    progress : bool, default False
+        Print flushed file-completion updates and 30-second status lines to
+        stderr. Uses isolated worker processes even with one worker.
 
     Returns
     -------
@@ -398,7 +404,9 @@ def scan_sources(
         (backend, source, cfg["measurements"], cache_path, force)
         for source in canonical
     ]
-    if workers == 1:
+    if progress:
+        results = _scan_with_progress(arguments, workers)
+    elif workers == 1:
         results = [_scan_one(*args) for args in arguments]
     else:
         with ProcessPoolExecutor(max_workers=workers) as executor:
@@ -413,6 +421,60 @@ def scan_sources(
 def _scan_star(arguments: tuple[Any, ...]) -> tuple[str, str, bool]:
     """Unpack one process-pool scan request."""
     return _scan_one(*arguments)
+
+
+def _scan_with_progress(
+    arguments: list[tuple[Any, ...]], workers: int
+) -> list[tuple[str, str, bool]]:
+    """Report completions without waiting for an earlier, slower source.
+
+    The parent owns stderr so concurrent ROOT workers cannot interleave status
+    lines. Results retain source order regardless of completion order. Periodic
+    status lines also cover time spent scanning a single large source.
+    """
+    total = len(arguments)
+    started = time.monotonic()
+    results: dict[int, tuple[str, str, bool]] = {}
+    completed = reused = 0
+    print(
+        f"[spine-filter] Scanning {total} files with {workers} workers "
+        "(compatible records will be reused).",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    def report(detail: str) -> None:
+        elapsed = time.monotonic() - started
+        percent = 100.0 * completed / total if total else 100.0
+        print(
+            f"[spine-filter] {completed}/{total} files ({percent:.1f}%) | "
+            f"{completed - reused} scanned, {reused} reused | "
+            f"{elapsed:.0f}s elapsed | {detail}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        pending = {
+            executor.submit(_scan_star, args): index
+            for index, args in enumerate(arguments)
+        }
+        while pending:
+            done, _ = wait(pending, timeout=30.0, return_when=FIRST_COMPLETED)
+            if not done:
+                report(f"{len(pending)} files remaining; waiting for workers")
+            for future in done:
+                index = pending.pop(future)
+                try:
+                    result = future.result()
+                except Exception:
+                    report(f"FAILED: {arguments[index][1]}")
+                    raise
+                results[index] = result
+                completed += 1
+                reused += int(result[2])
+                report(f"{'reused' if result[2] else 'scanned'}: {result[0]}")
+    return [results[index] for index in range(total)]
 
 
 def _load_required_record(
