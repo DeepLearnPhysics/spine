@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from spine.vis.metric.confmat import plot_confusion_matrix
-from spine.vis.metric.plot import save_figure
+from spine.vis.metric.plot import plotting, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, safe_ratio
 from .classification import aggregate_confusion, resolve_class_groups
@@ -102,6 +102,11 @@ class SegmentConfusionRecipe(ReportRecipe):
             kind="shape",
             default_ids=range(len(matrix)),
         )
+        # Keep all predicted classes in the overall truth denominator. The
+        # displayed submatrix still conditions on the selected reco subset.
+        overall_support = np.asarray(
+            [matrix[:, value["source_ids"]].sum() for value in classes], dtype=np.int64
+        )
         matrix = aggregate_confusion(matrix, classes)
         class_names = [value["name"] for value in classes]
 
@@ -112,6 +117,7 @@ class SegmentConfusionRecipe(ReportRecipe):
         diagonal = np.diag(matrix)
         recall = safe_ratio(diagonal, support)
         precision = safe_ratio(diagonal, predicted)
+        overall_recall = safe_ratio(diagonal, overall_support)
         return {
             "recipe": self.name,
             "inputs": counts.as_dict(paths, row_count),
@@ -124,6 +130,9 @@ class SegmentConfusionRecipe(ReportRecipe):
                     "support": int(support[index]),
                     "predicted": int(predicted[index]),
                     "recall": float(recall[index]),
+                    "recall_conditional": float(recall[index]),
+                    "support_overall": int(overall_support[index]),
+                    "recall_overall": float(overall_recall[index]),
                     "precision": float(precision[index]),
                 }
                 for index, name in enumerate(class_names)
@@ -154,4 +163,34 @@ class SegmentConfusionRecipe(ReportRecipe):
             Paths of the generated confusion-matrix files.
         """
         figure = plot_confusion_matrix(summary["matrix"], summary["class_names"])
-        return save_figure(figure, output_dir / f"{self.key}_confusion", formats)
+        paths = save_figure(figure, output_dir / f"{self.key}_confusion", formats)
+        values = list(summary.get("per_class", {}).values())
+        if any(
+            value.get("support_overall", value["support"]) != value["support"]
+            for value in values
+        ):
+            # Preserve the conditional confusion plot and expose the losses
+            # outside its displayed prediction subset in an additional figure.
+            plt = plotting()
+            figure, axis = plt.subplots()
+            positions = np.arange(len(values))
+            axis.bar(
+                positions - 0.2,
+                [v["recall_conditional"] for v in values],
+                width=0.4,
+                label="Conditional on selected predictions",
+            )
+            axis.bar(
+                positions + 0.2,
+                [v["recall_overall"] for v in values],
+                width=0.4,
+                label="Overall truth recall",
+            )
+            axis.set_xticks(positions, summary["class_names"])
+            axis.set_ylim(0, 1)
+            axis.set_ylabel("Recall")
+            axis.legend()
+            paths.extend(
+                save_figure(figure, output_dir / f"{self.key}_recall", formats)
+            )
+        return paths

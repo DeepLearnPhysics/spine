@@ -31,6 +31,13 @@ ana:
 
   - name: point_eval
 
+  # Mirror the shower-primary loss policy. These defaults match the generic
+  # full-chain objective; set all policy options explicitly for other models.
+  - name: shower_primary_eval
+    use_closest: false
+    high_purity: false
+    use_group_pred: false
+
   - name: cluster_eval
     obj_type: [fragment, particle, interaction]
     # Build both assignments from objects so inference does not need to retain

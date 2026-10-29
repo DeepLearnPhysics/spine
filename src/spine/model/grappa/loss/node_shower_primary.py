@@ -8,10 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from spine.cluster.label import (
-    get_cluster_closest_primary_label_batch,
-    get_cluster_label_batch,
-)
+from spine.cluster.primary import primary_purity_mask_batch, shower_primary_target
 from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.common.factories import loss_fn_factory
 from spine.model.common.quality import (
@@ -19,7 +16,6 @@ from spine.model.common.quality import (
     ClusterQualityFilter,
 )
 from spine.model.common.weighting import get_class_weights
-from spine.model.grappa.evaluation import node_purity_mask_batch
 
 from .target import prepare_cached_target, target_tensor, validity_batch
 
@@ -205,7 +201,7 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         if self.high_purity and self.use_group_pred:
             if group_pred is None:
                 raise ValueError("If using group predictions, must provide them.")
-            valid_array &= node_purity_mask_batch(group_pred, primary_ids)
+            valid_array &= primary_purity_mask_batch(group_pred, primary_ids)
 
         valid_index = np.where(valid_array)[0]
         node_assn_tensor = target_tensor(primary_ids, node_pred, dtype=torch.long)[
@@ -318,28 +314,14 @@ class NodeShowerPrimaryLoss(torch.nn.Module):
         int
             Number of otherwise eligible nodes rejected by overlap quality.
         """
-        # Build the static supervision and validity mask from structured truth.
-        primary_ids = get_cluster_label_batch(
-            clust_label, clusts, column="group_primary"
+        # Share closest-fragment and truth-group eligibility with reporting.
+        primary_ids, valid_array = shower_primary_target(
+            clust_label,
+            clusts,
+            coord_label,
+            use_closest=self.use_closest,
+            high_purity=self.high_purity and not self.use_group_pred,
         )
-        valid_array = primary_ids.to_numpy().data > -1
-
-        # Optionally identify the fragment nearest the shower creation point.
-        if self.use_closest:
-            if coord_label is None:
-                raise ValueError(
-                    "To use the shower fragment closest to the shower creation "
-                    "point as the primary fragment, must provide `coord_label`."
-                )
-            primary_ids = get_cluster_closest_primary_label_batch(
-                clust_label, coord_label, clusts, primary_ids
-            )
-            valid_array &= primary_ids.numpy_tensor() > -1
-
-        # Truth-group purity is static; predicted-group purity is applied later.
-        if self.high_purity and not self.use_group_pred:
-            group_ids = get_cluster_label_batch(clust_label, clusts, column="group")
-            valid_array &= node_purity_mask_batch(group_ids, primary_ids)
 
         # Exclude unstable targets according to the overlap-quality policy.
         count_rejected = 0

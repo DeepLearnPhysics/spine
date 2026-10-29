@@ -65,10 +65,16 @@ def test_generic_fragment_metrics_use_adapted_truth_indexes():
     assert analyzer["ana"]["cluster_eval"]["truth_index_mode"] == "index_adapt"
     assert "size_adapt" in analyzer["ana"]["save"]["fragment"]
 
-    cuts = report["metrics"]["nodes"]["tasks"]["shower_fragment_primary"][
+    cuts = report["metrics"]["nodes"]["tasks"]["shower_fragment_group_primary"][
         "quality_cuts"
     ]["all"]
     assert {"column": "truth_size_adapt", "min": 25} in cuts
+
+    target = report["metrics"]["nodes"]["tasks"]["shower_fragment_primary"]
+    assert target["truth_column"] == "target"
+    assert target["prediction_column"] == "prediction"
+    assert target["quality_cuts"] == {"column": "valid", "equals": True}
+    assert "shower_primary_eval" in analyzer["ana"]
 
 
 def test_generic_report_includes_standard_and_mapped_semantics():
