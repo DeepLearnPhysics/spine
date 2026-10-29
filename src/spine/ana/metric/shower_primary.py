@@ -44,8 +44,35 @@ class ShowerPrimaryAna(AnaBase):
         """Initialize target policy; options mirror ``shower_primary`` loss.
 
         ``label_key`` must reference structured truth on the same reconstructed
-        point domain as ``fragment_clusts``. Remaining options are documented
-        by :class:`spine.model.grappa.loss.NodeShowerPrimaryLoss`.
+        point domain as ``fragment_clusts``.
+
+        Parameters
+        ----------
+        use_closest : bool, default False
+            Among fragments of the true primary particle, select the one
+            closest to the shower start. Requires ``coord_label``.
+        high_purity : bool, default False
+            Accept only groups containing exactly one primary target.
+        use_group_pred : bool, default False
+            Apply purity cuts to predicted groups rather than truth groups.
+            Only used when ``high_purity`` is enabled.
+        min_iou : float or sequence of float, optional
+            Minimum truth-instance overlap IoU, shared or specified separately
+            for secondary and primary target classes.
+        min_purity : float or sequence of float, optional
+            Minimum fragment purity under the shared overlap-quality policy.
+        min_efficiency : float or sequence of float, optional
+            Minimum fragment efficiency under the shared overlap-quality policy.
+        match_target : str, default 'group'
+            Truth-instance field used for overlap-quality matching.
+        label_key : str, default 'clust_label_adapt'
+            Structured truth-label product on the reconstructed point domain.
+        shapes : sequence of int, default (0, 2, 3)
+            Semantic IDs modeled by the shower network: shower, Michel and
+            delta by default. Unmodeled logit sentinels are always excluded.
+        **kwargs : dict, optional
+            Additional options forwarded to ``AnaBase``, including log paths,
+            output prefixes and CSV buffering.
         """
         super().__init__(**kwargs)
         self.use_closest = use_closest

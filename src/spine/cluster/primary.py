@@ -14,7 +14,20 @@ from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 def primary_purity_mask_batch(
     group_ids: TensorBatch, primary_ids: TensorBatch
 ) -> np.ndarray:
-    """Select nodes in event-local groups with exactly one primary target."""
+    """Select nodes in event-local groups with exactly one primary target.
+
+    Parameters
+    ----------
+    group_ids : TensorBatch
+        Group assignments for each node, partitioned by event.
+    primary_ids : TensorBatch
+        Binary primary targets with the same node ordering and event counts.
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean node eligibility mask. Group IDs are local to each event.
+    """
     groups = group_ids.to_numpy()
     targets = primary_ids.to_numpy()
     valid = np.zeros(len(targets.data), dtype=bool)
