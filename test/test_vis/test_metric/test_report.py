@@ -138,6 +138,7 @@ def test_build_report_renders_expected_pngs(tmp_path):
     assert {path.name for path in output_dir.iterdir()} == {
         "summary.json",
         "segmentation_confusion.png",
+        "segmentation_metrics.png",
         "ppn_efficiency.png",
         "ppn_efficiency_by_class.png",
         "ppn_purity.png",

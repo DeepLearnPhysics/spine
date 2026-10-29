@@ -308,10 +308,69 @@ def aggregate_confusion(
     return output
 
 
+def classification_metrics(
+    matrix: np.ndarray, groups: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Compute voxel-weighted metrics without discarding out-of-group errors.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Raw confusion counts, with predicted rows and true columns.
+    groups : sequence of mappings
+        Disjoint class groups returned by :func:`resolve_class_groups`.
+
+    Returns
+    -------
+    dict
+        Accuracy, per-class support, predicted counts, precision, recall and
+        F1, plus macro F1 and the names contributing to its mean. Undefined
+        ratios are None. F1 is zero for a missed or spurious class and None
+        only when both its true and predicted populations are empty.
+
+    Notes
+    -----
+    Class selection restricts the reported classes, not the populations used
+    in their precision and recall denominators. Mapped within-group confusion
+    counts as correct. Accuracy uses the selected truth population.
+    """
+    pooled = aggregate_confusion(matrix, groups)
+    per_class = {}
+    for group, correct in zip(groups, np.diag(pooled)):
+        ids = group["source_ids"]
+        support = int(matrix[:, ids].sum())
+        predicted = int(matrix[ids, :].sum())
+        per_class[group["name"]] = {
+            "support": support,
+            "predicted": predicted,
+            "precision": float(correct / predicted) if predicted else None,
+            "recall": float(correct / support) if support else None,
+            "f1": (
+                float(2 * correct / (support + predicted))
+                if support + predicted
+                else None
+            ),
+        }
+    included = [name for name, value in per_class.items() if value["f1"] is not None]
+    total = sum(value["support"] for value in per_class.values())
+    return {
+        "voxel_count": total,
+        "accuracy": float(np.trace(pooled) / total) if total else None,
+        "per_class": per_class,
+        "macro_f1": (
+            float(np.mean([per_class[name]["f1"] for name in included]))
+            if included
+            else None
+        ),
+        "macro_f1_classes": included,
+    }
+
+
 __all__ = [
     "PRIMARY_LABELS",
     "aggregate_confusion",
     "class_id",
+    "classification_metrics",
     "infer_class_kind",
     "map_class_values",
     "resolve_class_groups",

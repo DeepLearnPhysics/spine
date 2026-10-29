@@ -1,4 +1,4 @@
-"""Streaming distance-dependent segmentation accuracy and class recall."""
+"""Distance-dependent segmentation metrics and event-bootstrap intervals."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ import pandas as pd
 from spine.vis.metric.plot import plotting, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe
-from .classification import aggregate_confusion, resolve_class_groups
+from .classification import classification_metrics, resolve_class_groups
 from .segment import SegmentConfusionRecipe
+from .uncertainty import EventBootstrap
 
 
 class SegmentDistanceRecipe(ReportRecipe):
@@ -22,6 +23,9 @@ class SegmentDistanceRecipe(ReportRecipe):
     Supports the same ``classes`` and ``class_mapping`` as segment_confusion.
     Truth denominators include predictions outside selected classes. Distance
     intervals are in cm; a maximum of null denotes the unbounded final bin.
+    Precision includes truth outside selected classes. Macro F1 averages
+    defined per-class F1 values. Optional ``bootstrap`` settings add pointwise
+    percentile intervals by resampling entire events across all bins.
     """
 
     name = "segment_distance"
@@ -61,6 +65,11 @@ class SegmentDistanceRecipe(ReportRecipe):
         schema = None
         vertex_key = None
         row_count = no_vertex_events = 0
+        bootstrap = (
+            EventBootstrap(self.config["bootstrap"])
+            if "bootstrap" in self.config
+            else None
+        )
 
         # Stream shards while checking that their statistics can be pooled.
         for path in paths:
@@ -104,6 +113,8 @@ class SegmentDistanceRecipe(ReportRecipe):
                     )
 
                 # Count events independently of the repeated distance-bin rows.
+                if bootstrap is not None:
+                    bootstrap.update(path, chunk, size, distance=True)
                 counts.update(path, chunk)
                 row_count += len(chunk)
                 no_vertex_events += int(
@@ -158,31 +169,24 @@ class SegmentDistanceRecipe(ReportRecipe):
             self.config, kind="shape", default_ids=range(size)
         )
 
-        def summarize(matrix):
-            """Derive voxel-weighted metrics from one raw confusion matrix.
-
-            Rows represent predicted classes and columns represent truth.
-            Class mapping pools correct counts, while support includes every
-            prediction for the selected true classes. Empty populations yield
-            None so JSON and plots preserve undefined accuracies.
-            """
-            support = [int(matrix[:, c["source_ids"]].sum()) for c in classes]
-            pooled = aggregate_confusion(matrix, classes)
-            correct = np.diag(pooled)
-            total = sum(support)
-
-            return {
+        summaries = {
+            index: {
                 "matrix": matrix.tolist(),
-                "voxel_count": total,
-                "accuracy": float(correct.sum() / total) if total else None,
-                "per_class": {
-                    c["name"]: {"support": n, "recall": float(k / n) if n else None}
-                    for c, n, k in zip(classes, support, correct)
-                },
+                **classification_metrics(matrix, classes),
             }
+            for index, matrix in matrices.items()
+        }
+        bootstrap_metadata = None
+        if bootstrap is not None:
+            bootstrap_metadata, intervals = bootstrap.summarize(
+                classes, sorted(matrices)
+            )
+            for index, value in intervals.items():
+                summaries[index]["confidence_intervals"] = value
 
         return {
             "recipe": self.name,
+            **({"bootstrap": bootstrap_metadata} if bootstrap_metadata else {}),
             "inputs": counts.as_dict(paths, row_count),
             "vertex_key": vertex_key,
             "distance_units": "cm",
@@ -191,12 +195,12 @@ class SegmentDistanceRecipe(ReportRecipe):
                 {
                     "distance_min": bounds[i][0],
                     "distance_max": bounds[i][1] if bounds[i][1] >= 0 else None,
-                    **summarize(matrices[i]),
+                    **summaries[i],
                 }
                 for i in sorted(matrices)
                 if i >= 0
             ],
-            "no_vertex": {"event_count": no_vertex_events, **summarize(matrices[-1])},
+            "no_vertex": {"event_count": no_vertex_events, **summaries[-1]},
         }
 
     def render(
@@ -227,29 +231,57 @@ class SegmentDistanceRecipe(ReportRecipe):
         appearing at an arbitrary distance.
         """
         plt = plotting()
-        figure, axes = plt.subplots(2, 1, sharex=True, figsize=(9, 7))
+        figure, axes = plt.subplots(5, 1, sharex=True, figsize=(10, 15))
         bins = summary["bins"]
         positions = np.arange(len(bins))
 
-        # Show the overall metric and one recall series per selected class.
-        axes[0].plot(
-            positions, [b["accuracy"] for b in bins], "o-", label="Overall accuracy"
-        )
-        for cls in summary["classes"]:
-            name = cls["name"]
-            axes[0].plot(
+        def series(axis, values, intervals, label):
+            """Plot serialized estimates with their pointwise confidence band."""
+            values = [np.nan if v is None else v for v in values]
+            (line,) = axis.plot(positions, values, "o-", label=label)
+            lower = [i.get("lower") for i in intervals]
+            upper = [i.get("upper") for i in intervals]
+            axis.fill_between(
                 positions,
-                [b["per_class"][name]["recall"] for b in bins],
-                "o-",
-                label=f"{name} recall",
+                [np.nan if v is None else v for v in lower],
+                [np.nan if v is None else v for v in upper],
+                color=line.get_color(),
+                alpha=0.15,
             )
 
-        axes[0].set_ylim(0, 1)
-        axes[0].set_ylabel("Accuracy / recall")
-        axes[0].legend()
+        for metric, label in (
+            ("accuracy", "Overall accuracy"),
+            ("macro_f1", "Macro F1"),
+        ):
+            series(
+                axes[0],
+                [b[metric] for b in bins],
+                [b.get("confidence_intervals", {}).get(metric, {}) for b in bins],
+                label,
+            )
+        axes[0].set_ylabel("Accuracy / macro F1")
+        for axis, metric in zip(axes[1:4], ("precision", "recall", "f1")):
+            for cls in summary["classes"]:
+                name = cls["name"]
+                series(
+                    axis,
+                    [b["per_class"][name][metric] for b in bins],
+                    [
+                        b.get("confidence_intervals", {})
+                        .get("per_class", {})
+                        .get(name, {})
+                        .get(metric, {})
+                        for b in bins
+                    ],
+                    name,
+                )
+            axis.set_ylabel(metric.capitalize())
+        for axis in axes[:4]:
+            axis.set_ylim(0, 1)
+            axis.legend()
 
         # Keep the voxel population visible when interpreting sparse bins.
-        axes[1].bar(positions, [b["voxel_count"] for b in bins])
+        axes[4].bar(positions, [b["voxel_count"] for b in bins])
         labels = [
             (
                 f"[{b['distance_min']:g}, {b['distance_max']:g})"
@@ -259,9 +291,12 @@ class SegmentDistanceRecipe(ReportRecipe):
             for b in bins
         ]
 
-        axes[1].set_xticks(positions, labels, rotation=30)
-        axes[1].set_ylabel("Voxels")
-        axes[1].set_xlabel(f"Distance to closest {summary['vertex_key']} point (cm)")
+        axes[4].set_xticks(positions, labels, rotation=30)
+        axes[4].set_ylabel("Voxels")
+        axes[4].set_xlabel(f"Distance to closest {summary['vertex_key']} point (cm)")
 
+        if "bootstrap" in summary:
+            confidence = summary["bootstrap"]["confidence"]
+            figure.suptitle(f"{confidence:.0%} pointwise event-bootstrap intervals")
         figure.tight_layout()
         return save_figure(figure, output_dir / f"{self.key}_distance", formats)

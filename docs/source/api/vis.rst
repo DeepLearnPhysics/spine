@@ -82,3 +82,84 @@ can convert the same scene back into a figure:
    )
    fig = scene.render("plotly")
    fig.show()
+
+Segmentation Metrics and Uncertainties
+--------------------------------------
+
+The ``segment_confusion`` and ``segment_distance`` report providers compute
+voxel-weighted metrics from event confusion counts (predicted classes on rows,
+true classes on columns). Both support ``classes`` and ``class_mapping``.
+Per-class precision includes all truth classes in its predicted denominator;
+recall includes all predicted classes in its truth denominator. Selecting a
+class therefore does not hide its false positives or false negatives. Mapping
+classes together treats predictions within the combined group as correct.
+
+F1 is computed as ``2 * true_positive / (true_count + predicted_count)``.
+An entirely absent class has null precision, recall and F1; a missed or
+spuriously predicted class has zero F1. Macro F1 averages the defined class
+F1 values, with the contributing names recorded in ``macro_f1_classes``.
+Accuracy uses the selected true population. Counts are pooled before ratios
+are computed, rather than averaging event metrics.
+
+For ``segment_confusion``, the ``metrics`` JSON block contains these shared
+metrics and their full-population denominators. Existing top-level accuracy,
+precision and recall retain their conditional semantics for compatibility;
+per-class ``f1`` is likewise conditional, while ``f1_overall``,
+``precision_overall`` and ``predicted_overall`` expose full-population values.
+Top-level ``macro_f1`` uses the shared full-population definition. The new
+``<key>_metrics`` figure shows the shared per-class metrics.
+For ``segment_distance``, each distance bin and the separate ``no_vertex``
+summary contain the shared metrics directly. Distance plots show accuracy,
+macro F1, precision, recall, F1 and voxel populations.
+
+Enable optional percentile confidence intervals in either provider with:
+
+.. code-block:: yaml
+
+   metrics:
+     segmentation:
+       provider: segment_confusion
+       source: "**/*segment_eval_summary.csv"
+       bootstrap:
+         replicates: 1000
+         confidence: 0.95
+         seed: 0
+     vertex_distance:
+       provider: segment_distance
+       source: "**/*segment_eval_distance.csv"
+       bootstrap:
+         replicates: 1000
+         confidence: 0.95
+         seed: 0
+
+Omit ``bootstrap`` to skip uncertainty estimation and retain streaming
+reduction without storing event matrices. When enabled, the reducer retains
+compact per-event confusion matrices in memory, scaling with the number of
+events, bins and squared raw class count. The options shown above are defaults.
+Replicates must be at least two, confidence must lie strictly between zero and
+one, and seed must be a nonnegative integer.
+
+Each replicate samples the original number of events with replacement, sums
+their counts, then recomputes the metrics. All distance bins of an event share
+the same sampling multiplicity, including its no-vertex record. CSV chunks do
+not define sampling units. Event identities use ``file_index`` plus
+``file_entry_index`` when available, then ``index`` with an optional
+``file_index``, then ``run/subrun/event``. IDs are namespaced by CSV path, so
+independent shards may reuse local IDs. Inputs should contain disjoint events
+across shards; duplicated or correlated events across shards are not detected.
+Missing or null event identities are rejected when bootstrapping is enabled.
+
+Intervals appear in ``confidence_intervals`` beside their point estimates;
+bootstrap metadata records the method, event count, seed and confidence level.
+Each interval records ``lower``, ``upper``, ``valid_replicates`` and
+``contributing_events``. Undefined replicate metrics are omitted from the
+percentiles; macro F1 uses the defined classes in each replicate. Endpoints
+are null for undefined estimates or fewer than two contributing events or
+valid replicates. Sparse populations should therefore be interpreted alongside
+these counts. Empty bins remain null rather than becoming zero-accuracy bins.
+Distance plots show shaded pointwise intervals, not simultaneous confidence
+bands; overall per-class plots show vertical intervals.
+
+These intervals describe statistical sampling variation between independent
+events. They do not include uncertainty from training or detector/model
+systematics, and a degenerate bootstrap interval does not establish certainty.

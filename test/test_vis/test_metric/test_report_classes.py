@@ -106,6 +106,7 @@ def test_segment_overall_recall_retains_excluded_prediction_rows(tmp_path):
     paths = SegmentConfusionRecipe("semantic", {}).render(summary, tmp_path, ["png"])
     assert {path.name for path in paths} == {
         "semantic_confusion.png",
+        "semantic_metrics.png",
         "semantic_recall.png",
     }
 
