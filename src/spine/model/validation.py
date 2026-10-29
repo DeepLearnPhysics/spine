@@ -373,11 +373,13 @@ class ValidationManager:
     ) -> None:
         """Build a validation loader and optional validation policies.
 
-        ``cfg`` only describes validation sources, entry selection, the
+        ``cfg`` describes validation sources, entry selection, the
         fraction of the selected loader to visit, early stopping and
         best-checkpoint selection. ``entry_fraction_range`` chooses a stable
-        dataset subset, whereas ``fraction`` limits each validation pass. The
-        training loader supplies the dataset schema, batching, collation and
+        dataset subset, whereas ``fraction`` limits each validation pass.
+        ``initial`` (default ``True``) validates and checkpoints a fresh model
+        before its first optimizer step. Resumed validation history is retained.
+        The training loader supplies the dataset schema, batching, collation and
         worker configuration.
 
         Parameters
@@ -422,6 +424,9 @@ class ValidationManager:
         # Parse validation-owned scheduling options
         cfg = deepcopy(dict(cfg))
         fraction = cfg.pop("fraction", 1.0)
+        self.initial = cfg.pop("initial", True)
+        if not isinstance(self.initial, bool):
+            raise TypeError("`validation.initial` must be a boolean.")
         early_cfg = cfg.pop("early_stopping", None)
         best_cfg = cfg.pop("best_checkpoint", None)
         if not isinstance(fraction, Real):
@@ -775,7 +780,8 @@ class ValidationManager:
         Parameters
         ----------
         iteration : int
-            Current training iteration forwarded to time-dependent losses.
+            Last completed training iteration. ``-1`` denotes initial
+            validation; time-dependent losses then receive iteration zero.
         epoch : float, optional
             Current training epoch recorded alongside validation batches.
 
@@ -816,7 +822,7 @@ class ValidationManager:
                 watch.start("iteration")
                 data = self.io.load()
                 watch.start("model")
-                result = self.model.evaluate(data, iteration)
+                result = self.model.evaluate(data, max(0, iteration))
                 watch.stop("model")
                 data.update(result)
                 if hasattr(self.io, "watch"):

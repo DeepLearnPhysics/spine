@@ -1,5 +1,6 @@
 """Unit tests for model discovery and manager configuration handling."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -813,6 +814,37 @@ def test_save_state_writes_rich_checkpoint_and_requires_prefix(tmp_path, monkeyp
     best_path = manager.save_best_state(checkpoint_path)
     assert best_path == str(tmp_path / "snapshot-best.ckpt")
     assert (tmp_path / "snapshot-best.ckpt.sha256").exists()
+
+
+def test_initial_checkpoint_round_trip_starts_at_first_training_step(tmp_path):
+    """The initial artifact resumes at step zero with its baseline history."""
+    net = torch.nn.Linear(1, 1)
+    manager = make_bare_manager(
+        net=net,
+        optimizer=torch.optim.SGD(net.parameters(), lr=0.1),
+        lr_scheduler=None,
+        distributed=False,
+        weight_prefix=str(tmp_path / "snapshot"),
+        model_name="test",
+        model_cfg={},
+    )
+    baseline = {"metrics": {"loss": 0.25}}
+    path = manager.save_state(-1, 0.0, baseline)
+    assert path == str(tmp_path / "snapshot-initial.ckpt")
+    checkpoint = torch.load(path, weights_only=True)
+    assert checkpoint["global_step"] == -1
+    assert checkpoint["global_epoch"] == 0.0
+    assert checkpoint["validation"] == baseline
+    assert Path(path + ".sha256").exists()
+    manager.save_best_state(path)
+    assert (
+        torch.load(tmp_path / "snapshot-best.ckpt", weights_only=True)["global_step"]
+        == -1
+    )
+    manager.load_weights(path)
+    assert manager.start_iteration == 0
+    assert manager.start_epoch == 0.0
+    assert manager.checkpoint_validation == baseline
 
 
 def test_save_and_load_state_preserves_trainable_loss_parameters(tmp_path):

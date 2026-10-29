@@ -8,7 +8,7 @@ import pytest
 
 from spine.config import load_config_file
 from spine.driver import Driver
-from spine.utils.conditional import LARCV_AVAILABLE, TORCH_AVAILABLE
+from spine.utils.conditional import LARCV_AVAILABLE, TORCH_AVAILABLE, torch
 
 from .cases import (
     EXPECTED_OUTPUTS,
@@ -116,7 +116,10 @@ def test_sparse_model_config_runs_with_lattice_phase(case_name, larcv_data, tmp_
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
-def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog):
+@pytest.mark.parametrize("initial", [True, False])
+def test_training_config_runs_checkpoint_validation(
+    larcv_data, tmp_path, caplog, initial
+):
     """Run training and on-the-fly validation through the real driver loop."""
     cfg = load_config_file(str(STANDALONE_MODEL_CONFIGS["uresnet"]), download=False)
     cfg = deepcopy(cfg)
@@ -139,7 +142,11 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
         "file_keys": larcv_data,
         "fraction": 0.01,
         "early_stopping": {"monitor": "loss", "patience": 2},
+        "best_checkpoint": True,
     }
+    # Exercise the default initial baseline as well as the explicit opt-out.
+    if not initial:
+        cfg["validation"]["initial"] = False
 
     with caplog.at_level("INFO", logger="spine"):
         Driver(cfg).run()
@@ -153,6 +160,30 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert len(train_df) == len(validation_df) == 1
     assert not any(key.startswith("val_") for key in train_df.columns)
     assert {"loss", "accuracy"} <= set(validation_df.columns)
+    initial_log = log_dir / "validation_log-0000000.csv"
+    initial_checkpoint = log_dir / "snapshot-initial.ckpt"
+    if initial:
+        assert initial_log.is_file()
+        assert initial_checkpoint.is_file()
+        assert (log_dir / "snapshot-initial.ckpt.sha256").is_file()
+        initial_df = pd.read_csv(initial_log)
+        assert len(initial_df) == 1
+        assert initial_df["epoch"].iloc[0] == 0.0
+        baseline = torch.load(initial_checkpoint, weights_only=True)
+        assert baseline["global_step"] == -1
+        assert baseline["global_epoch"] == 0.0
+        assert baseline["validation"]["early_stopping"]["bad_checks"] == 0
+        baseline_loss = baseline["validation"]["metrics"]["loss"]
+        assert baseline_loss == pytest.approx(initial_df["loss"].iloc[0])
+    else:
+        assert not initial_log.exists()
+        assert not initial_checkpoint.exists()
+        baseline_loss = math.inf
+
+    best = torch.load(log_dir / "snapshot-best.ckpt", weights_only=True)
+    assert best["validation"]["metrics"]["loss"] == pytest.approx(
+        min(baseline_loss, validation_df["loss"].iloc[0])
+    )
 
     output = "\n".join(caplog.messages)
     assert "CHECKPOINT\nReason:             scheduled\nTraining iteration: 0" in output
@@ -170,10 +201,17 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
     assert "Saving checkpoint..." in output
     assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69
-    assert output.count(separator) == 2
+    assert output.count(separator) == 2 * (1 + int(initial))
     train_summary = output.index("Iter. 0 (epoch 1.000)")
     checkpoint = output.index("CHECKPOINT\nReason:             scheduled")
     assert train_summary < checkpoint
+    initial_header = "CHECKPOINT\nReason:             initial\nTraining iteration: -1"
+    if initial:
+        assert output.count(initial_header) == 1
+        initial_saved = output.index(f"Checkpoint saved: {initial_checkpoint}")
+        assert output.index(initial_header) < initial_saved < train_summary
+    else:
+        assert initial_header not in output
 
 
 @pytest.mark.model

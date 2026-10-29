@@ -976,6 +976,24 @@ class Driver:
                 else start_epoch
             )
 
+            # Establish a measured baseline before any optimizer update. A
+            # resumed checkpoint already owns its validation policy/history.
+            if (
+                training
+                and getattr(self, "validation", None) is not None
+                and getattr(self.validation, "initial", False)
+                and start_iteration == 0
+                and not getattr(model, "checkpoint_validation", None)
+            ):
+                self.run_checkpoint(
+                    {},
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    -1,
+                    0.0,
+                    reason="initial",
+                    scheduled=False,
+                )
+
             # Loop and process each iteration
             for iteration in range(start_iteration, stop_iteration):
                 # Let I/O prepare loader state, if using a loader.
@@ -1128,7 +1146,9 @@ class Driver:
 
         # Present the completed step before opening its checkpoint section. The
         # CSV row is appended afterward so it includes any configured save time.
-        self.log_stdout(data, tstamp, iteration, epoch)
+        initial = reason == "initial"
+        if not initial:
+            self.log_stdout(data, tstamp, iteration, epoch)
         if self.main_process:
             validation_batches = (
                 None if self.validation is None else self.validation.num_iterations
@@ -1148,10 +1168,17 @@ class Driver:
         if self.validation is not None:
             log_manager = self.log_manager
             assert log_manager is not None
-            validation_metrics = self.validation.run(iteration, epoch)
+            # Initial validation must not change the stochastic trajectory of
+            # training, including main-process dataset randomness.
+            rng_state = runtime.capture_rng_state() if initial else None
+            try:
+                validation_metrics = self.validation.run(iteration, epoch)
+            finally:
+                if rng_state is not None:
+                    runtime.restore_rng_state(rng_state)
             log_manager.append_tensorboard(
                 {f"val_{key}": value for key, value in validation_metrics.items()},
-                iteration,
+                iteration + 1,
             )
             promote_best = self.validation.update_best_checkpoint(validation_metrics)
             stop_training = self.validation.update_early_stopping(validation_metrics)

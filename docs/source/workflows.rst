@@ -198,6 +198,20 @@ as launch-time overrides:
      --log-dir /results/uresnet/logs \
      --tensorboard
 
+Fresh training runs perform initial validation before the first optimizer step.
+This includes weights loaded through scoped warm starts. The assembled starting
+model is written to ``<weight_prefix>-initial.ckpt`` and is eligible for
+``snapshot-best.ckpt`` when best-checkpoint selection is enabled. Its progress is
+epoch zero with no completed steps (``global_step: -1``), so it resumes at step
+zero. Baseline metrics initialize early stopping without spending patience or
+advancing a learning-rate scheduler. Initial validation restores RNG state and
+does not consume the training loader. A resumed run retains its checkpoint's
+validation history and does not reinitialize the baseline.
+
+Set ``validation.initial: false`` to disable this behavior. Initial validation
+uses the same validation subset and fraction as later checkpoint evaluations;
+no separate held-out evaluation dataset is substituted.
+
 On-the-fly validation requires a ``validation`` block and a checkpoint cadence
 through ``train.save_step`` or ``train.save_epoch``. It inherits the training
 schema and batching but replaces data sources and disables random augmentation

@@ -1466,7 +1466,8 @@ class ModelManager:
         if not self.weight_prefix:
             raise ValueError("Must provide a weight prefix to store model state.")
 
-        filename = f"{self.weight_prefix}-{iteration:d}.ckpt"
+        suffix = "initial" if iteration == -1 else str(iteration)
+        filename = f"{self.weight_prefix}-{suffix}.ckpt"
         model = self.net if not self.distributed else self.net.module
         checkpoint = {
             "format_version": CHECKPOINT_FORMAT_VERSION,
