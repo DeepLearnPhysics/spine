@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.4.4] - 2026-10-29
+
+### Fixed
+- **Shower-primary reporting**: Add node-aligned evaluation using the same
+  closest-fragment targets, purity masks and overlap-quality policy as training.
+  Keep the legacy matched group-primary comparison as a separate metric (#187).
+- **Overall semantic recall**: Preserve conditional segmentation recall and add
+  original truth support, overall recall and a comparison plot when points are
+  excluded from the displayed prediction subset. Report schema is now 1.6.0 (#187).
+- **Starting-model checkpoint selection**: Validate fresh training runs before
+  the first optimizer step and save the assembled initial model as a candidate
+  for the best checkpoint. Preserve RNG state, scheduler cadence and resumed
+  validation history (#188).
+
+### Tests
+- Cover shared shower targets, eligibility and semantic recall denominators;
+  initial-checkpoint ordering, selection, serialization and resume behavior;
+  and full-runtime training with initial validation enabled and disabled.
+
+### Migration notes
+- Fresh training with a validation block now performs initial validation by
+  default. Set `validation.initial: false` to opt out. Initial checkpoints use
+  `<weight_prefix>-initial.ckpt`, epoch zero and `global_step: -1`, resuming at
+  step zero. Validation TensorBoard steps count completed training updates.
+- Enable `shower_primary_eval` with the same policy as the trained objective
+  and rerun inference to generate its node records. The generic report uses
+  these for `shower_fragment_primary` and retains the previous comparison as
+  `shower_fragment_group_primary`.
+- Existing confusion CSVs that retained ghost prediction rows can regenerate
+  overall semantic recall without rerunning inference. Existing conditional
+  recall and adapted-space clustering metrics retain their definitions.
+
 ## [1.4.3] - 2026-10-26
 
 ### Added
