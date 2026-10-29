@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from spine.ana.metric.segment import SegmentAna
-from spine.data import Meta, TensorData
+from spine.data import ImageMeta2D, Meta, TensorData
 
 
 def run_distance(monkeypatch, vertices, **kwargs):
@@ -123,3 +123,97 @@ def test_empty_evaluated_image(monkeypatch, vertices):
         for key, value in row.items()
         if key.startswith("count_")
     )
+
+
+def test_distance_bins_require_vertices(monkeypatch):
+    """Reject bin configuration that cannot identify a vertex product."""
+    monkeypatch.setattr(SegmentAna, "initialize_writer", lambda *args: None)
+    with pytest.raises(ValueError, match="distance_bins requires vertex_key"):
+        SegmentAna(distance_bins=[0, 2])
+
+
+@pytest.mark.parametrize("collection", ["fragments", "particles"])
+def test_object_distances_use_physical_points(monkeypatch, collection):
+    """Object coordinates are already cm and must not be converted again."""
+    from types import SimpleNamespace
+
+    rows = run_distance(
+        monkeypatch,
+        [[0.5, 0.5, 0.5]],
+        **{f"use_{collection}": True},
+        data={
+            "points": np.array([[11, 22, 33], [13, 22, 33], [17, 22, 33]]),
+            f"truth_{collection}": [
+                SimpleNamespace(index=np.array([0, 1]), shape=0),
+                SimpleNamespace(index=np.array([2]), shape=1),
+            ],
+            f"reco_{collection}": [
+                SimpleNamespace(index=np.array([0]), shape=0),
+                SimpleNamespace(index=np.array([1, 2]), shape=1),
+            ],
+        },
+    )
+    bins = rows["distance"]
+    assert bins[1]["count_00"] == 1  # 0 cm
+    assert bins[2]["count_10"] == 1  # 2 cm: lower edge is inclusive
+    assert bins[3]["count_11"] == 1  # 6 cm: overflow
+    for key, count in rows["summary"][0].items():
+        assert sum(b[key] for b in bins) == count
+
+
+@pytest.mark.parametrize("product", ["vertices", "seg_label"])
+@pytest.mark.parametrize("missing", ["coords", "meta"])
+def test_distance_requires_coordinates_and_metadata(monkeypatch, product, missing):
+    """Feature-only or metadata-free products cannot define physical distances."""
+    meta = Meta(
+        lower=np.zeros(3), upper=np.ones(3), size=np.ones(3), count=np.ones(3, int)
+    )
+    size = 1 if product == "vertices" else 4
+    tensor = TensorData(
+        features=np.zeros((size, 1)),
+        coords=None if missing == "coords" else np.zeros((size, 3)),
+        meta=None if missing == "meta" else meta,
+        feats_only=missing == "coords",
+    )
+    message = "Vertex product" if product == "vertices" else "Distance labels"
+    with pytest.raises(
+        ValueError, match=message + " requires? coordinates and metadata"
+    ):
+        run_distance(monkeypatch, [[0, 0, 0]], data={product: tensor})
+
+
+@pytest.mark.parametrize("product", ["vertices", "seg_label"])
+def test_distance_rejects_two_dimensional_coordinates(monkeypatch, product):
+    """Valid 2D tensor products are invalid for the 3D distance analysis."""
+    meta = ImageMeta2D(
+        lower=np.zeros(2), upper=np.ones(2), size=np.ones(2), count=np.ones(2, int)
+    )
+    size = 1 if product == "vertices" else 4
+    tensor = TensorData(
+        features=np.zeros((size, 1)), coords=np.zeros((size, 2)), meta=meta
+    )
+    with pytest.raises(ValueError, match="aligned 3D coordinates"):
+        run_distance(monkeypatch, [[0, 0, 0]], data={product: tensor})
+
+
+def test_distance_rejects_misaligned_predictions(monkeypatch):
+    """A shorter model output must fail before bins silently lose labels."""
+    with pytest.raises(ValueError, match="predictions and labels must be aligned"):
+        run_distance(
+            monkeypatch, [[0, 0, 0]], data={"segmentation": np.eye(2)[[0, 1, 0]]}
+        )
+
+
+@pytest.mark.parametrize("product", ["vertices", "seg_label"])
+@pytest.mark.parametrize("invalid", [np.nan, np.inf])
+def test_distance_rejects_nonfinite_coordinates(monkeypatch, product, invalid):
+    """Both coordinate sources must be finite before querying the KD tree."""
+    meta = Meta(
+        lower=np.zeros(3), upper=np.ones(3), size=np.ones(3), count=np.ones(3, int)
+    )
+    size = 1 if product == "vertices" else 4
+    coords = np.zeros((size, 3))
+    coords[0, 0] = invalid
+    tensor = TensorData(features=np.zeros((size, 1)), coords=coords, meta=meta)
+    with pytest.raises(ValueError, match="Distance coordinates must be finite"):
+        run_distance(monkeypatch, [[0, 0, 0]], data={product: tensor})
