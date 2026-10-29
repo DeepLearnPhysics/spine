@@ -75,6 +75,7 @@ Its reference page documents all constructor options and defaults.
    metric.FlashMatchingAna
    metric.PointProposalAna
    metric.SegmentAna
+   metric.shower_primary.ShowerPrimaryAna
    script.SaveAna
 
 Framework and implementation modules

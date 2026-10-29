@@ -42,8 +42,19 @@ metrics:
     sources:
       fragment: "**/*save_truth_fragments.csv"
       particle: "**/*save_truth_particles.csv"
+      shower_primary: "**/*shower_primary_eval_nodes.csv"
     tasks:
       shower_fragment_primary:
+        source: shower_primary
+        type: classification
+        class_type: primary
+        truth_column: target
+        prediction_column: prediction
+        quality_cuts:
+          column: valid
+          equals: true
+
+      shower_fragment_group_primary:
         source: fragment
         type: classification
         truth_column: truth_group_primary

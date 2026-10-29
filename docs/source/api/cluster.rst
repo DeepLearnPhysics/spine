@@ -16,5 +16,6 @@ remains with its owning model package.
    features
    direction
    label
+   primary
    topology
    graph

@@ -74,15 +74,63 @@ selections explicit. Classification tasks produce confusion matrices.
 Orientation tasks summarize the cosine between truth and reconstructed start
 directions.
 
-For fragments, reconstructed `is_primary` is the shower-fragment node output.
-The generic report compares it with truth `group_primary`, which means primary
-within the particle/cascade group, not particle primary within an interaction.
-This physical label is distinct from the optional closest-fragment target used
-when `NodeShowerPrimaryLoss.use_closest` is enabled; reproducing that training
-target would require recording it explicitly.
+The `shower_primary_eval` analyzer emits one row per modeled reconstructed
+shower-network node (shower, Michel and delta by default), with `target`,
+`prediction`, `valid`, `shape`, `fragment_id` and `target_definition`. The
+`shower_fragment_primary` report uses these node-aligned rows and explicitly
+requires `valid: true`. No best-match truth-object join is needed.
+
+Configure its target policy identically to `NodeShowerPrimaryLoss`: `use_closest`,
+`high_purity`, `use_group_pred`, `min_iou`, `min_purity`, `min_efficiency` and
+`match_target`. The generic defaults mirror the generic full-chain objective.
+For a closest-fragment objective with predicted-group purity, use:
+
+```yaml
+- name: shower_primary_eval
+  use_closest: true
+  high_purity: true
+  use_group_pred: true
+```
+
+This needs `clust_label_adapt` on the reconstructed point domain, `coord_label`
+when closest selection is enabled, and the fragment clusters, shapes, node
+logits and (for predicted purity) group predictions. Preserve these products
+when running inference, and provide the particle-coordinate parser if it is
+not already configured. Set `shapes` to the integer shape IDs modeled by the
+shower network if they differ from the defaults. Fragments with unmodeled
+`-inf` logit sentinels do not enter targets or purity masks.
+
+Training and reporting share the same closest-fragment and purity kernels;
+overlap cuts are also applied through the shared quality policy. Only the
+fragment of the *true primary particle* closest to its shower start is selected,
+not the closest arbitrary fragment in the shower. The raw-logit argmax used by
+training is reported, rather than a downstream group-constrained assignment.
+The former matched-object comparison is retained as
+`shower_fragment_group_primary`; it measures a different target and population.
+Old CSVs can still use that task, but must rerun inference for the new records.
 
 Full-chain truth fragments are constructed from labels adapted to the semantic
 prediction. Their populated voxel attributes are therefore `index_adapt` and
 `size_adapt`; the original `index` is empty. The analyzer configuration uses
 adapted indexes for fragment matching and clustering, and the fragment-primary
 quality cut uses the saved `truth_size_adapt` column.
+
+Semantic recall denominators
+---------------------------
+
+`segment_confusion` retains existing `recall` and `support` values. The explicit
+alias `recall_conditional` uses the displayed class-restricted matrix: true
+points predicted outside that subset are omitted from its denominator.
+`support_overall` instead counts the selected truth class across **all** raw
+prediction rows, and `recall_overall` divides the correctly classified count by
+that original support. Thus predictions removed by deghosting reduce overall
+semantic recall without changing the meaning of conditional segmentation
+recall. Class mappings pool truth support consistently before calculating the
+ratios. Existing `segment_eval_summary.csv` shards suffice to regenerate these
+fields if they include ghost prediction rows (`segment_eval.ghost: true`);
+a shard recorded after those rows were discarded cannot recover them.
+When the two supports differ, an additional `*_recall.png`/PDF figure compares
+conditional and overall recall alongside the unchanged confusion plot.
+
+These additions do not reinterpret adapted-space clustering efficiency as
+original-truth efficiency; those remain separate metric definitions.

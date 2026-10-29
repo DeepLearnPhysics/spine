@@ -11,3 +11,4 @@ from .cluster import *
 from .optical import *
 from .point import *
 from .segment import *
+from .shower_primary import *

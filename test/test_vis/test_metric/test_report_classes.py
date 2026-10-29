@@ -83,6 +83,33 @@ def test_class_helpers_cover_pid_primary_and_numeric_values():
     assert valid.tolist() == [True, True, False]
 
 
+def test_segment_overall_recall_retains_excluded_prediction_rows(tmp_path):
+    """Ghost losses affect overall recall without changing conditional recall."""
+    path = tmp_path / "counts.csv"
+    row = {f"count_{i}{j}": 0 for i in range(6) for j in range(6)}
+    row.update(count_00=8, count_10=2, count_50=10, count_55=20)
+    pd.DataFrame([row]).to_csv(path, index=False)
+    summary = SegmentConfusionRecipe(
+        "semantic", {"classes": ["shower", "track"]}
+    ).reduce({"source": [path]})
+    shower = summary["per_class"]["Shower"]
+    assert shower["support"] == 10
+    assert shower["support_overall"] == 20
+    assert shower["recall"] == shower["recall_conditional"] == 0.8
+    assert shower["recall_overall"] == 0.4
+
+    pooled = SegmentConfusionRecipe(
+        "pooled", {"class_mapping": {"Non-ghost": ["shower", "track"]}}
+    ).reduce({"source": [path]})["per_class"]["Non-ghost"]
+    assert pooled["recall_conditional"] == 1.0
+    assert pooled["recall_overall"] == 0.5
+    paths = SegmentConfusionRecipe("semantic", {}).render(summary, tmp_path, ["png"])
+    assert {path.name for path in paths} == {
+        "semantic_confusion.png",
+        "semantic_recall.png",
+    }
+
+
 @pytest.mark.parametrize(
     ("config", "error", "message"),
     [

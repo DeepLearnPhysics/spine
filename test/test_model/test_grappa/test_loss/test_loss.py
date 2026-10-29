@@ -868,8 +868,7 @@ def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
         closest_loss(prediction, clust_label=graph_labels, clusts=graph_clusters)
 
     monkeypatch.setattr(
-        "spine.model.grappa.loss.node_shower_primary."
-        "get_cluster_closest_primary_label_batch",
+        "spine.cluster.primary.get_cluster_closest_primary_label_batch",
         lambda *args: TensorBatch(np.array([1, 0, 1]), graph_clusters.counts),
     )
     coord_label = TensorBatch(np.zeros((3, 1)), graph_clusters.counts)
@@ -891,7 +890,7 @@ def test_shower_primary_options(graph_labels, graph_clusters, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        "spine.model.grappa.loss.node_shower_primary.primary_purity_mask_batch",
         lambda *args: np.array([True, False, True]),
     )
     result = NodeShowerPrimaryLoss(
@@ -963,7 +962,7 @@ def test_shower_primary_reapplies_predicted_group_purity(
     )
     prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
     monkeypatch.setattr(
-        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        "spine.model.grappa.loss.node_shower_primary.primary_purity_mask_batch",
         lambda group_ids, _: group_ids.numpy_tensor().astype(bool),
     )
     loss_fn = NodeShowerPrimaryLoss(high_purity=True, use_group_pred=True)
@@ -1020,7 +1019,7 @@ def test_shower_primary_truth_group_purity(
         group_primary=[1, 0, 1],
     )
     monkeypatch.setattr(
-        "spine.model.grappa.loss.node_shower_primary.node_purity_mask_batch",
+        "spine.model.grappa.loss.node_shower_primary.primary_purity_mask_batch",
         lambda *args: np.ones(3, dtype=bool),
     )
     prediction = TensorBatch(torch.zeros((3, 2)), graph_clusters.counts)
