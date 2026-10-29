@@ -409,6 +409,8 @@ Vis modules
    spine.vis.metric.report.node
    spine.vis.metric.report.point
    spine.vis.metric.report.segment
+   spine.vis.metric.report.segment_distance
+   spine.vis.metric.report.uncertainty
    spine.vis.scene.adapter
    spine.vis.scene.backend
    spine.vis.scene.model

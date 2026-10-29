@@ -11,6 +11,7 @@ from .manager import build_report
 from .node import NodeSummaryRecipe, quality_cut_mask
 from .point import PointProposalRecipe
 from .segment import SegmentConfusionRecipe
+from .segment_distance import SegmentDistanceRecipe
 
 __all__ = [
     "ClusterSummaryRecipe",
@@ -19,6 +20,7 @@ __all__ = [
     "REPORT_SCHEMA_VERSION",
     "ReportRecipe",
     "SegmentConfusionRecipe",
+    "SegmentDistanceRecipe",
     "build_report",
     "quality_cut_mask",
 ]

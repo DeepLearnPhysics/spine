@@ -20,7 +20,12 @@ from spine.vis.metric.confmat import plot_confusion_matrix
 from spine.vis.metric.plot import plotting, save_figure
 
 from .base import DEFAULT_CHUNKSIZE, InputCounts, ReportRecipe, safe_ratio
-from .classification import aggregate_confusion, resolve_class_groups
+from .classification import (
+    aggregate_confusion,
+    classification_metrics,
+    resolve_class_groups,
+)
+from .uncertainty import EventBootstrap
 
 
 class SegmentConfusionRecipe(ReportRecipe):
@@ -34,7 +39,11 @@ class SegmentConfusionRecipe(ReportRecipe):
 
     Both raw and aggregated matrices use predicted class on rows and true
     class on columns. ``excluded_count`` records entries discarded by a class
-    restriction; mapped entries remain included.
+    restriction; mapped entries remain included. The ``metrics`` block uses
+    full raw denominators and null undefined values, matching the distance
+    recipe. Legacy top-level precision/recall remain conditional on the
+    displayed submatrix. Optional ``bootstrap`` settings add event percentile
+    intervals to ``metrics`` and require event identity columns.
     """
 
     name = "segment_confusion"
@@ -65,6 +74,11 @@ class SegmentConfusionRecipe(ReportRecipe):
         matrix: np.ndarray | None = None
         counts = InputCounts()
         row_count = 0
+        bootstrap = (
+            EventBootstrap(self.config["bootstrap"])
+            if "bootstrap" in self.config
+            else None
+        )
 
         for path in paths:
             chunks = pd.read_csv(
@@ -92,6 +106,8 @@ class SegmentConfusionRecipe(ReportRecipe):
                     matrix = np.zeros((size, size), dtype=np.int64)
                 for (prediction, truth), column in columns.items():
                     matrix[int(prediction), int(truth)] += int(chunk[column].sum())
+                if bootstrap is not None:
+                    bootstrap.update(path, chunk, size)
                 counts.update(path, chunk)
                 row_count += len(chunk)
 
@@ -107,6 +123,11 @@ class SegmentConfusionRecipe(ReportRecipe):
         overall_support = np.asarray(
             [matrix[:, value["source_ids"]].sum() for value in classes], dtype=np.int64
         )
+        metrics = classification_metrics(matrix, classes)
+        bootstrap_metadata = None
+        if bootstrap is not None:
+            bootstrap_metadata, intervals = bootstrap.summarize(classes, [0])
+            metrics["confidence_intervals"] = intervals[0]
         matrix = aggregate_confusion(matrix, classes)
         class_names = [value["name"] for value in classes]
 
@@ -120,6 +141,10 @@ class SegmentConfusionRecipe(ReportRecipe):
         overall_recall = safe_ratio(diagonal, overall_support)
         return {
             "recipe": self.name,
+            "metrics": metrics,
+            "macro_f1": metrics["macro_f1"],
+            "macro_f1_classes": metrics["macro_f1_classes"],
+            **({"bootstrap": bootstrap_metadata} if bootstrap_metadata else {}),
             "inputs": counts.as_dict(paths, row_count),
             "classes": classes,
             "class_names": class_names,
@@ -134,6 +159,14 @@ class SegmentConfusionRecipe(ReportRecipe):
                     "support_overall": int(overall_support[index]),
                     "recall_overall": float(overall_recall[index]),
                     "precision": float(precision[index]),
+                    "f1": (
+                        float(2 * diagonal[index] / (support[index] + predicted[index]))
+                        if support[index] + predicted[index]
+                        else None
+                    ),
+                    "f1_overall": metrics["per_class"][name]["f1"],
+                    "precision_overall": metrics["per_class"][name]["precision"],
+                    "predicted_overall": metrics["per_class"][name]["predicted"],
                 }
                 for index, name in enumerate(class_names)
             },
@@ -192,5 +225,34 @@ class SegmentConfusionRecipe(ReportRecipe):
             axis.legend()
             paths.extend(
                 save_figure(figure, output_dir / f"{self.key}_recall", formats)
+            )
+        if "metrics" in summary:
+            plt = plotting()
+            figure, axes = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
+            metrics = summary["metrics"]
+            names = summary["class_names"]
+            positions = np.arange(len(names))
+            intervals = metrics.get("confidence_intervals", {}).get("per_class", {})
+            for axis, metric in zip(axes, ("precision", "recall", "f1")):
+                values = [metrics["per_class"][name][metric] for name in names]
+                axis.plot(positions, [np.nan if v is None else v for v in values], "o")
+                for position, name in enumerate(names):
+                    interval = intervals.get(name, {}).get(metric, {})
+                    if interval.get("lower") is not None:
+                        axis.vlines(position, interval["lower"], interval["upper"])
+                axis.set_xticks(positions, names, rotation=30)
+                axis.set_ylim(0, 1)
+                axis.set_title(metric.capitalize())
+            macro = metrics["macro_f1"]
+            title = (
+                f"Macro F1: {macro:.3f}" if macro is not None else "Macro F1: undefined"
+            )
+            if "bootstrap" in summary:
+                confidence = summary["bootstrap"]["confidence"]
+                title += f" — {confidence:.0%} pointwise event-bootstrap intervals"
+            figure.suptitle(title)
+            figure.tight_layout()
+            paths.extend(
+                save_figure(figure, output_dir / f"{self.key}_metrics", formats)
             )
         return paths
