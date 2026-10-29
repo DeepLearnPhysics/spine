@@ -379,6 +379,12 @@ def test_validation_manager_validates_runtime_options(monkeypatch):
 
     with pytest.raises(TypeError, match="fraction"):
         ValidationManager({"file_keys": "val.root", "fraction": "half"}, **kwargs)
+    with pytest.raises(TypeError, match="validation.initial"):
+        ValidationManager({"file_keys": "val.root", "initial": "yes"}, **kwargs)
+    assert ValidationManager({"file_keys": "val.root"}, **kwargs).initial
+    assert not ValidationManager(
+        {"file_keys": "val.root", "initial": False}, **kwargs
+    ).initial
     with pytest.raises(ValueError, match="fraction"):
         ValidationManager({"file_keys": "val.root", "fraction": 0.0}, **kwargs)
     with pytest.raises(TypeError, match="early_stopping"):

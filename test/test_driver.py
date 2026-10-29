@@ -128,6 +128,105 @@ def bare_driver() -> Driver:
     return drv
 
 
+@pytest.mark.parametrize(
+    "initial,resumed", [(True, False), (False, False), (True, True)]
+)
+def test_initial_checkpoint_precedes_training_and_preserves_best(initial, resumed):
+    """Worse fine-tuning must not replace the measured starting checkpoint."""
+    from spine.model.validation import BestCheckpoint, EarlyStopping
+
+    drv = bare_driver()
+    calls = []
+    policy = BestCheckpoint()
+    early = EarlyStopping(patience=3)
+    if resumed:
+        policy.best = early.best = 0.5
+
+    def validate(iteration, epoch):
+        """Consume RNG while evaluating a better initial model."""
+        calls.append(("validate", iteration))
+        np.random.random(10)
+        return {"loss": 1.0 if iteration == -1 else 2.0}
+
+    def save(iteration, epoch, state, **kwargs):
+        """Record checkpoint progress and its serialized validation policy."""
+        calls.append(("save", iteration, epoch, state, kwargs))
+        return f"snapshot-{iteration}.ckpt"
+
+    validation = SimpleNamespace(
+        initial=initial,
+        num_iterations=1,
+        best_checkpoint=policy,
+        run=validate,
+        update_best_checkpoint=lambda metrics: policy.update(metrics),
+        update_early_stopping=lambda metrics: early.update(metrics),
+        checkpoint_state=lambda metrics: {
+            "metrics": metrics,
+            "best_checkpoint": policy.state_dict(),
+            "early_stopping": early.state_dict(),
+        },
+        io=SimpleNamespace(dataset_provenance=lambda: {}),
+        close=lambda: None,
+    )
+    drv.model = SimpleNamespace(
+        train=True,
+        start_iteration=0,
+        start_epoch=0.0,
+        device="cpu",
+        checkpoint_validation={"metrics": {"loss": 0.5}} if resumed else None,
+        watch=FakeWatchManager(),
+        should_save=lambda _: True,
+        step_scheduler=lambda interval, *_: calls.append(("scheduler", interval)),
+        save_state=save,
+        save_best_state=lambda path, *_: calls.append(("best", path)),
+    )
+    drv.validation = validation
+    drv.iterations = 1
+    drv.world_size = 0
+    drv.rank = None
+    drv.main_process = True
+    drv.distributed = False
+    drv.cfg = {}
+    drv.ana = None
+    drv.io = SimpleNamespace(
+        has_loader=True,
+        iter_per_epoch=1,
+        prepare_iteration=lambda _: None,
+        checkpoint_state=lambda step: {"next_iteration": step},
+        dataset_provenance=lambda: {},
+        close=lambda: None,
+    )
+    drv.log_manager = SimpleNamespace(
+        append_tensorboard=lambda *_: None, close=lambda: None
+    )
+    drv.initialize_log = lambda: None
+    drv.log_stdout = lambda *_: None
+    drv.log = lambda *_args, **_kwargs: None
+    drv.process = lambda **_: calls.append(("train", np.random.random())) or {}
+    np.random.seed(42)
+    expected = np.random.random()
+    np.random.seed(42)
+    drv.run()
+    enabled = initial and not resumed
+    assert [c[1] for c in calls if c[0] == "validate"] == ([-1, 0] if enabled else [0])
+    assert next(c[1] for c in calls if c[0] == "train") == expected
+    assert [c for c in calls if c == ("scheduler", "validation")] == [
+        ("scheduler", "validation")
+    ]
+    if enabled:
+        assert calls[0] == ("validate", -1)
+        saves = [c for c in calls if c[0] == "save"]
+        assert saves[0][1:3] == (-1, 0.0)
+        assert saves[0][3]["early_stopping"]["bad_checks"] == 0
+        assert saves[0][4]["runtime_state"]["ranks"][0]["io"]["next_iteration"] == 0
+        assert [c for c in calls if c[0] == "best"] == [("best", "snapshot--1.ckpt")]
+        assert policy.best == 1.0
+        assert early.bad_checks == 1
+    if resumed:
+        assert policy.best == 0.5
+        assert not any(c[0] == "best" for c in calls)
+
+
 def test_driver_import_contract():
     """Driver should remain importable from the package root."""
     from spine import Driver as RootDriver
@@ -138,6 +237,27 @@ def test_driver_import_contract():
     assert isinstance(__version__, str)
     assert "██████████" in ASCII_LOGO
     assert "Central SPINE driver" in Driver.__doc__
+
+
+def test_initial_validation_failure_restores_training_rng():
+    """A failed baseline must restore randomness before propagating its error."""
+    drv = bare_driver()
+    drv.model = SimpleNamespace(train=True)
+    drv.main_process = False
+    drv.log_manager = object()
+
+    def fail(*_args):
+        """Simulate stochastic validation followed by a model failure."""
+        np.random.random(10)
+        raise RuntimeError("validation failed")
+
+    drv.validation = SimpleNamespace(run=fail)
+    np.random.seed(7)
+    expected = np.random.random()
+    np.random.seed(7)
+    with pytest.raises(RuntimeError, match="validation failed"):
+        drv.run_checkpoint({}, "timestamp", -1, 0.0, reason="initial", scheduled=False)
+    assert np.random.random() == expected
 
 
 def test_process_config_normalizes_and_logs(monkeypatch):
@@ -1453,7 +1573,7 @@ def test_run_validates_before_checkpoint_and_stops_early():
 
     assert calls[0] == ("stdout", {"loss": 1.0})
     assert calls[1] == ("validate", 0, 1.0)
-    assert calls[2] == ("tensorboard", {"val_loss": 2.0}, 0)
+    assert calls[2] == ("tensorboard", {"val_loss": 2.0}, 1)
     assert calls[3] == ("select_best", {"loss": 2.0})
     assert calls[5] == ("scheduler", {"loss": 2.0})
     assert calls[6][0] == "save"
