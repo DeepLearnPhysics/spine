@@ -27,11 +27,13 @@ from .cluster import ClusterSummaryRecipe
 from .node import NodeSummaryRecipe
 from .point import PointProposalRecipe
 from .segment import SegmentConfusionRecipe
+from .segment_distance import SegmentDistanceRecipe
 
 RECIPE_REGISTRY = {
     recipe.name: recipe
     for recipe in (
         SegmentConfusionRecipe,
+        SegmentDistanceRecipe,
         PointProposalRecipe,
         ClusterSummaryRecipe,
         NodeSummaryRecipe,
