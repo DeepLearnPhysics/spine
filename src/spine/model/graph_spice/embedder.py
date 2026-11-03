@@ -11,39 +11,47 @@ from spine.data import TensorBatch
 from spine.model import sparse
 from spine.model.cnn.uresnet_layers import UResNet
 
-__all__ = ["GraphSPICEEmbedder"]
+__all__ = ["GraphSPICEEmbedder", "GraphSPICEEmbeddingHead"]
 
 
-class GraphSPICEEmbedder(sparse.Network):
-    """Embed a sparse point cloud for GraphSPICE edge construction."""
+class _GraphSPICEEmbeddingBase(sparse.Network):
+    """Project aligned voxel features into Graph-SPICE embedding attributes.
+
+    This module owns the output projections but no feature-extraction backbone.
+    Standalone Graph-SPICE and shared UResNet reconstruction use the same
+    spatial, feature, covariance and occupancy parameterization.
+    """
 
     def __init__(
         self,
-        uresnet: dict[str, Any],
+        num_features: int,
+        spatial_size: int,
+        dimension: int = 3,
         **base: Any,
     ) -> None:
-        """Initialize the embedding model.
+        """Initialize projections over externally produced voxel features.
 
         Parameters
         ----------
-        uresnet : dict
-            Backbone UResNet configuration
+        num_features : int
+            Number of channels in the supplied decoder feature matrix.
+        spatial_size : int
+            Positive detector coordinate range used for spatial normalization.
+        dimension : int, default 3
+            Number of coordinate dimensions.
         **base : dict, optional
-            Basic parameters
-        """
-        # Initialize the parent class
-        dimension = int(uresnet.get("data_dim", 3))
-        super().__init__(dimension)
+            Embedding projection options accepted by ``process_model_config``.
 
-        # Initialize the uresnet backbone
-        self.backbone = UResNet(uresnet)
-        self.num_filters = self.backbone.num_filters
-        spatial_size = self.backbone.spatial_size
-        if spatial_size is None:
-            raise ValueError(
-                "Must provide a spatial size to compute normalized coordinates."
-            )
-        assert spatial_size > 0
+        Raises
+        ------
+        ValueError
+            If a positive spatial normalization range is not provided.
+        """
+        # Initialize the sparse network metadata and feature specification
+        super().__init__(dimension)
+        if spatial_size is None or spatial_size <= 0:
+            raise ValueError("Must provide a positive spatial size.")
+        self.num_filters = num_features
         self.spatial_size = spatial_size
 
         # Declare attributes populated by the configuration helper. Keeping
@@ -160,7 +168,9 @@ class GraphSPICEEmbedder(sparse.Network):
         else:
             raise ValueError(f"Occupancy mode not recognized: {self.occupancy_mode}")
 
-    def forward(self, data: TensorBatch) -> dict[str, TensorBatch]:
+    def project(
+        self, data: TensorBatch, features: TensorBatch
+    ) -> dict[str, TensorBatch]:
         """Compute the embeddings for one batch of data.
 
         Parameters
@@ -171,31 +181,26 @@ class GraphSPICEEmbedder(sparse.Network):
             - 1 is the batch ID
             - D is the number of dimensions in the input image
             - N_f is the number of features per voxel
+        features : TensorBatch
+            Aligned final decoder features with ``num_features`` channels.
 
         Returns
         -------
         dict
             Dictionary of outputs
         """
-        # Build an input feature tensor
+        if features.shape[0] != data.shape[0] or list(features.counts) != list(
+            data.counts
+        ):
+            raise ValueError(
+                "Shared features must match the data rows and batch counts."
+            )
+        output_features = features.torch_tensor()
+        if output_features.shape[1] != self.num_filters:
+            raise ValueError("Shared feature width does not match the embedding head.")
         coordinates = data.batch_coordinates
-
-        # Graph-SPICE historically consumes the primary charge/value channel
-        # (VALUE_COL), even when the shared point tensor carries auxiliary
-        # features for other models.
-        input_features = data.values.torch_tensor().view(-1, 1)
-
-        # If requested, append the normalized coordinates to the feature tensor
         half_size = self.spatial_size / 2
-        points = coordinates[:, 1:]
-        normalized_coords = (points - half_size) / half_size
-        if self.coord_conv:
-            input_features = torch.cat([normalized_coords, input_features], dim=1)
-
-        # Pass it through the backbone UResNet, extract output features
-        backbone_data = torch.cat((coordinates, input_features), dim=1)
-        result_backbone = self.backbone(backbone_data, batch_size=data.batch_size)
-        output_features = result_backbone["decoder_tensors"][-1].aligned_features()
+        normalized_coords = (coordinates[:, 1:] - half_size) / half_size
 
         # Convert the output to tensor batches
         coordinate_batch = TensorBatch(
@@ -260,3 +265,96 @@ class GraphSPICEEmbedder(sparse.Network):
             result["segmentation"] = TensorBatch(segmentation, data.counts)
 
         return result
+
+
+class GraphSPICEEmbeddingHead(_GraphSPICEEmbeddingBase):
+    """Apply Graph-SPICE projections to externally supplied decoder features.
+
+    This head and the standalone embedder share projection parameters and
+    implementation through their common base. Each exposes the forward inputs
+    appropriate to its source of voxel features.
+    """
+
+    def forward(
+        self, data: TensorBatch, features: TensorBatch
+    ) -> dict[str, TensorBatch]:
+        """Project shared decoder features into graph embedding attributes.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + F) Input voxel coordinates and values.
+        features : TensorBatch
+            (N, C) Decoder features aligned to the input rows and event counts.
+
+        Returns
+        -------
+        dict
+            Aligned features, coordinates and configured embedding attributes.
+        """
+        return self.project(data, features)
+
+
+class GraphSPICEEmbedder(_GraphSPICEEmbeddingBase):
+    """Standalone embedding head with its own UResNet backbone.
+
+    Parameter paths are unchanged: ``backbone`` and output projections remain
+    direct children, allowing existing standalone checkpoints to load.
+    """
+
+    def __init__(self, uresnet: dict[str, Any], **base: Any) -> None:
+        """Initialize a standalone backbone and its embedding projections.
+
+        Parameters
+        ----------
+        uresnet : dict
+            Backbone UResNet configuration, including its spatial range.
+        **base : dict, optional
+            Embedding projection and coordinate-input options.
+        """
+        # Build the backbone first to preserve existing parameter initialization
+        backbone = UResNet(uresnet)
+        super().__init__(
+            backbone.num_filters,
+            backbone.spatial_size,
+            int(uresnet.get("data_dim", 3)),
+            **base,
+        )
+        self.backbone = backbone
+
+    def forward(self, data: TensorBatch) -> dict[str, TensorBatch]:
+        """Compute backbone features and apply the embedding projections.
+
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + F) Voxel coordinates and input features. The standalone
+            embedder consumes the primary value channel and optionally appends
+            normalized coordinates to the backbone inputs.
+
+        Returns
+        -------
+        dict
+            Aligned features, coordinates and configured embedding attributes.
+        """
+        # Build an input feature tensor
+        coordinates = data.batch_coordinates
+
+        # Graph-SPICE historically consumes the primary charge/value channel
+        # (VALUE_COL), even when the shared point tensor carries auxiliary
+        # features for other models.
+        input_features = data.values.torch_tensor().view(-1, 1)
+
+        # If requested, append the normalized coordinates to the feature tensor
+        half_size = self.spatial_size / 2
+        points = coordinates[:, 1:]
+        normalized_coords = (points - half_size) / half_size
+        if self.coord_conv:
+            input_features = torch.cat([normalized_coords, input_features], dim=1)
+
+        # Pass it through the backbone UResNet, extract output features
+        backbone_data = torch.cat((coordinates, input_features), dim=1)
+        result_backbone = self.backbone(backbone_data, batch_size=data.batch_size)
+        output_features = result_backbone["decoder_tensors"][-1].aligned_features()
+
+        return self.project(data, TensorBatch(output_features, data.counts))
