@@ -196,6 +196,10 @@ def test_training_config_runs_checkpoint_validation(larcv_data, tmp_path, caplog
         "spice",
         "uresnet_bayes",
         "uresnet_ppn",
+        "uresnet_multi",
+        "uresnet_multi_independent",
+        "uresnet_multi_fragment_first",
+        "uresnet_multi_soft",
     ],
 )
 def test_standalone_inference_config_runs_one_iteration(

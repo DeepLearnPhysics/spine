@@ -651,6 +651,11 @@ class ModelManager:
             # Get the module name and its configuration block
             module, config = module_items.pop()
 
+            # Constructor options such as semantic_coupling are scalar values,
+            # not module blocks carrying checkpoint or freezing directives.
+            if not isinstance(config, Mapping):
+                continue
+
             # If the module is to be frozen, apply
             if config.get("freeze_weights", False):
                 # Fetch the module name to be found in the state dictionary
@@ -747,6 +752,8 @@ class ModelManager:
         module_items = list(self.model_cfg.items())
         while len(module_items) > 0:
             module, config = module_items.pop()
+            if not isinstance(config, Mapping):
+                continue
             if config.get("weight_path", "") != "":
                 # An omitted model name permits automatic detection of either
                 # a full-chain namespace or a standalone model checkpoint.

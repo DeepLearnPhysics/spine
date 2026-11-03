@@ -1,0 +1,17 @@
+# Shared UResNet with soft semantic coupling.
+# Inherits the canonical data, backbone and objective configuration.
+
+include: uresnet_multi_test.yaml
+
+base:
+  log_dir: logs/uresnet_multi_soft/test
+
+model:
+  modules:
+    semantic_coupling: soft
+    fragment_semantics: pooled
+    graph_spice:
+      make_clusters: true
+    semantic_conditioning:
+      detach: false
+      hidden_channels: 32

@@ -6,7 +6,7 @@ import torch
 
 from spine.model.common.mlp import MLP, MLPConfig
 
-__all__ = ["DefaultKernel", "BilinearKernel", "MLPKernel"]
+__all__ = ["DefaultKernel", "BilinearKernel", "MLPKernel", "SemanticKernel"]
 
 
 class DefaultKernel(torch.nn.Module):
@@ -309,3 +309,84 @@ class MLPKernel(torch.nn.Module):
         result = self.lin(torch.cat([endpoint_features_1, endpoint_features_2], dim=1))
 
         return result
+
+
+class SemanticKernel(torch.nn.Module):
+    """Condition a graph edge kernel on uncertain semantic predictions.
+
+    The wrapped kernel receives its original embedding features. A separate
+    multilayer perceptron receives symmetric semantic summaries and relative
+    coordinates, and predicts an additive correction to the edge logit. No
+    semantic class is used to remove a candidate edge.
+    """
+
+    def __init__(
+        self,
+        kernel: torch.nn.Module,
+        num_classes: int,
+        dimension: int = 3,
+        hidden_channels: int = 32,
+    ) -> None:
+        """Initialize the semantic correction network.
+
+        Parameters
+        ----------
+        kernel : torch.nn.Module
+            Base Graph-SPICE kernel, including its existing logit convention.
+        num_classes : int
+            Number of semantic probabilities appended to each node embedding.
+        dimension : int, default 3
+            Number of normalized coordinates following the probabilities.
+        hidden_channels : int, default 32
+            Width of the hidden semantic correction layer.
+        """
+        # Initialize the parent class and validate the conditioning dimensions
+        super().__init__()
+        if num_classes < 1 or dimension < 1 or hidden_channels < 1:
+            raise ValueError("Semantic kernel dimensions must be positive.")
+
+        # Keep the original edge predictor as a separately identifiable module
+        self.kernel = kernel
+        self.num_classes = num_classes
+        self.dimension = dimension
+        self.context_channels = num_classes + dimension
+
+        # Semantic sums and differences distinguish both confidence and class
+        # compatibility. Absolute coordinate differences preserve edge symmetry.
+        self.correction = torch.nn.Sequential(
+            torch.nn.Linear(2 * num_classes + dimension, hidden_channels),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_channels, 1),
+        )
+
+    def forward(self, left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
+        """Compute base edge logits and their semantic corrections.
+
+        Parameters
+        ----------
+        left : torch.Tensor
+            (E, F + C + D) Source embeddings, probabilities and coordinates.
+        right : torch.Tensor
+            (E, F + C + D) Destination attributes in the same layout.
+
+        Returns
+        -------
+        torch.Tensor
+            (E,) Conditioned edge logits, using the base kernel's convention.
+        """
+        # Separate geometric embeddings from the appended semantic context
+        split = left.shape[1] - self.context_channels
+        left_prob = left[:, split : split + self.num_classes]
+        right_prob = right[:, split : split + self.num_classes]
+        base_logits = self.kernel(left[:, :split], right[:, :split]).flatten()
+
+        # Add a learned correction without introducing a hard semantic gate
+        context = torch.cat(
+            [
+                left_prob + right_prob,
+                torch.abs(left_prob - right_prob),
+                torch.abs(left[:, -self.dimension :] - right[:, -self.dimension :]),
+            ],
+            dim=1,
+        )
+        return base_logits + self.correction(context).flatten()

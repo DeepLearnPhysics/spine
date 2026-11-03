@@ -46,6 +46,8 @@ and output contracts.
 
 The :doc:`uresnet_ppn` page documents the registered ``uresnet_ppn`` network
 and loss without importing them during the documentation build. The
+:doc:`uresnet_multi` page describes the shared segmentation, PPN and
+fragmentation model. The
 :doc:`optional_runtime` page covers the full-chain segmentation provider and
 AdaBound optimizers, which have the same runtime constraint.
 
@@ -53,6 +55,7 @@ AdaBound optimizers, which have the same runtime constraint.
    :hidden:
 
    uresnet_ppn
+   uresnet_multi
    optional_runtime
 
 Implementation modules

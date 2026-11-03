@@ -12,53 +12,17 @@ from spine.data import ClusterLabelBatch, IndexBatch, TensorBatch
 from spine.model.graph_spice.constructor import ClusterGraphConstructor
 
 from ..registry import ModelSpec
-from .embedder import GraphSPICEEmbedder
+from .embedder import GraphSPICEEmbedder, GraphSPICEEmbeddingHead
 from .factories import kernel_factory, loss_factory
+from .kernel import SemanticKernel
 
-__all__ = ["GraphSPICE", "GraphSPICELoss"]
+__all__ = ["GraphSPICE", "GraphSPICEHead", "GraphSPICELoss"]
 
 GraphSPICEOutput = dict[str, TensorBatch | IndexBatch]
 
 
-class GraphSPICE(torch.nn.Module):
-    """Graph Scalable Proposal-free Instance Clustering Engine (Graph-SPICE).
-
-    Graph-SPICE has two main components:
-
-    - A voxel embedder, implemented as a UNet-like CNN for feature extraction
-      and embeddings
-    - An edge probability kernel that maps pairs of node attribute vectors to
-      edge scores
-
-    Prediction proceeds in three stages:
-
-    - A neighbor graph such as KNN or a radius graph is constructed
-    - Edge probabilities are evaluated and low-probability edges are dropped
-    - Voxels are clustered through connected-component clustering
-
-    A typical configuration is broken down into multiple components:
-
-    .. code-block:: yaml
-
-        model:
-          name: graph_spice
-          modules:
-            graph_spice:
-              <Basic parameters>
-              embedder:
-                <Feature embedding configuration block>
-              kernel:
-                <Edge kernel function configuration block>
-              constructor:
-                <Graph construction base parameters>
-                graph:
-                  <Graph configuration block>
-                orphan:
-                  <Orphan assignment configuration block>
-
-    See configuration file(s) prefixed with `graph_spice` under the `config`
-    directory for detailed examples of working configurations.
-    """
+class _GraphSPICEBase(torch.nn.Module):
+    """Shared embedding, graph construction and clustering implementation."""
 
     def __init__(self, graph_spice: dict[str, Any]) -> None:
         """Initialize the Graph-SPICE model.
@@ -72,7 +36,7 @@ class GraphSPICE(torch.nn.Module):
         super().__init__()
 
         # Declare attributes populated by the configuration helper.
-        self.embedder: GraphSPICEEmbedder
+        self.embedder: GraphSPICEEmbedder | GraphSPICEEmbeddingHead
         self.kernel_fn: torch.nn.Module
         self.constructor: ClusterGraphConstructor
         self.shapes: list[int]
@@ -118,9 +82,7 @@ class GraphSPICE(torch.nn.Module):
             If `True`, builds a list of cluster indexes
         """
         # Initialize the embedder
-        self.embedder = GraphSPICEEmbedder(
-            **embedder, use_raw_features=use_raw_features
-        )
+        self.embedder = self.make_embedder(embedder, use_raw_features)
 
         # Initialize the kernel function (must be owned here to be loaded)
         self.kernel_fn = kernel_factory(kernel)
@@ -141,6 +103,25 @@ class GraphSPICE(torch.nn.Module):
         self.use_raw_features = use_raw_features
         self.invert = invert
         self.make_clusters = make_clusters
+
+    def make_embedder(
+        self, config: dict[str, Any], use_raw_features: bool
+    ) -> GraphSPICEEmbedder | GraphSPICEEmbeddingHead:
+        """Build the standalone backbone and embedding projections.
+
+        Parameters
+        ----------
+        config : dict
+            Backbone and embedding configuration.
+        use_raw_features : bool
+            Whether graph edges consume raw decoder features.
+
+        Returns
+        -------
+        GraphSPICEEmbedder or GraphSPICEEmbeddingHead
+            Embedding module, including its standalone backbone by default.
+        """
+        return GraphSPICEEmbedder(**config, use_raw_features=use_raw_features)
 
     def filter_class(
         self,
@@ -216,6 +197,118 @@ class GraphSPICE(torch.nn.Module):
 
         return data, seg_label, clust_label, index
 
+    def construct_graph(
+        self,
+        embedder_result: dict[str, TensorBatch],
+        seg_label: TensorBatch,
+        clust_label: ClusterLabelBatch | None,
+        index: IndexBatch,
+        edge_features: TensorBatch | None = None,
+    ) -> GraphSPICEOutput:
+        """Score and optionally cluster a graph from already embedded voxels.
+
+        Parameters
+        ----------
+        embedder_result : dict
+            Coordinates and aligned embedding attributes.
+        seg_label : TensorBatch
+            Node partition labels used by the graph constructor.
+        clust_label : ClusterLabelBatch, optional
+            Original cluster labels for legacy network-side edge supervision.
+        index : IndexBatch
+            Mapping from graph nodes to the original input rows.
+        edge_features : TensorBatch, optional
+            Explicit kernel inputs, optionally extended with semantic context.
+            If omitted, use the configured raw or projected embeddings.
+
+        Returns
+        -------
+        dict
+            Graph attributes, original embedding products and optional clusters.
+        """
+        # Store the index and the counts to not have to recompute them later
+        result: GraphSPICEOutput = {**embedder_result, "filter_index": index}
+
+        # Build the graph on the pixel set
+        coordinate_batch = embedder_result["coordinates"]
+        if edge_features is not None:
+            features = edge_features
+        elif self.use_raw_features:
+            features = embedder_result["features"]
+        else:
+            features = embedder_result["hypergraph_features"]
+
+        coord_cols = coordinate_batch.coord_cols
+        if coord_cols is None:
+            raise RuntimeError(
+                "GraphSPICE coordinates do not define coordinate columns."
+            )
+        coords = TensorBatch(
+            coordinate_batch.torch_tensor()[:, coord_cols],
+            coordinate_batch.counts,
+        )
+        cluster_ids = None
+        if clust_label is not None:
+            cluster_ids = clust_label.voxel_field(self.constructor.target_col)
+        graph = cast(
+            GraphSPICEOutput,
+            self.constructor(coords, features, seg_label, cluster_ids),
+        )
+
+        # If requested, convert edge predictions to node predictions
+        if self.make_clusters:
+            clusts, clust_shapes = self.constructor.fit_predict(graph)
+            result["clusts"] = clusts
+            result["clust_shapes"] = clust_shapes
+
+        # Save the graph dictionary
+        result.update(graph)
+
+        return result
+
+
+class GraphSPICE(_GraphSPICEBase):
+    """Graph Scalable Proposal-free Instance Clustering Engine (Graph-SPICE).
+
+    Graph-SPICE has two main components:
+
+    - A voxel embedder, implemented as a UNet-like CNN for feature extraction
+      and embeddings
+    - An edge probability kernel that maps pairs of node attribute vectors to
+      edge scores
+
+    Prediction proceeds in three stages:
+
+    - A neighbor graph such as KNN or a radius graph is constructed
+    - Edge probabilities are evaluated and low-probability edges are dropped
+    - Voxels are clustered through connected-component clustering
+
+    A typical configuration is broken down into multiple components:
+
+    .. code-block:: yaml
+
+        model:
+          name: graph_spice
+          modules:
+            graph_spice:
+              <Basic parameters>
+              embedder:
+                <Feature embedding configuration block>
+              kernel:
+                <Edge kernel function configuration block>
+              constructor:
+                <Graph construction base parameters>
+                graph:
+                  <Graph configuration block>
+                orphan:
+                  <Orphan assignment configuration block>
+
+    See configuration file(s) prefixed with `graph_spice` under the `config`
+    directory for detailed examples of working configurations.
+    """
+
+    embedder: GraphSPICEEmbedder
+
     def forward(
         self,
         data: TensorBatch,
@@ -252,41 +345,194 @@ class GraphSPICE(torch.nn.Module):
         # Embed the input pixels into a feature space used for graph clustering
         embedder_result = self.embedder(data)
 
-        # Store the index and the counts to not have to recompute them later
-        result: GraphSPICEOutput = {**embedder_result, "filter_index": index}
+        return self.construct_graph(embedder_result, seg_label, clust_label, index)
 
-        # Build the graph on the pixel set
-        coordinate_batch = embedder_result["coordinates"]
-        if self.use_raw_features:
-            features = embedder_result["features"]
-        else:
-            features = embedder_result["hypergraph_features"]
 
-        coord_cols = coordinate_batch.coord_cols
-        if coord_cols is None:
-            raise RuntimeError(
-                "GraphSPICE coordinates do not define coordinate columns."
+class GraphSPICEHead(_GraphSPICEBase):
+    """Build voxel graphs from shared UResNet features.
+
+    Hard routing constructs one graph per predicted semantic class. Agnostic
+    routing constructs one graph per event over all input voxels, so even the
+    choice of graph nodes is independent of preliminary semantic predictions.
+    An optional semantic kernel conditions edge logits on class probabilities.
+    """
+
+    embedder: GraphSPICEEmbeddingHead
+
+    def __init__(
+        self,
+        graph_spice: dict[str, Any],
+        num_features: int,
+        spatial_size: int,
+        dimension: int = 3,
+        class_agnostic: bool = False,
+        semantic_channels: int = 0,
+        semantic_hidden_channels: int = 32,
+    ) -> None:
+        """Initialize embedding projections, graph construction and scoring.
+
+        Parameters
+        ----------
+        graph_spice : dict
+            Graph-SPICE configuration. Its embedder contains head options only.
+        num_features : int
+            Number of channels in the shared decoder features.
+        spatial_size : int
+            Coordinate range used to normalize spatial features.
+        dimension : int, default 3
+            Number of spatial dimensions.
+        class_agnostic : bool, default False
+            Build a single graph over every voxel in each event.
+        semantic_channels : int, default 0
+            Number of semantic probabilities supplied to the edge scorer.
+            A zero value disables semantic conditioning.
+        semantic_hidden_channels : int, default 32
+            Hidden width of the optional semantic correction network.
+        """
+        # Store the shared feature specification before constructing the head
+        self.feature_size = num_features
+        self.spatial_size = spatial_size
+        self.dimension = dimension
+        self.class_agnostic = class_agnostic
+        self.semantic_channels = semantic_channels
+        super().__init__(graph_spice)
+
+        # Keep the requested output shapes distinct from the internal graph
+        # partition. In agnostic mode the sole partition label is bookkeeping.
+        if not self.shapes:
+            raise ValueError("At least one fragment shape must be configured.")
+        if class_agnostic:
+            self.constructor.shapes = [self.shapes[0]]
+
+        # Wrap the base kernel only when probabilities are used for scoring
+        if semantic_channels:
+            if not class_agnostic:
+                raise ValueError(
+                    "Soft semantic conditioning requires an agnostic graph."
+                )
+            self.kernel_fn = SemanticKernel(
+                self.kernel_fn, semantic_channels, dimension, semantic_hidden_channels
             )
-        coords = TensorBatch(
-            coordinate_batch.torch_tensor()[:, coord_cols],
-            coordinate_batch.counts,
-        )
-        cluster_ids = None
-        if clust_label is not None:
-            cluster_ids = clust_label.voxel_field(self.constructor.target_col)
-        graph = cast(
-            GraphSPICEOutput,
-            self.constructor(coords, features, seg_label, cluster_ids),
+            self.constructor.kernel_fn = self.kernel_fn
+
+    def make_embedder(
+        self, config: dict[str, Any], use_raw_features: bool
+    ) -> GraphSPICEEmbeddingHead:
+        """Create projections without allocating a second backbone.
+
+        Parameters
+        ----------
+        config : dict
+            Embedding head configuration, excluding backbone input options.
+        use_raw_features : bool
+            Use the decoder features directly instead of projecting embeddings.
+
+        Returns
+        -------
+        GraphSPICEEmbeddingHead
+            Feature projections shared by the supported graph routing modes.
+        """
+        # The caller owns the backbone and the only voxel segmentation head
+        config = dict(config)
+        if "uresnet" in config or "coord_conv" in config:
+            raise ValueError(
+                "Shared Graph-SPICE heads cannot configure backbone inputs."
+            )
+        if config.get("predict_semantics", False):
+            raise ValueError("Use the shared model's semantic head.")
+
+        return GraphSPICEEmbeddingHead(
+            self.feature_size,
+            self.spatial_size,
+            self.dimension,
+            **config,
+            use_raw_features=use_raw_features,
         )
 
-        # If requested, convert edge predictions to node predictions
-        if self.make_clusters:
-            clusts, clust_shapes = self.constructor.fit_predict(graph)
-            result["clusts"] = clusts
-            result["clust_shapes"] = clust_shapes
+    def forward(
+        self,
+        data: TensorBatch,
+        seg_label: TensorBatch,
+        features: TensorBatch,
+        semantic_probabilities: TensorBatch | None = None,
+    ) -> GraphSPICEOutput:
+        """Construct and score a graph over aligned shared features.
 
-        # Save the graph dictionary
-        result.update(graph)
+        Parameters
+        ----------
+        data : TensorBatch
+            (N, 1 + D + F) Input voxel coordinates and values.
+        seg_label : TensorBatch
+            (N,) Preliminary semantic predictions, used only for hard routing.
+        features : TensorBatch
+            (N, C) Shared decoder features aligned to the input rows.
+        semantic_probabilities : TensorBatch, optional
+            (N, S) Class probabilities required by a conditioned edge scorer.
+
+        Returns
+        -------
+        dict
+            Graph predictions and optional connected components. ``filter_index``
+            maps graph nodes to input rows. For agnostic graphs, ``clust_shapes``
+            contains partition identifiers, not final fragment semantics.
+        """
+        # Validate row and event alignment before applying any node selection
+        for value in (features, semantic_probabilities):
+            if value is not None and (
+                value.shape[0] != data.shape[0]
+                or list(value.counts) != list(data.counts)
+            ):
+                raise ValueError(
+                    "Shared features must match the data rows and batch counts."
+                )
+        if self.semantic_channels and semantic_probabilities is None:
+            raise ValueError("The semantic kernel requires class probabilities.")
+        if semantic_probabilities is not None and (
+            not self.semantic_channels
+            or semantic_probabilities.shape[1] != self.semantic_channels
+        ):
+            raise ValueError(
+                "Semantic probability width does not match the edge scorer."
+            )
+
+        # Agnostic graphs must not exclude nodes based on semantic predictions.
+        # A constant partition label lets the existing constructor group by event.
+        if self.class_agnostic:
+            rows = torch.arange(data.shape[0], device=features.device)
+            index = IndexBatch(rows, data.counts, data.counts)
+            routing = torch.full_like(rows, self.constructor.shapes[0])
+            seg_label = TensorBatch(routing, data.counts)
+        else:
+            data, seg_label, _, index = self.filter_class(data, seg_label)
+
+        # Project only selected features while preserving their original order
+        features = TensorBatch(features.torch_tensor()[index.index], data.counts)
+        embedded = self.embedder(data, features)
+        key = "features" if self.use_raw_features else "hypergraph_features"
+        edge_features = embedded[key]
+
+        # Append differentiable semantic evidence and normalized coordinates.
+        # The base embeddings keep their published layout for other consumers.
+        if semantic_probabilities is not None:
+            probabilities = semantic_probabilities.torch_tensor()[index.index]
+            coordinates = data.batch_coordinates[:, 1:] / self.spatial_size
+            conditioned = torch.cat(
+                [edge_features.torch_tensor(), probabilities, coordinates], dim=1
+            )
+            edge_features = TensorBatch(conditioned, data.counts)
+
+        result = self.construct_graph(embedded, seg_label, None, index, edge_features)
+
+        # Keep every trained branch connected on batches with no candidate edges.
+        # This matters for distributed training even though the loss is zero.
+        edge_attr = cast(TensorBatch, result["edge_attr"])
+        if edge_attr.shape[0] == 0:
+            zero = edge_features.torch_tensor().sum() * 0.0
+            for parameter in self.kernel_fn.parameters():
+                zero = zero + parameter.sum() * 0.0
+            logits = edge_attr.torch_tensor() + zero
+            result["edge_attr"] = TensorBatch(logits, edge_attr.counts)
+            result["edge_prob"] = TensorBatch(torch.sigmoid(logits), edge_attr.counts)
 
         return result
 
