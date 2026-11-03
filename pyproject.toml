@@ -50,6 +50,9 @@ Documentation = "https://spine.readthedocs.io/"
 "Bug Tracker" = "https://github.com/DeepLearnPhysics/spine/issues"
 
 [project.optional-dependencies]
+# Compression filters used by native pysupera files
+supera = ["hdf5plugin>=4"]
+
 # Visualization dependencies
 viz = [
     "matplotlib>=3.3.0",

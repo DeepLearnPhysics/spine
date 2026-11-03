@@ -9,7 +9,7 @@ import os
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from numbers import Real
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -45,11 +45,12 @@ class ReaderBase(ABC):
         Maps each available (run, subrun, event) triplet onto an entry_index index
     """
 
-    name: str
+    name: ClassVar[str]
     file_paths: list[str]
     file_index: np.ndarray
     file_offsets: np.ndarray
     entry_index: np.ndarray
+    eligible_entry_index: np.ndarray
     num_entries: int
     run_info: list[tuple[int, int, int]] | None = None
     run_map: dict[tuple[int, int, int], int] | None = None
@@ -199,9 +200,7 @@ class ReaderBase(ABC):
         bool
             `True` if the path is a supported remote URI
         """
-        return isinstance(path, str) and (
-            path.startswith("root://") or path.startswith("xroot://")
-        )
+        return isinstance(path, str) and (path.startswith(("root://", "xroot://")))
 
     def process_file_paths(
         self,

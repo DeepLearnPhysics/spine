@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -24,7 +24,7 @@ class CacheReader(ReaderBase):
     cannot change the files observed by an active reader.
     """
 
-    name = "cache"
+    name: ClassVar[str] = "cache"
 
     def __init__(
         self,

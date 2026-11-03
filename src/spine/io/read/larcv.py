@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -33,7 +33,7 @@ class LArCVReader(ReaderBase):
     trees corresponding to each of the requested data products.
     """
 
-    name: str = "larcv"
+    name: ClassVar[str] = "larcv"
 
     def __init__(
         self,

@@ -44,8 +44,157 @@ File Readers
    :toctree: generated
 
    read.HDF5Reader
+   read.SuperaReader
    read.LArCVReader
    read.CacheReader
+
+Native pysupera input
+---------------------
+
+Use ``provider: supera`` for pysupera **4.1.0** files. This is a separate
+format from SPINE HDF5 V1/V2; ``provider: hdf5`` does not read these files.
+Install ``spine[supera]`` for the HDF5 compression filters used by upstream
+productions. No pysupera or LArCV runtime is required.
+
+.. code-block:: yaml
+
+   io:
+     loader:
+       batch_size: 1
+       num_workers: 0
+       dataset:
+         provider: supera
+         file_keys: supera_pixel_j000000-000004.h5
+         schema:
+           data: {provider: tensor}
+           seg_label: {provider: segmentation}
+           clust_label: {provider: cluster_label}
+           ppn_label: {provider: particle_points}
+           particles: {provider: particle}
+       collate_fn: {provider: all}
+
+``SuperaDataset`` reuses the HDF5 dataset's parsing, collation and augmentation
+interface with a format-specific parser registry. ``SuperaReader`` supports
+multiple files, ordinary entry selection, source-file provenance and projected
+reads. Its default raw products are ``points``, ``particles``, ``inter``,
+``events`` and ``metadata``. Particle and interaction point ranges are rebased
+to the event's point array. Interaction particle ranges are likewise rebased.
+Event identities remain available in the raw ``events`` product, including
+production ``event_id`` and ``job_id`` when present; these are not invented
+run/subrun numbers.
+
+Physical semantics
+~~~~~~~~~~~~~~~~~~
+
+The implementation was checked against `pysupera commit dab92d8
+<https://github.com/drinkingkazu/pysupera/tree/dab92d8fc850c09d0ca85cff16c6f36c28cf6d4b>`_,
+in particular ``_run.py``, ``layout.py``, ``io_v3.py``, ``provenance.py`` and
+``torchdata.py``:
+
+* With JAXTPC input, ``points/flat`` contains **truth energy deposits**, not
+  measured hits. Coordinates are mm, ``t`` is microseconds, ``dE`` is MeV,
+  ``dX`` is cm, angles are radians and ``p`` is MeV/c. ``hit_energy=charge``
+  describes the hit-based partitioning input; it does not change ``dE`` into
+  charge. Measured hit coordinates and charge require the separate JAXTPC file.
+* ``groups`` is indexed by JAXTPC deposit group, concatenated across volumes.
+  Its rows do not align with ``points/flat``. In the supplied 1,000-event
+  production there are 54,863,490 groups and 31,871,012 point rows.
+  ``volume_offsets`` identifies each volume's start in the event's group array.
+* Fragment representatives satisfy ``frag_id == id``. Their half-open
+  ``frag_pc_start:frag_pc_end`` ranges partition the point rows. Instance ranges
+  also partition the points, with non-LE fragments preceding the LE portion
+  starting at ``inst_pc_le_start``. ``frag_inst_id`` joins each fragment to
+  its instance. The reader never assumes group/point alignment.
+* The writer retains sparse particle IDs. Despite the upstream reader module's
+  row-index wording, these must be resolved through an ID-to-row map. SPINE
+  particle indexes, ancestor links and PPN particle references are event-local
+  table indexes; the cluster sidecar's ``particle`` field retains source IDs.
+* Semantic codes map explicitly: pysupera shower/track/delta/Michel/LE
+  ``1/2/3/4/5`` become SPINE ``0/1/3/2/4``. Non-LE points use the instance's
+  semantic class; LE fragments retain LE even inside a track or shower.
+  Unknown point semantics are rejected by the five-class training parsers.
+* Particle ``start_*``/``end_*`` describe Geant4 creation/destruction.
+  Instance ``first_*``/``last_*`` describe the first/last collected steps,
+  subject to ``kinematics_steps`` (``visible`` in the sample). Kinematic
+  positions are mm and times ns. Showers have no last endpoint.
+
+Aligned training products
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All parsers share one event preparation. Coordinates are rasterized with the
+file's ``voxel_size`` and an origin of zero, then shifted by an integer number
+of cells to make event coordinates nonnegative. ``Meta`` records the inverse
+transform in cm. Each parser accepts ``voxel_size_mm`` (scalar or three-vector)
+and ``origin_mm``; all parsers in a dataset must use the same grid settings.
+An explicit size is required when the file does not supply one. These settings
+also permit rasterizing deposit-mode files. Upstream voxelization can use a
+per-particle origin, so stored centers are rasterized rather than assumed to
+already be integer coordinates on a common grid.
+
+Overlapping contributions sum their energy. Label ownership follows upstream
+priority (track, shower, delta, Michel, LE), then earliest deposit time, then
+source row order. The same winning contribution selects semantic, fragment
+and instance labels. LE deposits are retained. ``ClusterLabelData`` stores
+fragment IDs and fragment-row associations, with instance IDs in ``group``.
+Unprovided neutrino identity is left at ``-1``. No energy-to-charge conversion
+is performed.
+
+PPN targets use finite instance starts and track ends only, exclude LE,
+unknown classes and nuclear fragments, and omit points outside the event
+image. Targets refer to the complete event particle table. The particle parser
+returns that table as SPINE ``Particle`` objects in voxel units, preserving
+missing kinematics as NaN. Particle energy deposits sum the source instance's
+contributions, independently of overlap winner selection.
+
+``groups`` and ``hit_labels/volume0/plane0`` (or another explicit plane path)
+can be requested through ``SuperaReader(keys=...)``. They are never read by
+the training parsers or by default. Even explicitly requested hit labels are
+sliced by event offsets; no whole-plane label array is materialized.
+
+Validation
+~~~~~~~~~~
+
+The synthetic tests cover sparse IDs, fragment/instance distinctions, LE,
+semantic remapping, overlapping energy, empty events, multi-file selection,
+absolute-range rebasing, pickle round trips and projected hit reads. Error-path
+tests also cover invalid grids, corrupt relationships, nonfinite values,
+missing compression support and endpoint filtering. The dedicated coverage
+configuration requires 100% line and branch coverage of the Supera modules,
+without excluding defensive or optional-dependency paths:
+
+.. code-block:: bash
+
+   PYTHONPATH=src pytest -q test/test_io/test_supera \
+     --cov=src/spine --cov-config=test/test_io/test_supera/coverage.ini \
+     --cov-report=term-missing
+
+Run the real-file forward/backward test in the model runtime with:
+
+.. code-block:: bash
+
+   docker run --rm --platform linux/amd64 \
+     -e PYTHONPATH=/workspace/src -e OMP_NUM_THREADS=1 \
+     -e SPINE_SUPERA_SAMPLE=/workspace/supera_pixel_j000000-000004.h5 \
+     -v "$PWD:/workspace" -w /workspace \
+     ghcr.io/deeplearnphysics/spine:latest bash -lc \
+     'pip install hdf5plugin && pytest -q -s test/test_io/test_supera/test_supera_model.py'
+
+The first sample event yields 25,537 unique voxels and 120 PPN targets. The
+integration test exercises segmentation and PPN through the standard
+UResNet+PPN model and fragmentation through Graph-SPICE, using the full event.
+It requires finite, nonzero backbone gradients for each objective and verifies
+that the combined backward pass reaches the graph kernel. Both models are
+available on ``main``; this input implementation has no dependency on the
+separate UResNetMulti feature branch.
+
+.. autosummary::
+   :toctree: generated
+
+   parse.supera.SuperaTensorParser
+   parse.supera.SuperaSegmentationParser
+   parse.supera.SuperaClusterLabelParser
+   parse.supera.SuperaParticleParser
+   parse.supera.SuperaParticlePointsParser
 
 Entry Filtering
 ---------------
@@ -234,6 +383,7 @@ with raw input through the mixed dataset.
    dataset.LArCVDataset
    dataset.CacheDataset
    dataset.HDF5Dataset
+   dataset.SuperaDataset
    dataset.MixedDataset
    dataset.JointDataset
 
