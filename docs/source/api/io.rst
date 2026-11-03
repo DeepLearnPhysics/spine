@@ -60,7 +60,7 @@ productions. No pysupera or LArCV runtime is required.
 
    io:
      loader:
-       batch_size: 1
+       minibatch_size: 1
        num_workers: 0
        dataset:
          provider: supera
@@ -188,7 +188,7 @@ sum can differ from its attributed source-fragment energy.
 Truth conversion
 ~~~~~~~~~~~~~~~~
 
-Use the complete schema above (also in ``config/io/supera.yaml``) with:
+Use the complete schema above with:
 
 .. code-block:: yaml
 
@@ -299,6 +299,20 @@ are available on ``main``; there is no dependency on UResNetMulti.
    parse.supera.SuperaMetaParser
    parse.supera.SuperaSourceIDsParser
    parse.supera.SuperaEventInfoParser
+
+Implementation modules
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated
+
+   dataset.supera
+   read.supera
+   parse.supera.base
+   parse.supera.cluster
+   parse.supera.metadata
+   parse.supera.particle
+   parse.supera.tensor
 
 Entry Filtering
 ---------------

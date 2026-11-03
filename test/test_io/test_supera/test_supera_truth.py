@@ -318,12 +318,17 @@ def test_absorbed_fragment_uses_host_interaction(sample):
 def test_example_schema_is_complete(sample):
     """The documented configuration provides all products without parser overrides."""
     from pathlib import Path
+    from textwrap import dedent
 
-    from spine.config import load_config_file
+    import yaml
 
-    config = load_config_file(
-        str(Path(__file__).resolve().parents[3] / "config/io/supera.yaml")
-    )
+    # Exercise the published schema directly, without a standalone config file.
+    doc_path = Path(__file__).resolve().parents[3] / "docs/source/api/io.rst"
+    section = doc_path.read_text().split("Native pysupera input\n", 1)[1]
+    example = section.split(".. code-block:: yaml\n\n", 1)[1].split("\n\n", 1)[0]
+    config = yaml.safe_load(dedent(example))
+    assert config["io"]["loader"]["minibatch_size"] == 1
+    assert "batch_size" not in config["io"]["loader"]
     schema = config["io"]["loader"]["dataset"]["schema"]
     assert schema == FULL_SCHEMA
     event = SuperaDataset(file_keys=sample, schema=schema, dtype="float32")[0]
