@@ -1,5 +1,5 @@
 Shared UResNet Reconstruction Model
-==================================
+===================================
 
 ``model.provider: uresnet_multi`` selects ``UResNetMulti`` and
 ``UResNetMultiLoss`` from ``spine.model.uresnet.multi``. One UResNet supplies
