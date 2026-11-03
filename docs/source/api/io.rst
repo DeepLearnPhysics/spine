@@ -70,7 +70,12 @@ productions. No pysupera or LArCV runtime is required.
            seg_label: {provider: segmentation}
            clust_label: {provider: cluster_label}
            ppn_label: {provider: particle_points}
+           coord_label: {provider: particle_coords}
+           graph_label: {provider: particle_graph}
            particles: {provider: particle}
+           meta: {provider: meta}
+           source_ids: {provider: source_ids}
+           event_info: {provider: event_info}
        collate_fn: {provider: all}
 
 ``SuperaDataset`` reuses the HDF5 dataset's parsing, collation and augmentation
@@ -79,9 +84,10 @@ multiple files, ordinary entry selection, source-file provenance and projected
 reads. Its default raw products are ``points``, ``particles``, ``inter``,
 ``events`` and ``metadata``. Particle and interaction point ranges are rebased
 to the event's point array. Interaction particle ranges are likewise rebased.
-Event identities remain available in the raw ``events`` product, including
-production ``event_id`` and ``job_id`` when present; these are not invented
-run/subrun numbers.
+The ``event_info`` parser preserves every stored event/input/job identity as a
+named integer tensor, including ``event_id``, ``input``, ``input_event``,
+``jaxtpc_entry``, ``job_event`` and ``job_id`` in the sample. It does not invent
+run/subrun numbers. The raw identities remain available as ``events``.
 
 Physical semantics
 ~~~~~~~~~~~~~~~~~~
@@ -107,8 +113,9 @@ in particular ``_run.py``, ``layout.py``, ``io_v3.py``, ``provenance.py`` and
   its instance. The reader never assumes group/point alignment.
 * The writer retains sparse particle IDs. Despite the upstream reader module's
   row-index wording, these must be resolved through an ID-to-row map. SPINE
-  particle indexes, ancestor links and PPN particle references are event-local
-  table indexes; the cluster sidecar's ``particle`` field retains source IDs.
+  particle IDs, cluster-sidecar ``particle`` IDs, ancestor links, graph nodes
+  and PPN references are all event-local particle-table rows. ``source_ids``
+  preserves the sparse source ID for each row, without shifting it in a batch.
 * Semantic codes map explicitly: pysupera shower/track/delta/Michel/LE
   ``1/2/3/4/5`` become SPINE ``0/1/3/2/4``. Non-LE points use the instance's
   semantic class; LE fragments retain LE even inside a track or shower.
@@ -124,8 +131,9 @@ Aligned training products
 All parsers share one event preparation. Coordinates are rasterized with the
 file's ``voxel_size`` and an origin of zero, then shifted by an integer number
 of cells to make event coordinates nonnegative. ``Meta`` records the inverse
-transform in cm. Each parser accepts ``voxel_size_mm`` (scalar or three-vector)
-and ``origin_mm``; all parsers in a dataset must use the same grid settings.
+transform in cm. Every spatial parser accepts ``voxel_size_mm`` (scalar or three-vector)
+and ``origin_mm``; all spatial parsers in a dataset must use the same grid settings.
+The identity-only ``event_info`` parser does not take grid arguments.
 An explicit size is required when the file does not supply one. These settings
 also permit rasterizing deposit-mode files. Upstream voxelization can use a
 per-particle origin, so stored centers are rasterized rather than assumed to
@@ -139,12 +147,85 @@ fragment IDs and fragment-row associations, with instance IDs in ``group``.
 Unprovided neutrino identity is left at ``-1``. No energy-to-charge conversion
 is performed.
 
-PPN targets use finite instance starts and track ends only, exclude LE,
+``coord_label`` is a separate, row-aligned ``particle_coords`` product for
+GrapPA. Its ``TensorData`` schema has ``start`` and ``end`` coordinate groups,
+plus ``time`` (ns) and ``shape`` features. Every stored particle gets a row,
+including particles with no retained voxels. Instance rows use stored collected
+step endpoints. Where these are missing, fragment rows use earliest/latest
+collected deposit positions; instance rows use their non-LE deposit range,
+or all deposits when that range is empty. These fallback positions are derived
+from voxelized deposits, **not exact Geant4 step endpoints**. Non-track ends
+repeat their starts. Rows without usable endpoints retain NaN coordinates and
+times. Deposited rows have finite fallback coordinates; no creation/destruction
+position is substituted. The same endpoint resolution populates parsed particle
+``first_step``/``last_step`` fields.
+
+PPN targets use finite stored instance starts and track ends only, exclude LE,
 unknown classes and nuclear fragments, and omit points outside the event
-image. Targets refer to the complete event particle table. The particle parser
-returns that table as SPINE ``Particle`` objects in voxel units, preserving
-missing kinematics as NaN. Particle energy deposits sum the source instance's
-contributions, independently of overlap winner selection.
+image. They reference the complete event particle table but cannot replace
+``coord_label`` for closest-primary selection or track orientation.
+
+The particle parser fills PID, group/interaction-primary flags and ancestry
+consistently with cluster supervision. PID and interaction-primary labels are
+propagated from each fragment's host instance, preventing daughter-electron
+votes from changing an instance's PID. A group primary is its representative;
+an interaction primary is a host whose redirected stored parent is itself.
+This is the file's stored-root convention, not an independently inferred
+generator-primary definition. Host-instance interaction IDs label absorbed
+fragments, whose own source interaction may differ. Stored interaction vertices
+supply a common ``ancestor_position`` and cluster ``vertex`` for all members.
+When unavailable, the stored ancestor's creation position is used; missing
+ancestry remains NaN rather than indexing row ``-1``.
+
+Individual ``pc_start:pc_end`` ranges do not cover all deposits in this file:
+absorbed particles may have been omitted from the stored table. Fragment ranges
+do partition the point cloud. SPINE assigns each fragment's summed dE once,
+to its representative row, and zero to other rows. Truth particle construction
+then sums these fragment contributions without double-counting. This energy
+is independent of overlap-winner assignment; a truth object's voxel deposition
+sum can differ from its attributed source-fragment energy.
+
+Truth conversion
+~~~~~~~~~~~~~~~~
+
+Use the complete schema above (also in ``config/io/supera.yaml``) with:
+
+.. code-block:: yaml
+
+   base:
+     unwrap: true
+   build:
+     mode: truth
+     units: cm
+     fragments: true
+     particles: true
+     interactions: true
+
+No model is required for truth-only construction. ``meta`` exposes the shared
+``Meta`` at top level, so collation, unwrapping and ``BuildManager`` can convert
+voxel coordinates to detector centimetres. Voxel centers use the half-cell
+shift; particle endpoints and interaction vertices retain their continuous
+physical positions. ``graph_label`` supplies directed stored-parent edges;
+truth building contracts invisible ancestors and restores parent/child links
+between retained particles. Without this product, those output genealogy links
+are not restored. The standard SPINE HDF5 V2 writer/reader preserves these
+products and associations; load truth objects through ``BuildManager`` to
+reattach their long-form point arrays.
+
+Unavailable neutrino identity, unknown PID and missing relationship IDs use
+``-1``. Missing PDG codes default to SPINE's ``INVALID_PDG`` (0); the source
+Geant4-parent PDG sentinel (-1) is retained when present. Absent creation
+process names are empty strings. Missing positions, times and travel distance
+are NaN. Neutrino interaction records, measured charge, generator-process
+strings and exact endpoints of individual fragments cannot be recovered from
+this file. The reader does not synthesize them. See the
+:doc:`author-facing format report <supera_format_findings>` for measured format
+limitations and proposed upstream changes.
+
+.. toctree::
+   :hidden:
+
+   supera_format_findings
 
 ``groups`` and ``hit_labels/volume0/plane0`` (or another explicit plane path)
 can be requested through ``SuperaReader(keys=...)``. They are never read by
@@ -177,15 +258,33 @@ Run the real-file forward/backward test in the model runtime with:
      -e SPINE_SUPERA_SAMPLE=/workspace/supera_pixel_j000000-000004.h5 \
      -v "$PWD:/workspace" -w /workspace \
      ghcr.io/deeplearnphysics/spine:latest bash -lc \
-     'pip install hdf5plugin && pytest -q -s test/test_io/test_supera/test_supera_model.py'
+     'pip install hdf5plugin && pytest -q -s test/test_io/test_supera'
 
-The first sample event yields 25,537 unique voxels and 120 PPN targets. The
-integration test exercises segmentation and PPN through the standard
-UResNet+PPN model and fragmentation through Graph-SPICE, using the full event.
-It requires finite, nonzero backbone gradients for each objective and verifies
-that the combined backward pass reaches the graph kernel. Both models are
-available on ``main``; this input implementation has no dependency on the
-separate UResNetMulti feature branch.
+The first sample event yields 25,537 unique voxels and 120 PPN targets.
+The opt-in integration suite exercises these generic-chain components:
+
+* UResNet segmentation and PPN forward/backward on the complete first event,
+  with segmentation-stage cache publication and readback.
+* Graph-SPICE fragmentation forward/backward on the same aligned voxel labels.
+* Fragment-graph feature/target materialization and cache readback, followed by
+  shower GrapPA primary/grouping and track GrapPA grouping forward/backward.
+* Particle-graph feature/target materialization and cache readback, followed by
+  interaction GrapPA PID, closest-primary, orientation and grouping
+  forward/backward.
+* Truth fragment, particle and interaction construction for events 0 and 1,
+  followed by SPINE HDF5 V2 writing, reading and association rebuilding in cm.
+
+GrapPA checks use two complete events with truth-defined input clusters and the
+maintained generic configuration, reducing only hidden neural widths and
+enabling closest-primary matching. They retain all configured objectives and
+assert valid, nonzero supervised counts and gradients for each. These checks
+validate each learned component and its cache contract; they do not measure
+reconstruction quality or assert that an untrained end-to-end network produces
+useful clusters. Synthetic tests additionally exercise sparse IDs larger than
+the particle table, empty batch entries, missing endpoints, missing ancestors,
+closest-primary matching and opposite track orientations across events.
+The Supera modules retain 100% line and branch coverage. All exercised models
+are available on ``main``; there is no dependency on UResNetMulti.
 
 .. autosummary::
    :toctree: generated
@@ -195,6 +294,11 @@ separate UResNetMulti feature branch.
    parse.supera.SuperaClusterLabelParser
    parse.supera.SuperaParticleParser
    parse.supera.SuperaParticlePointsParser
+   parse.supera.SuperaParticleCoordsParser
+   parse.supera.SuperaParticleGraphParser
+   parse.supera.SuperaMetaParser
+   parse.supera.SuperaSourceIDsParser
+   parse.supera.SuperaEventInfoParser
 
 Entry Filtering
 ---------------

@@ -24,92 +24,6 @@ SCHEMA = {
 }
 
 
-@pytest.fixture
-def sample(tmp_path):
-    """Two events with sparse IDs, overlap, LE in a track and empty truth."""
-    path = tmp_path / "supera.h5"
-    ids = np.array([10, 80, 99, 120, 150], dtype=np.int32)
-    # Track, shower, LE fragment of track, delta, Michel.
-    table = dict(
-        id=ids,
-        parent_id=ids,
-        ancestor_id=ids,
-        frag_id=ids,
-        inst_id=np.array([10, 80, -1, 120, 150]),
-        frag_inst_id=np.array([10, 80, 10, 120, 150]),
-        sem_type=np.array([2, 1, 5, 3, 4]),
-        frag_sem_type=np.array([2, 1, 5, 3, 4]),
-        inst_sem_type=np.array([2, 1, -1, 3, 4]),
-        frag_pc_start=np.array([0, 3, 2, 4, 5]),
-        frag_pc_end=np.array([2, 4, 3, 5, 6]),
-        inst_pc_start=np.array([0, 3, -1, 4, 5]),
-        inst_pc_le_start=np.array([2, 4, -1, 5, 6]),
-        inst_pc_end=np.array([3, 4, -1, 5, 6]),
-        pdg=np.array([13, 11, 11, 11, 11]),
-        parent_pdg=np.array([13] * 5),
-        geant4_trackid=ids,
-        interaction_id=np.zeros(5, dtype=int),
-        mass=np.ones(5),
-    )
-    for key in (
-        "start_pos",
-        "end_pos",
-        "first_pos",
-        "last_pos",
-        "start_mom",
-        "end_mom",
-    ):
-        table[key] = np.tile([1.5, 1.5, 1.5, 10.0], (5, 1))
-    table["last_pos"][0, :3] = [4.5, 1.5, 1.5]
-    table["first_pos"][3, :3] = [10.5, 1.5, 1.5]
-    table["first_pos"][4, :3] = [13.5, 1.5, 1.5]
-    table["last_pos"][1] = np.nan
-    points = np.array(
-        [
-            [1.5, 1.5, 1.5, 5, 2, 0],
-            [4.5, 1.5, 1.5, 2, 3, 0],
-            [7.5, 1.5, 1.5, 1, 4, 0],
-            [1.5, 1.5, 1.5, 0, 9, 0],
-            [10.5, 1.5, 1.5, 1, 5, 0],
-            [13.5, 1.5, 1.5, 1, 6, 0],
-        ],
-        dtype=np.float32,
-    )
-    with h5py.File(path, "w") as file:
-        file["format_version"] = "4.1.0"
-        file["n_events"] = 3
-        file.attrs["voxel_size"] = "3.0"
-        file.attrs["hit_energy"] = "charge"
-        file["events/offsets"] = [0, 5, 10, 10]
-        file["events/event_id"] = [11, 12, 13]
-        file["points/offsets"] = [0, 6, 12, 12]
-        file["points/flat"] = np.concatenate([points, points])
-        file["points/columns"] = np.array(
-            ["x", "y", "z", "t", "dE", "dX"], dtype=h5py.string_dtype()
-        )
-        for key, val in table.items():
-            second = np.where(val >= 0, val + 6, val) if "pc_" in key else val
-            file["particles/" + key] = np.concatenate([val, second])
-        file["inter/offsets"] = [0, 1, 2, 2]
-        file["inter/interaction_id"] = [0, 0]
-        file["inter/part_start"] = [0, 5]
-        file["inter/part_end"] = [5, 10]
-        file["inter/pc_start"] = [0, 6]
-        file["inter/pc_end"] = [6, 12]
-        file["groups/offsets"] = [0, 9, 18, 18]
-        file["groups/fragment_id"] = [10] * 18
-        file["groups/is_le"] = [False] * 18
-        file["groups/volume_offsets_index"] = [0, 2, 4, 6]
-        file["groups/volume_offsets"] = [0, 4, 0, 4, 0, 0]
-        # A huge virtual dataset: a projected read must never access it.
-        hit_plane = file.create_group("hit_labels/volume0/plane0")
-        hit_plane["offsets"] = [0, 2, 4, 4]
-        hit_plane.create_dataset(
-            "fragment_id", shape=(10**9,), dtype="i4", fillvalue=10
-        )
-    return str(path)
-
-
 def dataset(path, **kwargs):
     """Build the complete parser schema for one synthetic input file."""
     return SuperaDataset(file_keys=path, dtype="float32", schema=SCHEMA, **kwargs)
@@ -246,8 +160,9 @@ def test_grid_transform_and_particle_energy(sample):
     np.testing.assert_allclose(event["ppn_label"].coordinate_data[0], [0.5, 0.5, 0.5])
     np.testing.assert_allclose(event["data"].meta.lower, [0, 0, 0])
     # The winning track sees 11 MeV in the overlapped input cell, but its
-    # source-instance truth includes only its own 2 + 3 + 4 MeV contributions.
-    assert event["particles"][0].energy_deposit == 9
+    # source-fragment truth includes only its own 2 + 3 MeV contributions.
+    # The separate LE fragment contributes 4 MeV when building the truth group.
+    assert event["particles"][0].energy_deposit == 5
 
 
 def test_registered_factories(sample):
@@ -322,6 +237,8 @@ def test_empty_representative_retains_particle_row(sample):
     raw = SuperaReader(file_keys=sample)[0]
     raw["points"] = raw["points"][:5]
     for key in (
+        "pc_start",
+        "pc_end",
         "frag_pc_start",
         "frag_pc_end",
         "inst_pc_start",

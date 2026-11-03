@@ -8,19 +8,23 @@ import os
 import numpy as np
 import pytest
 
+from .conftest import round_trip_cache
+
 SAMPLE = os.environ.get("SPINE_SUPERA_SAMPLE")
 pytestmark = pytest.mark.skipif(
     not SAMPLE, reason="Set SPINE_SUPERA_SAMPLE for real-file training"
 )
 
 
-def test_real_supera_forward_backward():
+def test_real_supera_forward_backward(tmp_path):
     """Backpropagate every training objective through the complete real event."""
     torch = pytest.importorskip("torch")
     pytest.importorskip("MinkowskiEngine")
     pytest.importorskip("torch_cluster")
     from spine.io.collate import CollateAll
     from spine.io.dataset import SuperaDataset
+    from spine.model.full_chain.providers.segmentation import SegmentationStage
+    from spine.model.full_chain.state import ChainState
     from spine.model.graph_spice import GraphSPICE, GraphSPICELoss
     from spine.model.uresnet.ppn import UResNetPPN, UResNetPPNLoss
 
@@ -44,6 +48,7 @@ def test_real_supera_forward_backward():
         e["seg_label"].features[:, 0], e["clust_label"].shapes
     )
     # Keep the full real event, including all overlaps and endpoint targets.
+    source_batch = CollateAll(data_keys=ds.data_keys)([e])
     batch = CollateAll(data_keys=schema)([e])
     batch = {k: v.to_tensor(dtype=torch.float32) for k, v in batch.items()}
     size = int(e["data"].meta.count.max()) + 2
@@ -60,8 +65,28 @@ def test_real_supera_forward_backward():
 
     # Segmentation and PPN share the standard UResNet backbone on main.
     model = UResNetPPN(backbone, ppn={}).train()
-    objective = UResNetPPNLoss(backbone, uresnet_loss={}, ppn={}, ppn_loss={})
-    metrics = objective(batch["seg_label"], batch["ppn_label"], **model(batch["data"]))
+    objective = UResNetPPNLoss(
+        backbone, uresnet_loss={}, ppn={}, ppn_loss={"return_mask_labels": True}
+    )
+    stage = SegmentationStage("segmentation", "uresnet", model, None)
+    output = stage(ChainState(**batch)).outputs
+    metrics = objective(batch["seg_label"], batch["ppn_label"], **output)
+    cached = round_trip_cache(
+        source_batch,
+        {"seg_pred": output["seg_pred"], "ppn_points": output["ppn_points"]},
+        tmp_path / "segmentation.spine-cache",
+        "segmentation",
+    )
+    for name in cached:
+        np.testing.assert_allclose(
+            cached[name].to_numpy().numpy_tensor(),
+            output[name].to_numpy().numpy_tensor(),
+        )
+    assert len(e["seg_label"].features) > 0
+    assert len(e["ppn_label"].features) > 0
+    positive_points = int(metrics["ppn_mask_labels"][0].torch_tensor().sum())
+    assert positive_points > 0
+    assert metrics["ppn_type_loss"] > 0 and metrics["ppn_reg_loss"] > 0
     parameter = next(model.uresnet.backbone.parameters())
     report = {}
     for name in ("uresnet_loss", "ppn_loss"):
@@ -93,6 +118,7 @@ def test_real_supera_forward_backward():
         batch["clust_label"],
         **graph(batch["data"], batch["seg_label"]),
     )
+    assert graph_metrics["count"] > 0
     assert torch.isfinite(graph_metrics["loss"])
     graph_parameter = next(graph.embedder.backbone.parameters())
     grad = torch.autograd.grad(
@@ -111,6 +137,8 @@ def test_real_supera_forward_backward():
         {
             "voxels": len(e["data"].features),
             "ppn_targets": len(e["ppn_label"].features),
+            "ppn_positive_voxels": positive_points,
+            "graph_spice_edges": graph_metrics["count"],
             "losses": report,
             "total_loss": float(total.detach()),
         }

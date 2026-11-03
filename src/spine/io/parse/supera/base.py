@@ -8,17 +8,9 @@ from typing import Any
 import numpy as np
 
 from spine.constants import PDG_TO_PID
-from spine.data import ClusterLabelData, Meta, ObjectListData, Particle, TensorData
+from spine.data import Meta
 
 from ..base import ParserBase
-
-__all__ = [
-    "SuperaClusterLabelParser",
-    "SuperaParticleParser",
-    "SuperaParticlePointsParser",
-    "SuperaSegmentationParser",
-    "SuperaTensorParser",
-]
 
 
 def _shape(code: int | np.ndarray) -> np.ndarray:
@@ -38,7 +30,7 @@ def _shape(code: int | np.ndarray) -> np.ndarray:
     return np.array([-1, 0, 1, 3, 2, 4, -1])[np.clip(code, 0, 6)]
 
 
-class SuperaTensorParser(ParserBase):
+class SuperaParserBase(ParserBase):
     """Voxelize truth deposits once, sharing winner selection across products.
 
     Coordinates and optional grid arguments are in mm; output metadata uses
@@ -47,8 +39,6 @@ class SuperaTensorParser(ParserBase):
     Overlaps sum dE and choose labels by track, shower, delta, Michel, LE,
     then earliest time and source row order. Unknown point classes are rejected.
     """
-
-    name = "tensor"
 
     def __init__(
         self,
@@ -72,6 +62,7 @@ class SuperaTensorParser(ParserBase):
             points_event="points",
             particle_event="particles",
             metadata_event="metadata",
+            interaction_event="inter",
         )
 
         # Normalize grid settings so all parsers can share the event cache.
@@ -140,8 +131,133 @@ class SuperaTensorParser(ParserBase):
             columns=table,
             source_ids=source_ids,
         )
+        event["labels"] = self._particle_labels(event, trees["inter"])
         cache[self.grid] = event
         return event
+
+    @staticmethod
+    def _particle_labels(
+        event: dict[str, Any], interactions: dict[str, np.ndarray]
+    ) -> dict[str, np.ndarray]:
+        """Build shared particle truth using local IDs and interaction vertices.
+
+        Parameters
+        ----------
+        event : dict[str, Any]
+            Prepared voxel image and resolved particle columns.
+        interactions : dict[str, np.ndarray]
+            Event-local interaction table, with detector vertices in mm.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Particle labels shared by compact supervision and truth objects.
+            Missing ancestry yields NaN vertices unless an interaction is known.
+        """
+        table = event["columns"]
+        host = table["frag_inst_id"]
+        valid = (host >= 0) & (host < len(table["id"]))
+        interaction_ids = table["interaction_id"].copy()
+        interaction_ids[valid] = table["interaction_id"][host[valid]]
+        vertices = np.full((len(table["id"]), 3), np.nan)
+        ancestors = table["ancestor_id"]
+        valid_ancestors = ancestors >= 0
+        vertices[valid_ancestors] = table["start_pos"][ancestors[valid_ancestors], :3]
+
+        # A generator interaction may contain several distinct stored roots.
+        # Use its common vertex instead of arbitrarily selecting one root.
+        if all(key in interactions for key in ("x", "y", "z")):
+            positions = np.column_stack([interactions[key] for key in ("x", "y", "z")])
+            for row, interaction in enumerate(interactions["interaction_id"]):
+                if np.isfinite(positions[row]).all():
+                    vertices[interaction_ids == interaction] = positions[row]
+
+        shapes = _shape(table["sem_type"])
+        shapes[valid] = _shape(table["inst_sem_type"][host[valid]])
+        shapes[table["frag_sem_type"] == 5] = 4
+
+        # PID and interaction-primary supervision describe the host instance,
+        # including its secondary fragments, just as in the LArCV adapter.
+        pids = np.full(len(table["id"]), -1, dtype=np.int64)
+        pids[valid] = [
+            PDG_TO_PID.get(int(pdg), -1) for pdg in table["pdg"][host[valid]]
+        ]
+        primaries = np.full(len(table["id"]), -1, dtype=np.int64)
+        primaries[valid] = np.where(
+            table["parent_id"][host[valid]] >= 0,
+            table["parent_id"][host[valid]] == host[valid],
+            -1,
+        )
+
+        # All relationship fields use the same event-local particle namespace.
+        return {
+            "particle": table["id"].copy(),
+            "group": host.copy(),
+            "ancestor": table["ancestor_id"].copy(),
+            "interaction": interaction_ids,
+            "nu": np.full(len(table["id"]), -1),
+            "pid": pids,
+            "group_primary": np.where(valid, table["id"] == host, -1),
+            "interaction_primary": primaries,
+            "vertex": (vertices / 10.0 - event["meta"].lower) / event["meta"].size,
+            "momentum": np.linalg.norm(table["start_mom"][:, :3], axis=1),
+            "energy_init": table["start_mom"][:, 3].copy(),
+            "shape": shapes,
+        }
+
+    def endpoints(self, trees: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+        """Resolve collected-step endpoints without substituting track creation.
+
+        Parameters
+        ----------
+        trees : dict[str, Any]
+            Projected native event products.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            Start and end positions in mm, with time in ns in the last column.
+            Missing endpoints use fragment deposits where available, otherwise
+            remain NaN. Non-track ends equal their starts.
+        """
+        event = self.prepare(trees)
+        if "endpoints" in event:
+            return event["endpoints"]
+        table = event["columns"]
+        starts = table["first_pos"].copy()
+        ends = table["last_pos"].copy()
+        time_col = next(
+            i
+            for i, key in enumerate(trees["metadata"]["columns"])
+            if key in ("t", "time")
+        )
+
+        # Non-instance rows do not have upstream collected-step kinematics.
+        for row in range(len(table["id"])):
+            prefix = "inst" if table["inst_id"][row] == row else "frag"
+            owner = row if prefix == "inst" else int(table["frag_id"][row])
+            if owner >= 0:
+                lower, upper = (
+                    table[prefix + "_pc_start"][owner],
+                    table[prefix + "_pc_end"][owner],
+                )
+                # Match upstream's preference for non-LE trajectory deposits.
+                if prefix == "inst" and table["inst_pc_le_start"][row] > lower:
+                    upper = table["inst_pc_le_start"][row]
+                points = trees["points"][max(0, lower) : max(0, upper)]
+                if len(points):
+                    points = points[np.argsort(points[:, time_col], kind="stable")]
+                    for endpoint, point in zip((starts, ends), points[[0, -1]]):
+                        if not np.isfinite(endpoint[row]).all():
+                            endpoint[row, :3] = point[:3]
+                            endpoint[row, 3] = point[time_col] * 1000.0
+
+        # A shower has one meaningful collected-step endpoint.
+        ends[event["labels"]["shape"] != 1] = starts[event["labels"]["shape"] != 1]
+        starts[~np.isfinite(starts)] = np.nan
+        ends[~np.isfinite(ends)] = np.nan
+        event["endpoints"] = (starts, ends)
+        return starts, ends
 
     def _voxelize(
         self,
@@ -338,250 +454,3 @@ class SuperaTensorParser(ParserBase):
         ):
             raise ValueError("Fragment semantics disagree with instance LE ranges.")
         return fragment, instance, semantic
-
-    def __call__(self, trees: dict[str, Any]) -> TensorData:
-        """Return summed truth energy in MeV on the shared sparse grid.
-
-        Parameters
-        ----------
-        trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
-
-        Returns
-        -------
-        TensorData
-            Sparse coordinates and summed deposit energy in MeV.
-        """
-        # Reuse the same grid and overlap winners as the input tensor.
-        event = self.prepare(trees)
-        return TensorData(
-            coords=event["coords"].astype(self.itype),
-            features=event["energy"].astype(self.ftype)[:, None],
-            meta=event["meta"],
-        )
-
-
-class SuperaSegmentationParser(SuperaTensorParser):
-    """Return semantic labels in exactly the input voxel order."""
-
-    name = "segmentation"
-
-    def __call__(self, trees: dict[str, Any]) -> TensorData:
-        """Return five-class labels; unknown point semantics are rejected.
-
-        Parameters
-        ----------
-        trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
-
-        Returns
-        -------
-        TensorData
-            Semantic labels sharing the input tensor coordinates and row order.
-        """
-        # Reuse the same grid and overlap winners as the input tensor.
-        event = self.prepare(trees)
-        return TensorData(
-            coords=event["coords"].astype(self.itype),
-            features=event["shape"].astype(self.ftype)[:, None],
-            meta=event["meta"],
-        )
-
-
-class SuperaClusterLabelParser(SuperaTensorParser):
-    """Return fragment IDs and the winning fragment's particle table row."""
-
-    name = "cluster_label"
-
-    def __call__(self, trees: dict[str, Any]) -> ClusterLabelData:
-        """Build compact fragment supervision with instance and ancestor links.
-
-        Parameters
-        ----------
-        trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
-
-        Returns
-        -------
-        ClusterLabelData
-            Compact fragment labels and a named particle-truth sidecar.
-        """
-        # Reuse the same grid and overlap winners as the input tensor.
-        event = self.prepare(trees)
-        table = event["columns"]
-        num_particles = len(table["id"])
-        host = table["frag_inst_id"]
-        valid = (host >= 0) & (host < num_particles)
-        shapes = _shape(table["sem_type"])
-        shapes[valid] = _shape(table["inst_sem_type"][host[valid]])
-        shapes[table["frag_sem_type"] == 5] = 4
-
-        # Keep source particle IDs while exposing event-local relationship fields.
-        particles = {
-            "particle": event["source_ids"].copy(),
-            "group": host.copy(),
-            "ancestor": table["ancestor_id"].copy(),
-            "interaction": table["interaction_id"].copy(),
-            "nu": np.full(num_particles, -1),
-            "pid": np.array(
-                [PDG_TO_PID.get(int(particle), -1) for particle in table["pdg"]]
-            ),
-            "group_primary": np.where(valid, table["id"] == host, -1),
-            "interaction_primary": (table["parent_id"] == table["id"]).astype(np.int64),
-            "vertex": (
-                table["start_pos"][table["ancestor_id"], :3] / 10.0
-                - event["meta"].lower
-            )
-            / event["meta"].size,
-            "momentum": np.linalg.norm(table["start_mom"][:, :3], axis=1),
-            "energy_init": table["start_mom"][:, 3].copy(),
-            "shape": shapes,
-        }
-
-        # The winning fragment row is also the compact particle association.
-        return ClusterLabelData(
-            coords=event["coords"].astype(self.itype),
-            features=np.column_stack(
-                (event["energy"], event["fragment"], event["fragment"])
-            ).astype(self.ftype),
-            particles=particles,
-            meta=event["meta"],
-            remove_duplicates=False,
-        )
-
-
-class SuperaParticleParser(SuperaTensorParser):
-    """Translate the full stored particle table, preserving event-local IDs."""
-
-    name = "particle"
-
-    def __call__(self, trees: dict[str, Any]) -> ObjectListData:
-        """Return SPINE particle truth in voxel units with MeV kinematics.
-
-        Parameters
-        ----------
-        trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
-
-        Returns
-        -------
-        ObjectListData
-            Complete stored particle table in voxel units with MeV kinematics.
-        """
-        # Reuse the same grid and overlap winners as the input tensor.
-        event = self.prepare(trees)
-        table, meta = event["columns"], event["meta"]
-        particles = []
-
-        # Deposited truth energy includes source contributions, not winner totals.
-        event_counts = np.bincount(event["instance"], minlength=len(table["id"]))
-        energy_prefix = np.r_[
-            0.0,
-            np.cumsum(
-                trees["points"][:, trees["metadata"]["columns"].index("dE")],
-                dtype=np.float64,
-            ),
-        ]
-
-        # Preserve the full table so PPN and cluster references remain valid.
-        for row in range(len(table["id"])):
-            is_inst = table["inst_id"][row] == row
-            particle = Particle(
-                id=row,
-                parent_id=int(table["parent_id"][row]),
-                group_id=int(table["frag_inst_id"][row]),
-                interaction_id=int(table["interaction_id"][row]),
-                track_id=int(table["geant4_trackid"][row]),
-                pdg_code=int(table["pdg"][row]),
-                parent_pdg_code=int(table["parent_pdg"][row]),
-                shape=int(
-                    _shape(table["inst_sem_type" if is_inst else "sem_type"][row])
-                ),
-                energy_init=float(table["start_mom"][row, 3]),
-                momentum=table["start_mom"][row, :3].copy(),
-                units="px",
-            )
-
-            # Positions use voxel units; kinematic times remain in nanoseconds.
-            for source, target in (
-                ("start", "position"),
-                ("end", "end_position"),
-                ("first", "first_step"),
-                ("last", "last_step"),
-            ):
-                setattr(
-                    particle,
-                    target,
-                    (
-                        (table[source + "_pos"][row, :3] / 10.0 - meta.lower)
-                        / meta.size
-                    ).astype(self.ftype),
-                )
-            particle.t, particle.end_t = float(table["start_pos"][row, 3]), float(
-                table["end_pos"][row, 3]
-            )
-            particle.first_step_t, particle.last_step_t = float(
-                table["first_pos"][row, 3]
-            ), float(table["last_pos"][row, 3])
-            particle.num_voxels = int(event_counts[row])
-            if is_inst:
-                start, stop = table["inst_pc_start"][row], table["inst_pc_end"][row]
-                particle.energy_deposit = (
-                    float(energy_prefix[stop] - energy_prefix[start])
-                    if start >= 0
-                    else 0.0
-                )
-            particles.append(particle)
-        return ObjectListData(particles, Particle())
-
-
-class SuperaParticlePointsParser(SuperaTensorParser):
-    """PPN instance starts and track ends from collected-step kinematics."""
-
-    name = "particle_points"
-
-    def __call__(self, trees: dict[str, Any]) -> TensorData:
-        """Omit unknown, LE, nonfinite and out-of-image endpoints.
-
-        Parameters
-        ----------
-        trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
-
-        Returns
-        -------
-        TensorData
-            Instance starts and track ends with shape, particle and endpoint labels.
-        """
-        # Reuse the same grid and overlap winners as the input tensor.
-        event = self.prepare(trees)
-        table, meta = event["columns"], event["meta"]
-        rows = []
-
-        # Only instances represented in the voxel image can provide targets.
-        for row in np.unique(event["instance"]):
-            shape = int(_shape(table["inst_sem_type"][row]))
-            if shape not in (0, 1, 2, 3) or abs(table["pdg"][row]) > 1000000000:
-                continue
-            for endpoint, key in enumerate(
-                ("first_pos", "last_pos") if shape == 1 else ("first_pos",)
-            ):
-                point = (table[key][row, :3] / 10.0 - meta.lower) / meta.size
-                if (
-                    np.isfinite(point).all()
-                    and np.all(point >= 0)
-                    and np.all(point < meta.count)
-                ):
-                    rows.append([*point, shape, row, endpoint])
-
-        # Preserve a stable six-column layout even when no endpoints survive.
-        data = np.asarray(rows, dtype=self.ftype).reshape(-1, 6)
-        return TensorData(
-            coords=data[:, :3],
-            features=data[:, 3:],
-            meta=meta,
-            coordinate_groups={"point": (0, 1, 2)},
-            feature_fields={"shape": (0,), "particle": (1,), "endpoint": (2,)},
-            index_cols=np.array([1]),
-            index_shifts=np.array([len(table["id"])]),
-        )
