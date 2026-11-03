@@ -6,10 +6,28 @@ Shared UResNet Reconstruction Model
 semantic segmentation, particle-point proposals and Graph-SPICE fragmentation.
 Optional vertex proposals retain the UResNet-PPN configuration contract.
 
-The implementation separates the network orchestration in ``multi/model.py``,
-joint objectives in ``multi/loss.py``, and fragment classification/pooling in
-``multi/semantics.py``. Existing standalone UResNet-PPN and Graph-SPICE models
-remain available with their original parameter paths.
+Implementation modules
+----------------------
+
+These modules require a model-capable runtime, like the UResNet-PPN package.
+Their interfaces are documented here without importing the optional PyTorch
+and sparse-backend dependencies during the documentation build:
+
+* ``spine.model.uresnet.multi.model`` provides ``UResNetMulti``, which
+  orchestrates the shared backbone and prediction heads.
+* ``spine.model.uresnet.multi.loss`` provides ``UResNetMultiLoss``, which
+  combines the native task objectives under one loss-balancing policy.
+* ``spine.model.uresnet.multi.semantics`` provides ``FragmentSemanticHead``
+  and ``FragmentSemanticLoss`` for fragment classification and supervision,
+  ``pool_features`` for differentiable mean pooling, and ``resolve_semantics``
+  for validating the coupling and final-classification policies.
+* ``spine.model.full_chain.providers.multi`` provides ``MultiStage`` and
+  ``MultiLossStage``, constructed through ``build_multi_stage`` and
+  ``build_multi_loss`` by the full-chain registry.
+
+The configuration, output and supervision contracts are described below.
+Existing standalone UResNet-PPN and Graph-SPICE models remain available with
+their original parameter paths.
 
 Architectural options
 ---------------------
