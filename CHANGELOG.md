@@ -2,10 +2,34 @@
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-11-07
+
+### Fixed
+- **GrapPA CNN encoders**: Accept structured `ClusterLabelBatch` inputs in node,
+  edge and global CNN encoders by unwrapping their sparse tensor representation.
+  Fix the missing `batch_col` error during training and validation without
+  changing configuration or modifying input labels.
+- Restore the live documentation badge through Shields.io.
+
 ### Added
+- **Distance-aware segmentation reports**: Add segmentation metrics binned by
+  distance to interaction vertices, shared classification F1 metrics and
+  optional event-bootstrap confidence intervals (#189).
 - `spine-filter scan` now reports total files, scanned/reused completion counts,
   percentages and elapsed time as workers finish, with 30-second status lines
   while waiting. Output is flushed to batch logs; `--quiet` suppresses progress.
+
+### Tests
+- Cover structured-label CNN node, directed-edge, undirected-edge, empty-edge
+  and global encoding, including tensor-input equivalence and input preservation.
+- Cover distance-based segmentation, shared classification metrics and
+  event-bootstrap intervals (#189).
+
+### Migration notes
+- Existing GrapPA CNN configurations require no changes.
+- Event-bootstrap intervals are opt-in through the report provider's `bootstrap`
+  configuration. Distance reports require the corresponding distance-binned
+  analyzer output.
 
 ## [1.4.4] - 2026-10-29
 
