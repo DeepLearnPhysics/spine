@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.cnn.encoder import SparseResidualEncoder
 
 __all__ = ["ClustCNNNodeEncoder", "ClustCNNEdgeEncoder", "ClustCNNGlobalEncoder"]
@@ -36,7 +36,7 @@ class ClustCNNNodeEncoder(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         **kwargs: object,
     ) -> TensorBatch:
@@ -44,8 +44,8 @@ class ClustCNNNodeEncoder(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) Batch of sparse tensors
+        data : ClusterLabelBatch or TensorBatch
+            Structured cluster labels or (N, 1 + D + N_f) sparse tensor batch
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
@@ -56,6 +56,10 @@ class ClustCNNNodeEncoder(torch.nn.Module):
         TensorBatch
             (C, N_c) Set of N_c features per cluster
         """
+        # Unwrap structured labels to access the sparse tensor metadata.
+        if isinstance(data, ClusterLabelBatch):
+            data = data.to_tensor_batch()
+
         # Use cluster ID as a batch ID, pass through CNN
         full_index = clusts.full_index
         cnn_data = data.torch_tensor()[full_index].clone()
@@ -100,7 +104,7 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         edge_index: EdgeIndexBatch,
         **kwargs: object,
@@ -109,8 +113,8 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) Batch of sparse tensors
+        data : ClusterLabelBatch or TensorBatch
+            Structured cluster labels or (N, 1 + D + N_f) sparse tensor batch
         clusts : IndexBatch
             Indexes that make up each cluster
         edge_index : EdgeIndexBatch
@@ -123,6 +127,10 @@ class ClustCNNEdgeEncoder(torch.nn.Module):
         TensorBatch
             (E, N_e) Set of N_e features per edge
         """
+        # Unwrap structured labels to access the sparse tensor metadata.
+        if isinstance(data, ClusterLabelBatch):
+            data = data.to_tensor_batch()
+
         # Use edge ID as a batch ID, pass through CNN. For undirected graph,
         # only do it on half of the edges to save time (same features).
         cnn_data = []
@@ -191,7 +199,7 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
 
     def forward(
         self,
-        data: TensorBatch,
+        data: ClusterLabelBatch | TensorBatch,
         clusts: IndexBatch,
         **kwargs: object,
     ) -> TensorBatch:
@@ -199,8 +207,8 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
 
         Parameters
         ----------
-        data : TensorBatch
-            (N, 1 + D + N_f) Batch of sparse tensors
+        data : ClusterLabelBatch or TensorBatch
+            Structured cluster labels or (N, 1 + D + N_f) sparse tensor batch
         clusts : IndexBatch
             Indexes that make up each cluster
         **kwargs : dict, optional
@@ -211,6 +219,10 @@ class ClustCNNGlobalEncoder(torch.nn.Module):
         TensorBatch
             (B, N_g) Set of N_g global graph features per batch entry
         """
+        # Unwrap structured labels to access the sparse tensor metadata.
+        if isinstance(data, ClusterLabelBatch):
+            data = data.to_tensor_batch()
+
         # Restrict the set of points to those in the graph clusters
         full_index = clusts.full_index
         cnn_data = data.torch_tensor()[full_index]

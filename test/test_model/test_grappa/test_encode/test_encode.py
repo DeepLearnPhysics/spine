@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from spine.data import EdgeIndexBatch, IndexBatch, TensorBatch
+from spine.data import ClusterLabelBatch, EdgeIndexBatch, IndexBatch, TensorBatch
 from spine.model.grappa.encode import (
     ClustCNNEdgeEncoder,
     ClustCNNGlobalEncoder,
@@ -434,3 +434,61 @@ def test_torch_geometric_edge_encoder_reports_distance_failure(
             graph_clusters,
             edge_index,
         )
+
+
+@pytest.mark.parametrize(
+    ("encoder_class", "edge_mode", "counts"),
+    [
+        pytest.param(ClustCNNNodeEncoder, None, [2, 1], id="node"),
+        pytest.param(ClustCNNEdgeEncoder, "directed", [1, 0], id="edge-directed"),
+        pytest.param(ClustCNNEdgeEncoder, "undirected", [2, 0], id="edge-undirected"),
+        pytest.param(ClustCNNEdgeEncoder, "empty", [0, 0], id="edge-empty"),
+        pytest.param(ClustCNNGlobalEncoder, None, [1, 1], id="global"),
+    ],
+)
+def test_cnn_encoders_accept_structured_labels(
+    graph_labels, graph_clusters, encoder_class, edge_mode, counts, monkeypatch
+):
+    """Every CNN view unwraps structured labels and preserves image batching."""
+    data = graph_labels.to_tensor()
+    tensor_data = data.to_tensor_batch()
+    original = tensor_data.torch_tensor().clone()
+    encoder = encoder_class(**CNN_CONFIG).eval()
+    args = [graph_clusters]
+    if edge_mode == "empty":
+        args.append(
+            EdgeIndexBatch(
+                torch.empty((2, 0), dtype=torch.long),
+                counts=[0, 0],
+                spans=graph_clusters.counts,
+                directed=True,
+            )
+        )
+    elif edge_mode is not None:
+        edge_index, _, _ = CompleteGraph(directed=edge_mode == "directed")(
+            data, graph_clusters
+        )
+        args.append(edge_index)
+
+    # Exercise the actual conversion, including the otherwise equivalent global
+    # path, rather than allowing a structured wrapper to reach tensor-only code.
+    conversions = []
+    to_tensor_batch = ClusterLabelBatch.to_tensor_batch
+
+    def record_conversion(labels):
+        conversions.append(labels)
+        return to_tensor_batch(labels)
+
+    monkeypatch.setattr(ClusterLabelBatch, "to_tensor_batch", record_conversion)
+    with torch.no_grad():
+        expected = encoder(tensor_data, *args)
+        assert not conversions
+        actual = encoder(data, *args)
+
+    assert len(conversions) == 1
+    assert conversions[0] is data
+    assert actual.shape == (sum(counts), CNN_CONFIG["feature_size"])
+    assert actual.counts.tolist() == counts
+    torch.testing.assert_close(actual.torch_tensor(), expected.torch_tensor())
+    np.testing.assert_array_equal(actual.counts, expected.counts)
+    torch.testing.assert_close(tensor_data.torch_tensor(), original)
