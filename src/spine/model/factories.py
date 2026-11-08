@@ -17,6 +17,7 @@ _MODEL_MODULES: dict[str, str] = {
     "spice": "spine.model.spice",
     "uresnet": "spine.model.uresnet",
     "uresnet_bayes": "spine.model.uresnet.bayes",
+    "uresnet_multi": "spine.model.uresnet.multi",
     "uresnet_ppn": "spine.model.uresnet.ppn",
 }
 

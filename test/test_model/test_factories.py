@@ -18,6 +18,7 @@ def test_model_discovery_is_dependency_light():
         "spice",
         "uresnet",
         "uresnet_bayes",
+        "uresnet_multi",
         "uresnet_ppn",
     )
 
