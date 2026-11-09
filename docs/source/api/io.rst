@@ -53,12 +53,11 @@ File Readers
 PIMM detector input
 -------------------
 
-Use ``provider: pimm`` for paired JAXTPC ``hits`` and pysupera-derived ``labl``
+Use ``provider: pimm`` for paired JAXTPC ``hits`` and ``labl``
 files in the PIMM layout. ``PIMMReader`` delegates decoding, event alignment,
 per-hit overrides and particle-ID normalization to ``pimm_data.JAXTPCDataset``.
 SPINE consumes its untransformed NumPy output and retains its own parsers,
-collation and augmentation. There is no direct pysupera HDF5 reader or
-truth-deposit input fallback.
+collation and augmentation.
 
 Install ``spine[pimm]``. The optional extra includes PyTorch, ``pimm-data`` and
 HDF5 compression filters; importing base SPINE does not import ``pimm-data``.
@@ -94,10 +93,8 @@ For separately located shards, omit ``runs`` and provide ``files`` with
 ``hits`` and ``labl`` paths or glob patterns. The upstream loader requires
 matching task and event identities and rejects partial pairs. Standard SPINE
 entry selection (``n_entry``, ``n_skip``, ``entry_list``) is applied afterward.
-Do not supply the old ``supera_pixel_*.h5`` as a ``labl`` file: prepare it with
-upstream ``python -m pimm_data.supera_labl SUPERA HITS OUT`` first, or use the
-published final-layout corpus. Conversion is an explicit preparation step,
-never a hidden side effect of training.
+Use the published final-layout corpus or prepare paired files using the
+upstream PIMM data-preparation tools before starting training.
 
 Coordinates, charge and supervision
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -154,16 +151,9 @@ Truth construction uses the complete schema above with:
 Known limitations and validation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. toctree::
-   :hidden:
-
-   supera_format_findings
-
-This integration replaces the earlier truth-deposit prototype. Its old
-training results do not establish detector-charge performance. Missing
-fragment endpoints can reduce primary/orientation supervision; drift timing
-can also displace nominal hit coordinates relative to true endpoints.
-The reader must not silently repair either using truth deposits.
+Missing fragment endpoints can reduce primary/orientation supervision.
+Drift timing can also displace nominal hit coordinates relative to true
+endpoints. Unavailable endpoints remain NaN.
 
 Synthetic tests cover alignment, charge conservation, ignored labels, empty
 clouds, missing endpoints, event selection, worker serialization, batching and

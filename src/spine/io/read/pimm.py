@@ -20,7 +20,7 @@ class PIMMReader(ReaderBase):
 
     The upstream dataset joins hits and ``labl`` by task and event identity.
     SPINE reads its untransformed NumPy products, preserving particle-table
-    row indexes until SPINE collation. No legacy pysupera file is read here.
+    row indexes until SPINE collation.
     """
 
     name: ClassVar[str] = "pimm"
