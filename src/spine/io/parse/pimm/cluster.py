@@ -8,12 +8,12 @@ import numpy as np
 
 from spine.data import ClusterLabelData
 
-from .base import SuperaParserBase
+from .base import PIMMParserBase
 
-__all__ = ["SuperaClusterLabelParser"]
+__all__ = ["PIMMClusterLabelParser"]
 
 
-class SuperaClusterLabelParser(SuperaParserBase):
+class PIMMClusterLabelParser(PIMMParserBase):
     """Return fragment IDs and the winning fragment's particle table row."""
 
     name = "cluster_label"
@@ -24,7 +24,7 @@ class SuperaClusterLabelParser(SuperaParserBase):
         Parameters
         ----------
         trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
+            Raw event products returned by PIMMReader.
 
         Returns
         -------

@@ -50,8 +50,12 @@ Documentation = "https://spine.readthedocs.io/"
 "Bug Tracker" = "https://github.com/DeepLearnPhysics/spine/issues"
 
 [project.optional-dependencies]
-# Compression filters used by native pysupera files
-supera = ["hdf5plugin>=4"]
+# Detector-hit readers and compression filters used by PIMM productions.
+# Provisional doraemon-final-layout commit; require a release before adoption.
+pimm = [
+    "pimm-data @ git+https://github.com/OmarAlterkait/pimm-data.git@23dc94f3ac1134936891b281e4408a975d0097ed",
+    "hdf5plugin>=4",
+]
 
 # Visualization dependencies
 viz = [

@@ -15,7 +15,7 @@ from .hdf5 import HDF5Dataset
 from .joint import JointDataset
 from .larcv import LArCVDataset
 from .mixed import MixedDataset
-from .supera import SuperaDataset
+from .pimm import PIMMDataset
 
 __all__ = [
     "CacheDataset",
@@ -23,5 +23,5 @@ __all__ = [
     "JointDataset",
     "LArCVDataset",
     "MixedDataset",
-    "SuperaDataset",
+    "PIMMDataset",
 ]

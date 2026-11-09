@@ -1,4 +1,4 @@
-"""Parsers for native pysupera truth-deposit products."""
+"""Parsers for aligned PIMM detector hits and truth tables."""
 
 from .cluster import *
 from .metadata import *

@@ -8,38 +8,28 @@ import numpy as np
 import pytest
 
 from spine.io.collate import CollateAll
-from spine.io.dataset import SuperaDataset
+from spine.io.dataset import PIMMDataset
 
 from .conftest import FULL_SCHEMA, round_trip_cache
-from .test_supera_truth import check_truth_round_trip
+from .truth_helpers import check_truth_round_trip
 
-SAMPLE = os.environ.get("SPINE_SUPERA_SAMPLE")
-pytestmark = pytest.mark.skipif(not SAMPLE, reason="Set SPINE_SUPERA_SAMPLE")
+SAMPLE = os.environ.get("SPINE_PIMM_ROOT")
+pytestmark = pytest.mark.skipif(not SAMPLE, reason="Set SPINE_PIMM_ROOT")
 
 
 def test_real_truth_conversion(tmp_path):
     """Build two complete real events and preserve cm geometry and associations."""
-    ds = SuperaDataset(file_keys=SAMPLE, schema=FULL_SCHEMA, dtype="float32", n_entry=2)
+    ds = PIMMDataset(
+        data_root=SAMPLE,
+        dataset_name="sim_pixel",
+        schema=FULL_SCHEMA,
+        dtype="float32",
+        n_entry=2,
+    )
     events = [ds[0], ds[1]]
     truth = check_truth_round_trip(events, tmp_path / "truth.h5")
     for index, event in enumerate(events):
-        raw = ds.reader[index]
-        interactions = raw["inter"]
-        for interaction in truth["truth_interactions"][index]:
-            row = np.flatnonzero(interactions["interaction_id"] == interaction.orig_id)[
-                0
-            ]
-            expected = (
-                np.array([interactions[key][row] for key in ("x", "y", "z")]) / 10
-            )
-            np.testing.assert_allclose(interaction.vertex, expected, atol=1e-4)
-        # Fragment-attributed energy counts every source deposit exactly once.
-        energy_col = raw["metadata"]["columns"].index("dE")
-        assert np.isclose(
-            sum(p.energy_deposit for p in event["particles"]),
-            raw["points"][:, energy_col].sum(),
-            rtol=1e-5,
-        )
+        assert all(np.isnan(p.energy_deposit) for p in event["particles"])
         assert len(truth["truth_fragments"][index]) > 0
         assert len(truth["truth_particles"][index]) > 0
         assert any(len(p.children_id) for p in truth["truth_particles"][index])
@@ -55,7 +45,13 @@ def test_real_grappa_targets_and_backward(path, tmp_path):
     from spine.model.grappa import GrapPA, GrapPALoss
 
     torch.manual_seed(7)
-    ds = SuperaDataset(file_keys=SAMPLE, schema=FULL_SCHEMA, dtype="float32", n_entry=2)
+    ds = PIMMDataset(
+        data_root=SAMPLE,
+        dataset_name="sim_pixel",
+        schema=FULL_SCHEMA,
+        dtype="float32",
+        n_entry=2,
+    )
     # Two events exercise the coordinate-table offsets used by orientation targets.
     batch = CollateAll(data_keys=ds.data_keys)([ds[0], ds[1]])
     labels = batch["clust_label"].to_tensor(dtype=torch.float32)

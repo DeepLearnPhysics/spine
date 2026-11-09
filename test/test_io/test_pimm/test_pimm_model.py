@@ -1,6 +1,6 @@
 """Opt-in real-file training smoke test using models available on main.
 
-Run with SPINE_SUPERA_SAMPLE pointing at a pysupera 4.1 production file.
+Run with SPINE_PIMM_ROOT pointing at paired hits/labl directories.
 """
 
 import os
@@ -10,19 +10,19 @@ import pytest
 
 from .conftest import round_trip_cache
 
-SAMPLE = os.environ.get("SPINE_SUPERA_SAMPLE")
+SAMPLE = os.environ.get("SPINE_PIMM_ROOT")
 pytestmark = pytest.mark.skipif(
-    not SAMPLE, reason="Set SPINE_SUPERA_SAMPLE for real-file training"
+    not SAMPLE, reason="Set SPINE_PIMM_ROOT for real-file training"
 )
 
 
-def test_real_supera_forward_backward(tmp_path):
+def test_real_pimm_forward_backward(tmp_path):
     """Backpropagate every training objective through the complete real event."""
     torch = pytest.importorskip("torch")
     pytest.importorskip("MinkowskiEngine")
     pytest.importorskip("torch_cluster")
     from spine.io.collate import CollateAll
-    from spine.io.dataset import SuperaDataset
+    from spine.io.dataset import PIMMDataset
     from spine.model.full_chain.providers.segmentation import SegmentationStage
     from spine.model.full_chain.state import ChainState
     from spine.model.graph_spice import GraphSPICE, GraphSPICELoss
@@ -38,7 +38,13 @@ def test_real_supera_forward_backward(tmp_path):
             ("ppn_label", "particle_points"),
         )
     }
-    ds = SuperaDataset(file_keys=SAMPLE, dtype="float32", schema=schema, n_entry=1)
+    ds = PIMMDataset(
+        data_root=SAMPLE,
+        dataset_name="sim_pixel",
+        dtype="float32",
+        schema=schema,
+        n_entry=1,
+    )
     e = ds[0]
     np.testing.assert_array_equal(
         e["data"].coordinate_data, e["seg_label"].coordinate_data

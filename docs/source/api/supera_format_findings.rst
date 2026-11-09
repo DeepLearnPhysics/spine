@@ -4,7 +4,35 @@ pysupera 4.1 integration findings
 This report is prepared for the pysupera authors from the SPINE PR #191
 integration. It distinguishes an incorrect documented contract from intentional
 loss of source detail and requests for a more explicit interchange schema.
-It has not been submitted upstream.
+The author responses below supersede the original open questions.
+
+.. note::
+
+   This is the historical investigation of the retired direct pysupera adapter.
+   The measurements remain useful, but descriptions of SPINE's deposit-based
+   energy attribution and endpoint fallbacks below do not describe the current
+   :ref:`PIMM integration <pimm-input>`.
+
+Author clarification and integration direction
+----------------------------------------------
+
+The authors confirmed that the ``io_v3.py`` index docstring is outdated:
+stored IDs are pre-filter in-memory particle indexes. They intend to change
+these to stored row indexes. Own-particle point ranges describe deposits before
+merging and are not expected to cover contributions from omitted particles.
+Only LE contributions may merge across interaction boundaries. Self-parenting
+is a supported primary criterion; ``geant4_parent_trackid == -1`` is the
+preferred direct test. Fragment endpoint information is being added upstream.
+
+Crucially, detector training must read the separate JAXTPC hits, not
+``points/flat``. The latter contains voxelized EDepSim energy in MeV;
+``hit_energy=charge`` describes the hits and does not change that product.
+Entry ``k`` of ``hit_labels/volumeV/plane0`` labels entry ``k`` of the matched
+JAXTPC pixel hit array, with the source entry given by ``events/jaxtpc_entry``.
+
+SPINE is pivoting to a ``pimm`` provider using ``pimm-data`` for detector input
+and pysupera for truth. The measurements below remain useful observations of
+the original sample, but are not evidence of detector-charge training support.
 
 Reference production
 --------------------

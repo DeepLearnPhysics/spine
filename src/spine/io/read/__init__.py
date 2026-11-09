@@ -3,6 +3,6 @@
 from .cache import CacheReader
 from .hdf5 import HDF5Reader
 from .larcv import LArCVReader
-from .supera import SuperaReader
+from .pimm import PIMMReader
 
-__all__ = ["CacheReader", "HDF5Reader", "LArCVReader", "SuperaReader"]
+__all__ = ["CacheReader", "HDF5Reader", "LArCVReader", "PIMMReader"]

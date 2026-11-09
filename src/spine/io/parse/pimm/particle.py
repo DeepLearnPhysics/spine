@@ -8,17 +8,17 @@ import numpy as np
 
 from spine.data import EdgeIndexData, Meta, ObjectListData, Particle, TensorData
 
-from .base import SuperaParserBase, _shape
+from .base import PIMMParserBase, _shape
 
 __all__ = [
-    "SuperaParticleParser",
-    "SuperaParticlePointsParser",
-    "SuperaParticleCoordsParser",
-    "SuperaParticleGraphParser",
+    "PIMMParticleParser",
+    "PIMMParticlePointsParser",
+    "PIMMParticleCoordsParser",
+    "PIMMParticleGraphParser",
 ]
 
 
-class SuperaParticleParser(SuperaParserBase):
+class PIMMParticleParser(PIMMParserBase):
     """Translate the full stored particle table, preserving event-local IDs."""
 
     name = "particle"
@@ -29,7 +29,7 @@ class SuperaParticleParser(SuperaParserBase):
         Parameters
         ----------
         trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
+            Raw event products returned by PIMMReader.
 
         Returns
         -------
@@ -41,24 +41,21 @@ class SuperaParticleParser(SuperaParserBase):
         table = event["columns"]
         particles = []
 
-        # Charge is unavailable here. Integrate truth dE before overlap merging.
-        event_counts = np.bincount(event["fragment"], minlength=len(table["id"]))
-        energy_prefix = np.r_[
-            0.0,
-            np.cumsum(
-                trees["points"][:, trees["metadata"]["columns"].index("dE")],
-                dtype=np.float64,
-            ),
-        ]
+        # Hit charge is not a deposited-energy measurement. PIMM's label table
+        # does not provide per-fragment deposited energy; leave its NaN sentinel.
+        fragments = event["fragment"]
+        event_counts = np.bincount(
+            fragments[fragments >= 0], minlength=len(table["parent"])
+        )
 
         starts, ends = self.endpoints(trees)
 
         # Preserve the full table so PPN and cluster references remain valid.
-        for row in range(len(table["id"])):
+        for row in range(len(table["parent"])):
             particle = Particle(
                 id=row,
-                parent_id=int(table["parent_id"][row]),
-                group_id=int(table["frag_inst_id"][row]),
+                parent_id=int(table["parent"][row]),
+                group_id=int(table["fragment_instance"][row]),
                 interaction_id=int(event["labels"]["interaction"][row]),
                 track_id=int(table["geant4_trackid"][row]),
                 pdg_code=int(table["pdg"][row]),
@@ -71,7 +68,7 @@ class SuperaParticleParser(SuperaParserBase):
                 interaction_primary=int(event["labels"]["interaction_primary"][row]),
                 ancestor_position=event["labels"]["vertex"][row].astype(self.ftype),
                 children_id=np.flatnonzero(
-                    (table["parent_id"] == row) & (table["id"] != row)
+                    (table["parent"] == row) & (np.arange(len(table["parent"])) != row)
                 ).astype(np.int32),
                 end_momentum=table["end_mom"][row, :3].copy(),
                 units="px",
@@ -100,15 +97,6 @@ class SuperaParticleParser(SuperaParserBase):
             )
             self._fill_ancestry(particle, row, table, event["meta"])
             particle.num_voxels = int(event_counts[row])
-            # Own-particle ranges need not cover deposits absorbed from omitted
-            # source particles. Fragment ranges do cover all deposits; assign
-            # each fragment's energy once, to its stored representative.
-            start, stop = table["frag_pc_start"][row], table["frag_pc_end"][row]
-            particle.energy_deposit = 0.0
-            if table["frag_id"][row] == row and start >= 0:
-                particle.energy_deposit = float(
-                    energy_prefix[stop] - energy_prefix[start]
-                )
             particles.append(particle)
         return ObjectListData(particles, Particle())
 
@@ -130,7 +118,7 @@ class SuperaParticleParser(SuperaParserBase):
         """
         # Missing links must never index the last particle through -1.
         for relation in ("parent", "ancestor"):
-            relative = int(table[relation + "_id"][row])
+            relative = int(table[relation][row])
             if relative >= 0:
                 setattr(
                     particle,
@@ -143,7 +131,7 @@ class SuperaParticleParser(SuperaParserBase):
                     relation + "_t",
                     float(table["start_pos"][relative, 3]),
                 )
-        parent = int(table["parent_id"][row])
+        parent = int(table["parent"][row])
         if parent >= 0:
             particle.parent_position = (
                 (table["start_pos"][parent, :3] / 10.0 - meta.lower) / meta.size
@@ -153,7 +141,7 @@ class SuperaParticleParser(SuperaParserBase):
             particle.parent_pdg_code = int(table["geant4_parent_pdg"][row])
 
 
-class SuperaParticlePointsParser(SuperaParserBase):
+class PIMMParticlePointsParser(PIMMParserBase):
     """PPN instance starts and track ends from collected-step kinematics."""
 
     name = "particle_points"
@@ -164,7 +152,7 @@ class SuperaParticlePointsParser(SuperaParserBase):
         Parameters
         ----------
         trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
+            Raw event products returned by PIMMReader.
 
         Returns
         -------
@@ -177,8 +165,8 @@ class SuperaParticlePointsParser(SuperaParserBase):
         rows = []
 
         # Only instances represented in the voxel image can provide targets.
-        for row in np.unique(event["instance"]):
-            shape = int(_shape(table["inst_sem_type"][row]))
+        for row in np.unique(event["instance"][event["instance"] >= 0]):
+            shape = int(_shape(table["instance_sem_type"][row]))
             if shape not in (0, 1, 2, 3) or abs(table["pdg"][row]) > 1000000000:
                 continue
             for endpoint, key in enumerate(
@@ -201,19 +189,16 @@ class SuperaParticlePointsParser(SuperaParserBase):
             coordinate_groups={"point": (0, 1, 2)},
             feature_fields={"shape": (0,), "particle": (1,), "endpoint": (2,)},
             index_cols=np.array([1]),
-            index_shifts=np.array([len(table["id"])]),
+            index_shifts=np.array([len(table["parent"])]),
         )
 
 
-class SuperaParticleCoordsParser(SuperaParserBase):
+class PIMMParticleCoordsParser(PIMMParserBase):
     """One pair of collected-step endpoints per stored particle-table row.
 
-    Instance representatives use upstream collected-step kinematics. Other
-    rows use their fragment's earliest/latest deposits. Missing instance
-    endpoints use its non-LE deposits (all deposits if none are non-LE).
-    These fallbacks are voxelized deposit positions, not exact step boundaries.
-    Non-track ends equal their starts. Unavailable coordinates and
-    times remain NaN; no creation/destruction positions are substituted.
+    Stored collected-step endpoints are used as provided by PIMM. Missing
+    coordinates and times remain NaN; no deposit-based approximation or
+    creation/destruction positions are substituted. Non-track ends repeat starts.
     """
 
     name = "particle_coords"
@@ -230,7 +215,7 @@ class SuperaParticleCoordsParser(SuperaParserBase):
         -------
         TensorData
             Six coordinate columns and two features, with one row per particle.
-            Point times are converted from microseconds to nanoseconds.
+            Stored kinematic times remain in nanoseconds.
         """
         event = self.prepare(trees)
         meta = event["meta"]
@@ -252,7 +237,7 @@ class SuperaParticleCoordsParser(SuperaParserBase):
         )
 
 
-class SuperaParticleGraphParser(SuperaParserBase):
+class PIMMParticleGraphParser(PIMMParserBase):
     """Directed stored-parent links in the event-local particle namespace.
 
     Truth construction contracts invisible rows and groups using this graph.
@@ -275,7 +260,8 @@ class SuperaParticleGraphParser(SuperaParserBase):
             Directed edges with a span equal to the full particle-table length.
         """
         table = self.prepare(trees)["columns"]
-        parents, children = table["parent_id"], table["id"]
+        parents = table["parent"]
+        children = np.arange(len(parents))
         valid = (parents >= 0) & (parents != children)
         return EdgeIndexData(
             features=np.stack((parents[valid], children[valid])), span=len(children)

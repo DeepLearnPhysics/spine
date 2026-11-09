@@ -6,28 +6,28 @@ from typing import Any
 
 from spine.data import TensorData
 
-from .base import SuperaParserBase
+from .base import PIMMParserBase
 
-__all__ = ["SuperaTensorParser", "SuperaSegmentationParser"]
+__all__ = ["PIMMTensorParser", "PIMMSegmentationParser"]
 
 
-class SuperaTensorParser(SuperaParserBase):
-    """Return voxelized truth-deposit energy in MeV."""
+class PIMMTensorParser(PIMMParserBase):
+    """Return voxelized detector hit charge."""
 
     name = "tensor"
 
     def __call__(self, trees: dict[str, Any]) -> TensorData:
-        """Return summed truth energy in MeV on the shared sparse grid.
+        """Return summed detector charge on the shared sparse grid.
 
         Parameters
         ----------
         trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
+            Raw event products returned by PIMMReader.
 
         Returns
         -------
         TensorData
-            Sparse coordinates and summed deposit energy in MeV.
+            Sparse coordinates and summed charge in the source hit units.
         """
         # Reuse the same grid and overlap winners as the input tensor.
         event = self.prepare(trees)
@@ -38,18 +38,18 @@ class SuperaTensorParser(SuperaParserBase):
         )
 
 
-class SuperaSegmentationParser(SuperaParserBase):
+class PIMMSegmentationParser(PIMMParserBase):
     """Return semantic labels in exactly the input voxel order."""
 
     name = "segmentation"
 
     def __call__(self, trees: dict[str, Any]) -> TensorData:
-        """Return five-class labels; unknown point semantics are rejected.
+        """Return five-class labels; unlabelled hits use -1.
 
         Parameters
         ----------
         trees : dict[str, Any]
-            Raw event products returned by SuperaReader.
+            Raw event products returned by PIMMReader.
 
         Returns
         -------
