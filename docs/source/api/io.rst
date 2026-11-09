@@ -44,8 +44,150 @@ File Readers
    :toctree: generated
 
    read.HDF5Reader
+   read.PIMMReader
    read.LArCVReader
    read.CacheReader
+
+.. _pimm-input:
+
+PIMM detector input
+-------------------
+
+Use ``provider: pimm`` for paired JAXTPC ``hits`` and ``labl``
+files in the PIMM layout. ``PIMMReader`` delegates decoding, event alignment,
+per-hit overrides and particle-ID normalization to ``pimm_data.JAXTPCDataset``.
+SPINE consumes its untransformed NumPy output and retains its own parsers,
+collation and augmentation.
+
+Install ``spine[pimm]``. The optional extra includes PyTorch, ``pimm-data`` and
+HDF5 compression filters; importing base SPINE does not import ``pimm-data``.
+The Docker image installs this extra. The provisional dependency is pinned to
+``doraemon-final-layout`` commit ``23dc94f3ac1134936891b281e4408a975d0097ed``;
+an upstream release is required before this integration becomes official.
+See the `upstream examples
+<https://github.com/OmarAlterkait/pimm-data/tree/23dc94f3ac1134936891b281e4408a975d0097ed/examples/doraemon_final>`_.
+
+.. code-block:: yaml
+
+   io:
+     loader:
+       minibatch_size: 1
+       num_workers: 0
+       dataset:
+         provider: pimm
+         data_root: /path/to/jaxtpc_pixel
+         dataset_name: sim_pixel
+         runs: "j*/*"
+         schema:
+           data: {provider: tensor}
+           seg_label: {provider: segmentation}
+           clust_label: {provider: cluster_label}
+           particles: {provider: particle}
+           coord_label: {provider: particle_coords}
+           ppn_label: {provider: particle_points}
+           meta: {provider: meta}
+           graph_label: {provider: particle_graph}
+           event_info: {provider: event_info}
+
+For separately located shards, omit ``runs`` and provide ``files`` with
+``hits`` and ``labl`` paths or glob patterns. The upstream loader requires
+matching task and event identities and rejects partial pairs. Standard SPINE
+entry selection (``n_entry``, ``n_skip``, ``entry_list``) is applied afterward.
+Use the published final-layout corpus or prepare paired files using the
+upstream PIMM data-preparation tools before starting training.
+
+Coordinates, charge and supervision
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The 3D parsers currently require **pixel hits**. Upstream can read wire hits,
+but a wire/tick pair does not define a unique 3D point; these parsers reject
+wire input instead of interpreting its indexes as detector coordinates.
+
+Pixel indexes ``(py, pz, tick)`` are converted using ``supera_pixel_geometry``
+from the ``labl/config`` attributes. The transform uses pixel centers and
+nominal drift coordinates, including the stored reference tick and drift
+sign. ``supera_hit_x_from=nominal`` and ``supera_hit_energy=charge`` are required.
+No interaction-time correction is inferred from truth.
+
+All spatial parsers share ``voxel_size_mm`` (default 3) and ``origin_mm``
+(default zero). Each event's integer grid is translated to nonnegative
+coordinates; the shared ``Meta`` retains its absolute position in cm.
+Conflicting parser grids are rejected.
+
+* The tensor contains **summed hit charge**, in the source hit units, not MeV.
+  Signed charge is retained. Coincident hits share one voxel.
+* Semantic labels come directly from ``segment_motif``: shower, track, Michel,
+  delta, LE. Overlap winners use track, shower, delta, Michel, LE priority,
+  followed by source row order; every voxel product shares that selection.
+* Voxels without any labelled contribution are excluded by default because
+  generic SPINE segmentation requires targets in 0--4. Charge from all hits
+  in retained voxels is preserved. Set ``include_unlabeled: true`` on every
+  spatial parser to retain target ``-1`` for inspection, not generic training.
+  LE remains class 4 with its upstream ownership references
+  (``le_is_stuff=False``); downstream objectives retain their normal selection.
+* Fragment, instance, ancestor and graph references use event-local rows of
+  the PIMM particle table. SPINE collation applies the batch offsets.
+* Coordinate labels contain one start/end pair per particle-table row. Stored
+  collected-step positions use the shared transform; missing endpoints remain
+  NaN. No deposit-derived or track-creation substitute is used. PPN includes
+  finite, in-image instance starts and track ends.
+* Particle PID is mapped from PDG to SPINE's classes. Primary flags and
+  genealogy use the upstream table; interaction vertices use the host
+  instance's interaction. Missing ancestry is never indexed through ``-1``.
+* Particle deposited energy is unavailable from these hit/label products and
+  remains NaN. Initial energy and momentum retain MeV and MeV/c. Generator
+  neutrino information is unavailable. The ``event_info`` product preserves
+  the upstream event ID when present and the source entry, without invented
+  run/subrun values.
+
+Truth construction uses the complete schema above with:
+
+.. code-block:: yaml
+
+   build:
+     mode: truth
+     units: cm
+
+Known limitations and validation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Missing fragment endpoints can reduce primary/orientation supervision.
+Drift timing can also displace nominal hit coordinates relative to true
+endpoints. Unavailable endpoints remain NaN.
+
+Synthetic tests cover alignment, charge conservation, ignored labels, empty
+clouds, missing endpoints, event selection, worker serialization, batching and
+truth HDF5 round trips. Optional production checks use paired ``hits``/``labl``
+directories via ``SPINE_PIMM_ROOT`` and assert nonzero supervision and gradients
+for segmentation, PPN, Graph-SPICE and shower/track/interaction GrapPA. Their
+availability is not a claim that every objective has eligible targets in every
+production.
+
+.. code-block:: bash
+
+   PYTHONPATH=src pytest -q test/test_io/test_pimm
+   SPINE_PIMM_ROOT=/path/to/paired/data PYTHONPATH=src \
+     pytest -q -s test/test_io/test_pimm
+
+.. autosummary::
+   :toctree: generated
+
+   parse.pimm.PIMMTensorParser
+   parse.pimm.PIMMSegmentationParser
+   parse.pimm.PIMMClusterLabelParser
+   parse.pimm.PIMMParticleParser
+   parse.pimm.PIMMParticlePointsParser
+   parse.pimm.PIMMParticleCoordsParser
+   parse.pimm.PIMMParticleGraphParser
+   parse.pimm.PIMMMetaParser
+   parse.pimm.PIMMEventInfoParser
+   dataset.pimm
+   read.pimm
+   parse.pimm.base
+   parse.pimm.cluster
+   parse.pimm.metadata
+   parse.pimm.particle
+   parse.pimm.tensor
 
 Entry Filtering
 ---------------
@@ -234,6 +376,7 @@ with raw input through the mixed dataset.
    dataset.LArCVDataset
    dataset.CacheDataset
    dataset.HDF5Dataset
+   dataset.PIMMDataset
    dataset.MixedDataset
    dataset.JointDataset
 
