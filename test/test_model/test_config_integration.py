@@ -201,7 +201,7 @@ def test_training_config_runs_checkpoint_validation(
     assert "Saving checkpoint..." in output
     assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69
-    assert output.count(separator) == 2 * (1 + int(initial))
+    assert output.count(separator) == 2 * (1 + int(bool(initial)))
     train_summary = output.index("Iter. 0 (epoch 1.000)")
     checkpoint = output.index("CHECKPOINT\nReason:             scheduled")
     assert train_summary < checkpoint
