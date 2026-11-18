@@ -382,3 +382,132 @@ def test_initial_validation_does_not_restart_on_resume(tmp_path, monkeypatch, re
     assert drv.validation.run.call_count == (0 if resume else 1)
     assert [iteration for iteration, _, _ in saves] == ([0] if resume else [-1, 0])
     assert json.loads(outcome.read_text())["state"] == "paused"
+
+
+@pytest.mark.parametrize("failure", ["missing", "name", "digest", "filename", "fields"])
+def test_publication_rejects_uncommitted_checkpoint(tmp_path, failure):
+    """Invalid restart artifacts must never publish a successful outcome."""
+    from spine.continuation import Continuation
+
+    checkpoint = tmp_path / ("weights.ckpt" if failure == "name" else "snapshot-0.ckpt")
+    checkpoint.write_bytes(b"weights")
+    digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    sidecar = {
+        "digest": f"incorrect  {checkpoint.name}",
+        "filename": f"{digest}  another.ckpt",
+        "fields": digest,
+    }.get(failure, f"{digest}  {checkpoint.name}")
+    Path(str(checkpoint) + ".sha256").write_text(sidecar)
+    outcome = tmp_path / "outcome.json"
+    contract = Continuation("attempt", tmp_path / "pause", outcome)
+    with pytest.raises((RuntimeError, ValueError)):
+        contract.publish(
+            "paused",
+            "allocation_deadline",
+            None if failure == "missing" else checkpoint,
+        )
+    assert not outcome.exists()
+
+
+def test_publication_failure_removes_temporary_record(tmp_path, monkeypatch):
+    """A failed atomic replacement leaves the previous outcome intact."""
+    import spine.continuation as module
+
+    checkpoint = tmp_path / "snapshot-0.ckpt"
+    checkpoint.write_bytes(b"weights")
+    Path(str(checkpoint) + ".sha256").write_text(
+        f"{hashlib.sha256(checkpoint.read_bytes()).hexdigest()}  {checkpoint.name}"
+    )
+    outcome = tmp_path / "outcome.json"
+    outcome.write_text("previous")
+    monkeypatch.setattr(
+        module.os, "replace", Mock(side_effect=OSError("publication failed"))
+    )
+    with pytest.raises(OSError, match="publication failed"):
+        module.Continuation("attempt", tmp_path / "pause", outcome).publish(
+            "paused", "allocation_deadline", checkpoint
+        )
+    assert outcome.read_text() == "previous"
+    assert list(tmp_path.glob("outcome.*")) == [outcome]
+
+
+@pytest.mark.parametrize(
+    "state, message",
+    [
+        (None, "no RNG/loader"),
+        ({"world_size": 2, "ranks": []}, "identical world size"),
+        ({"world_size": 1, "ranks": []}, "missing rank"),
+    ],
+)
+def test_continuation_requires_exact_runtime_state(
+    tmp_path, monkeypatch, state, message
+):
+    """Continuation must reject a resume that cannot restore rank-local state."""
+    drv, _, _, _ = driver(tmp_path, monkeypatch)
+    drv.model.resume_training = True
+    drv.model.checkpoint_runtime_state = state
+    with pytest.raises(ValueError, match=message):
+        drv.restore_training_runtime()
+    drv.io.prepare_iteration.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["no_contract", "no_validation", "progress"])
+def test_pending_validation_rejects_incompatible_resume(tmp_path, monkeypatch, failure):
+    """Pending work cannot be silently dropped or attached to another iteration."""
+    drv, _, outcome, history = driver(tmp_path, monkeypatch, start=1)
+    drv.model.checkpoint_validation = {
+        **history,
+        "pending_validation": {"iteration": 2 if failure == "progress" else 0},
+    }
+    if failure == "no_contract":
+        monkeypatch.delenv("SPINE_CONTINUATION_TOKEN")
+    elif failure == "no_validation":
+        drv.validation = None
+    with pytest.raises(ValueError, match="Pending validation"):
+        drv.run()
+    assert not outcome.exists()
+
+
+def test_pending_graceful_completion_finishes_before_training(tmp_path, monkeypatch):
+    """Replay interrupted final validation, then honor the saved completion request."""
+    drv, saves, outcome, history = driver(tmp_path, monkeypatch, start=1)
+    drv.model.checkpoint_validation = {
+        **history,
+        "pending_validation": dict(
+            iteration=0,
+            epoch=1.0,
+            scheduled=False,
+            reason="graceful completion",
+            completion={"reason": "requested"},
+        ),
+    }
+    drv.process = Mock(side_effect=AssertionError("Training must not resume"))
+    drv.run()
+    drv.process.assert_not_called()
+    assert len(saves) == 1
+    assert json.loads(outcome.read_text())["reason"] == "graceful_stop"
+
+
+def test_already_complete_run_verifies_loaded_checkpoint(tmp_path, monkeypatch):
+    """A run at its training limit publishes the verified loaded artifact."""
+    drv, _, outcome, _ = driver(tmp_path, monkeypatch, start=1, limit=1)
+    checkpoint = Path(drv.model.save_state(0, 1.0, None))
+    drv.model.configured_weight_path = str(checkpoint)
+    drv.process = Mock(side_effect=AssertionError("Training already complete"))
+    drv.run()
+    drv.process.assert_not_called()
+    assert json.loads(outcome.read_text())["checkpoint"] == str(checkpoint.resolve())
+
+
+def test_nonmain_rank_records_pending_validation_without_publication(
+    tmp_path, monkeypatch
+):
+    """All ranks retain replay metadata, while only rank zero publishes outcomes."""
+    from spine.model.validation import ValidationInterrupted
+
+    drv, _, outcome, _ = driver(tmp_path, monkeypatch, scheduled=True)
+    drv.main_process = False
+    drv.validation.run.side_effect = ValidationInterrupted()
+    drv.run()
+    assert drv._pending_validation["iteration"] == 0
+    assert not outcome.exists()
