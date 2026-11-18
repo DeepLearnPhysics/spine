@@ -272,3 +272,39 @@ time. It reports completions as workers finish and writes a status line every
 Progress measures completed files, not events; files can differ in size.
 Use ``--quiet`` to suppress progress while retaining the final summary.
 The Python ``scan_sources`` API remains silent unless ``progress=True``.
+
+
+Training across allocations
+---------------------------
+
+A submission controller can pause training without declaring scientific
+completion. Set ``SPINE_CONTINUATION_TOKEN``, ``SPINE_PAUSE_FILE`` and
+``SPINE_OUTCOME_FILE`` to unique per-allocation values. Creating the pause marker
+requests a checkpoint at a collective batch boundary. The controller owns
+scheduler deadlines and resubmission; SPINE does not submit scheduler jobs.
+``python bin/run.py --continuation-contract`` reports capability version ``2``.
+
+Allocation-only snapshots preserve validation metrics, best-checkpoint selection,
+early-stopping patience and validation-bound learning-rate scheduling. If a pause
+interrupts validation, incomplete metrics are discarded and a pending-validation
+record is saved. Resuming replays that pass before any new training, even at the
+configured training limit. Partial validation logs are retained with unique
+``.interrupted-`` suffixes. A batch already in progress must finish, so controllers
+must reserve enough time for a batch and checkpoint publication.
+
+The outcome JSON names the checkpoint, its SHA-256 digest, progress, completion
+reason and whether validation is pending. It is published only after successful
+cleanup and checkpoint verification. Controllers must additionally require a
+successful launcher exit and scheduler accounting before accepting an outcome.
+An application exception must not be treated as a recoverable allocation pause.
+
+Scheduled validation counts from global iteration zero across resumes. For a
+980-step interval, a run resumed at iteration 526 still validates after iteration
+979. Changing the interval changes subsequent boundaries; keep the configuration
+fixed for reproducible continuation.
+
+``validation.initial`` controls baseline validation before a fresh training run.
+When omitted, it is enabled if full-model or module weights were loaded and
+otherwise disabled. Set it to ``true`` to validate random initialization, or
+``false`` to skip the baseline for a warm start. Resumed training does not repeat
+the baseline, and this option never suppresses pending-validation replay.

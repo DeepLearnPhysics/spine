@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import math
 import os
-from collections.abc import Mapping
+import uuid
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime
 from numbers import Real
@@ -23,6 +24,10 @@ from spine.utils.torch import runtime
 from .manager import ModelManager
 
 __all__ = ["ValidationManager"]
+
+
+class ValidationInterrupted(Exception):
+    """All ranks stopped at the same safe validation boundary; discard metrics."""
 
 
 def _metric_improved(
@@ -377,8 +382,10 @@ class ValidationManager:
         fraction of the selected loader to visit, early stopping and
         best-checkpoint selection. ``entry_fraction_range`` chooses a stable
         dataset subset, whereas ``fraction`` limits each validation pass.
-        ``initial`` (default ``True``) validates and checkpoints a fresh model
-        before its first optimizer step. Resumed validation history is retained.
+        ``initial`` validates and checkpoints a fresh training run before its
+        first optimizer step. When omitted, it is enabled only if model or
+        module weights were loaded. Explicit booleans override this default;
+        resumed runs retain their validation history and schedule.
         The training loader supplies the dataset schema, batching, collation and
         worker configuration.
 
@@ -424,7 +431,10 @@ class ValidationManager:
         # Parse validation-owned scheduling options
         cfg = deepcopy(dict(cfg))
         fraction = cfg.pop("fraction", 1.0)
-        self.initial = cfg.pop("initial", True)
+        # Loaded sources include full-model and module-only warm starts.
+        # Random initialization has no baseline validation unless requested.
+        loaded_weights = bool(getattr(model, "loaded_weight_sources", []))
+        self.initial = cfg.pop("initial", loaded_weights)
         if not isinstance(self.initial, bool):
             raise TypeError("`validation.initial` must be a boolean.")
         early_cfg = cfg.pop("early_stopping", None)
@@ -774,7 +784,14 @@ class ValidationManager:
 
         target.update(filters)
 
-    def run(self, iteration: int, epoch: float | None = None) -> dict[str, float]:
+    def run(
+        self,
+        iteration: int,
+        epoch: float | None = None,
+        *,
+        pause_requested: Callable[[], bool] | None = None,
+        resume_pending: bool = False,
+    ) -> dict[str, float]:
         """Evaluate and average scalar outputs over validation batches.
 
         Parameters
@@ -784,6 +801,11 @@ class ValidationManager:
             validation; time-dependent losses then receive iteration zero.
         epoch : float, optional
             Current training epoch recorded alongside validation batches.
+        pause_requested : callable, optional
+            Collective callback returning whether to interrupt this pass.
+            All ranks must receive the same decision before loading a batch.
+        resume_pending : bool, default False
+            Archive a partial log and replay the interrupted pass from its start.
 
         Returns
         -------
@@ -794,7 +816,17 @@ class ValidationManager:
         ------
         RuntimeError
             If the model does not produce any scalar validation outputs.
+        ValidationInterrupted
+            A collective pause was requested before a validation batch.
         """
+
+        def check_pause() -> None:
+            """Stop all ranks before the next batch when a pause is requested."""
+            # Callback is collective: every rank exits before the next load/forward.
+            if pause_requested is not None and pause_requested():
+                raise ValidationInterrupted()
+
+        check_pause()
         # Reset deterministic sampler and loader state for this pass
         assert self.io.loader is not None
         sampler = self.io.loader.sampler
@@ -805,7 +837,11 @@ class ValidationManager:
         # Each checkpoint validation pass mirrors a standalone inference run
         # in its own log segment. The filename boundary is the next training
         # iteration, matching checkpoint resume and TrainDrawer conventions.
-        log_manager = self.initialize_log(iteration)
+        log_manager = (
+            self.initialize_log(iteration, retry=True)
+            if resume_pending
+            else self.initialize_log(iteration)
+        )
         watch = StopwatchManager()
         watch.initialize(["iteration", "model"])
         rank = getattr(self, "rank", None)
@@ -819,6 +855,7 @@ class ValidationManager:
         counts: dict[str, int] = {}
         try:
             for val_iteration in range(self.num_iterations):
+                check_pause()
                 watch.start("iteration")
                 data = self.io.load()
                 watch.start("model")
@@ -875,8 +912,23 @@ class ValidationManager:
             LogManager.log_validation_complete(metrics)
         return metrics
 
-    def initialize_log(self, iteration: int) -> LogManager | None:
-        """Create the inference-style log segment for one validation pass."""
+    def initialize_log(
+        self, iteration: int, *, retry: bool = False
+    ) -> LogManager | None:
+        """Create the inference-style log segment for one validation pass.
+
+        Parameters
+        ----------
+        iteration : int
+            Last completed training iteration used to name the log segment.
+        retry : bool, default False
+            Preserve an interrupted segment under a unique archival name.
+
+        Returns
+        -------
+        LogManager or None
+            Logger for this pass, or None when validation logging is disabled.
+        """
         log_dir = getattr(self, "log_dir", None)
         if log_dir is None:
             return None
@@ -887,8 +939,12 @@ class ValidationManager:
         log_name = f"validation{suffix}_log-{iteration + 1:07d}.csv"
         if self.prefix_log:
             log_name = self.io.format_log_name(log_name, log_dir)
+        path = os.path.join(log_dir, log_name)
+        if retry and os.path.exists(path):
+            # Retain partial logs for diagnosis; a new pass starts at batch zero.
+            os.replace(path, path + ".interrupted-" + uuid.uuid4().hex)
         return LogManager(
-            os.path.join(log_dir, log_name),
+            path,
             overwrite=self.overwrite_log,
             buffer_size=self.csv_buffer_size,
             log_gpu_memory=self.log_gpu_memory,

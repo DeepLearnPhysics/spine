@@ -582,15 +582,10 @@ class ModelManager:
         Returns
         -------
         bool
-            Whether the iteration completes one configured save period since
-            the current training segment began.
+            Whether the iteration completes a configured save period counted
+            from global iteration zero, including across training resumes.
         """
-        start_iteration = getattr(self, "start_iteration", 0)
-        relative_iteration = iteration - start_iteration
-        return (
-            self.save_step is not None
-            and ((relative_iteration + 1) % self.save_step) == 0
-        )
+        return self.save_step is not None and ((iteration + 1) % self.save_step) == 0
 
     @classmethod
     def clean_config(cls, config: Any) -> Any:
