@@ -102,7 +102,8 @@ class Continuation:
         match = re.fullmatch(r"snapshot-(\d+|initial)\.ckpt", checkpoint.name)
         if match is None:
             raise ValueError("Continuation requires a numeric snapshot checkpoint")
-        # Verify the artifact rather than trusting its sidecar alone.
+
+        # Verify the artifact rather than trusting its sidecar alone
         digest = hashlib.sha256()
         with checkpoint.open("rb") as stream:
             for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -126,6 +127,7 @@ class Continuation:
             committed_at=time.time(),
             pending_validation=pending_validation,
         )
+
         # Commit the outcome only after checkpoint verification. Sync both
         # contents and the directory entry so restart readers see one record.
         fd, temporary = tempfile.mkstemp(

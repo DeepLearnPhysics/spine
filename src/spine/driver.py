@@ -956,6 +956,7 @@ class Driver:
             control_installed_here = not run_control.installed
             run_control.install()
 
+        # Restore the allocation contract and any interrupted validation
         continuation = Continuation.from_environment() if training else None
         self.continuation = continuation
         self._continuation_validation = getattr(model, "checkpoint_validation", None)
@@ -1150,6 +1151,7 @@ class Driver:
 
                 # Release the memory for the next iteration
                 data = None
+
                 # A request can arrive during validation or checkpoint writing.
                 pause = self.continuation_pause_requested()
                 if self._pending_validation:
@@ -1186,6 +1188,7 @@ class Driver:
                 if control_installed_here:
                     run_control.restore()
 
+        # Publish the allocation outcome only after successful cleanup
         if continuation is not None and self.main_process and success:
             checkpoint = getattr(self, "_continuation_checkpoint", None)
             if checkpoint is None:
@@ -1274,6 +1277,7 @@ class Driver:
         if self.validation is not None and not operational:
             log_manager = self.log_manager
             assert log_manager is not None
+
             # Validation must not consume the training RNG trajectory. This also
             # lets an interrupted pass restart from the same state on resume.
             rng_state = (
@@ -1331,6 +1335,7 @@ class Driver:
                 self._pending_validation = None
             self._continuation_validation = validation_state
 
+        # Advance validation schedules only after a complete scheduled pass
         if scheduled and validation_metrics is not None:
             model.step_scheduler("validation", validation_metrics)
 

@@ -431,6 +431,7 @@ class ValidationManager:
         # Parse validation-owned scheduling options
         cfg = deepcopy(dict(cfg))
         fraction = cfg.pop("fraction", 1.0)
+
         # Loaded sources include full-model and module-only warm starts.
         # Random initialization has no baseline validation unless requested.
         loaded_weights = bool(getattr(model, "loaded_weight_sources", []))
@@ -819,14 +820,10 @@ class ValidationManager:
         ValidationInterrupted
             A collective pause was requested before a validation batch.
         """
+        # Stop all ranks before resetting the loader if a pause is pending
+        if pause_requested is not None and pause_requested():
+            raise ValidationInterrupted()
 
-        def check_pause() -> None:
-            """Stop all ranks before the next batch when a pause is requested."""
-            # Callback is collective: every rank exits before the next load/forward.
-            if pause_requested is not None and pause_requested():
-                raise ValidationInterrupted()
-
-        check_pause()
         # Reset deterministic sampler and loader state for this pass
         assert self.io.loader is not None
         sampler = self.io.loader.sampler
@@ -855,7 +852,10 @@ class ValidationManager:
         counts: dict[str, int] = {}
         try:
             for val_iteration in range(self.num_iterations):
-                check_pause()
+                # Check collectively before loading the next validation batch
+                if pause_requested is not None and pause_requested():
+                    raise ValidationInterrupted()
+
                 watch.start("iteration")
                 data = self.io.load()
                 watch.start("model")
@@ -940,9 +940,11 @@ class ValidationManager:
         if self.prefix_log:
             log_name = self.io.format_log_name(log_name, log_dir)
         path = os.path.join(log_dir, log_name)
+
+        # Retain partial logs for diagnosis; a new pass starts at batch zero
         if retry and os.path.exists(path):
-            # Retain partial logs for diagnosis; a new pass starts at batch zero.
             os.replace(path, path + ".interrupted-" + uuid.uuid4().hex)
+
         return LogManager(
             path,
             overwrite=self.overwrite_log,
