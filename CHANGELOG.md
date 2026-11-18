@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-18
+
+### Added
+- **Training continuation across allocations**: Add native continuation capability
+  2 for the spine-prod controller, distinguishing recoverable allocation pauses
+  from scientific completion. Publish checksum-verified outcomes after cleanup
+  and preserve optimizer, scheduler, RNG/loader progress, validation history,
+  early-stopping patience and best-checkpoint selection (#194).
+- **Interrupted validation replay**: Pause collectively at validation batch
+  boundaries, discard partial metrics, and replay unfinished validation before
+  further training, including when the training limit has already been reached.
+  Preserve interrupted logs for diagnosis (#194).
+
+### Fixed
+- Keep scheduled checkpoint and validation cadence anchored to global iteration
+  zero across training resumes.
+- Save the current iteration when an allocation pause arrives during logging,
+  rather than exiting without a fresh checkpoint.
+- Reject continuation resumes with missing rank runtime state or changed world
+  size, and validate checkpoint integrity before publishing an outcome.
+
+### Changed
+- When `validation.initial` is omitted, initial validation now runs for loaded
+  model/module weights and is skipped for random initialization. Explicit
+  `true` or `false` values retain precedence; resumed training retains its
+  validation history and does not repeat the baseline.
+
+### Migration notes
+- Continuation is opt-in and requires a compatible submission controller; the
+  runtime does not submit scheduler jobs itself. Verify support with
+  `spine --continuation-contract` (expected output: `2`). The outcome JSON schema
+  remains version 1.
+- Set `validation.initial: true` to preserve the previous default for randomly
+  initialized training. Set it to `false` to skip baseline validation for loaded
+  weights.
+- Allocation-only checkpoints do not force validation or update best-selection
+  or early-stopping patience. A pause is not successful scientific completion.
+- Multi-rank checkpoint/restart and downstream release should be exercised on
+  each deployment site. Interrupted-validation replay and Polaris still need
+  fresh site integration validation.
+
 ## [1.4.5] - 2026-11-07
 
 ### Fixed
