@@ -1,0 +1,110 @@
+# Shared-backbone segmentation + PPN + Graph-SPICE training.
+# Set file_keys before running; graph routing uses predicted semantics.
+
+base:
+  world_size: 1
+  epochs: 25.0
+  seed: 0
+  unwrap: false
+  log_dir: logs/uresnet_multi/train
+  log_step: 1
+
+train:
+  weight_prefix: weights/uresnet_multi/snapshot
+  save_epoch: 1.0
+  optimizer:
+    provider: Adam
+    lr: 0.001
+
+io:
+  loader:
+    minibatch_size: 64
+    shuffle: false
+    num_workers: 8
+    collate_fn: all
+    sampler:
+      provider: random_sequence
+      seed: 0
+    dataset:
+      provider: larcv
+      file_keys: null
+      schema:
+        data:
+          provider: sparse3d
+          sparse_event: sparse3d_pcluster
+        seg_label:
+          provider: sparse3d
+          sparse_event: sparse3d_pcluster_semantics
+        ppn_label:
+          provider: particle_points
+          sparse_event: sparse3d_pcluster
+          particle_event: particle_corrected
+        clust_label:
+          provider: cluster3d
+          cluster_event: cluster3d_pcluster
+          sparse_semantics_event: sparse3d_pcluster_semantics
+          clean_data: true
+          particle_info:
+            particle_event: particle_corrected
+          break_clusters: true
+
+model:
+  provider: uresnet_multi
+  weight_path: null
+  network_input:
+    data: data
+  loss_input:
+    seg_label: seg_label
+    ppn_label: ppn_label
+    clust_label: clust_label
+  modules:
+    uresnet:
+      num_input: 1
+      num_classes: 5
+      filters: 32
+      depth: 5
+      reps: 2
+      allow_bias: false
+      activation:
+        provider: lrelu
+        negative_slope: 0.33
+      norm_layer:
+        provider: batch_norm
+        eps: 0.0001
+        momentum: 0.01
+      spatial_size: 768
+    ppn:
+      classify_endpoints: false
+    uresnet_loss:
+      balance_loss: false
+    ppn_loss:
+      mask_loss: CE
+      resolution: 5.0
+      restrict_to_clusters: true
+    graph_spice:
+      shapes:
+      - shower
+      - track
+      - michel
+      - delta
+      use_raw_features: true
+      make_clusters: false
+      embedder: {}
+      kernel:
+        provider: bilinear
+        num_features: 32
+      constructor:
+        edge_threshold: 0.1
+        min_size: 3
+        graph:
+          provider: radius
+          r: 1.9
+        orphan:
+          mode: radius
+          radius: 1.9
+          iterate: true
+          assign_all: true
+    graph_spice_loss:
+      provider: edge
+      loss: binary_log_dice_ce
+    semantic_coupling: hard

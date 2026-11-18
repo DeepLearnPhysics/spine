@@ -31,6 +31,7 @@ MODEL_CONFIGS = {
     "spice": CONFIG_DIR / "spice" / "spice_train.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_train.yaml",
     "uresnet_bayes": (CONFIG_DIR / "uresnet" / "bayes" / "uresnet_bayes_train.yaml"),
+    "uresnet_multi": CONFIG_DIR / "uresnet" / "multi" / "uresnet_multi_train.yaml",
     "uresnet_ppn": CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_train.yaml",
 }
 
@@ -51,8 +52,17 @@ INFERENCE_MODEL_CONFIGS = {
     "spice": CONFIG_DIR / "spice" / "spice_test.yaml",
     "uresnet": CONFIG_DIR / "uresnet" / "uresnet_test.yaml",
     "uresnet_bayes": (CONFIG_DIR / "uresnet" / "bayes" / "uresnet_bayes_test.yaml"),
+    "uresnet_multi": CONFIG_DIR / "uresnet" / "multi" / "uresnet_multi_test.yaml",
     "uresnet_ppn": CONFIG_DIR / "uresnet" / "ppn" / "uresnet_ppn_test.yaml",
 }
+
+# Compare all shared-backbone architectures using inherited maintained examples.
+for coupling in ("independent", "fragment_first", "soft"):
+    name = f"uresnet_multi_{coupling}"
+    MODEL_CONFIGS[name] = CONFIG_DIR / "uresnet" / "multi" / f"{name}_train.yaml"
+    INFERENCE_MODEL_CONFIGS[name] = (
+        CONFIG_DIR / "uresnet" / "multi" / f"{name}_test.yaml"
+    )
 
 FULL_CHAIN_REGRESSION_CONFIG = CONFIG_DIR / "full_chain" / "full_chain_regression.yaml"
 
@@ -90,5 +100,20 @@ EXPECTED_OUTPUTS = {
     "spice": {"embeddings", "margins", "seediness", "filter_index"},
     "uresnet": {"segmentation"},
     "uresnet_bayes": {"segmentation"},
+    "uresnet_multi": {"segmentation", "ppn_points", "graph_spice_edge_attr"},
     "uresnet_ppn": {"segmentation", "ppn_points"},
 }
+
+
+for coupling in ("independent", "fragment_first", "soft"):
+    EXPECTED_OUTPUTS[f"uresnet_multi_{coupling}"] = {
+        "segmentation",
+        "seg_pred_raw",
+        "seg_pred",
+        "ppn_points",
+        "graph_spice_edge_attr",
+        "fragment_clusts",
+        "fragment_shapes",
+        "fragment_candidates",
+        "fragment_logits",
+    }

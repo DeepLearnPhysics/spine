@@ -1304,6 +1304,20 @@ def test_freeze_weights_handles_nested_modules_and_missing_parameters():
         manager.freeze_weights()
 
 
+def test_weight_directives_ignore_scalar_model_options():
+    """Scalar constructor policies must not be interpreted as module blocks."""
+    net = torch.nn.Linear(2, 2)
+    manager = make_bare_manager(
+        net=net,
+        model_name="test",
+        model_cfg={"semantic_coupling": "hard", "optional": None, "head": {}},
+    )
+    manager.freeze_weights()
+    manager.load_weights(None)
+    assert all(parameter.requires_grad for parameter in net.parameters())
+    assert manager.loaded_weight_keys == set()
+
+
 def test_manager_exposes_configured_checkpoint_boundaries():
     """Checkpoint scheduling should be exposed to driver orchestration."""
     manager = make_bare_manager(

@@ -79,6 +79,7 @@ def test_supported_models_have_maintained_configs():
         "uresnet",
         "uresnet_bayes",
         "uresnet_ppn",
+        "uresnet_multi",
         "image_energy",
         "image_energy_ancestor",
         "image_pid",

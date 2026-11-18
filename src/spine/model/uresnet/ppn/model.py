@@ -293,6 +293,62 @@ class UResNetPPNLoss(torch.nn.Module):
             Combined loss and accuracy together with prefixed segmentation
             and point-proposal component metrics.
         """
+        task_results, loss_terms = self.compute_losses(
+            seg_label, ppn_label, vertex_label, clust_label, weights, **result
+        )
+
+        # Preserve the exact historical task-level sum when balancing is off.
+        # Other policies operate on the component terms collected above.
+        if self.loss_balancer.mode == "sum":
+            combined_loss = sum(task["loss"] for _, task in task_results)
+            balance_metrics = {}
+        else:
+            combined_loss, balance_metrics = self.loss_balancer(loss_terms)
+        output: dict[str, Any] = {
+            "loss": combined_loss,
+            "accuracy": sum(task["accuracy"] for _, task in task_results)
+            / len(task_results),
+        }
+        output.update(balance_metrics)
+        for prefix, task_result in task_results:
+            output.update(
+                {f"{prefix}_{key}": value for key, value in task_result.items()}
+            )
+        return output
+
+    def compute_losses(
+        self,
+        seg_label: TensorBatch,
+        ppn_label: TensorBatch | None = None,
+        vertex_label: TensorBatch | None = None,
+        clust_label: ClusterLabelBatch | None = None,
+        weights: TensorBatch | None = None,
+        **result: Any,
+    ) -> tuple[list[tuple[str, dict[str, Any]]], dict[str, LossTerm]]:
+        """Compute native task results and expose their unbalanced leaf objectives.
+
+        Parameters
+        ----------
+        seg_label : TensorBatch
+            Voxel semantic truth aligned to the network outputs.
+        ppn_label : TensorBatch, optional
+            Particle-point labels required when PPN supervision is configured.
+        vertex_label : TensorBatch, optional
+            Interaction-vertex labels for the optional vertex objective.
+        clust_label : ClusterLabelBatch, optional
+            Original cluster labels used for particle-restricted supervision.
+        weights : TensorBatch, optional
+            Per-voxel semantic loss weights.
+        **result : dict
+            Predictions produced by the shared UResNet and proposal branches.
+
+        Returns
+        -------
+        tuple
+            Named task result dictionaries and producer-declared loss terms.
+            A containing multi-task model can combine these with additional
+            objectives before applying one common balancing policy.
+        """
         # Apply the segmentation loss
         result_seg = self.seg_loss(seg_label, weights=weights, **result)
         loss_terms = {
@@ -334,24 +390,7 @@ class UResNetPPNLoss(torch.nn.Module):
                 )
             task_results.append(("vertex", result_vertex))
 
-        # Preserve the exact historical task-level sum when balancing is off.
-        # Other policies operate on the component terms collected above.
-        if self.loss_balancer.mode == "sum":
-            combined_loss = sum(task["loss"] for _, task in task_results)
-            balance_metrics = {}
-        else:
-            combined_loss, balance_metrics = self.loss_balancer(loss_terms)
-        output: dict[str, Any] = {
-            "loss": combined_loss,
-            "accuracy": sum(task["accuracy"] for _, task in task_results)
-            / len(task_results),
-        }
-        output.update(balance_metrics)
-        for prefix, task_result in task_results:
-            output.update(
-                {f"{prefix}_{key}": value for key, value in task_result.items()}
-            )
-        return output
+        return task_results, loss_terms
 
 
 MODEL_SPEC = ModelSpec("uresnet_ppn", UResNetPPN, UResNetPPNLoss)

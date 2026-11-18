@@ -1,0 +1,14 @@
+# Shared UResNet with independent semantic coupling.
+# Inherits the canonical data, backbone and objective configuration.
+
+include: uresnet_multi_test.yaml
+
+base:
+  log_dir: logs/uresnet_multi_independent/test
+
+model:
+  modules:
+    semantic_coupling: independent
+    fragment_semantics: pooled
+    graph_spice:
+      make_clusters: true

@@ -51,6 +51,7 @@ class ProviderSpec:
 
 _PROVIDERS: dict[str, ProviderSpec] = {}
 _BUILTIN_MODULES = {
+    "uresnet_multi": "spine.model.full_chain.providers.multi",
     "deghost": "spine.model.full_chain.providers.deghost",
     "segmentation": "spine.model.full_chain.providers.segmentation",
     "fragmentation": "spine.model.full_chain.providers.fragmentation",

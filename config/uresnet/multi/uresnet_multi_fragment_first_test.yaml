@@ -1,0 +1,14 @@
+# Shared UResNet with fragment-first semantic coupling.
+# Inherits the canonical data, backbone and objective configuration.
+
+include: uresnet_multi_test.yaml
+
+base:
+  log_dir: logs/uresnet_multi_fragment_first/test
+
+model:
+  modules:
+    semantic_coupling: fragment_first
+    fragment_semantics: learned
+    graph_spice:
+      make_clusters: true
