@@ -1324,8 +1324,9 @@ def test_manager_exposes_configured_checkpoint_boundaries():
     assert not manager.should_save(1)
 
     manager.start_iteration = 10
-    assert manager.should_save(12)
-    assert not manager.should_save(11)
+    # Resume must not shift the global checkpoint/validation cadence.
+    assert manager.should_save(11)
+    assert not manager.should_save(12)
 
 
 def test_module_weight_path_must_exist(tmp_path):

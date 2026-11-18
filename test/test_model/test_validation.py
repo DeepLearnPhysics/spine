@@ -381,7 +381,15 @@ def test_validation_manager_validates_runtime_options(monkeypatch):
         ValidationManager({"file_keys": "val.root", "fraction": "half"}, **kwargs)
     with pytest.raises(TypeError, match="validation.initial"):
         ValidationManager({"file_keys": "val.root", "initial": "yes"}, **kwargs)
-    assert ValidationManager({"file_keys": "val.root"}, **kwargs).initial
+    # Fresh random weights skip the baseline unless explicitly requested.
+    assert not ValidationManager({"file_keys": "val.root"}, **kwargs).initial
+    assert ValidationManager(
+        {"file_keys": "val.root", "initial": True}, **kwargs
+    ).initial
+    # Both full-model and module-only imports retain baseline validation.
+    for source in ({"module": "<root>"}, {"module": "backbone"}):
+        model.loaded_weight_sources = [source]
+        assert ValidationManager({"file_keys": "val.root"}, **kwargs).initial
     assert not ValidationManager(
         {"file_keys": "val.root", "initial": False}, **kwargs
     ).initial

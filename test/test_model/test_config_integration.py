@@ -116,7 +116,7 @@ def test_sparse_model_config_runs_with_lattice_phase(case_name, larcv_data, tmp_
     not (TORCH_AVAILABLE and LARCV_AVAILABLE),
     reason="The full model runtime and LArCV are required.",
 )
-@pytest.mark.parametrize("initial", [True, False])
+@pytest.mark.parametrize("initial", [None, True, False])
 def test_training_config_runs_checkpoint_validation(
     larcv_data, tmp_path, caplog, initial
 ):
@@ -144,9 +144,9 @@ def test_training_config_runs_checkpoint_validation(
         "early_stopping": {"monitor": "loss", "patience": 2},
         "best_checkpoint": True,
     }
-    # Exercise the default initial baseline as well as the explicit opt-out.
-    if not initial:
-        cfg["validation"]["initial"] = False
+    # Random initialization skips the baseline unless explicitly requested.
+    if initial is not None:
+        cfg["validation"]["initial"] = initial
 
     with caplog.at_level("INFO", logger="spine"):
         Driver(cfg).run()
@@ -201,7 +201,7 @@ def test_training_config_runs_checkpoint_validation(
     assert "Saving checkpoint..." in output
     assert f"Checkpoint saved: {log_dir / 'snapshot-0.ckpt'}" in output
     separator = "=" * 69
-    assert output.count(separator) == 2 * (1 + int(initial))
+    assert output.count(separator) == 2 * (1 + int(bool(initial)))
     train_summary = output.index("Iter. 0 (epoch 1.000)")
     checkpoint = output.index("CHECKPOINT\nReason:             scheduled")
     assert train_summary < checkpoint

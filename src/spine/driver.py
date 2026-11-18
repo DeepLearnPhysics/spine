@@ -30,12 +30,14 @@ from .ana import AnaManager
 from .banner import BANNER_SEPARATOR
 from .config import normalize_config
 from .construct import BuildManager
+from .continuation import Continuation
 from .control import RunControl
 from .geo import GeoManager
 from .io import IOManager
 from .logging import LogManager, configure_rank_logging, logger
 from .math import seed as numba_seed
 from .model import ModelManager, ValidationManager
+from .model.validation import ValidationInterrupted
 from .post import PostManager
 from .utils.conditional import TORCH_AVAILABLE, torch
 from .utils.file import make_shared_directory
@@ -611,11 +613,17 @@ class Driver:
             return
         state = getattr(self.model, "checkpoint_runtime_state", None)
         if state is None:
+            if os.environ.get("SPINE_CONTINUATION_TOKEN"):
+                raise ValueError(
+                    "Continuation checkpoint has no RNG/loader runtime state"
+                )
             return
 
         world_size = max(1, self.world_size)
         checkpoint_world_size = int(state.get("world_size", 1))
         if checkpoint_world_size != world_size:
+            if os.environ.get("SPINE_CONTINUATION_TOKEN"):
+                raise ValueError("Continuation requires identical world size")
             warnings.warn(
                 "Checkpoint runtime state was recorded with world size "
                 f"{checkpoint_world_size}, but this run uses {world_size}; RNG "
@@ -632,6 +640,10 @@ class Driver:
             None,
         )
         if local_state is None:
+            if os.environ.get("SPINE_CONTINUATION_TOKEN"):
+                raise ValueError(
+                    "Continuation checkpoint is missing rank runtime state"
+                )
             warnings.warn(
                 f"Checkpoint has no runtime state for rank {rank}; continuation "
                 "will not be bit-for-bit exact.",
@@ -944,6 +956,21 @@ class Driver:
             control_installed_here = not run_control.installed
             run_control.install()
 
+        # Restore the allocation contract and any interrupted validation
+        continuation = Continuation.from_environment() if training else None
+        self.continuation = continuation
+        self._continuation_validation = getattr(model, "checkpoint_validation", None)
+        self._pending_validation = (self._continuation_validation or {}).get(
+            "pending_validation"
+        )
+        if self._pending_validation and (
+            continuation is None or self.validation is None
+        ):
+            raise ValueError(
+                "Pending validation requires continuation and validation support"
+            )
+        outcome = "completed"
+        outcome_reason = "training_limit"
         success = False
         try:
             # Get the iteration start (if model exists)
@@ -976,15 +1003,40 @@ class Driver:
                 else start_epoch
             )
 
-            # Establish a measured baseline before any optimizer update. A
-            # resumed checkpoint already owns its validation policy/history.
-            if (
+            # Complete an interrupted validation before any new training, even
+            # when the configured iteration/epoch limit was already reached.
+            stop_before_training = False
+            checkpoint_before_training = False
+            pending = self._pending_validation
+            if pending:
+                checkpoint_before_training = True
+                if pending["iteration"] + 1 != start_iteration:
+                    raise ValueError(
+                        "Pending validation does not match resume progress"
+                    )
+                stop_before_training = self.run_checkpoint(
+                    {},
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    pending["iteration"],
+                    pending["epoch"],
+                    reason=pending["reason"],
+                    scheduled=pending["scheduled"],
+                    completion=pending.get("completion"),
+                )
+                if stop_before_training:
+                    outcome_reason = "early_stopping"
+                elif pending.get("completion") and not self._pending_validation:
+                    stop_before_training = True
+                    outcome_reason = "graceful_stop"
+            elif (
                 training
                 and getattr(self, "validation", None) is not None
                 and getattr(self.validation, "initial", False)
                 and start_iteration == 0
+                and not getattr(model, "resume_training", False)
                 and not getattr(model, "checkpoint_validation", None)
             ):
+                checkpoint_before_training = True
                 self.run_checkpoint(
                     {},
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -994,8 +1046,21 @@ class Driver:
                     scheduled=False,
                 )
 
+            if self._pending_validation or (
+                not stop_before_training
+                and checkpoint_before_training
+                and start_iteration < stop_iteration
+                and self.continuation_pause_requested()
+            ):
+                stop_before_training = True
+                outcome = "paused"
+                outcome_reason = "allocation_deadline"
+
             # Loop and process each iteration
-            for iteration in range(start_iteration, stop_iteration):
+            for iteration in range(
+                start_iteration,
+                start_iteration if stop_before_training else stop_iteration,
+            ):
                 # Let I/O prepare loader state, if using a loader.
                 self.io.prepare_iteration(iteration)
 
@@ -1034,7 +1099,11 @@ class Driver:
                 if training:
                     assert model is not None
                     scheduled_checkpoint = model.should_save(iteration)
-                should_checkpoint = scheduled_checkpoint or graceful_stop
+                pause = self.continuation_pause_requested()
+                terminal = continuation is not None and iteration + 1 >= stop_iteration
+                should_checkpoint = (
+                    scheduled_checkpoint or graceful_stop or pause or terminal
+                )
                 if should_checkpoint:
                     request_description = (
                         run_control.graceful_stop_description or "distributed request"
@@ -1042,7 +1111,11 @@ class Driver:
                     reason = (
                         f"graceful completion ({request_description})"
                         if graceful_stop
-                        else "scheduled"
+                        else (
+                            "training_limit"
+                            if terminal
+                            else "allocation_pause" if pause else "scheduled"
+                        )
                     )
                     completion = None
                     if graceful_stop:
@@ -1076,9 +1149,28 @@ class Driver:
                     stdout=not should_checkpoint,
                 )
 
+                # A pause can arrive after the checkpoint decision, including
+                # during logging. Save this iteration before taking that exit.
+                pause = self.continuation_pause_requested()
+                if pause and not should_checkpoint:
+                    self.run_checkpoint(
+                        data,
+                        tstamp,
+                        iteration,
+                        epoch,
+                        reason="allocation_pause",
+                        scheduled=False,
+                    )
+
                 # Release the memory for the next iteration
                 data = None
+
+                if self._pending_validation:
+                    outcome = "paused"
+                    outcome_reason = "allocation_deadline"
+                    break
                 if graceful_stop:
+                    outcome_reason = "graceful_stop"
                     if self.main_process:
                         logger.info(
                             "Graceful completion finished successfully at "
@@ -1088,11 +1180,16 @@ class Driver:
                         )
                     break
                 if stop_training:
+                    outcome_reason = "early_stopping"
                     logger.info(
                         "Early stopping triggered at iteration %d (epoch %.4f).",
                         iteration,
                         epoch,
                     )
+                    break
+                if pause and not terminal:
+                    outcome = "paused"
+                    outcome_reason = "allocation_deadline"
                     break
             success = True
         finally:
@@ -1101,6 +1198,26 @@ class Driver:
             finally:
                 if control_installed_here:
                     run_control.restore()
+
+        # Publish the allocation outcome only after successful cleanup
+        if continuation is not None and self.main_process and success:
+            checkpoint = getattr(self, "_continuation_checkpoint", None)
+            if checkpoint is None:
+                checkpoint = getattr(model, "configured_weight_path", None)
+            continuation.publish(
+                outcome,
+                outcome_reason,
+                checkpoint,
+                pending_validation=self._pending_validation is not None,
+            )
+
+    def continuation_pause_requested(self) -> bool:
+        """Collectively propagate the rank-zero allocation pause request."""
+        continuation = getattr(self, "continuation", None)
+        return continuation is not None and runtime.distributed_any(
+            self.main_process and continuation.pause_requested,
+            getattr(self.model, "device", None),
+        )
 
     def run_checkpoint(
         self,
@@ -1161,32 +1278,76 @@ class Driver:
                 reason,
             )
 
-        validation_state = None
+        operational = reason in ("allocation_pause", "training_limit") and not scheduled
+        validation_state = (
+            getattr(self, "_continuation_validation", None) if operational else None
+        )
         validation_metrics = None
         promote_best = False
         stop_training = False
-        if self.validation is not None:
+        if self.validation is not None and not operational:
             log_manager = self.log_manager
             assert log_manager is not None
-            # Initial validation must not change the stochastic trajectory of
-            # training, including main-process dataset randomness.
-            rng_state = runtime.capture_rng_state() if initial else None
+
+            # Validation must not consume the training RNG trajectory. This also
+            # lets an interrupted pass restart from the same state on resume.
+            rng_state = (
+                runtime.capture_rng_state()
+                if initial or getattr(self, "continuation", None) is not None
+                else None
+            )
+            interrupted = False
             try:
-                validation_metrics = self.validation.run(iteration, epoch)
+                kwargs = {}
+                if getattr(self, "continuation", None) is not None:
+                    kwargs["pause_requested"] = self.continuation_pause_requested
+                    kwargs["resume_pending"] = bool(self._pending_validation)
+                validation_metrics = self.validation.run(iteration, epoch, **kwargs)
+            except ValidationInterrupted:
+                interrupted = True
             finally:
                 if rng_state is not None:
                     runtime.restore_rng_state(rng_state)
-            log_manager.append_tensorboard(
-                {f"val_{key}": value for key, value in validation_metrics.items()},
-                iteration + 1,
-            )
-            promote_best = self.validation.update_best_checkpoint(validation_metrics)
-            stop_training = self.validation.update_early_stopping(validation_metrics)
-            validation_state = self.validation.checkpoint_state(validation_metrics)
+            if interrupted:
+                # Preserve committed policy history; partial metrics must not
+                # affect patience, best selection or validation scheduler steps.
+                validation_state = dict(self._continuation_validation or {})
+                self._pending_validation = dict(
+                    iteration=iteration,
+                    epoch=epoch,
+                    reason=reason,
+                    scheduled=scheduled,
+                    completion=completion,
+                )
+                validation_state["pending_validation"] = self._pending_validation
+                if self.main_process:
+                    logger.info(
+                        "Allocation pause interrupted validation at training "
+                        "iteration %d; validation will restart before further "
+                        "training.",
+                        iteration,
+                    )
+                completion = None
+            else:
+                log_manager.append_tensorboard(
+                    {f"val_{key}": value for key, value in validation_metrics.items()},
+                    iteration + 1,
+                )
+                promote_best = self.validation.update_best_checkpoint(
+                    validation_metrics
+                )
+                stop_training = self.validation.update_early_stopping(
+                    validation_metrics
+                )
+                validation_state = dict(
+                    self.validation.checkpoint_state(validation_metrics)
+                )
+                validation_state.pop("pending_validation", None)
+                self._pending_validation = None
+            self._continuation_validation = validation_state
 
-        # Only configured validation boundaries advance validation schedules.
-        # Operational graceful-stop snapshots preserve the existing state.
-        if scheduled and self.validation is not None:
+        # Advance validation schedules only after a complete scheduled pass
+        if scheduled and validation_metrics is not None:
             model.step_scheduler("validation", validation_metrics)
 
         # Every rank contributes its exact continuation state to the artifact.
@@ -1250,6 +1411,7 @@ class Driver:
 
         if self.main_process:
             assert checkpoint_path is not None
+            self._continuation_checkpoint = checkpoint_path
             LogManager.log_checkpoint_complete(
                 checkpoint_path,
                 self.distributed,

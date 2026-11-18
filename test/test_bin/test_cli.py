@@ -1288,3 +1288,13 @@ def test_cli_parses_module_weights(monkeypatch):
         "graph_spice=spice.ckpt",
     ]
     assert calls[0]["export_weights"] == "composed.ckpt"
+
+
+def test_continuation_capability_does_not_construct_run(monkeypatch, capsys):
+    """The production preflight can query support without loading a model."""
+    monkeypatch.setattr(cli_module.sys, "argv", ["spine", "--continuation-contract"])
+    monkeypatch.setattr(
+        cli_module, "build_parser", lambda: pytest.fail("Parser not needed")
+    )
+    cli_module.cli()
+    assert capsys.readouterr().out == "2\n"

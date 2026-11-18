@@ -578,6 +578,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cli() -> None:
     """Parse command-line arguments and run the requested SPINE operation."""
+    # Report continuation support without constructing a training run
+    if sys.argv[1:] == ["--continuation-contract"]:
+        print("2")
+        return
+
     parser = build_parser()
 
     # Parse the arguments
