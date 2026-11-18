@@ -1149,11 +1149,22 @@ class Driver:
                     stdout=not should_checkpoint,
                 )
 
+                # A pause can arrive after the checkpoint decision, including
+                # during logging. Save this iteration before taking that exit.
+                pause = self.continuation_pause_requested()
+                if pause and not should_checkpoint:
+                    self.run_checkpoint(
+                        data,
+                        tstamp,
+                        iteration,
+                        epoch,
+                        reason="allocation_pause",
+                        scheduled=False,
+                    )
+
                 # Release the memory for the next iteration
                 data = None
 
-                # A request can arrive during validation or checkpoint writing.
-                pause = self.continuation_pause_requested()
                 if self._pending_validation:
                     outcome = "paused"
                     outcome_reason = "allocation_deadline"

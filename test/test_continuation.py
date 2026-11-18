@@ -511,3 +511,31 @@ def test_nonmain_rank_records_pending_validation_without_publication(
     drv.run()
     assert drv._pending_validation["iteration"] == 0
     assert not outcome.exists()
+
+
+@pytest.mark.parametrize("checkpoint", ["none", "previous", "current"])
+def test_pause_during_logging_saves_current_iteration(
+    tmp_path, monkeypatch, checkpoint
+):
+    """A late pause must not reuse an older snapshot or exit without a snapshot."""
+    drv, saves, outcome, _ = driver(tmp_path, monkeypatch)
+    pause_iteration = 1 if checkpoint == "previous" else 0
+    drv.process = Mock(return_value={"loss": 1.0})
+    drv.model.should_save = lambda iteration: checkpoint != "none" and iteration == 0
+
+    def log(data, tstamp, iteration, epoch, **kwargs):
+        if iteration == pause_iteration:
+            (tmp_path / "pause").touch()
+
+    drv.log = log
+    drv.run()
+    result = json.loads(outcome.read_text())
+    assert result["state"] == "paused"
+    assert result["iteration"] == pause_iteration
+    assert saves[-1][0] == pause_iteration
+    assert [item[0] for item in saves].count(pause_iteration) == 1
+    assert (
+        saves[-1][2]["runtime_state"]["ranks"][0]["io"]["next_iteration"]
+        == pause_iteration + 1
+    )
+    assert drv.validation.run.call_count == (checkpoint != "none")
