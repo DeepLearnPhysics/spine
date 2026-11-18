@@ -226,7 +226,7 @@ jobs:
           -w /workspace \
           "${COVERAGE_IMAGE}" \
           bash -lc '
-            python -m pip install --root-user-action=ignore -e . pytest pytest-cov coverage[toml]
+            python -m pip install --root-user-action=ignore -e ".[pimm]" pytest pytest-cov coverage[toml]
             mkdir -p /tmp/spine-sitecustomize
             printf "import h5py\n" > /tmp/spine-sitecustomize/sitecustomize.py
             NUMBA_DISABLE_JIT=1 PYTHONPATH="/tmp/spine-sitecustomize:${PYTHONPATH:-}" pytest test \

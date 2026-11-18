@@ -30,6 +30,7 @@ class HDF5Dataset(BaseDataset):
 
     name: ClassVar[str] = "hdf5"
     supports_stages: ClassVar[bool] = False
+    parser_dict: ClassVar[dict[str, Any]] = PARSER_DICT
     parsers: dict[str, Any]
     reader: ReaderBase
 
@@ -102,7 +103,7 @@ class HDF5Dataset(BaseDataset):
                 parser_cfg = dict(parser_cfg)
                 parser_stage = parser_cfg.pop("stage", stage)
                 parser = instantiate(
-                    PARSER_DICT, parser_cfg, alt_name="parser", dtype=dtype
+                    self.parser_dict, parser_cfg, alt_name="parser", dtype=dtype
                 )
                 self.parsers[data_product] = parser
                 for key in parser.tree_keys:
