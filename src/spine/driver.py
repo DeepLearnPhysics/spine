@@ -396,6 +396,7 @@ class Driver:
         unwrap: bool = False,
         rank: int | None = None,
         log_step: int = 1,
+        log_ranks: bool = False,
         distributed: bool = False,
         ddp: bool | None = None,
         split_output: bool = False,
@@ -433,6 +434,9 @@ class Driver:
             If ``True``, unwrap batched data into per-entry outputs.
         rank : int, optional
             Rank of the current process in distributed execution.
+        log_ranks : bool, default False
+            Print detailed per-rank stdout tables instead of compact distributed
+            summaries. CSV logging is unchanged.
         log_step : int, default 1
             Logging period in iterations.
         distributed : bool, default False
@@ -504,6 +508,7 @@ class Driver:
         self.unwrap = unwrap
         self.seed = seed
         self.log_step = log_step
+        self.log_ranks = log_ranks
         self.split_output = split_output
         self.tensorboard_cfg = tensorboard
 
@@ -733,6 +738,7 @@ class Driver:
             overwrite_log=self.overwrite_log,
             csv_buffer_size=self.csv_buffer_size,
             log_step=self.log_step,
+            log_ranks=self.log_ranks,
         )
 
     def initialize_builder(self, build: Mapping[str, Any] | None = None) -> None:
@@ -1673,6 +1679,7 @@ class Driver:
             rank=self.rank,
             distributed=self.distributed,
             main_process=self.main_process,
+            log_ranks=self.log_ranks,
         )
 
     def should_log_stdout(self, iteration: int) -> bool:

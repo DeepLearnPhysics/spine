@@ -28,6 +28,7 @@ __all__ = [
     "distributed_barrier",
     "distributed_any",
     "distributed_all_gather_object",
+    "distributed_all_gather_scalars",
     "capture_rng_state",
     "restore_rng_state",
     "require_torch",
@@ -277,6 +278,41 @@ def distributed_any(value: bool, device: Any = None) -> bool:
     flag = torch.tensor(int(value), dtype=torch.uint8, device=device)
     torch.distributed.all_reduce(flag, op=torch.distributed.ReduceOp.MAX)
     return bool(flag.item())
+
+
+def distributed_all_gather_scalars(values: list[float]) -> list[list[float]]:
+    """Gather equal-length numeric rows without Python-object serialization.
+
+    All ranks must call with the same number of scalars. NCCL uses the current
+    rank-local CUDA device; CPU process groups use CPU tensors. No separate
+    barrier is needed before the collective.
+
+    Parameters
+    ----------
+    values : list[float]
+        Local numeric row.
+
+    Returns
+    -------
+    list[list[float]]
+        Rows in global-rank order, or just the local row outside a process group.
+    """
+    if not (
+        TORCH_AVAILABLE
+        and torch.distributed.is_available()
+        and torch.distributed.is_initialized()
+    ):
+        return [values]
+
+    device = (
+        torch.device("cuda", torch.cuda.current_device())
+        if torch.distributed.get_backend() == "nccl"
+        else torch.device("cpu")
+    )
+    local = torch.tensor(values, dtype=torch.float64, device=device)
+    rows = [torch.empty_like(local) for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(rows, local)
+    return [row.tolist() for row in rows]
 
 
 def distributed_all_gather_object(obj: Any) -> list[Any]:

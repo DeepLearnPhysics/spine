@@ -1298,3 +1298,42 @@ def test_continuation_capability_does_not_construct_run(monkeypatch, capsys):
     )
     cli_module.cli()
     assert capsys.readouterr().out == "2\n"
+
+
+@pytest.mark.parametrize("rank", [None, "0", "1", "4"])
+def test_startup_banner_only_on_global_rank_zero(monkeypatch, capsys, rank):
+    """Every worker loads/runs its config, but only rank zero prints identity."""
+    if rank is None:
+        monkeypatch.delenv("RANK", raising=False)
+    else:
+        monkeypatch.setenv("RANK", rank)
+    monkeypatch.setenv("WORLD_SIZE", "8")
+    monkeypatch.setattr(
+        cli_module, "resolve_config_path", lambda *args, **kwargs: "config.yaml"
+    )
+    monkeypatch.setattr(
+        cli_module, "load_config_file", lambda *args: {"base": {}, "io": {"reader": {}}}
+    )
+    configs = []
+    monkeypatch.setattr("spine.main.run", configs.append)
+    cli_module.main(
+        config="config.yaml",
+        source=None,
+        source_list=None,
+        output=None,
+        output_dir=None,
+        output_suffix=None,
+        n=None,
+        nskip=None,
+        entry_list=None,
+        skip_entry_list=None,
+        log_dir=None,
+        weight_prefix=None,
+        weight_path=None,
+        weight_list=None,
+        config_overrides=None,
+    )
+    output = capsys.readouterr().out
+    assert ("Startup" in output) == (rank in (None, "0"))
+    assert ("██████████" in output) == (rank in (None, "0"))
+    assert len(configs) == 1
