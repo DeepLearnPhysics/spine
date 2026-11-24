@@ -300,6 +300,7 @@ class Driver:
             f"Device:        {device}",
             f"World size:    {max(1, self.world_size)}",
             f"Seed:          {self.seed}",
+            f"Started:       {datetime.now():%Y-%m-%d %H:%M:%S}",
         ]
         if self.distributed:
             runtime_lines.insert(5, f"Rank:          {self.rank}")

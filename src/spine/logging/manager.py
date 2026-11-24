@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Mapping
+from textwrap import wrap
 from typing import Any
 
 import numpy as np
@@ -500,21 +501,33 @@ class LogManager:
             )
             if main_process:
                 times, memory, losses, accuracies = zip(*rows)
-                label = f"Iter. {iteration}"
+                label = f"Iter {iteration}"
                 if mode == "validation":
-                    label = f"Val. {iteration + 1}"
+                    label = f"Val {iteration + 1}"
                     if total_iterations is not None:
                         label += f"/{total_iterations}"
                 epoch_value = -1.0 if epoch is None else epoch
-                logger.info(
-                    f"{label} (epoch {epoch_value:.3f}) @ {tstamp} | "
+                header = (
+                    f"{label} | epoch {epoch_value:.3f} | "
                     f"{mode or ('train' if model_train else 'inference')} | "
-                    f"{len(rows)} ranks | "
-                    f"time {min(times):.3f}-{max(times):.3f} s | "
-                    f"GPU peak {min(memory):.2f}-{max(memory):.2f} GB | "
-                    f"loss(mean) {sum(losses) / len(rows):.4f} | "
-                    f"accuracy(mean) {sum(accuracies) / len(rows):.4f}"
+                    f"{len(rows)} ranks | {tstamp.rsplit(' ', 1)[-1]}"
                 )
+                if max(times) < 1.0:
+                    time_range = f"{1000 * min(times):.0f}-{1000 * max(times):.0f} ms"
+                else:
+                    time_range = f"{min(times):.2f}-{max(times):.2f} s"
+                metrics = (
+                    f"loss {sum(losses) / len(rows):.4f} | "
+                    f"acc {sum(accuracies) / len(rows):.4f} | "
+                    f"time {time_range} | "
+                    f"GPU peak {min(memory):.2f}-{max(memory):.2f} GB"
+                )
+                # Usually two lines; wrap unusually large values rather than
+                # allowing progress output to exceed a 100-column terminal.
+                lines = wrap(header, width=100) + wrap(
+                    metrics, width=100, initial_indent="  ", subsequent_indent="  "
+                )
+                logger.info("\n".join(lines))
             return
 
         # Resolve the table layout before rendering its shared header

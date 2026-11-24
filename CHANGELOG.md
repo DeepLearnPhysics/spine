@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-24
+
+### Fixed
+- Print the CLI banner and startup header only on global rank zero under
+  external distributed launchers, avoiding duplicate startup output (#196).
+
+### Changed
+- Use compact two-line distributed progress summaries bounded to 100 columns,
+  with rank timing/memory ranges and mean loss/accuracy. Keep per-iteration
+  logging and per-rank CSV records unchanged; select detailed tables with
+  `base.log_ranks: true`, including during on-the-fly validation (#196).
+- Gather numeric tensors for compact progress and remove the redundant logging
+  barrier. S3DF two-node/eight-GPU testing showed no measurable penalty for
+  frequent compact logging versus logging every 100 steps in one trial (#196).
+
 ## [1.5.0] - 2026-11-18
 
 ### Added
