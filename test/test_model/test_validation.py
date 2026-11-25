@@ -268,8 +268,9 @@ def test_best_checkpoint_tracks_and_restores_progress():
         BestCheckpoint(path=1)
 
 
+@pytest.mark.parametrize("log_ranks", [False, True])
 def test_validation_manager_runs_fraction_logs_and_updates_stopping(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, log_ranks
 ):
     """Validation should average scalar outputs over the deterministic fraction."""
 
@@ -307,6 +308,16 @@ def test_validation_manager_runs_fraction_logs_and_updates_stopping(
         def evaluate(data, iteration):
             return {"loss": data["value"] + iteration, "prediction": [1, 2]}
 
+    summaries = []
+    original = validation_mod.LogManager.log_stdout_summary
+
+    def summary(*args, **kwargs):
+        summaries.append(kwargs["log_ranks"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        validation_mod.LogManager, "log_stdout_summary", staticmethod(summary)
+    )
     monkeypatch.setattr(validation_mod, "IOManager", FakeIO)
     manager = ValidationManager(
         {
@@ -323,10 +334,12 @@ def test_validation_manager_runs_fraction_logs_and_updates_stopping(
         distributed=False,
         seed=1,
         log_dir=str(tmp_path),
+        log_ranks=log_ranks,
     )
 
     metrics = manager.run(iteration=2, epoch=0.75)
     assert metrics == {"loss": 4.0}
+    assert summaries == [log_ranks, log_ranks]
     log = tmp_path / "validation_log-0000003.csv"
     log_df = np.genfromtxt(log, delimiter=",", names=True)
     assert log_df.shape == (2,)

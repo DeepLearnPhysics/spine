@@ -313,9 +313,10 @@ def test_log_manager_stdout_summary(monkeypatch):
         rank=0,
         distributed=True,
         main_process=True,
+        log_ranks=True,
     )
 
-    assert len(barriers) == 1
+    assert barriers == []
     assert any("Iter. 0" in msg for msg in infos)
     assert any("train" in msg for msg in infos)
     assert any("GPU peak allocated" in msg for msg in infos)
@@ -574,3 +575,84 @@ def test_log_manager_stdout_summary_non_main_rank_only_contributes_row(monkeypat
     assert get_first_entry((3, 4)) == 3
     assert get_first_entry(np.array([5, 6])) == 5
     assert get_first_entry(7) == 7
+
+
+@pytest.mark.parametrize("main_process", [False, True])
+@pytest.mark.parametrize("mode", [None, "validation"])
+def test_compact_distributed_summary(monkeypatch, main_process, mode):
+    """One numeric collective supplies a narrow rank-zero summary with ranges."""
+    messages, calls = [], []
+    monkeypatch.setattr(log_manager_mod.logger, "info", messages.append)
+
+    def forbidden(*args):
+        pytest.fail("Compact logging must not use barriers or object collectives")
+
+    monkeypatch.setattr(log_manager_mod.runtime, "distributed_barrier", forbidden)
+    monkeypatch.setattr(
+        log_manager_mod.runtime, "distributed_all_gather_object", forbidden
+    )
+
+    def gather(values):
+        calls.append(values)
+        return [[1.0, 2.0, 0.4, 0.6], [3.0, 4.0, 0.8, 0.2]]
+
+    monkeypatch.setattr(
+        log_manager_mod.runtime, "distributed_all_gather_scalars", gather
+    )
+    LogManager.log_stdout_summary(
+        {"gpu_mem_allocated_peak": 2.0},
+        {"loss": 0.4, "accuracy": 0.6},
+        FakeWatchManager(),
+        "2026-11-24 14:32:10",
+        iteration=0,
+        epoch=0.5,
+        model_train=mode is None,
+        rank=0 if main_process else 1,
+        distributed=True,
+        main_process=main_process,
+        mode=mode,
+        total_iterations=2,
+    )
+    assert len(calls) == 1
+    assert calls[0][1:] == [2.0, 0.4, 0.6]
+    if not main_process:
+        assert messages == []
+        return
+    assert len(messages) == 1
+    assert ("Val 1/2" if mode else "Iter 0") in messages[0]
+    assert "2 ranks" in messages[0]
+    assert "time 1.00-3.00 s" in messages[0]
+    assert "GPU peak 2.00-4.00 GB" in messages[0]
+    assert "loss 0.6000" in messages[0]
+    assert "acc 0.4000" in messages[0]
+
+
+@pytest.mark.parametrize("times", [(0.058, 0.062), (1.0, 3.0)])
+def test_compact_summary_fits_terminal(monkeypatch, times):
+    """Normal progress uses two <=100-column lines, with subsecond times in ms."""
+    messages = []
+    monkeypatch.setattr(log_manager_mod.logger, "info", messages.append)
+    monkeypatch.setattr(
+        log_manager_mod.runtime,
+        "distributed_all_gather_scalars",
+        lambda values: [[times[0], 0.34, 0.0013, 1.0], [times[1], 0.34, 0.0013, 1.0]],
+    )
+    LogManager.log_stdout_summary(
+        {"gpu_mem_allocated_peak": 0.34},
+        {"loss": 0.0013, "accuracy": 1.0},
+        FakeWatchManager(),
+        "2026-11-24 15:38:07",
+        999,
+        125.0,
+        model_train=True,
+        rank=0,
+        distributed=True,
+        main_process=True,
+    )
+    lines = messages[0].splitlines()
+    assert len(lines) == 2
+    assert all(len(line) <= 100 for line in lines)
+    assert lines[0] == "Iter 999 | epoch 125.000 | train | 2 ranks | 15:38:07"
+    assert "2026-11-24" not in messages[0]
+    assert ("58-62 ms" if times[1] < 1 else "1.00-3.00 s") in lines[1]
+    assert lines[1].startswith("  loss 0.0013 | acc 1.0000 |")

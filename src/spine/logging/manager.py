@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Mapping
+from textwrap import wrap
 from typing import Any
 
 import numpy as np
@@ -452,6 +453,7 @@ class LogManager:
         main_process: bool,
         mode: str | None = None,
         total_iterations: int | None = None,
+        log_ranks: bool = False,
     ) -> None:
         """Emit the human-readable iteration summary to stdout.
 
@@ -480,10 +482,54 @@ class LogManager:
         mode : str, optional
             Explicit processing mode shown in the timing header. By default,
             this is inferred as training or inference from ``model_train``.
+        log_ranks : bool, default False
+            Use detailed per-rank tables instead of compact distributed summaries.
         total_iterations : int, optional
             Total number of iterations in a bounded pass, used to show
             validation progress.
         """
+        # Compact distributed output uses one small tensor collective. Keep
+        # formatting and printing on rank zero, without a preliminary barrier.
+        if distributed and not log_ranks:
+            rows = runtime.distributed_all_gather_scalars(
+                [
+                    watch.time("iteration").wall,
+                    log_row["gpu_mem_allocated_peak"],
+                    float(data.get("loss", -1.0)),
+                    float(data.get("accuracy", -1.0)),
+                ]
+            )
+            if main_process:
+                times, memory, losses, accuracies = zip(*rows)
+                label = f"Iter {iteration}"
+                if mode == "validation":
+                    label = f"Val {iteration + 1}"
+                    if total_iterations is not None:
+                        label += f"/{total_iterations}"
+                epoch_value = -1.0 if epoch is None else epoch
+                header = (
+                    f"{label} | epoch {epoch_value:.3f} | "
+                    f"{mode or ('train' if model_train else 'inference')} | "
+                    f"{len(rows)} ranks | {tstamp.rsplit(' ', 1)[-1]}"
+                )
+                if max(times) < 1.0:
+                    time_range = f"{1000 * min(times):.0f}-{1000 * max(times):.0f} ms"
+                else:
+                    time_range = f"{min(times):.2f}-{max(times):.2f} s"
+                metrics = (
+                    f"loss {sum(losses) / len(rows):.4f} | "
+                    f"acc {sum(accuracies) / len(rows):.4f} | "
+                    f"time {time_range} | "
+                    f"GPU peak {min(memory):.2f}-{max(memory):.2f} GB"
+                )
+                # Usually two lines; wrap unusually large values rather than
+                # allowing progress output to exceed a 100-column terminal.
+                lines = wrap(header, width=100) + wrap(
+                    metrics, width=100, initial_indent="  ", subsequent_indent="  "
+                )
+                logger.info("\n".join(lines))
+            return
+
         # Resolve the table layout before rendering its shared header
         proc = mode or ("train" if model_train else "inference")
         memory_label = "GPU peak allocated" if rank is not None else "CPU memory"
@@ -508,10 +554,6 @@ class LogManager:
             msg += header + "|\n"
             msg += separator + "|"
             logger.info(msg)
-
-        # Keep distributed process rows associated with the same header
-        if distributed:
-            runtime.distributed_barrier()
 
         t_iter = watch.time("iteration").wall
         t_net = 0.0

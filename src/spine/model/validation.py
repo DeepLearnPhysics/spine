@@ -375,6 +375,7 @@ class ValidationManager:
         overwrite_log: bool = False,
         csv_buffer_size: int = 1,
         log_step: int = 1,
+        log_ranks: bool = False,
     ) -> None:
         """Build a validation loader and optional validation policies.
 
@@ -418,6 +419,9 @@ class ValidationManager:
             Allow an existing validation log segment to be overwritten.
         csv_buffer_size : int, default 1
             Buffer size forwarded to the validation CSV logger.
+        log_ranks : bool, default False
+            Print detailed per-rank stdout tables instead of compact distributed
+            summaries. CSV logging is unchanged.
         log_step : int, default 1
             Number of validation batches between stdout summaries.
 
@@ -465,6 +469,7 @@ class ValidationManager:
         self.overwrite_log = overwrite_log
         self.csv_buffer_size = csv_buffer_size
         self.log_step = log_step
+        self.log_ranks = log_ranks
         self.main_process = rank is None or rank == 0
         assert self.io.loader is not None
         self.num_iterations = max(1, math.ceil(fraction * len(self.io.loader)))
@@ -882,6 +887,7 @@ class ValidationManager:
                             main_process=main_process,
                             mode="validation",
                             total_iterations=self.num_iterations,
+                            log_ranks=getattr(self, "log_ranks", False),
                         )
 
                 for key, value in result.items():

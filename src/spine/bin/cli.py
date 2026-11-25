@@ -20,6 +20,7 @@ from spine.bin.weight import apply_module_weight_overrides
 from spine.config import apply_overrides, load_config_file, to_inference_config
 from spine.config.factory import resolve_module_provider
 from spine.config.loader import resolve_config_path
+from spine.logging import configure_rank_logging
 
 
 def main(
@@ -171,9 +172,13 @@ def main(
     """
     # Identify the application before configuration loading, which may itself
     # trigger download/cache messages or validation warnings.
-    print(format_banner(get_version()), end="")
-    print("\nStartup\n-------")
-    print(f"Configuration: {config}")
+    rank = int(os.environ["RANK"]) if "RANK" in os.environ else None
+    configure_rank_logging(rank)
+    main_process = rank is None or rank == 0
+    if main_process:
+        print(format_banner(get_version()), end="")
+        print("\nStartup\n-------")
+        print(f"Configuration: {config}")
 
     # Load the configuration tools to find the appropriate config file
     cfg_file = resolve_config_path(config, current_dir=os.getcwd())
@@ -183,7 +188,8 @@ def main(
 
     # Resource-resolution messages belong to the startup section. Close it
     # explicitly before runtime initialization begins.
-    print()
+    if main_process:
+        print()
 
     # If there is no base block, build one
     if "base" not in cfg:

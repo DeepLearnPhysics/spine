@@ -991,6 +991,7 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
     drv.prefix_log = True
     drv.overwrite_log = True
     drv.csv_buffer_size = 8
+    drv.log_ranks = True
     drv.log_step = 4
     drv.geo_cfg = {"detector": "icarus"}
     monkeypatch.setattr(
@@ -1015,6 +1016,7 @@ def test_initialize_validation_requires_training_checkpoint_loader(monkeypatch):
         "overwrite_log": True,
         "csv_buffer_size": 8,
         "log_step": 4,
+        "log_ranks": True,
     }
 
 
@@ -1965,6 +1967,7 @@ def test_run_keeps_checkpoint_timer_csv_schema_stable(tmp_path, caplog):
     drv.overwrite_log = False
     drv.csv_buffer_size = 1
     drv.tensorboard_cfg = None
+    drv.log_ranks = False
     drv.log_step = 1
     drv.io = SimpleNamespace(
         has_loader=True,
@@ -2020,6 +2023,7 @@ def test_log_collects_scalars_memory_and_stdout(monkeypatch):
     """log should append scalar metrics and emit formatted progress lines."""
     drv = bare_driver()
     drv.watch.initialize("model")
+    drv.log_ranks = False
     drv.log_step = 1
     drv.model = SimpleNamespace(train=True)
     drv.rank = 0
@@ -2113,10 +2117,12 @@ def test_log_requires_initialized_log_manager():
         drv.log({"index": 0}, "2026-01-01 00:00:00", iteration=0)
 
     # A suppressed stdout step should not require an initialized backend.
+    drv.log_ranks = False
     drv.log_step = 2
     drv.log_stdout({"index": 0}, "2026-01-01 00:00:00", iteration=0)
 
     # An emitted stdout step must still fail clearly without that backend.
+    drv.log_ranks = False
     drv.log_step = 1
     with pytest.raises(RuntimeError, match="log manager"):
         drv.log_stdout({"index": 0}, "2026-01-01 00:00:00", iteration=0)
