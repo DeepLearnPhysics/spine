@@ -430,8 +430,11 @@ def test_log_manager_formats_checkpoint_lifecycle(monkeypatch):
     assert "Best checkpoint updated: snapshot-best.ckpt" in output
     assert "Validation batches: disabled" in output
     assert "Reason:             scheduled" in output
-    assert len(infos[0].splitlines()[0]) == 69
-    assert len(infos[-1].splitlines()[0]) == 76
+    assert infos[0].startswith("\n")
+    assert infos[2].startswith("\nVALIDATION COMPLETE")
+    assert len(infos[0].splitlines()[1]) == 69
+    assert infos[-1].startswith("\n")
+    assert len(infos[-1].splitlines()[1]) == 76
 
 
 @pytest.mark.parametrize(

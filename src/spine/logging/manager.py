@@ -300,7 +300,7 @@ class LogManager:
         )
 
         logger.info(
-            "%s\n"
+            "\n%s\n"
             "CHECKPOINT\n"
             "Reason:             %s\n"
             "Training iteration: %d\n"
@@ -334,7 +334,7 @@ class LogManager:
             for key, value in sorted(metrics.items())
         )
 
-        logger.info("VALIDATION COMPLETE\nMetrics:\n%s\n", summary)
+        logger.info("\nVALIDATION COMPLETE\nMetrics:\n%s\n", summary)
 
     @staticmethod
     def log_early_stopping(status: Mapping[str, Any]) -> None:
