@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-24
+
+### Fixed
+- Separate checkpoint and validation-completion sections from preceding
+  progress summaries with a blank line. Keep iteration logging frequency,
+  CSV output, and training behavior unchanged (#197).
+
 ## [1.5.1] - 2026-11-24
 
 ### Fixed
