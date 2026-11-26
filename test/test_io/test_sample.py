@@ -447,3 +447,123 @@ def test_sequential_bootstrap_and_joint_sequential_resume_branches():
     epoch = list(joint)
     joint.load_state_dict(joint.state_dict(offset=2))
     assert list(joint) == epoch[2:]
+
+
+@pytest.mark.parametrize(
+    "family", ["random", "sequential", "bootstrap", "joint", "distributed"]
+)
+def test_repeated_resume_preserves_remaining_epoch_and_next_epoch(family):
+    """Several checkpoints inside one resumed epoch must not discard indexes twice."""
+
+    def make(seed):
+        if family == "joint":
+            return JointRandomSequenceBatchSampler(
+                DummyJointDataset(40, 7), 4, seed=seed
+            )
+        cls = {
+            "random": RandomSequenceBatchSampler,
+            "sequential": SequentialBatchSampler,
+            "bootstrap": BootstrapBatchSampler,
+            "distributed": RandomSequenceBatchSampler,
+        }[family]
+        base = cls(DummyDataset(40), 4, seed=seed)
+        return DistributedProxySampler(base, 2, 1) if family == "distributed" else base
+
+    sampler = make(8)
+    epoch = list(sampler)
+    saved = sampler.state_dict(offset=4)
+    following = list(sampler)
+    for consumed in (4, 8, 12):
+        restored = make(99)
+        restored.load_state_dict(saved, offset=consumed)
+        assert list(restored) == epoch[consumed:]
+        saved = restored.state_dict(offset=consumed + 4)
+    last = make(99)
+    last.load_state_dict(saved, offset=16)
+    assert list(last) == epoch[16:]
+    assert list(last) == following
+    # A fresh epoch must reset the origin of its full index list.
+    assert last.state_dict(offset=4)["indices"] == following[4:]
+
+
+def test_legacy_partial_checkpoint_and_suffix_validation():
+    """Old valid suffixes remain usable; already double-sliced ones fail clearly."""
+    sampler = SequentialBatchSampler(DummyDataset(20), 2, seed=1)
+    list(sampler)
+    state = sampler.state_dict(offset=6)
+    state.pop("index_offset")
+    state.pop("epoch_size")
+    restored = SequentialBatchSampler(DummyDataset(20), 2, seed=99)
+    restored.load_state_dict(state, offset=6)
+    assert list(restored) == list(range(6, 20))
+    assert restored.state_dict(offset=10)["indices"] == list(range(10, 20))
+    with pytest.raises(ValueError, match="outside its saved epoch suffix"):
+        restored.state_dict(offset=4)
+    with pytest.raises(ValueError, match="truncated"):
+        restored.load_state_dict(dict(state, indices=state["indices"][6:]), offset=6)
+    with pytest.raises(ValueError, match="truncated"):
+        restored.load_state_dict(dict(state, index_offset=8), offset=6)
+
+
+def test_direct_state_round_trip_retains_suffix_origin():
+    """Parameterless snapshots of a restored sampler retain their epoch origin."""
+    sampler = SequentialBatchSampler(DummyDataset(20), 2, seed=1)
+    list(sampler)
+    sampler.load_state_dict(sampler.state_dict(offset=6))
+    state = sampler.state_dict()
+    assert state["index_offset"] == 6
+    other = SequentialBatchSampler(DummyDataset(20), 2, seed=1)
+    other.load_state_dict(state)
+    assert list(other) == list(range(6, 20))
+    assert other.state_dict(offset=10)["indices"] == list(range(10, 20))
+
+
+@pytest.mark.parametrize("rank", range(4))
+def test_dataloader_repeated_resume_matches_uninterrupted_epoch(rank):
+    """Real rank-local DataLoaders must yield every expected batch after resumes."""
+    from torch.utils.data import DataLoader
+
+    from spine.io.manager import IOManager
+
+    def manager(seed):
+        base = RandomSequenceBatchSampler(DummyDataset(40), 4, seed=seed)
+        sampler = DistributedProxySampler(base, 4, rank)
+        result = object.__new__(IOManager)
+        result.loader = DataLoader(range(40), batch_size=1, sampler=sampler)
+        result.loader_iter = None
+        result.iter_per_epoch = len(result.loader)
+        result._resume_skip_batches = 0
+        result._iteration_origin = 0
+        result._epoch_origin = 0
+        result._epoch_batch_offset = 0
+        result.distributed = True
+        return result
+
+    baseline = manager(8)
+    expected = []
+    for iteration in range(12):
+        baseline.prepare_iteration(iteration)
+        expected.append(next(baseline.loader_iter).tolist())
+    current = manager(8)
+    actual = []
+    for iteration in range(12):
+        if iteration in (2, 4, 6):
+            state = current.checkpoint_state(iteration)
+            current = manager(99)
+            current.restore_checkpoint_state(state)
+            current.set_resume_progress(iteration, iteration / current.iter_per_epoch)
+        current.prepare_iteration(iteration)
+        actual.append(next(current.loader_iter).tolist())
+    assert actual == expected
+
+
+def test_suffix_keeps_original_epoch_size_when_batch_rounding_changes():
+    """A new batch size may change drop_last rounding, not the saved suffix."""
+    sampler = SequentialBatchSampler(DummyDataset(22), 2, seed=1)
+    list(sampler)
+    state = sampler.state_dict(offset=6)
+    restored = SequentialBatchSampler(DummyDataset(22), 4, seed=1)
+    restored.load_state_dict(state, offset=6)
+    assert list(restored) == list(range(6, 22))
+    assert restored.state_dict(offset=10)["epoch_size"] == 22
+    assert restored.state_dict(offset=10)["indices"] == list(range(10, 22))

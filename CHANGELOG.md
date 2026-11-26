@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- Preserve the epoch offset of saved sampler suffixes across repeated resumes,
+  preventing skipped samples and early DataLoader exhaustion. Reject inconsistent
+  legacy suffixes with an actionable checkpoint-recovery error.
+
 ## [1.5.2] - 2026-11-24
 
 ### Fixed
