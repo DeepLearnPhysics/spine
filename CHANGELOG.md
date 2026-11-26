@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-25
+
 ### Fixed
 - Preserve the epoch offset of saved sampler suffixes across repeated resumes,
   preventing skipped samples and early DataLoader exhaustion. Reject inconsistent
