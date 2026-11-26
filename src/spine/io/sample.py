@@ -73,6 +73,51 @@ def _normalize_index(index: Any) -> Any:
     return index
 
 
+def _checkpoint_indices(sampler: Any, offset: int | None) -> dict[str, Any]:
+    """Slice a saved suffix in epoch coordinates, not relative to its own start."""
+    indices = sampler._last_indices
+    start = sampler._index_offset
+    epoch_size = sampler.num_samples if indices is None else start + len(indices)
+    cursor = start if offset is None else int(offset)
+    if offset == 0:
+        indices = None
+    elif offset is not None and indices is not None:
+        if not start <= cursor <= start + len(indices):
+            raise ValueError(
+                "Sampler checkpoint cursor is outside its saved epoch suffix"
+            )
+        indices = indices[cursor - start :]
+    return {
+        "indices": indices,
+        "partial_epoch": cursor > 0,
+        "index_offset": cursor,
+        "epoch_size": epoch_size,
+    }
+
+
+def _restore_indices(sampler: Any, state: Mapping[str, Any], offset: int) -> None:
+    """Restore a suffix and its origin; reject already-truncated legacy states."""
+    indices = state.get("indices")
+    sampler._last_indices = None if indices is None else list(indices)
+    sampler._resume_indices = None
+    sampler._index_offset = 0
+    if state.get("partial_epoch") and indices is not None:
+        # Older checkpoints omitted the suffix origin. IOManager provides the
+        # authoritative consumed-sample cursor; direct callers can infer it.
+        epoch_size = int(state.get("epoch_size", sampler.num_samples))
+        start = int(state.get("index_offset", offset or epoch_size - len(indices)))
+        if (offset and offset != start) or len(indices) != epoch_size - start:
+            raise ValueError(
+                "Checkpoint sampler suffix does not match its epoch cursor; "
+                "it may have been truncated by an older repeated-resume bug. "
+                "Restore an earlier valid checkpoint instead of retrying this one."
+            )
+        sampler._index_offset = start
+        sampler._resume_indices = sampler._last_indices
+    elif offset and sampler._last_indices is not None:
+        sampler._resume_indices = sampler._last_indices[offset:]
+
+
 class AbstractBatchSampler(Sampler):
     """Abstract sampler class.
 
@@ -122,6 +167,7 @@ class AbstractBatchSampler(Sampler):
         self._random = np.random.RandomState(seed=seed)  # pylint: disable=E1101
         self._last_indices: list[Any] | None = None
         self._resume_indices: list[Any] | None = None
+        self._index_offset = 0
 
         # Check that the batch_size is a sensible value
         self.batch_size = batch_size
@@ -170,6 +216,7 @@ class AbstractBatchSampler(Sampler):
 
     def _record(self, indices: Any) -> Iterator[Any]:
         """Cache one generated epoch order and return its iterator."""
+        self._index_offset = 0
         self._last_indices = [_normalize_index(index) for index in indices]
         return iter(self._last_indices)
 
@@ -181,14 +228,9 @@ class AbstractBatchSampler(Sampler):
         checkpoints to omit indexes and mid-epoch checkpoints to store only
         the unconsumed suffix.
         """
-        indices = self._last_indices
-        partial_epoch = offset is not None and offset > 0
-        if offset is not None:
-            indices = None if offset == 0 or indices is None else indices[offset:]
         return {
             "random": _serialize_random_state(self._random.get_state()),
-            "indices": indices,
-            "partial_epoch": partial_epoch,
+            **_checkpoint_indices(self, offset),
         }
 
     def load_state_dict(
@@ -207,13 +249,7 @@ class AbstractBatchSampler(Sampler):
             epoch. Zero starts a new epoch from the restored RNG state.
         """
         self._random.set_state(_deserialize_random_state(state["random"]))
-        indices = state.get("indices")
-        self._last_indices = None if indices is None else list(indices)
-        self._resume_indices = None
-        if state.get("partial_epoch") and self._last_indices is not None:
-            self._resume_indices = self._last_indices
-        elif offset and self._last_indices is not None:
-            self._resume_indices = self._last_indices[offset:]
+        _restore_indices(self, state, offset)
 
 
 class SequentialBatchSampler(AbstractBatchSampler):
@@ -378,6 +414,7 @@ class AbstractJointBatchSampler(Sampler):
         self._random = np.random.RandomState(seed=rng_seed)  # pylint: disable=E1101
         self._last_indices: list[tuple[int, int | None]] | None = None
         self._resume_indices: list[tuple[int, int | None]] | None = None
+        self._index_offset = 0
 
     def __len__(self) -> int:
         """Return the number of primary samples produced per epoch."""
@@ -414,6 +451,7 @@ class AbstractJointBatchSampler(Sampler):
             else:
                 secondary_indices.append(None)
 
+        self._index_offset = 0
         self._last_indices = [
             _normalize_index(index) for index in zip(primary_indices, secondary_indices)
         ]
@@ -421,16 +459,11 @@ class AbstractJointBatchSampler(Sampler):
 
     def state_dict(self, offset: int | None = None) -> dict[str, Any]:
         """Return paired sampler RNG and optional remaining epoch order."""
-        indices = self._last_indices
-        partial_epoch = offset is not None and offset > 0
-        if offset is not None:
-            indices = None if offset == 0 or indices is None else indices[offset:]
         return {
             "random": _serialize_random_state(self._random.get_state()),
             "primary": self.primary_sampler.state_dict(offset=0),
             "secondary": self.secondary_sampler.state_dict(offset=0),
-            "indices": indices,
-            "partial_epoch": partial_epoch,
+            **_checkpoint_indices(self, offset),
         }
 
     def load_state_dict(
@@ -442,13 +475,7 @@ class AbstractJointBatchSampler(Sampler):
         self._random.set_state(_deserialize_random_state(state["random"]))
         self.primary_sampler.load_state_dict(state["primary"])
         self.secondary_sampler.load_state_dict(state["secondary"])
-        indices = state.get("indices")
-        self._last_indices = None if indices is None else list(indices)
-        self._resume_indices = None
-        if state.get("partial_epoch") and self._last_indices is not None:
-            self._resume_indices = self._last_indices
-        elif offset and self._last_indices is not None:
-            self._resume_indices = self._last_indices[offset:]
+        _restore_indices(self, state, offset)
 
 
 class JointSequentialBatchSampler(AbstractJointBatchSampler):
@@ -589,6 +616,7 @@ class DistributedProxySampler(DistributedSampler):
         self.batch_size = sampler.batch_size
         self._last_indices: list[Any] | None = None
         self._resume_indices: list[Any] | None = None
+        self._index_offset = 0
 
     def __iter__(self) -> Iterator[int]:
         """Overrides the basic iterator with one that takes into account
@@ -623,20 +651,16 @@ class DistributedProxySampler(DistributedSampler):
         indices = [indices[i] for i in np.where(ranks == self.rank)[0]]
         assert len(indices) == self.num_samples
 
+        self._index_offset = 0
         self._last_indices = list(indices)
         return iter(self._last_indices)
 
     def state_dict(self, offset: int | None = None) -> dict[str, Any]:
         """Return distributed and underlying sampler state."""
-        indices = self._last_indices
-        partial_epoch = offset is not None and offset > 0
-        if offset is not None:
-            indices = None if offset == 0 or indices is None else indices[offset:]
         return {
             "epoch": int(self.epoch),
             "sampler": self.sampler.state_dict(offset=0),
-            "indices": indices,
-            "partial_epoch": partial_epoch,
+            **_checkpoint_indices(self, offset),
         }
 
     def load_state_dict(
@@ -647,10 +671,4 @@ class DistributedProxySampler(DistributedSampler):
         """Restore distributed sampler state and an optional partial epoch."""
         self.epoch = int(state.get("epoch", 0))
         self.sampler.load_state_dict(state["sampler"])
-        indices = state.get("indices")
-        self._last_indices = None if indices is None else list(indices)
-        self._resume_indices = None
-        if state.get("partial_epoch") and self._last_indices is not None:
-            self._resume_indices = self._last_indices
-        elif offset and self._last_indices is not None:
-            self._resume_indices = self._last_indices[offset:]
+        _restore_indices(self, state, offset)
