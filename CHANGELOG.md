@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Resume interrupted validation without trying to log a nonexistent training
+  batch, preventing `KeyError: index` before validation replay.
+
 ## [1.5.3] - 2026-11-25
 
 ### Fixed

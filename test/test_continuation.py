@@ -207,8 +207,20 @@ def test_validation_interruption_preserves_policy_and_resumes_before_terminal_li
         side_effect=AssertionError("No additional training permitted")
     )
     completed_val = real_validation(resumed)
+    # Use the real stdout/metric collection path: replay has no training batch.
+    # Previous fixtures stubbed log_stdout and missed the empty-data KeyError.
+    from spine.driver import Driver
+    from spine.logging.manager import LogManager
+
+    resumed.log_stdout = Driver.log_stdout.__get__(resumed)
+    resumed.log_step = 1
+    collector = object.__new__(LogManager)
+    collector.log_gpu_memory = False
+    resumed.log_manager.collect = collector.collect
+    resumed.log_manager.log_stdout_summary = Mock()
     resumed.run()
     assert completed_val.model.evaluate.call_count == 3
+    resumed.log_manager.log_stdout_summary.assert_not_called()
     resumed.process.assert_not_called()
     resumed.validation.update_early_stopping.assert_called_once()
     resumed.validation.update_best_checkpoint.assert_called_once()
