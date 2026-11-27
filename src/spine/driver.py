@@ -1029,6 +1029,7 @@ class Driver:
                     reason=pending["reason"],
                     scheduled=pending["scheduled"],
                     completion=pending.get("completion"),
+                    log_training=False,
                 )
                 if stop_before_training:
                     outcome_reason = "early_stopping"
@@ -1236,6 +1237,7 @@ class Driver:
         reason: str = "scheduled",
         completion: Mapping[str, str] | None = None,
         scheduled: bool = True,
+        log_training: bool = True,
     ) -> bool:
         """Validate and persist the training state at one safe boundary.
 
@@ -1258,6 +1260,9 @@ class Driver:
             Whether this is a configured checkpoint boundary. A graceful-only
             snapshot still runs validation, but must not advance a
             validation-bound learning-rate scheduler.
+        log_training : bool, default True
+            Emit the completed training batch summary. Disable when replaying
+            interrupted validation before any batch has run in this process.
 
         Returns
         -------
@@ -1271,7 +1276,7 @@ class Driver:
         # Present the completed step before opening its checkpoint section. The
         # CSV row is appended afterward so it includes any configured save time.
         initial = reason == "initial"
-        if not initial:
+        if not initial and log_training:
             self.log_stdout(data, tstamp, iteration, epoch)
         if self.main_process:
             validation_batches = (
