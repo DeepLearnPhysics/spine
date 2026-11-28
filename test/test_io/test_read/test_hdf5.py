@@ -2458,3 +2458,59 @@ def test_load_key_rejects_unknown_storage_kind():
         reader.load_region_product(
             DummyFile(bad=object()), {"bad": slice(None)}, data, "bad"
         )
+
+
+@pytest.mark.parametrize("cache", [False, True])
+@pytest.mark.parametrize("many", [False, True])
+@pytest.mark.parametrize("empty_first", [False, True])
+def test_empty_particle_table_round_trip_collates(tmp_path, cache, many, empty_first):
+    """Real cached empty/nonempty events must share a typed particle schema."""
+    from spine.data import ClusterLabelData, Meta, ParticleLabel
+    from spine.io.collate import CollateAll
+
+    particle = ParticleLabel(particle=0, group=0, pid=2, shape=1)
+    fields = {name: np.asarray([value]) for name, value in particle.as_dict().items()}
+    full = ClusterLabelData(
+        np.asarray([[1, 2, 3, 5.0, 0, 0]], dtype=np.float32), fields, Meta()
+    )
+    empty = ClusterLabelData(
+        np.empty((0, 6), dtype=np.float32),
+        {name: value[:0] for name, value in fields.items()},
+        Meta(),
+    )
+    labels = [empty, full] if empty_first else [full, empty]
+    data = {"index": np.arange(2), "clust_label_adapt": labels}
+    path = str(tmp_path / "particles.h5")
+    if cache:
+        data.update(
+            source_file_name=np.asarray(["source.root"] * 2),
+            source_file_entry_index=np.arange(2),
+            source_file_size=np.asarray([10, 10]),
+            source_file_mtime_ns=np.asarray([20, 20]),
+        )
+        writer = HDF5ShardWriter(path, overwrite=True)
+        try:
+            writer.write_stage("segmentation", data, cfg={})
+            writer.finalize_stage("segmentation")
+        finally:
+            writer.close()
+        reader = HDF5ShardReader(stage="segmentation", file_keys=path)
+    else:
+        with HDF5Writer(path, format_version=2) as writer:
+            writer(data, cfg={})
+        reader = HDF5Reader(path)
+    try:
+        entries = reader.get_many([0, 1]) if many else [reader.get(i) for i in range(2)]
+        restored = [entry["clust_label_adapt"] for entry in entries]
+        full_table = restored[1 if empty_first else 0].particles
+        empty_table = restored[0 if empty_first else 1].particles
+        assert tuple(empty_table) == tuple(full_table)
+        for name, values in full_table.items():
+            assert empty_table[name].shape == (0, *values.shape[1:])
+            assert empty_table[name].dtype == values.dtype
+        result = CollateAll(data_keys={"clust_label_adapt": "cluster_label"})(entries)
+        assert result["clust_label_adapt"].particles["particle"].counts.tolist() == (
+            [0, 1] if empty_first else [1, 0]
+        )
+    finally:
+        reader.close()
