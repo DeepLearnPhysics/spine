@@ -286,12 +286,17 @@ class ProductGroupBackend:
                     particle_fields = tuple(particle_objects[0].as_dict())
                 elif hasattr(particle_objects, "default"):
                     particle_fields = tuple(particle_objects.default.as_dict())
-                particles = {
-                    name: np.asarray(
-                        [getattr(particle, name) for particle in particle_objects]
-                    )
-                    for name in particle_fields
-                }
+                particles = {}
+                for name in particle_fields:
+                    if len(particle_objects):
+                        particles[name] = np.asarray(
+                            [getattr(particle, name) for particle in particle_objects]
+                        )
+                    else:
+                        prototype = np.asarray(getattr(particle_objects.default, name))
+                        particles[name] = np.empty(
+                            (0, *prototype.shape), dtype=prototype.dtype
+                        )
             data[key] = spine.data.ClusterLabelData(
                 np.asarray(data[key]),
                 particles=particles,
@@ -739,6 +744,21 @@ class ProductGroupBackend:
                 result.append(obj_dict)
         return result
 
+    def _retain_empty_particle_schema(
+        self, result: list[Any], class_name: str, fixed: h5py.Dataset
+    ) -> list[Any]:
+        """Keep the stored scalar/vector dtypes for zero-row particle tables."""
+        if result or not self.build_classes or class_name != "ParticleLabel":
+            return result
+        # A plain empty list loses both the class and its stored field shapes.
+        # Use one zero-valued prototype, never a fake particle in the event.
+        row = np.zeros((), dtype=fixed.dtype)
+        values = {
+            name: row[name] for name in fixed.dtype.names if not name.startswith("_")
+        }
+        prototype = spine.data.ParticleLabel.from_dict_trusted(values)
+        return spine.data.ObjectList([], default=prototype)
+
     def load_product_objects(
         self,
         group: h5py.Group,
@@ -772,7 +792,11 @@ class ProductGroupBackend:
         result = self._decode_object_rows(
             rows, class_name, fixed_names, pool_specs, pool_values
         )
-        data[key] = result[0] if scalar else result
+        data[key] = (
+            result[0]
+            if scalar
+            else self._retain_empty_particle_schema(result, class_name, fixed)
+        )
 
     def load_product_objects_many(
         self,
@@ -803,7 +827,11 @@ class ProductGroupBackend:
             start = int(bounds[index]) - base
             stop = int(bounds[index + 1]) - base
             result = objects[start:stop]
-            event[key] = result[0] if scalar else result
+            event[key] = (
+                result[0]
+                if scalar
+                else self._retain_empty_particle_schema(result, class_name, fixed)
+            )
 
 
 @dataclass(frozen=True)
