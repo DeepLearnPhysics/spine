@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-11-28
+
 ### Fixed
 - Preserve empty cached particle-table fields, shapes, and dtypes during HDF5
   reads, preventing mixed empty/nonempty training batches from failing collation.
